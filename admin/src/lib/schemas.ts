@@ -2,8 +2,11 @@ import { z } from 'zod';
 import {
   R2_BUCKETS,
   SUPPORTED_DOMAINS,
+  AuditActionSchema,
+  AuditLogSchema,
   type R2BucketName,
   type SupportedDomain,
+  type AuditAction,
 } from '@bifrost/shared';
 
 // Re-export for convenience
@@ -304,23 +307,12 @@ export type ProxyStats = z.infer<typeof ProxyStatsSchema>;
 export const ProxyStatsResponseSchema = ApiResponseSchema(ProxyStatsSchema);
 
 // =============================================================================
-// Audit Log Schemas
+// Audit Log Schemas (imported from @bifrost/shared)
 // =============================================================================
 
-export const AuditActionSchema = z.enum(['create', 'update', 'delete', 'toggle', 'seed']);
-export type AuditAction = z.infer<typeof AuditActionSchema>;
-
-export const AuditLogSchema = z.object({
-  id: z.number(),
-  domain: z.string(),
-  action: AuditActionSchema,
-  actorLogin: z.string().nullable(),
-  actorName: z.string().nullable(),
-  path: z.string().nullable(),
-  details: z.string().nullable(),
-  ipAddress: z.string().nullable(),
-  createdAt: z.number(),
-});
+// Re-export for convenience
+export { AuditActionSchema, AuditLogSchema };
+export type { AuditAction };
 export type AuditLog = z.infer<typeof AuditLogSchema>;
 
 export const AuditLogsListResponseSchema = z.object({

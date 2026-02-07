@@ -261,6 +261,27 @@ export const GetSlugStatsInputSchema = z.object({
   days: z.number().min(1).max(365).optional().default(30).describe('Time range in days'),
 });
 
+/**
+ * Audit action type schema - single source of truth for all audit actions
+ */
+export const AuditActionSchema = z.enum(['create', 'update', 'delete', 'toggle', 'seed', 'migrate']);
+export type AuditAction = z.infer<typeof AuditActionSchema>;
+
+/**
+ * Audit log entry schema
+ */
+export const AuditLogSchema = z.object({
+  id: z.number(),
+  domain: z.string(),
+  action: AuditActionSchema,
+  actorLogin: z.string().nullable(),
+  actorName: z.string().nullable(),
+  path: z.string().nullable(),
+  details: z.string().nullable(),
+  ipAddress: z.string().nullable(),
+  createdAt: z.number(),
+});
+
 // =============================================================================
 // Inferred Types
 // =============================================================================

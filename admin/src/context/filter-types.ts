@@ -1,4 +1,5 @@
 import type { FilterState } from '@/components/filters';
+import type { AuditAction } from '@/lib/schemas';
 
 /**
  * Supported domains for route management
@@ -31,7 +32,7 @@ export interface RoutesFilterState {
  * Audit page has action filter in addition to standard filters
  */
 export interface AuditFilterState extends FilterState {
-  action?: 'create' | 'update' | 'delete' | 'toggle' | 'seed';
+  action?: AuditAction;
   actor?: string;
 }
 

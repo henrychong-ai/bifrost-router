@@ -21,6 +21,9 @@ export {
   AnalyticsSummaryQuerySchema,
   AnalyticsListQuerySchema,
   SlugStatsQuerySchema,
+  // Audit log schemas
+  AuditActionSchema,
+  AuditLogSchema,
   // MCP Tool input schemas
   ListRoutesInputSchema,
   GetRouteInputSchema,
@@ -43,6 +46,7 @@ export {
   type GetClicksInput,
   type GetViewsInput,
   type GetSlugStatsInput,
+  type AuditAction,
 } from './schemas.js';
 
 // Client

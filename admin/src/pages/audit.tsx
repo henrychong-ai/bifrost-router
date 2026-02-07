@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, ToggleLeft, Layers } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, ToggleLeft, Layers, ArrowRightLeft } from 'lucide-react';
 import { FilterToolbar, type FilterState } from '@/components/filters';
 import type { AuditFilterState } from '@/context';
 import type { AuditAction, AuditLog } from '@/lib/schemas';
@@ -46,6 +46,7 @@ const ACTION_COLORS: Record<AuditAction, string> = {
   delete: 'bg-red-100 text-red-800 border-red-200',
   toggle: 'bg-yellow-100 text-yellow-800 border-yellow-200',
   seed: 'bg-purple-100 text-purple-800 border-purple-200',
+  migrate: 'bg-cyan-100 text-cyan-800 border-cyan-200',
 };
 
 const ACTION_ICONS: Record<AuditAction, React.ReactNode> = {
@@ -54,6 +55,7 @@ const ACTION_ICONS: Record<AuditAction, React.ReactNode> = {
   delete: <Trash2 className="h-3 w-3" />,
   toggle: <ToggleLeft className="h-3 w-3" />,
   seed: <Layers className="h-3 w-3" />,
+  migrate: <ArrowRightLeft className="h-3 w-3" />,
 };
 
 function parseDetails(details: string | null): string {
@@ -176,6 +178,7 @@ export function AuditPage() {
               <SelectItem value="delete" className="font-gilroy">Delete</SelectItem>
               <SelectItem value="toggle" className="font-gilroy">Toggle</SelectItem>
               <SelectItem value="seed" className="font-gilroy">Seed</SelectItem>
+              <SelectItem value="migrate" className="font-gilroy">Migrate</SelectItem>
             </SelectContent>
           </Select>
         </div>

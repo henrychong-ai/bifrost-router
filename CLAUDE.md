@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Bifrost** is an edge router built on Cloudflare Workers with the Hono framework. It provides dynamic routing via Cloudflare KV, supporting redirects, reverse proxying, and R2 bucket serving. Version 1.11.1.
+**Bifrost** is an edge router built on Cloudflare Workers with the Hono framework. It provides dynamic routing via Cloudflare KV, supporting redirects, reverse proxying, and R2 bucket serving. Version 1.11.2.
 
 **Monorepo Structure:**
 - **Root** - Main edge router Worker (src/, test/)
@@ -462,6 +462,11 @@ Automated daily backups of KV routes and D1 analytics to R2.
 2. `wrangler.toml` - VERSION in `[vars]` section
 
 ## Version History
+
+### v1.11.2 (2026-02-07)
+- Moved AuditAction schema to @bifrost/shared as single source of truth
+- Added 'migrate' action to audit log UI (colour, icon, filter dropdown)
+- Admin schemas now import AuditActionSchema/AuditLogSchema from shared
 
 ### v1.11.1 (2026-02-07)
 - Inline path editing in admin dashboard edit dialog with migration confirmation
