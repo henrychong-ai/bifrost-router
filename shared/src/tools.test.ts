@@ -12,8 +12,8 @@ import {
 
 describe('tools', () => {
   describe('toolDefinitions', () => {
-    it('contains 11 tools', () => {
-      expect(toolDefinitions.length).toBe(11);
+    it('contains all route and analytics tools', () => {
+      expect(toolDefinitions.length).toBe(routeTools.length + analyticsTools.length);
     });
 
     it('has all expected route tools', () => {
@@ -61,7 +61,7 @@ describe('tools', () => {
   describe('toMCPTools', () => {
     it('returns all tools in MCP format', () => {
       const mcpTools = toMCPTools();
-      expect(mcpTools.length).toBe(11);
+      expect(mcpTools.length).toBe(toolDefinitions.length);
 
       // MCP uses inputSchema (camelCase)
       for (const tool of mcpTools) {
@@ -73,7 +73,7 @@ describe('tools', () => {
   describe('toClaudeTools', () => {
     it('returns all tools in Claude API format', () => {
       const claudeTools = toClaudeTools();
-      expect(claudeTools.length).toBe(11);
+      expect(claudeTools.length).toBe(toolDefinitions.length);
 
       // Claude API uses input_schema (snake_case)
       for (const tool of claudeTools) {
@@ -105,7 +105,7 @@ describe('tools', () => {
   describe('getToolsByCategory', () => {
     it('returns route tools', () => {
       const tools = getToolsByCategory('route');
-      expect(tools.length).toBe(7);
+      expect(tools.length).toBe(routeTools.length);
       for (const tool of tools) {
         expect(toolCategories[tool.name]).toBe('route');
       }
@@ -113,7 +113,7 @@ describe('tools', () => {
 
     it('returns analytics tools', () => {
       const tools = getToolsByCategory('analytics');
-      expect(tools.length).toBe(4);
+      expect(tools.length).toBe(analyticsTools.length);
       for (const tool of tools) {
         expect(toolCategories[tool.name]).toBe('analytics');
       }
@@ -121,14 +121,20 @@ describe('tools', () => {
   });
 
   describe('routeTools', () => {
-    it('contains 7 route tools', () => {
-      expect(routeTools.length).toBe(7);
+    it('contains all route tools', () => {
+      expect(routeTools.length).toBeGreaterThan(0);
+      for (const tool of routeTools) {
+        expect(toolCategories[tool.name]).toBe('route');
+      }
     });
   });
 
   describe('analyticsTools', () => {
-    it('contains 4 analytics tools', () => {
-      expect(analyticsTools.length).toBe(4);
+    it('contains all analytics tools', () => {
+      expect(analyticsTools.length).toBeGreaterThan(0);
+      for (const tool of analyticsTools) {
+        expect(toolCategories[tool.name]).toBe('analytics');
+      }
     });
   });
 });

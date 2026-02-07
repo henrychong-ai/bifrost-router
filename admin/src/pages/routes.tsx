@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useRoutes, useCreateRoute, useUpdateRoute, useDeleteRoute, useToggleRoute, useDebounce } from '@/hooks';
+import { useRoutes, useCreateRoute, useUpdateRoute, useDeleteRoute, useToggleRoute, useMigrateRoute, useDebounce } from '@/hooks';
 import { useRoutesFilters, SUPPORTED_DOMAINS, type SupportedDomain } from '@/context';
 import type { Route, CreateRouteInput, UpdateRouteInput, R2BucketName } from '@/lib/schemas';
 import { R2_BUCKETS } from '@/lib/schemas';
@@ -24,6 +24,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -68,7 +78,7 @@ type RouteFormProps =
   | {
       mode: 'edit';
       route: Route;
-      onSubmit: (data: UpdateRouteInput) => void;
+      onSubmit: (data: UpdateRouteInput, pathChanged: boolean, newPath?: string) => void;
       onCancel: () => void;
       isSubmitting: boolean;
     };
@@ -109,47 +119,56 @@ function RouteForm(props: RouteFormProps) {
     if (mode === 'create') {
       onSubmit({ ...baseData, path: formData.path } as CreateRouteInput, formData.domain);
     } else {
-      onSubmit(baseData as UpdateRouteInput);
+      const pathChanged = formData.path !== route.path;
+      onSubmit(baseData as UpdateRouteInput, pathChanged, pathChanged ? formData.path : undefined);
     }
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Domain selector - only for create mode */}
       {!route && (
-        <>
-          <div className="space-y-2">
-            <Label htmlFor="domain" className="font-gilroy font-medium text-charcoal-700">Domain</Label>
-            <Select
-              value={formData.domain}
-              onValueChange={(value) => setFormData({ ...formData, domain: value as SupportedDomain })}
-            >
-              <SelectTrigger className="font-mono">
-                <SelectValue placeholder="Select domain" />
-              </SelectTrigger>
-              <SelectContent>
-                {SUPPORTED_DOMAINS.map((domain) => (
-                  <SelectItem key={domain} value={domain} className="font-mono text-small">
-                    {domain}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-tiny text-muted-foreground font-gilroy">Domain where this route will be created</p>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="path" className="font-gilroy font-medium text-charcoal-700">Path</Label>
-            <Input
-              id="path"
-              value={formData.path}
-              onChange={(e) => setFormData({ ...formData, path: e.target.value })}
-              placeholder="/example"
-              required
-              className="font-mono"
-            />
-            <p className="text-tiny text-muted-foreground font-gilroy">Must start with /</p>
-          </div>
-        </>
+        <div className="space-y-2">
+          <Label htmlFor="domain" className="font-gilroy font-medium text-charcoal-700">Domain</Label>
+          <Select
+            value={formData.domain}
+            onValueChange={(value) => setFormData({ ...formData, domain: value as SupportedDomain })}
+          >
+            <SelectTrigger className="font-mono">
+              <SelectValue placeholder="Select domain" />
+            </SelectTrigger>
+            <SelectContent>
+              {SUPPORTED_DOMAINS.map((domain) => (
+                <SelectItem key={domain} value={domain} className="font-mono text-small">
+                  {domain}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-tiny text-muted-foreground font-gilroy">Domain where this route will be created</p>
+        </div>
       )}
+
+      {/* Path field - shown in both create and edit modes */}
+      <div className="space-y-2">
+        <Label htmlFor="path" className="font-gilroy font-medium text-charcoal-700">Path</Label>
+        <Input
+          id="path"
+          value={formData.path}
+          onChange={(e) => setFormData({ ...formData, path: e.target.value })}
+          placeholder="/example"
+          required
+          className="font-mono"
+        />
+        {mode === 'create' && (
+          <p className="text-tiny text-muted-foreground font-gilroy">Must start with /</p>
+        )}
+        {mode === 'edit' && formData.path !== route.path && (
+          <p className="text-tiny text-amber-600 font-gilroy">
+            ⚠️ Changing the path will migrate this route
+          </p>
+        )}
+      </div>
 
       <div className="space-y-2">
         <Label htmlFor="type" className="font-gilroy font-medium text-charcoal-700">Type</Label>
@@ -345,10 +364,16 @@ export function RoutesPage() {
   const updateRoute = useUpdateRoute();
   const deleteRoute = useDeleteRoute();
   const toggleRoute = useToggleRoute();
+  const migrateRoute = useMigrateRoute();
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editRoute, setEditRoute] = useState<Route | null>(null);
   const [deleteConfirmRoute, setDeleteConfirmRoute] = useState<Route | null>(null);
+  const [migrationConfirm, setMigrationConfirm] = useState<{
+    route: Route;
+    newPath: string;
+    updates: UpdateRouteInput;
+  } | null>(null);
 
   // Filter and sort routes (client-side)
   const filteredRoutes = useMemo(() => {
@@ -395,10 +420,21 @@ export function RoutesPage() {
     }
   };
 
-  const handleUpdate = async (data: UpdateRouteInput) => {
+  const handleUpdate = async (data: UpdateRouteInput, pathChanged: boolean, newPath?: string) => {
     if (!editRoute) return;
+
+    if (pathChanged && newPath) {
+      // Show confirmation dialog instead of immediately updating
+      setMigrationConfirm({
+        route: editRoute,
+        newPath,
+        updates: data,
+      });
+      return;
+    }
+
+    // Normal update (no path change)
     try {
-      // Pass domain from route when in all-domains view to ensure correct mutation
       await updateRoute.mutateAsync({ path: editRoute.path, data, domain: editRoute.domain ?? filters.domain });
       toast.success('Route updated successfully');
       setEditRoute(null);
@@ -426,6 +462,28 @@ export function RoutesPage() {
       toast.success(`Route ${route.enabled ? 'disabled' : 'enabled'}`);
     } catch (err) {
       toast.error(`Failed to toggle route: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleConfirmMigration = async () => {
+    if (!migrationConfirm) return;
+
+    const { route, newPath } = migrationConfirm;
+    const domain = route.domain ?? filters.domain;
+
+    try {
+      // Migrate the route to new path (preserves all config)
+      await migrateRoute.mutateAsync({
+        oldPath: route.path,
+        newPath,
+        domain,
+      });
+
+      setMigrationConfirm(null);
+      setEditRoute(null);
+      toast.success(`Route migrated from ${route.path} to ${newPath}`);
+    } catch (err) {
+      toast.error(`Failed to migrate route: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
 
@@ -722,6 +780,47 @@ export function RoutesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Migration Confirmation Dialog */}
+      <AlertDialog open={!!migrationConfirm} onOpenChange={() => setMigrationConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-gilroy">Confirm Path Change</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  You are changing the path from{' '}
+                  <code className="font-mono text-blue-600 bg-blue-50 px-1 rounded">
+                    {migrationConfirm?.route.path}
+                  </code>{' '}
+                  to{' '}
+                  <code className="font-mono text-blue-600 bg-blue-50 px-1 rounded">
+                    {migrationConfirm?.newPath}
+                  </code>
+                </p>
+                <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-amber-800">
+                  <p className="font-medium">⚠️ Important:</p>
+                  <ul className="list-disc list-inside mt-1 text-sm space-y-1">
+                    <li>The old path will <strong>stop working immediately</strong></li>
+                    <li>Any existing bookmarks or links will break</li>
+                    <li>The route's creation date and settings will be preserved</li>
+                  </ul>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="font-gilroy">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmMigration}
+              className="bg-blue-600 hover:bg-blue-700 font-gilroy"
+              disabled={migrateRoute.isPending || updateRoute.isPending}
+            >
+              {migrateRoute.isPending ? 'Migrating...' : 'Migrate Route'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
