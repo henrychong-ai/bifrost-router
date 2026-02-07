@@ -1,0 +1,564 @@
+openapi: 3.0.3
+info:
+  title: Bifrost Admin API
+  description: Edge router management API for route configuration and analytics
+  version: 1.10.1
+  contact:
+    name: Bifrost
+    url: https://github.com/your-username/bifrost-router
+
+servers:
+  - url: https://bifrost.example.com
+    description: Production
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  # System endpoints
+  /health:
+    get:
+      summary: Health check
+      security: []  # No auth required
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  # Route management
+  /api/routes:
+    get:
+      summary: List routes or get single route
+      parameters:
+        - $ref: '#/components/parameters/PathQuery'
+        - $ref: '#/components/parameters/DomainQuery'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoutesResponse'
+    post:
+      summary: Create route
+      parameters:
+        - $ref: '#/components/parameters/DomainQuery'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRouteInput'
+      responses:
+        '201':
+          description: Created
+    put:
+      summary: Update route
+      parameters:
+        - $ref: '#/components/parameters/PathQueryRequired'
+        - $ref: '#/components/parameters/DomainQuery'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRouteInput'
+      responses:
+        '200':
+          description: Updated
+    delete:
+      summary: Delete route
+      parameters:
+        - $ref: '#/components/parameters/PathQueryRequired'
+        - $ref: '#/components/parameters/DomainQuery'
+      responses:
+        '200':
+          description: Deleted
+
+  /api/routes/seed:
+    post:
+      summary: Bulk seed routes
+      parameters:
+        - $ref: '#/components/parameters/DomainQuery'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SeedRoutesInput'
+      responses:
+        '200':
+          description: Seeded
+
+  /api/backups/health:
+    get:
+      summary: Check backup system health
+      responses:
+        '200':
+          description: Health status (check `status` field for healthy/warning/critical)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupHealthResponse'
+
+  # Analytics endpoints
+  /api/analytics/summary:
+    get:
+      summary: Analytics dashboard overview
+      parameters:
+        - $ref: '#/components/parameters/DomainQuery'
+        - $ref: '#/components/parameters/DaysQuery'
+      responses:
+        '200':
+          description: Success
+
+  /api/analytics/clicks:
+    get:
+      summary: List link clicks
+      parameters:
+        - $ref: '#/components/parameters/DomainQuery'
+        - $ref: '#/components/parameters/DaysQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/OffsetQuery'
+        - $ref: '#/components/parameters/SlugQuery'
+        - $ref: '#/components/parameters/CountryQuery'
+      responses:
+        '200':
+          description: Success
+
+  /api/analytics/clicks/{slug}:
+    get:
+      summary: Get stats for specific slug
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/DomainQuery'
+        - $ref: '#/components/parameters/DaysQuery'
+      responses:
+        '200':
+          description: Success
+        '404':
+          description: No clicks found
+
+  /api/analytics/views:
+    get:
+      summary: List page views
+      parameters:
+        - $ref: '#/components/parameters/DomainQuery'
+        - $ref: '#/components/parameters/DaysQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/OffsetQuery'
+        - $ref: '#/components/parameters/PathFilterQuery'
+        - $ref: '#/components/parameters/CountryQuery'
+      responses:
+        '200':
+          description: Success
+
+  /api/analytics/downloads:
+    get:
+      summary: List file downloads
+      parameters:
+        - $ref: '#/components/parameters/DomainQuery'
+        - $ref: '#/components/parameters/DaysQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/OffsetQuery'
+        - $ref: '#/components/parameters/PathFilterQuery'
+        - $ref: '#/components/parameters/R2KeyQuery'
+        - $ref: '#/components/parameters/CountryQuery'
+      responses:
+        '200':
+          description: Success
+
+  /api/analytics/downloads/{path}:
+    get:
+      summary: Get stats for specific download path
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/DomainQuery'
+        - $ref: '#/components/parameters/DaysQuery'
+      responses:
+        '200':
+          description: Success
+
+  /api/analytics/proxy:
+    get:
+      summary: List proxy requests
+      parameters:
+        - $ref: '#/components/parameters/DomainQuery'
+        - $ref: '#/components/parameters/DaysQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/OffsetQuery'
+        - $ref: '#/components/parameters/PathFilterQuery'
+        - $ref: '#/components/parameters/TargetUrlQuery'
+        - $ref: '#/components/parameters/CountryQuery'
+      responses:
+        '200':
+          description: Success
+
+  /api/analytics/proxy/{path}:
+    get:
+      summary: Get stats for specific proxy path
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/DomainQuery'
+        - $ref: '#/components/parameters/DaysQuery'
+      responses:
+        '200':
+          description: Success
+
+  /api/analytics/audit:
+    get:
+      summary: List audit logs
+      parameters:
+        - $ref: '#/components/parameters/DomainQuery'
+        - $ref: '#/components/parameters/DaysQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/OffsetQuery'
+        - $ref: '#/components/parameters/ActionQuery'
+        - $ref: '#/components/parameters/ActorQuery'
+        - $ref: '#/components/parameters/PathFilterQuery'
+      responses:
+        '200':
+          description: Success
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Admin-Key
+
+  parameters:
+    PathQuery:
+      name: path
+      in: query
+      description: Route path for single route lookup
+      schema:
+        type: string
+        pattern: ^/.*
+
+    PathQueryRequired:
+      name: path
+      in: query
+      required: true
+      description: Route path (required)
+      schema:
+        type: string
+        pattern: ^/.*
+
+    DomainQuery:
+      name: domain
+      in: query
+      description: Target domain
+      schema:
+        type: string
+        enum:
+          - example.com
+          - link.example.com
+          - bifrost.example.com
+          - example.net
+          - user1.example.com
+          - user2.example.com
+          - user3.example.com
+          - user4.example.com
+          - user5.example.com
+
+    DaysQuery:
+      name: days
+      in: query
+      description: Time range in days
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 365
+        default: 30
+
+    LimitQuery:
+      name: limit
+      in: query
+      description: Results per page
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+        default: 100
+
+    OffsetQuery:
+      name: offset
+      in: query
+      description: Pagination offset
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+
+    SlugQuery:
+      name: slug
+      in: query
+      description: Filter by slug
+      schema:
+        type: string
+
+    PathFilterQuery:
+      name: path
+      in: query
+      description: Filter by path
+      schema:
+        type: string
+
+    CountryQuery:
+      name: country
+      in: query
+      description: Filter by 2-letter country code
+      schema:
+        type: string
+        minLength: 2
+        maxLength: 2
+
+    R2KeyQuery:
+      name: r2Key
+      in: query
+      description: Filter by R2 key
+      schema:
+        type: string
+
+    TargetUrlQuery:
+      name: targetUrl
+      in: query
+      description: Filter by target URL
+      schema:
+        type: string
+
+    ActionQuery:
+      name: action
+      in: query
+      description: Filter by audit action type
+      schema:
+        type: string
+        enum:
+          - create
+          - update
+          - delete
+          - toggle
+          - seed
+
+    ActorQuery:
+      name: actor
+      in: query
+      description: Filter by actor login
+      schema:
+        type: string
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        version:
+          type: string
+        timestamp:
+          type: integer
+          description: Unix epoch milliseconds
+        env:
+          type: string
+          enum: [production, development]
+        hostname:
+          type: string
+          description: Request hostname
+
+    CreateRouteInput:
+      type: object
+      required:
+        - path
+        - type
+        - target
+      properties:
+        path:
+          type: string
+          minLength: 1
+          pattern: ^/.*
+        type:
+          type: string
+          enum: [redirect, proxy, r2]
+        target:
+          type: string
+          minLength: 1
+        statusCode:
+          type: integer
+          enum: [301, 302, 307, 308]
+        preserveQuery:
+          type: boolean
+          default: true
+        preservePath:
+          type: boolean
+          default: false
+        cacheControl:
+          type: string
+        hostHeader:
+          type: string
+          description: Override Host header for proxy requests
+        forceDownload:
+          type: boolean
+          default: false
+        bucket:
+          type: string
+          enum: [files, assets, files-user1, files-user2, files-user3, files-user4, files-user5, files-user6]
+          default: files
+          description: R2 bucket for file serving (R2 only)
+        enabled:
+          type: boolean
+          default: true
+
+    UpdateRouteInput:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [redirect, proxy, r2]
+        target:
+          type: string
+        statusCode:
+          type: integer
+          enum: [301, 302, 307, 308]
+        preserveQuery:
+          type: boolean
+        preservePath:
+          type: boolean
+        cacheControl:
+          type: string
+        hostHeader:
+          type: string
+          description: Override Host header for proxy requests
+        forceDownload:
+          type: boolean
+        bucket:
+          type: string
+          enum: [files, assets, files-user1, files-user2, files-user3, files-user4, files-user5, files-user6]
+          description: R2 bucket for file serving (R2 only)
+        enabled:
+          type: boolean
+
+    SeedRoutesInput:
+      type: object
+      required:
+        - routes
+      properties:
+        routes:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreateRouteInput'
+
+    BackupHealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, warning, critical]
+          description: Overall health status
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp of this health check
+        lastBackup:
+          type: object
+          nullable: true
+          description: Information about the latest backup (null if none found)
+          properties:
+            date:
+              type: string
+              description: Backup date in YYYYMMDD format
+            timestamp:
+              type: string
+              format: date-time
+            ageHours:
+              type: number
+            manifest:
+              type: object
+              nullable: true
+              properties:
+                version:
+                  type: string
+                kv:
+                  type: object
+                  properties:
+                    totalRoutes:
+                      type: integer
+                    domains:
+                      type: array
+                      items:
+                        type: string
+                d1:
+                  type: object
+                  properties:
+                    totalRows:
+                      type: integer
+                    tables:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          rows:
+                            type: integer
+            files:
+              type: array
+              items:
+                type: object
+                properties:
+                  key:
+                    type: string
+                  size:
+                    type: integer
+                  exists:
+                    type: boolean
+        issues:
+          type: array
+          items:
+            type: object
+            properties:
+              severity:
+                type: string
+                enum: [warning, critical]
+              message:
+                type: string
+        checks:
+          type: object
+          properties:
+            backupExists:
+              type: boolean
+            backupAge:
+              type: string
+              enum: [ok, warning, critical]
+            manifestValid:
+              type: boolean
+            filesComplete:
+              type: boolean
+            routeCountOk:
+              type: boolean
+
+    RoutesResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+        error:
+          type: string

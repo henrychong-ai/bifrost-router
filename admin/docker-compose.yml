@@ -1,0 +1,15 @@
+services:
+  admin:
+    build:
+      context: .
+      args:
+        VITE_API_URL: https://example.com
+        VITE_ADMIN_API_KEY: ${VITE_ADMIN_API_KEY}
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

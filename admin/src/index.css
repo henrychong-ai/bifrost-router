@@ -1,0 +1,299 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Gilroy Font */
+@font-face {
+  font-family: 'Gilroy';
+  src: url('https://assets.fusang.co/fonts/gilroy/Gilroy-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Gilroy';
+  src: url('https://assets.fusang.co/fonts/gilroy/Gilroy-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Gilroy';
+  src: url('https://assets.fusang.co/fonts/gilroy/Gilroy-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Gilroy';
+  src: url('https://assets.fusang.co/fonts/gilroy/Gilroy-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@custom-variant dark (&:is(.dark *));
+
+/* Blocktree Color Palette */
+@theme inline {
+  /* Border radius */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+
+  /* Theme color mappings */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Chart colors */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Sidebar colors */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Blocktree Brand Colors */
+  --color-blue-50: #f0f4f9;
+  --color-blue-100: #cedceb;
+  --color-blue-200: #abc4db;
+  --color-blue-300: #89acc8;
+  --color-blue-400: #6793b4;
+  --color-blue-500: #457b9e;
+  --color-blue-600: #226285;
+  --color-blue-700: #04486b;
+  --color-blue-800: #003f65;
+  --color-blue-900: #003458;
+  --color-blue-950: #002644;
+
+  --color-gold-50: #f7f5ef;
+  --color-gold-100: #ebe5d6;
+  --color-gold-200: #d9ccaf;
+  --color-gold-300: #c3ad81;
+  --color-gold-400: #b99c6e;
+  --color-gold-500: #a27f50;
+  --color-gold-600: #8b6743;
+  --color-gold-700: #704f38;
+  --color-gold-800: #5f4334;
+  --color-gold-900: #533a30;
+  --color-gold-950: #2f1f19;
+  --color-gold-gradient: #d6bd8a;
+
+  --color-charcoal-50: #d6d8df;
+  --color-charcoal-100: #c1c5ce;
+  --color-charcoal-200: #acb1bc;
+  --color-charcoal-300: #979dab;
+  --color-charcoal-400: #828a99;
+  --color-charcoal-500: #6e7786;
+  --color-charcoal-600: #5a6474;
+  --color-charcoal-700: #465161;
+  --color-charcoal-800: #333e4e;
+  --color-charcoal-900: #1f2c3b;
+  --color-charcoal-950: #0c1928;
+
+  /* Font family */
+  --font-gilroy: 'Gilroy', ui-sans-serif, system-ui, sans-serif;
+
+  /* Font sizes */
+  --text-display: 3rem;
+  --text-huge: 2rem;
+  --text-xlarge: 1.5rem;
+  --text-large: 1.125rem;
+  --text-base: 1rem;
+  --text-small: 0.875rem;
+  --text-tiny: 0.75rem;
+  --text-mini: 0.5625rem;
+}
+
+:root {
+  --radius: 0.625rem;
+
+  /* Blocktree Light Mode */
+  --background: #ffffff;
+  --foreground: #1f2c3b;
+  --card: #ffffff;
+  --card-foreground: #1f2c3b;
+  --popover: #ffffff;
+  --popover-foreground: #1f2c3b;
+
+  /* Primary: Blue-950 */
+  --primary: #002644;
+  --primary-foreground: #ffffff;
+
+  /* Secondary: Gold-500 */
+  --secondary: #a27f50;
+  --secondary-foreground: #002644;
+
+  --muted: #f7f5ef;
+  --muted-foreground: #6e7786;
+  --accent: #cedceb;
+  --accent-foreground: #002644;
+
+  /* Semantic colors */
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --success: #22c563;
+  --success-foreground: #ffffff;
+  --warning: #f97316;
+  --warning-foreground: #ffffff;
+
+  --border: #cedceb;
+  --input: #cedceb;
+  --ring: #457b9e;
+
+  /* Chart colors */
+  --chart-1: #457b9e;
+  --chart-2: #a27f50;
+  --chart-3: #1f2c3b;
+  --chart-4: #22c563;
+  --chart-5: #f97316;
+
+  /* Sidebar: Blue-950 background */
+  --sidebar: #002644;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #457b9e;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ffffff;
+  --sidebar-accent-foreground: #002644;
+  --sidebar-border: rgba(255, 255, 255, 0.1);
+  --sidebar-ring: #457b9e;
+}
+
+.dark {
+  --background: #1f2c3b;
+  --foreground: #ffffff;
+  --card: #333e4e;
+  --card-foreground: #ffffff;
+  --popover: #333e4e;
+  --popover-foreground: #ffffff;
+  --primary: #457b9e;
+  --primary-foreground: #ffffff;
+  --secondary: #a27f50;
+  --secondary-foreground: #ffffff;
+  --muted: #333e4e;
+  --muted-foreground: #acb1bc;
+  --accent: #465161;
+  --accent-foreground: #ffffff;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --success: #22c563;
+  --success-foreground: #ffffff;
+  --warning: #f97316;
+  --warning-foreground: #ffffff;
+  --border: rgba(255, 255, 255, 0.1);
+  --input: rgba(255, 255, 255, 0.15);
+  --ring: #457b9e;
+  --chart-1: #457b9e;
+  --chart-2: #d6bd8a;
+  --chart-3: #ffffff;
+  --chart-4: #22c563;
+  --chart-5: #f97316;
+  --sidebar: #0c1928;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #457b9e;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #333e4e;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgba(255, 255, 255, 0.1);
+  --sidebar-ring: #457b9e;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-gilroy);
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-gilroy);
+  }
+}
+
+/* Respect user's motion preferences for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Blocktree utility classes */
+@layer utilities {
+  .font-gilroy {
+    font-family: var(--font-gilroy);
+  }
+
+  .text-display {
+    font-size: var(--text-display);
+    line-height: 1.1;
+  }
+
+  .text-huge {
+    font-size: var(--text-huge);
+    line-height: 1.2;
+  }
+
+  .text-xlarge {
+    font-size: var(--text-xlarge);
+    line-height: 1.3;
+  }
+
+  .text-large {
+    font-size: var(--text-large);
+    line-height: 1.4;
+  }
+
+  .gradient-gold {
+    background: linear-gradient(117deg, #d6bd8a 0%, #704f38 100%);
+  }
+
+  .gradient-blue {
+    background: linear-gradient(117deg, #457b9e 0%, #002644 100%);
+  }
+
+  .gradient-accent-bar {
+    background: linear-gradient(90deg, #d6bd8a 0%, #704f38 100%);
+  }
+}

@@ -1,0 +1,43 @@
+# Production compose file with Tailscale integration
+# Provides: https://bifrost.<your-tailnet>.ts.net
+#
+# Prerequisites:
+# 1. Generate Tailscale auth key at https://login.tailscale.com/admin/settings/keys
+#    - Reusable: Yes
+#    - Tags: tag:server (or appropriate tag)
+# 2. Create auth.env file with TAILSCALE_AUTHKEY=tskey-auth-xxx
+#
+# Deploy:
+#   docker compose -f docker-compose.tailscale.yml pull
+#   docker compose -f docker-compose.tailscale.yml up -d
+
+services:
+  admin:
+    image: ghcr.io/<your-github-username>/bifrost-dashboard:tailscale
+    container_name: bifrost-dashboard
+    restart: unless-stopped
+    env_file:
+      - auth.env
+    environment:
+      - TAILSCALE_HOSTNAME=bifrost
+    volumes:
+      # Persistent Tailscale state (survives container restarts)
+      - ./tailscale:/var/lib/tailscale
+    # Required for Tailscale userspace networking
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_limit: 256m
+    cpus: "0.5"

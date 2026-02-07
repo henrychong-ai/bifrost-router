@@ -1,0 +1,110 @@
+name = "bifrost-worker"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+workers_dev = false     # Disabled - using Custom Domain only
+preview_urls = false    # Disabled - not using CI/CD preview deployments
+
+# Unified KV namespace for all route configuration
+# Key format: {domain}:{path} (e.g., "example.com:/linkedin")
+# Supports all domains in SUPPORTED_DOMAINS (src/types.ts)
+[[kv_namespaces]]
+binding = "ROUTES"
+id = "your-kv-namespace-id"            # bifrost-routes (production)
+preview_id = "your-kv-preview-id"      # bifrost-routes-dev (development)
+
+# D1 database for analytics
+[[d1_databases]]
+binding = "DB"
+database_name = "bifrost-analytics"
+database_id = "your-d1-database-id"
+
+# R2 buckets for file serving
+# Default bucket for general files
+[[r2_buckets]]
+binding = "FILES_BUCKET"
+bucket_name = "files"
+
+# Brand assets bucket
+[[r2_buckets]]
+binding = "ASSETS_BUCKET"
+bucket_name = "assets"
+
+# User file buckets (customize as needed)
+[[r2_buckets]]
+binding = "FILES_USER1_BUCKET"
+bucket_name = "files-user1"
+
+[[r2_buckets]]
+binding = "FILES_USER2_BUCKET"
+bucket_name = "files-user2"
+
+[[r2_buckets]]
+binding = "FILES_USER3_BUCKET"
+bucket_name = "files-user3"
+
+[[r2_buckets]]
+binding = "FILES_USER4_BUCKET"
+bucket_name = "files-user4"
+
+[[r2_buckets]]
+binding = "FILES_USER5_BUCKET"
+bucket_name = "files-user5"
+
+[[r2_buckets]]
+binding = "FILES_USER6_BUCKET"
+bucket_name = "files-user6"
+
+# R2 bucket for automated backups (KV routes + D1 analytics)
+[[r2_buckets]]
+binding = "BACKUP_BUCKET"
+bucket_name = "bifrost-backups"
+
+# Service Bindings for Worker-to-Worker calls
+[[services]]
+binding = "EXAMPLE_SITE"
+service = "your-site-worker"
+
+# Custom domains (configured via Cloudflare Dashboard Custom Domains):
+# - example.com (LIVE)
+# - link.example.com (LIVE - Short link service)
+# - bifrost.example.com (LIVE - Admin API domain, serves /api/*)
+# - example.net (LIVE)
+# - user1.example.com (PENDING - needs Custom Domain setup)
+# - user2.example.com (PENDING - needs Custom Domain setup)
+# - user3.example.com (PENDING - needs Custom Domain setup)
+# - user4.example.com (PENDING - needs Custom Domain setup)
+# - user5.example.com (PENDING - needs Custom Domain setup)
+# [[routes]] section removed - Custom Domains handles routing automatically
+
+[observability]
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 1
+persist = true
+
+[vars]
+ENVIRONMENT = "production"
+VERSION = "1.10.2"  # IMPORTANT: Keep in sync with package.json version
+ADMIN_API_DOMAIN = "bifrost.example.com"   # Domain that serves admin API at /api/*
+
+# Cron trigger for daily backups
+# Runs at 8 PM UTC (4 AM SGT) daily
+[triggers]
+crons = ["0 20 * * *"]
+
+# Admin API key for route management
+# Set via: wrangler secret put ADMIN_API_KEY
+# ADMIN_API_KEY = "" (set as secret, not here)
+
+# Development environment
+[env.dev]
+name = "bifrost-worker-dev"
+[env.dev.vars]
+ENVIRONMENT = "development"
+ADMIN_API_DOMAIN = "bifrost.example.com"

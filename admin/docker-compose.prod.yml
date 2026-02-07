@@ -1,0 +1,14 @@
+# Production compose file - pulls pre-built image from GHCR
+# Deploy on vps-2: docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
+
+services:
+  admin:
+    image: ghcr.io/your-username/bifrost-dashboard:latest
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

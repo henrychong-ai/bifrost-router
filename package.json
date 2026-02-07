@@ -1,0 +1,67 @@
+{
+  "name": "bifrost",
+  "version": "1.10.2",
+  "description": "Bifrost - Edge router with Cloudflare Workers and Hono",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:dev": "wrangler deploy --env dev",
+    "tail": "wrangler tail",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 execute bifrost-analytics --local --file=./drizzle/0000_large_slipstream.sql",
+    "db:migrate:prod": "wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0000_large_slipstream.sql",
+    "db:migrate:v1:local": "wrangler d1 execute bifrost-analytics --local --file=./drizzle/0001_add_analytics_fields.sql",
+    "db:migrate:v1:prod": "wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0001_add_analytics_fields.sql",
+    "db:migrate:v2:local": "wrangler d1 execute bifrost-analytics --local --file=./drizzle/0002_analytics_indexes.sql",
+    "db:migrate:v2:prod": "wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0002_analytics_indexes.sql",
+    "db:studio": "drizzle-kit studio"
+  },
+  "keywords": [
+    "cloudflare",
+    "worker",
+    "hono",
+    "router"
+  ],
+  "author": "Henry Chong",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/henrychong-ai/bifrost-router.git"
+  },
+  "packageManager": "pnpm@10.28.2",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.1",
+    "hono": "^4.11.8",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.8.0",
+    "@cloudflare/workers-types": "^4.20260207.0",
+    "@eslint/js": "^9.39.2",
+    "@vitest/coverage-v8": "^3.1.0",
+    "drizzle-kit": "^0.31.8",
+    "eslint": "^9.39.2",
+    "globals": "^17.3.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.54.0",
+    "vitest": "^3.1.0",
+    "wrangler": "4.63.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "undici": ">=7.18.2",
+      "devalue": ">=5.6.2"
+    }
+  }
+}

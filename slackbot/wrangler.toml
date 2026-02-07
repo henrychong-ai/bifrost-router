@@ -1,0 +1,41 @@
+name = "bifrost-slackbot"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+workers_dev = true
+
+# KV namespace for Slack user permissions
+[[kv_namespaces]]
+binding = "SLACK_PERMISSIONS"
+id = "your-slack-permissions-kv-id"
+
+# D1 database for conversations (reuse analytics DB)
+[[d1_databases]]
+binding = "DB"
+database_name = "bifrost-analytics"
+database_id = "your-d1-database-id"
+
+[vars]
+ENVIRONMENT = "production"
+EDGE_ROUTER_URL = "https://example.com"
+
+# Required secrets (set via wrangler secret put):
+# - SLACK_SIGNING_SECRET: Slack app signing secret
+# - SLACK_BOT_TOKEN: Bot user OAuth token (xoxb-...)
+# - ADMIN_API_KEY: Admin API key for edge router
+
+[observability]
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 1
+
+[env.dev]
+name = "bifrost-slackbot-dev"
+workers_dev = true
+
+[env.dev.vars]
+ENVIRONMENT = "development"

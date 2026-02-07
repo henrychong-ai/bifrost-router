@@ -1,0 +1,36 @@
+{
+  "name": "@bifrost/slackbot",
+  "version": "1.0.0",
+  "description": "Slack integration for Bifrost - route management via Slack",
+  "type": "module",
+  "main": "./src/index.ts",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:dev": "wrangler deploy --env dev",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/ test/ --ext .ts,.tsx",
+    "lint:fix": "eslint src/ test/ --ext .ts,.tsx --fix",
+    "tail": "wrangler tail"
+  },
+  "dependencies": {
+    "@bifrost/shared": "workspace:*",
+    "hono": "^4.11.8",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.8.0",
+    "@cloudflare/workers-types": "^4.20260207.0",
+    "@types/node": "^24.0.0",
+    "eslint": "^9.28.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.54.0",
+    "vitest": "^3.1.0",
+    "wrangler": "4.63.0"
+  }
+}
