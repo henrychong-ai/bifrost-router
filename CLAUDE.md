@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Bifrost** is an edge router built on Cloudflare Workers with the Hono framework. It provides dynamic routing via Cloudflare KV, supporting redirects, reverse proxying, and R2 bucket serving. Version 1.11.3.
+**Bifrost** is an edge router built on Cloudflare Workers with the Hono framework. It provides dynamic routing via Cloudflare KV, supporting redirects, reverse proxying, and R2 bucket serving. Version 1.11.6.
 
 **Monorepo Structure:**
 - **Root** - Main edge router Worker (src/, test/)
@@ -37,7 +37,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | CLI | Wrangler 4.63.0 |
 | Validation | Zod 4.3.6 |
 | ORM | Drizzle ORM 0.45.1 |
-| Testing | Vitest 3.1.0 + @cloudflare/vitest-pool-workers 0.8.0 (441 tests) |
+| Testing | Vitest 3.1.0 + @cloudflare/vitest-pool-workers 0.8.0 (450 tests) |
 | Storage | Cloudflare KV |
 | Database | Cloudflare D1 (analytics) |
 | Object Storage | Cloudflare R2 |
@@ -63,7 +63,7 @@ pnpm run deploy:dev
 # TypeScript type checking
 pnpm run typecheck
 
-# Run tests (441 tests across root, shared, mcp, slackbot)
+# Run tests (450 tests across root, shared, mcp, slackbot)
 pnpm run test
 
 # Lint all packages
@@ -462,6 +462,9 @@ Automated daily backups of KV routes and D1 analytics to R2.
 2. `wrangler.toml` - VERSION in `[vars]` section
 
 ## Version History
+
+### v1.11.6 (2026-02-07)
+- Version bump to match upstream (v1.11.4-v1.11.6 were dependency bumps and documentation updates)
 
 ### v1.11.3 (2026-02-07)
 - Fix: removed duplicate audit log entry on route migration (only 'migrate' recorded, not both 'update' and 'migrate')
