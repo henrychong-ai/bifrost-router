@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-> **For full technical specifications, architecture details, deployment procedures, and version history, see [CLAUDE.md](CLAUDE.md).**
+> **For full technical specifications and architecture details, see [CLAUDE.md](CLAUDE.md). For version history, see [CHANGELOG.md](CHANGELOG.md).**
 
 A lightweight, high-performance edge router built on Cloudflare Workers and the Hono framework. Manage URL redirects, reverse proxies, and R2 bucket serving through a simple API, with all configuration stored in Cloudflare KV for instant propagation across edge locations.
 
@@ -24,10 +24,6 @@ A lightweight, high-performance edge router built on Cloudflare Workers and the 
 - **Admin Dashboard** — React SPA with Command Palette (Cmd+K), filters, analytics
 - **MCP Server** — AI-powered route management via Claude Code/Desktop
 - **Analytics** — D1-powered click and page view tracking
-- **Query Preservation** — Optionally pass through query parameters
-- **Path Preservation** — Preserve URL path for wildcard redirects (`preservePath`)
-- **Host Header Override** — Override Host header for proxy routes (CDN/virtual hosting support)
-- **Force Download** — Control Content-Disposition for R2 routes (`forceDownload`)
 - **Wildcard Patterns** — Support for path patterns like `/blog/*`
 - **R2 Backup System** — Automated daily backups with health monitoring
 - **API Shield** — OpenAPI schema validation at the Cloudflare edge
@@ -35,14 +31,12 @@ A lightweight, high-performance edge router built on Cloudflare Workers and the 
 
 ### Security Features
 
-- **Multi-Domain Routing** — Single worker handles multiple custom domains with unified KV namespace (domain-prefixed keys)
-- **Domain-Restricted Admin API** — Admin API only accessible from primary domain
+- **Multi-Domain Routing** — Single worker handles multiple custom domains
+- **Domain-Restricted Admin API** — Admin API only accessible from designated domain
 - **Timing-Safe Auth** — API key comparison resistant to timing attacks
 - **SSRF Protection** — Blocks proxy requests to private/internal IPs
 - **Path Traversal Protection** — R2 keys sanitized to prevent directory traversal
 - **Rate Limiting** — Via Cloudflare WAF (Worker middleware available if needed)
-- **CORS Support** — Configurable CORS headers for admin API
-- **Request Timeouts** — Proxy requests timeout after 30s (configurable)
 
 ### Project Structure
 
@@ -50,62 +44,239 @@ A lightweight, high-performance edge router built on Cloudflare Workers and the 
 bifrost/                         # pnpm monorepo
 ├── src/                         # Main edge router Worker
 ├── shared/                      # Shared types, schemas, HTTP client
-├── mcp/                         # MCP server for AI integration
-├── admin/                       # React SPA dashboard
+├── mcp/                         # MCP server for AI route management
+├── admin/                       # React SPA admin dashboard
 └── slackbot/                    # Slack bot for route management
 ```
 
-## Quick Start
+## Fork & Deploy Guide
+
+This repo is designed as a forkable template. Follow these steps to deploy your own instance.
 
 ### Prerequisites
 
 - Node.js >= 24 (see `.nvmrc`)
-- pnpm
-- Cloudflare account with Workers enabled
+- [pnpm](https://pnpm.io/) (`corepack enable && corepack prepare`)
+- A [Cloudflare account](https://dash.cloudflare.com/sign-up) with Workers enabled (free plan works)
+- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/) authenticated (`wrangler login`)
 
-### Installation
+### Step 1: Fork & Clone
 
 ```bash
-git clone https://github.com/your-username/bifrost-router.git
+# Fork via GitHub UI, then clone your fork
+git clone https://github.com/YOUR-USERNAME/bifrost-router.git
 cd bifrost-router
 pnpm install
 ```
 
-### Setup KV Namespace
+### Step 2: Create Cloudflare Resources
+
+Run these commands to create the required Cloudflare resources. Save the IDs printed by each command.
 
 ```bash
-# Create KV namespace
+# KV namespace for route storage
 wrangler kv namespace create ROUTES
+wrangler kv namespace create ROUTES --preview    # For local dev
 
-# Add the namespace ID to wrangler.toml
-# [[kv_namespaces]]
-# binding = "ROUTES"
-# id = "your-namespace-id"
+# D1 database for analytics
+wrangler d1 create bifrost-analytics
+
+# R2 buckets (create only the ones you need)
+wrangler r2 bucket create files              # Default file serving
+wrangler r2 bucket create assets             # Brand/static assets
+wrangler r2 bucket create bifrost-backups    # Automated backups
+# Optional per-user buckets:
+# wrangler r2 bucket create files-user1
+# wrangler r2 bucket create files-user2
 ```
 
-### Set Admin API Key
+### Step 3: Configure wrangler.toml
+
+Replace all placeholder IDs with the values from Step 2:
+
+```toml
+# KV namespace (paste your IDs)
+[[kv_namespaces]]
+binding = "ROUTES"
+id = "paste-your-kv-namespace-id"
+preview_id = "paste-your-kv-preview-id"
+
+# D1 database (paste your ID)
+[[d1_databases]]
+binding = "DB"
+database_name = "bifrost-analytics"
+database_id = "paste-your-d1-database-id"
+
+# R2 buckets (remove any you don't need)
+[[r2_buckets]]
+binding = "FILES_BUCKET"
+bucket_name = "files"
+
+[[r2_buckets]]
+binding = "ASSETS_BUCKET"
+bucket_name = "assets"
+
+[[r2_buckets]]
+binding = "BACKUP_BUCKET"
+bucket_name = "bifrost-backups"
+
+# Set your admin API domain
+[vars]
+ENVIRONMENT = "production"
+ADMIN_API_DOMAIN = "bifrost.yourdomain.com"
+```
+
+Also update the `[env.dev]` section with your dev domain.
+
+> **Tip:** Remove any R2 bucket bindings and service bindings you don't need. The worker only requires KV (ROUTES) and D1 (DB) as minimum bindings.
+
+### Step 4: Configure Your Domains
+
+Edit `src/types.ts` to list your domains:
+
+```typescript
+export const SUPPORTED_DOMAINS = [
+  'yourdomain.com',
+  'link.yourdomain.com',
+  'bifrost.yourdomain.com',    // Admin API domain
+] as const;
+```
+
+Also update the R2 bucket arrays and `BUCKET_BINDINGS` map if you changed the bucket configuration.
+
+Then set up [Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/) in the Cloudflare Dashboard to route traffic from your domains to the worker.
+
+### Step 5: Run Database Migrations
 
 ```bash
+# Apply all migrations to production D1
+wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0000_large_slipstream.sql
+wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0001_add_analytics_fields.sql
+wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0002_analytics_indexes.sql
+wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0003_add_query_string.sql
+wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0004_file_downloads.sql
+wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0005_proxy_requests.sql
+wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0006_audit_logs.sql
+wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0007_add_cache_status.sql
+
+# For local dev, use --local instead of --remote
+```
+
+### Step 6: Set Secrets & Deploy
+
+```bash
+# Set your admin API key (you'll be prompted to enter it)
 wrangler secret put ADMIN_API_KEY
-# Enter your secure API key when prompted
-```
 
-### Deploy
-
-```bash
-# Development
-pnpm run dev
-
-# Production
+# Deploy
 pnpm run deploy
 ```
+
+### Step 7: Verify
+
+```bash
+# Health check
+curl https://bifrost.yourdomain.com/health
+
+# Create your first route
+curl -X POST https://bifrost.yourdomain.com/api/routes \
+  -H "X-Admin-Key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "domain": "yourdomain.com",
+    "path": "/github",
+    "type": "redirect",
+    "target": "https://github.com/YOUR-USERNAME",
+    "statusCode": 302
+  }'
+```
+
+### Optional: Admin Dashboard
+
+The admin dashboard is a React SPA that connects to your Bifrost API.
+
+```bash
+# Create admin/.env.local
+cat > admin/.env.local << 'EOF'
+VITE_API_URL=https://bifrost.yourdomain.com
+VITE_ADMIN_API_KEY=your-admin-api-key
+EOF
+
+# Development
+pnpm --filter admin dev    # Runs on port 3001
+
+# Production (Docker)
+docker build \
+  --build-arg VITE_API_URL=https://bifrost.yourdomain.com \
+  --build-arg VITE_ADMIN_API_KEY=your-api-key \
+  -f admin/Dockerfile \
+  -t bifrost-dashboard:latest .
+```
+
+### Optional: MCP Server
+
+The MCP server lets you manage routes through Claude Code or Claude Desktop using natural language.
+
+```bash
+# Build the MCP server
+pnpm -C shared build
+pnpm -C mcp build
+```
+
+Add to your Claude Code config (`~/.claude.json`):
+
+```json
+{
+  "mcpServers": {
+    "bifrost": {
+      "command": "node",
+      "args": ["/absolute/path/to/bifrost-router/mcp/dist/index.js"],
+      "env": {
+        "EDGE_ROUTER_API_KEY": "your-admin-api-key",
+        "EDGE_ROUTER_URL": "https://bifrost.yourdomain.com",
+        "EDGE_ROUTER_DOMAIN": "yourdomain.com"
+      }
+    }
+  }
+}
+```
+
+See `mcp/README.md` for Claude Desktop setup and available tools.
+
+### Optional: Slackbot
+
+The Slackbot lets your team manage routes via Slack messages.
+
+1. Create a [Slack App](https://api.slack.com/apps) with Events API enabled
+2. Create a KV namespace for permissions: `wrangler kv namespace create SLACK_PERMISSIONS`
+3. Update `slackbot/wrangler.toml` with your KV, D1 IDs and `EDGE_ROUTER_URL`
+4. Set secrets:
+   ```bash
+   cd slackbot
+   wrangler secret put SLACK_SIGNING_SECRET
+   wrangler secret put SLACK_BOT_TOKEN
+   wrangler secret put ADMIN_API_KEY
+   ```
+5. Deploy: `wrangler deploy` (from `slackbot/` directory)
+
+### Optional: CI/CD
+
+A GitHub Actions template is provided at `.github/workflows/ci-cd.yml.example`.
+
+1. Rename to `ci-cd.yml`
+2. Add repository secrets:
+   - `CLOUDFLARE_API_TOKEN` — Cloudflare API token with Workers Edit scope
+   - `CLOUDFLARE_ACCOUNT_ID` — Your Cloudflare account ID
+   - `ADMIN_API_KEY` — For admin dashboard build
+
+The active CI pipeline (`.github/workflows/ci.yml`) runs lint, typecheck, and tests on every PR.
 
 ## Usage
 
 ### Add a Redirect
 
 ```bash
-curl -X POST https://your-worker.dev/api/routes \
+curl -X POST https://bifrost.yourdomain.com/api/routes \
   -H "X-Admin-Key: your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -118,21 +289,22 @@ curl -X POST https://your-worker.dev/api/routes \
 ### Add a Proxy
 
 ```bash
-curl -X POST https://your-worker.dev/api/routes \
+curl -X POST https://bifrost.yourdomain.com/api/routes \
   -H "X-Admin-Key: your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "path": "/api/*",
+    "path": "/blog/*",
     "type": "proxy",
-    "target": "https://api.example.com",
+    "target": "https://your-blog.com",
+    "preservePath": true,
     "cacheControl": "public, max-age=60"
   }'
 ```
 
-### List All Routes
+### Migrate a Route
 
 ```bash
-curl https://your-worker.dev/api/routes \
+curl -X POST "https://bifrost.yourdomain.com/api/routes/migrate?domain=yourdomain.com&oldPath=/old&newPath=/new" \
   -H "X-Admin-Key: your-api-key"
 ```
 
@@ -142,12 +314,17 @@ All admin endpoints require `X-Admin-Key` header or `Authorization: Bearer <key>
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/routes` | List all routes |
-| `GET` | `/api/routes/:path` | Get single route |
+| `GET` | `/api/routes` | List all routes (`?domain=` filter) |
+| `GET` | `/api/routes?path=` | Get single route |
 | `POST` | `/api/routes` | Create route |
-| `PUT` | `/api/routes/:path` | Update route |
-| `DELETE` | `/api/routes/:path` | Delete route |
+| `PUT` | `/api/routes?path=` | Update route |
+| `DELETE` | `/api/routes?path=` | Delete route |
+| `POST` | `/api/routes/migrate` | Migrate route to new path |
 | `POST` | `/api/routes/seed` | Bulk import routes |
+| `GET` | `/api/analytics/summary` | Analytics overview |
+| `GET` | `/api/analytics/clicks` | Click records (paginated) |
+| `GET` | `/api/analytics/views` | View records (paginated) |
+| `GET` | `/api/analytics/clicks/:slug` | Stats for specific link |
 
 ### Route Configuration
 
@@ -161,136 +338,39 @@ All admin endpoints require `X-Admin-Key` header or `Authorization: Bearer <key>
   preservePath?: boolean;  // Preserve path for wildcards (default: false)
   hostHeader?: string;    // Override Host header for proxy routes
   forceDownload?: boolean; // Force download for R2 routes (default: false)
+  bucket?: string;        // R2 bucket name (default: "files")
   cacheControl?: string;  // Cache-Control header
   enabled?: boolean;      // Enable/disable (default: true)
 }
 ```
 
-### System Endpoints
-
-| Path | Description |
-|------|-------------|
-| `/health` | Health check (no auth required) |
-
-## Configuration
-
-### wrangler.toml
-
-```toml
-name = "bifrost-worker"
-main = "src/index.ts"
-compatibility_date = "2025-01-01"
-
-[[kv_namespaces]]
-binding = "ROUTES"
-id = "your-namespace-id"
-
-[vars]
-ENVIRONMENT = "production"
-
-[env.dev]
-name = "bifrost-worker-dev"
-[env.dev.vars]
-ENVIRONMENT = "development"
-```
-
-### Environment Variables
-
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `ADMIN_API_KEY` | API key for admin endpoints | Yes |
-| `ENVIRONMENT` | `development` or `production` | No |
-
 ## Development
 
 ```bash
-# Install dependencies
-pnpm install
-
-# Run locally
-pnpm run dev
-
-# Type check
-pnpm run typecheck
-
-# Deploy to dev
-pnpm run deploy:dev
-
-# Deploy to production
-pnpm run deploy
-
-# View logs
-pnpm run tail
+pnpm run dev          # Local dev server (localhost:8787)
+pnpm run test         # Run all tests (450 tests)
+pnpm run typecheck    # TypeScript check
+pnpm run lint         # Lint all packages
+pnpm run deploy:dev   # Deploy to dev environment
 ```
-
-## Testing
-
-```bash
-# Run tests
-pnpm run test
-
-# Type check
-pnpm run typecheck
-```
-
-The project includes comprehensive tests (441 tests) covering:
-- Security utilities (timing-safe comparison, URL validation, path sanitization)
-- Handlers (redirect, proxy, R2)
-- Middleware (rate limiting, CORS)
-- Admin API endpoints
-- KV operations and route matching
-- MCP server tools
-- Slackbot command parsing and permissions
 
 ## Tech Stack
 
 | Layer | Technology | Version |
 |-------|------------|---------|
 | **Language** | TypeScript | 5.9.3 |
-| **Framework** | [Hono](https://hono.dev/) | 4.11.4 |
+| **Framework** | [Hono](https://hono.dev/) | 4.11.8 |
 | **Runtime** | Cloudflare Workers | — |
-| **CLI** | Wrangler | 4.59.1 |
-| **Validation** | Zod | 4.3.5 |
+| **CLI** | Wrangler | 4.63.0 |
+| **Validation** | Zod | 4.3.6 |
 | **ORM** | Drizzle ORM | 0.45.1 |
 | **Storage** | Cloudflare KV | — |
 | **Database** | Cloudflare D1 (analytics) | — |
 | **Object Storage** | Cloudflare R2 | — |
 | **Testing** | Vitest + @cloudflare/vitest-pool-workers | 3.1.0 / 0.8.0 |
-| **Linting** | ESLint 9 (flat config) + typescript-eslint | 9.39.2 / 8.53.0 |
+| **Linting** | ESLint 9 (flat config) + typescript-eslint | 9.39.2 / 8.54.0 |
 | **Package Manager** | pnpm (workspaces) | 10.20.0 |
-| **Admin Dashboard** | React 19 + Vite 7 + Tailwind CSS 4 + shadcn/ui | 19.2.0 / 7.3.1 / 4.1.18 |
-| **Admin State** | TanStack Query + React Hook Form | 5.90.16 / 7.71.1 |
-| **Admin Routing** | React Router | 7.12.0 |
-| **Admin Charts** | Recharts | 3.6.0 |
-
-## Zod Schema Architecture
-
-Bifrost uses Zod for runtime validation and TypeScript type inference across all packages.
-
-### Schema Locations
-
-| Package | File | Purpose |
-|---------|------|---------|
-| `shared/` | `src/schemas.ts` | Primary schemas for MCP server and HTTP client |
-| `src/` | `kv/schema.ts` | Worker-internal KV storage validation |
-| `admin/` | `lib/schemas.ts` | Dashboard form validation and API response parsing |
-
-### Validation Flow
-
-```
-Request → Worker (safeParse) → 400 if invalid → Business Logic
-                    ↓
-              Type inference (z.infer<>)
-                    ↓
-              Fully typed handlers
-```
-
-### Key Patterns
-
-- **safeParse()** — Non-throwing validation on all API inputs (`src/routes/admin.ts`)
-- **z.infer<>** — Types derived from schemas (single source of truth)
-- **Schema methods** — `.partial()`, `.required()`, `.omit()` for create/update variants
-- **.describe()** — Self-documenting schemas for OpenAPI and MCP tooling
+| **Admin Dashboard** | React 19 + Vite 7 + Tailwind CSS 4 + shadcn/ui | — |
 
 ## License
 
