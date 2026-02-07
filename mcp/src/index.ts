@@ -26,6 +26,7 @@ import {
   updateRoute,
   deleteRoute,
   toggleRoute,
+  migrateRoute,
 } from './tools/routes.js';
 
 import {
@@ -158,6 +159,14 @@ async function main(): Promise<void> {
           result = await toggleRoute(
             client,
             args as { path: string; enabled: boolean; domain?: string },
+            defaultDomain
+          );
+          break;
+
+        case 'migrate_route':
+          result = await migrateRoute(
+            client,
+            args as { oldPath: string; newPath: string; domain?: string },
             defaultDomain
           );
           break;

@@ -12,8 +12,8 @@ import {
 
 describe('tools', () => {
   describe('toolDefinitions', () => {
-    it('contains 10 tools', () => {
-      expect(toolDefinitions.length).toBe(10);
+    it('contains 11 tools', () => {
+      expect(toolDefinitions.length).toBe(11);
     });
 
     it('has all expected route tools', () => {
@@ -24,6 +24,7 @@ describe('tools', () => {
       expect(names).toContain('update_route');
       expect(names).toContain('delete_route');
       expect(names).toContain('toggle_route');
+      expect(names).toContain('migrate_route');
     });
 
     it('has all expected analytics tools', () => {
@@ -60,7 +61,7 @@ describe('tools', () => {
   describe('toMCPTools', () => {
     it('returns all tools in MCP format', () => {
       const mcpTools = toMCPTools();
-      expect(mcpTools.length).toBe(10);
+      expect(mcpTools.length).toBe(11);
 
       // MCP uses inputSchema (camelCase)
       for (const tool of mcpTools) {
@@ -72,7 +73,7 @@ describe('tools', () => {
   describe('toClaudeTools', () => {
     it('returns all tools in Claude API format', () => {
       const claudeTools = toClaudeTools();
-      expect(claudeTools.length).toBe(10);
+      expect(claudeTools.length).toBe(11);
 
       // Claude API uses input_schema (snake_case)
       for (const tool of claudeTools) {
@@ -90,6 +91,7 @@ describe('tools', () => {
       expect(toolCategories.update_route).toBe('route');
       expect(toolCategories.delete_route).toBe('route');
       expect(toolCategories.toggle_route).toBe('route');
+      expect(toolCategories.migrate_route).toBe('route');
     });
 
     it('maps analytics tools correctly', () => {
@@ -103,7 +105,7 @@ describe('tools', () => {
   describe('getToolsByCategory', () => {
     it('returns route tools', () => {
       const tools = getToolsByCategory('route');
-      expect(tools.length).toBe(6);
+      expect(tools.length).toBe(7);
       for (const tool of tools) {
         expect(toolCategories[tool.name]).toBe('route');
       }
@@ -119,8 +121,8 @@ describe('tools', () => {
   });
 
   describe('routeTools', () => {
-    it('contains 6 route tools', () => {
-      expect(routeTools.length).toBe(6);
+    it('contains 7 route tools', () => {
+      expect(routeTools.length).toBe(7);
     });
   });
 

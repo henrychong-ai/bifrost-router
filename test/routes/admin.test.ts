@@ -804,6 +804,338 @@ describe('admin routes', () => {
     });
   });
 
+  describe('POST /routes/migrate', () => {
+    it('migrates a route to a new path', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+
+      // Create route first
+      await app.fetch(
+        new Request('http://example.com/api/routes', {
+          method: 'POST',
+          headers: {
+            'X-Admin-Key': validApiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            path: '/migrate-test',
+            type: 'redirect',
+            target: 'https://example.com',
+          }),
+        }),
+        testEnv
+      );
+
+      // Migrate the route
+      const response = await app.fetch(
+        new Request('http://example.com/api/routes/migrate?oldPath=/migrate-test&newPath=/migrated', {
+          method: 'POST',
+          headers: { 'X-Admin-Key': validApiKey },
+        }),
+        testEnv
+      );
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.success).toBe(true);
+      expect(data.data.path).toBe('/migrated');
+      expect(data.data.target).toBe('https://example.com');
+      expect(data.message).toContain('migrated');
+
+      // Verify old path no longer exists
+      const oldResponse = await app.fetch(
+        new Request('http://example.com/api/routes?path=/migrate-test', {
+          headers: { 'X-Admin-Key': validApiKey },
+        }),
+        testEnv
+      );
+      expect(oldResponse.status).toBe(404);
+
+      // Clean up
+      await app.fetch(
+        new Request('http://example.com/api/routes?path=/migrated', {
+          method: 'DELETE',
+          headers: { 'X-Admin-Key': validApiKey },
+        }),
+        testEnv
+      );
+    });
+
+    it('preserves createdAt timestamp', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+
+      // Create route first
+      const createResponse = await app.fetch(
+        new Request('http://example.com/api/routes', {
+          method: 'POST',
+          headers: {
+            'X-Admin-Key': validApiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            path: '/timestamp-test',
+            type: 'redirect',
+            target: 'https://example.com',
+          }),
+        }),
+        testEnv
+      );
+      const createData = await createResponse.json();
+      const originalCreatedAt = createData.data.createdAt;
+
+      // Wait a bit to ensure timestamps would differ
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      // Migrate the route
+      const migrateResponse = await app.fetch(
+        new Request('http://example.com/api/routes/migrate?oldPath=/timestamp-test&newPath=/timestamp-migrated', {
+          method: 'POST',
+          headers: { 'X-Admin-Key': validApiKey },
+        }),
+        testEnv
+      );
+
+      expect(migrateResponse.status).toBe(200);
+      const migrateData = await migrateResponse.json();
+      expect(migrateData.data.createdAt).toBe(originalCreatedAt);
+      expect(migrateData.data.updatedAt).toBeGreaterThan(originalCreatedAt);
+
+      // Clean up
+      await app.fetch(
+        new Request('http://example.com/api/routes?path=/timestamp-migrated', {
+          method: 'DELETE',
+          headers: { 'X-Admin-Key': validApiKey },
+        }),
+        testEnv
+      );
+    });
+
+    it('returns 404 for non-existent oldPath', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+
+      const response = await app.fetch(
+        new Request('http://example.com/api/routes/migrate?oldPath=/nonexistent&newPath=/new', {
+          method: 'POST',
+          headers: { 'X-Admin-Key': validApiKey },
+        }),
+        testEnv
+      );
+
+      expect(response.status).toBe(404);
+    });
+
+    it('returns 409 if newPath already exists', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+
+      // Create two routes
+      await app.fetch(
+        new Request('http://example.com/api/routes', {
+          method: 'POST',
+          headers: {
+            'X-Admin-Key': validApiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            path: '/conflict-source',
+            type: 'redirect',
+            target: 'https://source.example.com',
+          }),
+        }),
+        testEnv
+      );
+
+      await app.fetch(
+        new Request('http://example.com/api/routes', {
+          method: 'POST',
+          headers: {
+            'X-Admin-Key': validApiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            path: '/conflict-target',
+            type: 'redirect',
+            target: 'https://target.example.com',
+          }),
+        }),
+        testEnv
+      );
+
+      // Try to migrate to existing path
+      const response = await app.fetch(
+        new Request('http://example.com/api/routes/migrate?oldPath=/conflict-source&newPath=/conflict-target', {
+          method: 'POST',
+          headers: { 'X-Admin-Key': validApiKey },
+        }),
+        testEnv
+      );
+
+      expect(response.status).toBe(409);
+      const data = await response.json();
+      expect(data.error).toContain('already exists');
+
+      // Clean up
+      await app.fetch(
+        new Request('http://example.com/api/routes?path=/conflict-source', {
+          method: 'DELETE',
+          headers: { 'X-Admin-Key': validApiKey },
+        }),
+        testEnv
+      );
+      await app.fetch(
+        new Request('http://example.com/api/routes?path=/conflict-target', {
+          method: 'DELETE',
+          headers: { 'X-Admin-Key': validApiKey },
+        }),
+        testEnv
+      );
+    });
+
+    it('returns 400 if paths are the same', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+
+      // Create route first
+      await app.fetch(
+        new Request('http://example.com/api/routes', {
+          method: 'POST',
+          headers: {
+            'X-Admin-Key': validApiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            path: '/same-path',
+            type: 'redirect',
+            target: 'https://example.com',
+          }),
+        }),
+        testEnv
+      );
+
+      const response = await app.fetch(
+        new Request('http://example.com/api/routes/migrate?oldPath=/same-path&newPath=/same-path', {
+          method: 'POST',
+          headers: { 'X-Admin-Key': validApiKey },
+        }),
+        testEnv
+      );
+
+      expect(response.status).toBe(400);
+      const data = await response.json();
+      expect(data.error).toContain('cannot be the same');
+
+      // Clean up
+      await app.fetch(
+        new Request('http://example.com/api/routes?path=/same-path', {
+          method: 'DELETE',
+          headers: { 'X-Admin-Key': validApiKey },
+        }),
+        testEnv
+      );
+    });
+
+    it('returns 400 if oldPath is missing', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+
+      const response = await app.fetch(
+        new Request('http://example.com/api/routes/migrate?newPath=/new', {
+          method: 'POST',
+          headers: { 'X-Admin-Key': validApiKey },
+        }),
+        testEnv
+      );
+
+      expect(response.status).toBe(400);
+      const data = await response.json();
+      expect(data.error).toContain('oldPath');
+    });
+
+    it('returns 400 if newPath is missing', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+
+      const response = await app.fetch(
+        new Request('http://example.com/api/routes/migrate?oldPath=/old', {
+          method: 'POST',
+          headers: { 'X-Admin-Key': validApiKey },
+        }),
+        testEnv
+      );
+
+      expect(response.status).toBe(400);
+      const data = await response.json();
+      expect(data.error).toContain('newPath');
+    });
+
+    it('returns 400 if paths do not start with /', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+
+      const response1 = await app.fetch(
+        new Request('http://example.com/api/routes/migrate?oldPath=no-slash&newPath=/new', {
+          method: 'POST',
+          headers: { 'X-Admin-Key': validApiKey },
+        }),
+        testEnv
+      );
+
+      expect(response1.status).toBe(400);
+      const data1 = await response1.json();
+      expect(data1.error).toContain('oldPath must start with /');
+
+      const response2 = await app.fetch(
+        new Request('http://example.com/api/routes/migrate?oldPath=/old&newPath=no-slash', {
+          method: 'POST',
+          headers: { 'X-Admin-Key': validApiKey },
+        }),
+        testEnv
+      );
+
+      expect(response2.status).toBe(400);
+      const data2 = await response2.json();
+      expect(data2.error).toContain('newPath must start with /');
+    });
+
+    it('works with domain parameter', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+
+      // Create route on a specific domain
+      await app.fetch(
+        new Request('http://example.com/api/routes?domain=link.example.com', {
+          method: 'POST',
+          headers: {
+            'X-Admin-Key': validApiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            path: '/domain-migrate-test',
+            type: 'redirect',
+            target: 'https://example.com',
+          }),
+        }),
+        testEnv
+      );
+
+      // Migrate the route with domain param
+      const response = await app.fetch(
+        new Request('http://example.com/api/routes/migrate?oldPath=/domain-migrate-test&newPath=/domain-migrated&domain=link.example.com', {
+          method: 'POST',
+          headers: { 'X-Admin-Key': validApiKey },
+        }),
+        testEnv
+      );
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.success).toBe(true);
+      expect(data.data.path).toBe('/domain-migrated');
+
+      // Clean up
+      await app.fetch(
+        new Request('http://example.com/api/routes?path=/domain-migrated&domain=link.example.com', {
+          method: 'DELETE',
+          headers: { 'X-Admin-Key': validApiKey },
+        }),
+        testEnv
+      );
+    });
+  });
+
   describe('Cross-domain mutations', () => {
     it('toggles route on non-default domain with explicit domain param', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);

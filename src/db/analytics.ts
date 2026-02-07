@@ -364,7 +364,7 @@ export async function recordProxyRequest(db: D1Database, data: ProxyRequestData)
 /**
  * Audit action types
  */
-export type AuditAction = 'create' | 'update' | 'delete' | 'toggle' | 'seed';
+export type AuditAction = 'create' | 'update' | 'delete' | 'toggle' | 'seed' | 'migrate';
 
 /**
  * Data for recording an audit log entry

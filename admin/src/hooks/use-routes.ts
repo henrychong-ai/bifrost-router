@@ -110,3 +110,19 @@ export function useToggleRoute() {
     },
   });
 }
+
+/**
+ * Migrate a route from one path to another
+ */
+export function useMigrateRoute() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ oldPath, newPath, domain }: { oldPath: string; newPath: string; domain?: string }) =>
+      api.routes.migrate(oldPath, newPath, domain),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: routeKeys.all });
+      queryClient.removeQueries({ queryKey: routeKeys.detail(variables.oldPath) });
+    },
+  });
+}

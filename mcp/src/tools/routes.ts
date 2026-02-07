@@ -249,3 +249,24 @@ export async function toggleRoute(
     return `Error toggling route: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
+
+/**
+ * Migrate a route from one path to another
+ */
+export async function migrateRoute(
+  client: EdgeRouterClient,
+  args: { oldPath: string; newPath: string; domain?: string },
+  defaultDomain?: string
+): Promise<string> {
+  const domain = args.domain || defaultDomain;
+  if (!domain) {
+    return 'Error: No domain specified. Set EDGE_ROUTER_DOMAIN environment variable or provide domain parameter.';
+  }
+
+  try {
+    const route = await client.migrateRoute(args.oldPath, args.newPath, domain);
+    return `Route migrated from ${args.oldPath} to ${args.newPath} successfully!\n\n${formatRouteDetails(route, domain)}`;
+  } catch (error) {
+    return `Error migrating route: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}

@@ -276,5 +276,68 @@ export async function getMetadata(
   };
 }
 
+/**
+ * Migrate a route from one path to another
+ * Preserves createdAt timestamp for audit trail continuity
+ * Returns the migrated route config, or null if oldPath not found
+ * Throws error if newPath already exists or paths are the same
+ */
+export async function migrateRoute(
+  kv: KVNamespace,
+  domain: string,
+  oldPath: string,
+  newPath: string
+): Promise<KVRouteConfig | null> {
+  const normalizedOldPath = normalizePath(oldPath);
+  const normalizedNewPath = normalizePath(newPath);
+
+  // Validate paths are different
+  if (normalizedOldPath === normalizedNewPath) {
+    throw new Error('Old path and new path cannot be the same');
+  }
+
+  // Get existing route at oldPath
+  const existing = await getRoute(kv, domain, normalizedOldPath);
+  if (!existing) {
+    return null;
+  }
+
+  // Check if newPath already exists
+  const existingAtNew = await getRoute(kv, domain, normalizedNewPath);
+  if (existingAtNew) {
+    throw new Error(`Route already exists at path: ${normalizedNewPath}`);
+  }
+
+  const oldKey = routeKey(domain, normalizedOldPath);
+  const newKey = routeKey(domain, normalizedNewPath);
+
+  // Create migrated route with preserved createdAt
+  const migratedRoute: KVRouteConfig = {
+    ...existing,
+    path: normalizedNewPath,
+    createdAt: existing.createdAt, // Preserve original
+    updatedAt: Date.now(),
+  };
+
+  try {
+    // Write to new key first
+    await kv.put(newKey, JSON.stringify(migratedRoute));
+    // Delete old key
+    await kv.delete(oldKey);
+    return migratedRoute;
+  } catch (error) {
+    // Attempt rollback
+    try {
+      await kv.delete(newKey);
+    } catch {
+      /* ignore rollback errors */
+    }
+    throw new KVWriteError(
+      `migrate:${oldKey}->${newKey}`,
+      error instanceof Error ? error : new Error(String(error))
+    );
+  }
+}
+
 // Re-export parseRouteKey for use by migration scripts
 export { parseRouteKey };

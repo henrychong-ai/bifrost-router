@@ -195,6 +195,20 @@ export class EdgeRouterClient {
   }
 
   /**
+   * Migrate a route from one path to another
+   */
+  async migrateRoute(oldPath: string, newPath: string, domain?: string): Promise<Route> {
+    const effectiveDomain = this.getDomain(domain);
+    return this.request<Route>('POST', '/api/routes/migrate', {
+      params: {
+        oldPath,
+        newPath,
+        ...(effectiveDomain && { domain: effectiveDomain }),
+      },
+    });
+  }
+
+  /**
    * Delete a route
    *
    * Uses query parameter for path to handle "/" and other special characters correctly.

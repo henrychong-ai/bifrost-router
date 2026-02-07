@@ -7,6 +7,7 @@ export {
   useUpdateRoute,
   useDeleteRoute,
   useToggleRoute,
+  useMigrateRoute,
 } from './use-routes';
 
 // Analytics hooks

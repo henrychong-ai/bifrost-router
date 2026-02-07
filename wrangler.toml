@@ -90,7 +90,7 @@ persist = true
 
 [vars]
 ENVIRONMENT = "production"
-VERSION = "1.10.3"  # IMPORTANT: Keep in sync with package.json version
+VERSION = "1.11.0"  # IMPORTANT: Keep in sync with package.json version
 ADMIN_API_DOMAIN = "bifrost.example.com"   # Domain that serves admin API at /api/*
 
 # Cron trigger for daily backups

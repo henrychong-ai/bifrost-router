@@ -78,6 +78,36 @@ paths:
         '200':
           description: Deleted
 
+  /api/routes/migrate:
+    post:
+      summary: Migrate route to new path
+      description: Atomically moves a route from one path to another, preserving all configuration and creation timestamp.
+      parameters:
+        - name: oldPath
+          in: query
+          required: true
+          description: Current route path
+          schema:
+            type: string
+            pattern: ^/.*
+        - name: newPath
+          in: query
+          required: true
+          description: New route path
+          schema:
+            type: string
+            pattern: ^/.*
+        - $ref: '#/components/parameters/DomainQuery'
+      responses:
+        '200':
+          description: Route migrated successfully
+        '400':
+          description: Invalid parameters (missing paths, same paths, paths not starting with /)
+        '404':
+          description: Route not found at oldPath
+        '409':
+          description: Route already exists at newPath
+
   /api/routes/seed:
     post:
       summary: Bulk seed routes
@@ -355,6 +385,7 @@ components:
           - delete
           - toggle
           - seed
+          - migrate
 
     ActorQuery:
       name: actor

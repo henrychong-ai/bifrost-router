@@ -208,6 +208,26 @@ export const toolDefinitions: ToolDefinition[] = [
     },
   },
 
+  {
+    name: 'migrate_route',
+    description: 'Migrate a route from one path to another. Preserves all configuration and creation timestamp.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        oldPath: {
+          type: 'string',
+          description: 'Current route path to migrate from (e.g., "/old-path")',
+        },
+        newPath: {
+          type: 'string',
+          description: 'New route path to migrate to (e.g., "/new-path")',
+        },
+        domain: domainProperty,
+      },
+      required: ['oldPath', 'newPath'],
+    },
+  },
+
   // ===========================================================================
   // Analytics Tools
   // ===========================================================================
@@ -371,6 +391,7 @@ export const toolCategories: Record<string, 'route' | 'analytics'> = {
   update_route: 'route',
   delete_route: 'route',
   toggle_route: 'route',
+  migrate_route: 'route',
   get_analytics_summary: 'analytics',
   get_clicks: 'analytics',
   get_views: 'analytics',

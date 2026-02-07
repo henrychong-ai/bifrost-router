@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Bifrost** is an edge router built on Cloudflare Workers with the Hono framework. It provides dynamic routing via Cloudflare KV, supporting redirects, reverse proxying, and R2 bucket serving. Version 1.10.3.
+**Bifrost** is an edge router built on Cloudflare Workers with the Hono framework. It provides dynamic routing via Cloudflare KV, supporting redirects, reverse proxying, and R2 bucket serving. Version 1.11.0.
 
 **Monorepo Structure:**
 - **Root** - Main edge router Worker (src/, test/)
@@ -260,6 +260,7 @@ All admin endpoints require `X-Admin-Key` header or `Authorization: Bearer <key>
 | POST | `/api/routes` | Create new route |
 | PUT | `/api/routes/:path` | Update existing route |
 | DELETE | `/api/routes/:path` | Delete route |
+| POST | `/api/routes/migrate` | Migrate route to new path |
 | POST | `/api/routes/seed` | Bulk seed routes |
 
 ### Analytics API
@@ -323,7 +324,7 @@ The `@bifrost/mcp` package provides AI-powered route management through Claude C
 
 ### Features
 
-- **10 Tools** - 6 route management + 4 analytics
+- **11 Tools** - 7 route management + 4 analytics
 - **Multi-domain support** - Manage all domains through natural language
 - **Type-safe** - Zod validation for all inputs
 
@@ -337,6 +338,7 @@ The `@bifrost/mcp` package provides AI-powered route management through Claude C
 | `update_route` | Modify existing route |
 | `delete_route` | Delete a route |
 | `toggle_route` | Enable/disable a route |
+| `migrate_route` | Migrate route to a new path |
 | `get_analytics_summary` | Dashboard overview with totals |
 | `get_clicks` | Paginated click records |
 | `get_views` | Paginated view records |
@@ -460,6 +462,15 @@ Automated daily backups of KV routes and D1 analytics to R2.
 2. `wrangler.toml` - VERSION in `[vars]` section
 
 ## Version History
+
+### v1.11.0 (2026-02-07)
+- Route migration feature: atomically move routes between paths preserving config and timestamps
+- New API endpoint: `POST /api/routes/migrate?oldPath=...&newPath=...`
+- MCP `migrate_route` tool (11 tools total)
+- Admin dashboard: `useMigrateRoute` hook and API client method
+- Shared client: `migrateRoute()` method on EdgeRouterClient
+- AuditAction type extended with 'migrate'
+- 9 new tests for migration (450 total)
 
 ### v1.10.3 (2026-02-07)
 - Replace active CI/CD workflow with PR-only CI pipeline (lint + test + build)

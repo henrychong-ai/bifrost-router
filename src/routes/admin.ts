@@ -16,6 +16,7 @@ import {
   deleteRoute,
   seedRoutes,
   getMetadata,
+  migrateRoute,
 } from '../kv/routes';
 import { validateApiKey } from '../utils/crypto';
 import { cors } from '../middleware/cors';
@@ -580,6 +581,75 @@ adminRoutes.post('/routes/seed', async (c) => {
     success: true,
     data: result,
   });
+});
+
+/**
+ * POST /api/routes/migrate - Migrate a route to a new path
+ */
+adminRoutes.post('/routes/migrate', async (c) => {
+  const oldPath = c.req.query('oldPath');
+  const newPath = c.req.query('newPath');
+
+  if (!oldPath) {
+    return c.json({ success: false, error: 'oldPath query parameter is required' }, 400);
+  }
+  if (!newPath) {
+    return c.json({ success: false, error: 'newPath query parameter is required' }, 400);
+  }
+  if (!oldPath.startsWith('/')) {
+    return c.json({ success: false, error: 'oldPath must start with /' }, 400);
+  }
+  if (!newPath.startsWith('/')) {
+    return c.json({ success: false, error: 'newPath must start with /' }, 400);
+  }
+
+  const domainResult = getRequiredDomainFromRequest(c);
+  if (!domainResult.valid) {
+    return c.json({ success: false, error: domainResult.error || 'Domain is required' }, 400);
+  }
+
+  const domain = domainResult.domain;
+
+  try {
+    const route = await migrateRoute(c.env.ROUTES, domain, oldPath, newPath);
+
+    if (!route) {
+      throw new HTTPException(404, { message: `Route not found: ${oldPath}` });
+    }
+
+    // Audit log
+    try {
+      const actor = getActorInfo(c);
+      c.executionCtx.waitUntil(
+        recordAuditLog(c.env.DB, {
+          domain,
+          action: 'migrate' as AuditAction,
+          actorLogin: actor.login,
+          actorName: actor.name,
+          path: newPath,
+          details: JSON.stringify({ oldPath, newPath, route }),
+          ipAddress: c.req.header('CF-Connecting-IP') || null,
+        })
+      );
+    } catch {
+      /* skip in tests */
+    }
+
+    return c.json({
+      success: true,
+      data: route,
+      message: `Route migrated from ${oldPath} to ${newPath}`,
+    });
+  } catch (error) {
+    if (error instanceof HTTPException) throw error;
+    if (error instanceof Error && error.message.includes('already exists')) {
+      return c.json({ success: false, error: error.message }, 409);
+    }
+    if (error instanceof Error && error.message.includes('cannot be the same')) {
+      return c.json({ success: false, error: error.message }, 400);
+    }
+    throw error;
+  }
 });
 
 /**

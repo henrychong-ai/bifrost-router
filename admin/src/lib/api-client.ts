@@ -152,6 +152,23 @@ export const routesApi = {
   },
 
   /**
+   * Migrate a route from one path to another
+   * @param oldPath - Current route path
+   * @param newPath - New route path
+   * @param domain - Target domain (required when viewing all domains)
+   */
+  async migrate(oldPath: string, newPath: string, domain?: string): Promise<Route> {
+    const query = buildQueryString({ oldPath, newPath, domain });
+    const response = await fetchApi(`/api/routes/migrate${query}`, RouteResponseSchema, {
+      method: 'POST',
+    });
+    if (!response.success || !response.data) {
+      throw new ApiError(400, response.error || 'Failed to migrate route');
+    }
+    return response.data;
+  },
+
+  /**
    * Delete a route
    * @param path - Route path to delete
    * @param domain - Target domain (required when viewing all domains)
