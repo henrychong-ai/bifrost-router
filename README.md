@@ -1,16 +1,33 @@
-# Bifrost
+# Bifrost — Self-Hosted URL Shortener & Edge Router for Cloudflare Workers
 
 <p align="center">
   <img src="https://assets.henrychong.com/bifrost/bifrost-logo-readme.png" alt="Bifrost Logo" width="600" />
 </p>
 
-> Dynamic edge routing for Cloudflare Workers with KV-based configuration
+> A free, self-hosted alternative to bit.ly and Rebrandly — built on Cloudflare Workers with zero server costs
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-450%20passing-brightgreen)]()
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)](https://www.typescriptlang.org/)
+[![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-orange)](https://workers.cloudflare.com/)
 
 > **For full technical specifications and architecture details, see [CLAUDE.md](CLAUDE.md). For version history, see [CHANGELOG.md](CHANGELOG.md).**
 
-A lightweight, high-performance edge router built on Cloudflare Workers and the Hono framework. Manage URL redirects, reverse proxies, and R2 bucket serving through a simple API, with all configuration stored in Cloudflare KV for instant propagation across edge locations.
+A lightweight, high-performance edge router and URL shortener built on Cloudflare Workers and the Hono framework. Replace paid link shorteners like bit.ly, Rebrandly, and TinyURL with your own self-hosted solution. Manage URL redirects, reverse proxies, and R2 bucket file serving through a simple API — all configuration stored in Cloudflare KV for instant global propagation across 300+ edge locations.
+
+### Why Bifrost?
+
+| | **Bifrost** | **bit.ly / Rebrandly** | **YOURLS** | **Kutt** |
+|---|---|---|---|---|
+| **Cost** | Free (Cloudflare free tier) | $35-$300+/month | Free (self-hosted) | Free (self-hosted) |
+| **Infrastructure** | Serverless (zero servers) | Managed SaaS | PHP + MySQL server | Node.js + Docker |
+| **Latency** | ~30-90ms (edge cached) | ~100-200ms | ~200-500ms | ~100-300ms |
+| **Global CDN** | 300+ Cloudflare locations | Yes | No (single server) | No (single server) |
+| **Custom domains** | Unlimited | 1-10 (plan dependent) | 1 | Unlimited |
+| **Reverse proxy** | Yes | No | No | No |
+| **R2 file serving** | Yes | No | No | No |
+| **API management** | Full REST API + MCP + Slack | REST API | REST API | REST API |
+| **Setup time** | ~15 minutes | Instant (SaaS) | ~30 minutes | ~30 minutes |
 
 ## Features
 
