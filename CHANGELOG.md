@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## v1.11.7 (2026-02-12)
+- Security: Remove `includeSubDomains` from HSTS header to avoid forcing HTTPS on non-proxied subdomains (e.g., CNAME records to external services)
+- Added secure headers middleware tests
+
 ## v1.11.6 (2026-02-07)
 - Version bump to match upstream (v1.11.4-v1.11.6 were dependency bumps and documentation updates)
 

@@ -47,7 +47,9 @@ const app = new Hono<AppEnv>();
 // ============================================
 
 app.use('*', logger());
-app.use('*', secureHeaders());
+app.use('*', secureHeaders({
+  strictTransportSecurity: 'max-age=15552000',
+}));
 
 // ============================================
 // SYSTEM ROUTES (not in KV)
