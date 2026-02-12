@@ -30,14 +30,17 @@ export function ViewsPage() {
   const debouncedSearch = useDebounce(filters.search || '', 300);
 
   // Build query params for API
-  const queryParams = useMemo(() => ({
-    limit,
-    offset,
-    domain: filters.domain || undefined,
-    days: filters.days || 1,
-    country: filters.country || undefined,
-    path: debouncedSearch || undefined,
-  }), [limit, offset, filters.domain, filters.days, filters.country, debouncedSearch]);
+  const queryParams = useMemo(
+    () => ({
+      limit,
+      offset,
+      domain: filters.domain || undefined,
+      days: filters.days || 1,
+      country: filters.country || undefined,
+      path: debouncedSearch || undefined,
+    }),
+    [limit, offset, filters.domain, filters.days, filters.country, debouncedSearch],
+  );
 
   const { data, isLoading, error } = useViews(queryParams);
 
@@ -53,7 +56,12 @@ export function ViewsPage() {
   };
 
   // Check if any filters are active
-  const hasActiveFilters = !!(filters.search || filters.domain || filters.country || (filters.days && filters.days !== 1));
+  const hasActiveFilters = !!(
+    filters.search ||
+    filters.domain ||
+    filters.country ||
+    (filters.days && filters.days !== 1)
+  );
 
   if (error) {
     return (
@@ -108,23 +116,49 @@ export function ViewsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow className="border-charcoal-100 bg-muted/30">
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Time</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Domain</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Path</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Query</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Referrer</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">City</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Country</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Continent</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Colo</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Timezone</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Protocol</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">User Agent</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">IP Address</TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Time
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Domain
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Path
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Query
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Referrer
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        City
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Country
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Continent
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Colo
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Timezone
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Protocol
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        User Agent
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        IP Address
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {data?.items.map((view) => (
+                    {data?.items.map(view => (
                       <TableRow key={view.id} className="hover:bg-gold-50/50 transition-colors">
                         <TableCell className="text-small font-gilroy whitespace-nowrap">
                           {formatDate(view.createdAt)}
@@ -135,7 +169,10 @@ export function ViewsPage() {
                         <TableCell className="font-mono text-small max-w-[200px] truncate font-medium text-blue-600">
                           {view.path}
                         </TableCell>
-                        <TableCell className="font-mono text-small max-w-[150px] truncate text-charcoal-500" title={view.queryString || ''}>
+                        <TableCell
+                          className="font-mono text-small max-w-[150px] truncate text-charcoal-500"
+                          title={view.queryString || ''}
+                        >
                           {view.queryString || '-'}
                         </TableCell>
                         <TableCell className="max-w-[200px] truncate text-small font-gilroy text-charcoal-600">
@@ -159,7 +196,10 @@ export function ViewsPage() {
                         <TableCell className="font-mono text-small whitespace-nowrap text-charcoal-500">
                           {view.httpProtocol || '-'}
                         </TableCell>
-                        <TableCell className="max-w-[300px] truncate text-small font-gilroy text-charcoal-400" title={view.userAgent || ''}>
+                        <TableCell
+                          className="max-w-[300px] truncate text-small font-gilroy text-charcoal-400"
+                          title={view.userAgent || ''}
+                        >
                           {view.userAgent || '-'}
                         </TableCell>
                         <TableCell className="font-mono text-small whitespace-nowrap text-charcoal-400">
@@ -169,7 +209,10 @@ export function ViewsPage() {
                     ))}
                     {(!data?.items || data.items.length === 0) && (
                       <TableRow>
-                        <TableCell colSpan={13} className="text-center text-muted-foreground font-gilroy">
+                        <TableCell
+                          colSpan={13}
+                          className="text-center text-muted-foreground font-gilroy"
+                        >
                           No views recorded
                         </TableCell>
                       </TableRow>

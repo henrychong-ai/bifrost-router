@@ -14,7 +14,7 @@ import type { CleanupResult } from './types';
 export async function cleanupOldBackups(
   bucket: R2Bucket,
   dailyRetentionDays: number = 30,
-  weeklyRetentionDays: number = 90
+  weeklyRetentionDays: number = 90,
 ): Promise<CleanupResult> {
   const deleted: string[] = [];
   const now = Date.now();

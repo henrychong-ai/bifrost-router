@@ -3,7 +3,7 @@ services:
     build:
       context: .
       args:
-        VITE_API_URL: https://example.com
+        VITE_API_URL: https://henrychong.com
         VITE_ADMIN_API_KEY: ${VITE_ADMIN_API_KEY}
     ports:
       - "3001:3001"

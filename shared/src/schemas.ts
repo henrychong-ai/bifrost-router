@@ -18,12 +18,9 @@ import { SUPPORTED_DOMAINS, R2_BUCKETS } from './types.js';
 export const DomainSchema = z
   .string()
   .optional()
-  .refine(
-    (val) => !val || SUPPORTED_DOMAINS.includes(val as (typeof SUPPORTED_DOMAINS)[number]),
-    {
-      message: `Domain must be one of: ${SUPPORTED_DOMAINS.join(', ')}`,
-    }
-  );
+  .refine(val => !val || SUPPORTED_DOMAINS.includes(val as (typeof SUPPORTED_DOMAINS)[number]), {
+    message: `Domain must be one of: ${SUPPORTED_DOMAINS.join(', ')}`,
+  });
 
 // =============================================================================
 // Route Schemas
@@ -53,11 +50,7 @@ export const R2BucketSchema = z.enum(R2_BUCKETS);
  * Full route configuration schema (from API response)
  */
 export const RouteSchema = z.object({
-  path: z
-    .string()
-    .min(1)
-    .startsWith('/')
-    .describe('URL path pattern (e.g., "/github", "/blog/*")'),
+  path: z.string().min(1).startsWith('/').describe('URL path pattern (e.g., "/github", "/blog/*")'),
   type: RouteTypeSchema.describe('Route handler type'),
   target: z.string().min(1).describe('Target URL or R2 object key'),
   statusCode: RedirectStatusCodeSchema.optional().describe('HTTP redirect status code'),
@@ -65,8 +58,14 @@ export const RouteSchema = z.object({
   preservePath: z.boolean().optional().default(false).describe('Preserve path for wildcard routes'),
   cacheControl: z.string().optional().describe('Cache-Control header value'),
   hostHeader: z.string().optional().describe('Override Host header for proxy requests'),
-  forceDownload: z.boolean().optional().default(false).describe('Force browser to download instead of display inline (R2 only)'),
-  bucket: R2BucketSchema.optional().describe('R2 bucket for file serving (R2 only, default: "files")'),
+  forceDownload: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe('Force browser to download instead of display inline (R2 only)'),
+  bucket: R2BucketSchema.optional().describe(
+    'R2 bucket for file serving (R2 only, default: "files")',
+  ),
   enabled: z.boolean().optional().default(true).describe('Enable/disable route'),
   createdAt: z.number().describe('Creation timestamp (Unix seconds)'),
   updatedAt: z.number().describe('Last update timestamp (Unix seconds)'),
@@ -76,11 +75,7 @@ export const RouteSchema = z.object({
  * Schema for creating a new route
  */
 export const CreateRouteInputSchema = z.object({
-  path: z
-    .string()
-    .min(1)
-    .startsWith('/')
-    .describe('URL path pattern starting with /'),
+  path: z.string().min(1).startsWith('/').describe('URL path pattern starting with /'),
   type: RouteTypeSchema.describe('Route type: redirect, proxy, or r2'),
   target: z.string().min(1).describe('Target URL or R2 object key'),
   statusCode: RedirectStatusCodeSchema.optional().describe('HTTP status code (301, 302, 307, 308)'),
@@ -88,8 +83,14 @@ export const CreateRouteInputSchema = z.object({
   preservePath: z.boolean().optional().default(false).describe('Preserve path for wildcard routes'),
   cacheControl: z.string().optional().describe('Cache-Control header value'),
   hostHeader: z.string().optional().describe('Override Host header for proxy requests'),
-  forceDownload: z.boolean().optional().default(false).describe('Force browser to download instead of display inline (R2 only)'),
-  bucket: R2BucketSchema.optional().describe('R2 bucket for file serving (R2 only, default: "files")'),
+  forceDownload: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe('Force browser to download instead of display inline (R2 only)'),
+  bucket: R2BucketSchema.optional().describe(
+    'R2 bucket for file serving (R2 only, default: "files")',
+  ),
   enabled: z.boolean().optional().default(true).describe('Enable/disable route'),
 });
 
@@ -104,7 +105,10 @@ export const UpdateRouteInputSchema = z.object({
   preservePath: z.boolean().optional().describe('Preserve path for wildcard routes'),
   cacheControl: z.string().optional().describe('Cache-Control header value'),
   hostHeader: z.string().optional().describe('Override Host header for proxy requests'),
-  forceDownload: z.boolean().optional().describe('Force browser to download instead of display inline (R2 only)'),
+  forceDownload: z
+    .boolean()
+    .optional()
+    .describe('Force browser to download instead of display inline (R2 only)'),
   bucket: R2BucketSchema.optional().describe('R2 bucket for file serving (R2 only)'),
   enabled: z.boolean().optional().describe('Enable/disable route'),
 });
@@ -157,7 +161,7 @@ export const SlugStatsQuerySchema = z.object({
  */
 export const ListRoutesInputSchema = z.object({
   domain: DomainSchema.describe(
-    "Target domain (e.g., 'link.example.com'). Defaults to EDGE_ROUTER_DOMAIN env var."
+    "Target domain (e.g., 'link.henrychong.com'). Defaults to EDGE_ROUTER_DOMAIN env var.",
   ),
 });
 
@@ -181,8 +185,14 @@ export const CreateRouteToolInputSchema = z.object({
   preservePath: z.boolean().optional().default(false).describe('Preserve path for wildcard routes'),
   cacheControl: z.string().optional().describe('Cache-Control header'),
   hostHeader: z.string().optional().describe('Override Host header for proxy requests'),
-  forceDownload: z.boolean().optional().default(false).describe('Force browser to download instead of display inline (R2 only)'),
-  bucket: R2BucketSchema.optional().describe('R2 bucket for file serving (R2 only, default: "files")'),
+  forceDownload: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe('Force browser to download instead of display inline (R2 only)'),
+  bucket: R2BucketSchema.optional().describe(
+    'R2 bucket for file serving (R2 only, default: "files")',
+  ),
   domain: DomainSchema.describe('Target domain'),
 });
 
@@ -261,27 +271,6 @@ export const GetSlugStatsInputSchema = z.object({
   days: z.number().min(1).max(365).optional().default(30).describe('Time range in days'),
 });
 
-/**
- * Audit action type schema - single source of truth for all audit actions
- */
-export const AuditActionSchema = z.enum(['create', 'update', 'delete', 'toggle', 'seed', 'migrate']);
-export type AuditAction = z.infer<typeof AuditActionSchema>;
-
-/**
- * Audit log entry schema
- */
-export const AuditLogSchema = z.object({
-  id: z.number(),
-  domain: z.string(),
-  action: AuditActionSchema,
-  actorLogin: z.string().nullable(),
-  actorName: z.string().nullable(),
-  path: z.string().nullable(),
-  details: z.string().nullable(),
-  ipAddress: z.string().nullable(),
-  createdAt: z.number(),
-});
-
 // =============================================================================
 // Inferred Types
 // =============================================================================
@@ -299,3 +288,35 @@ export type GetAnalyticsSummaryInput = z.infer<typeof GetAnalyticsSummaryInputSc
 export type GetClicksInput = z.infer<typeof GetClicksInputSchema>;
 export type GetViewsInput = z.infer<typeof GetViewsInputSchema>;
 export type GetSlugStatsInput = z.infer<typeof GetSlugStatsInputSchema>;
+
+// =============================================================================
+// Audit Log Schemas
+// =============================================================================
+
+/**
+ * Audit action type schema - single source of truth for all audit actions
+ */
+export const AuditActionSchema = z.enum([
+  'create',
+  'update',
+  'delete',
+  'toggle',
+  'seed',
+  'migrate',
+]);
+export type AuditAction = z.infer<typeof AuditActionSchema>;
+
+/**
+ * Audit log entry schema
+ */
+export const AuditLogSchema = z.object({
+  id: z.number(),
+  domain: z.string(),
+  action: AuditActionSchema,
+  actorLogin: z.string().nullable(),
+  actorName: z.string().nullable(),
+  path: z.string().nullable(),
+  details: z.string().nullable(),
+  ipAddress: z.string().nullable(),
+  createdAt: z.number(),
+});

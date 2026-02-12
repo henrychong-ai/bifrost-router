@@ -1,5 +1,5 @@
 # Production compose file with Tailscale integration
-# Provides: https://bifrost.<your-tailnet>.ts.net
+# Provides: https://bifrost.parrot-lizard.ts.net
 #
 # Prerequisites:
 # 1. Generate Tailscale auth key at https://login.tailscale.com/admin/settings/keys
@@ -13,7 +13,7 @@
 
 services:
   admin:
-    image: ghcr.io/<your-github-username>/bifrost-dashboard:tailscale
+    image: ghcr.io/henrychong-ai/bifrost-dashboard:tailscale
     container_name: bifrost-dashboard
     restart: unless-stopped
     env_file:

@@ -75,7 +75,7 @@ function formatRouteDetails(route: Route, domain: string): string {
 export async function listRoutes(
   client: EdgeRouterClient,
   args: { domain?: string },
-  defaultDomain?: string
+  defaultDomain?: string,
 ): Promise<string> {
   const domain = args.domain || defaultDomain;
   if (!domain) {
@@ -96,7 +96,7 @@ export async function listRoutes(
 export async function getRoute(
   client: EdgeRouterClient,
   args: { path: string; domain?: string },
-  defaultDomain?: string
+  defaultDomain?: string,
 ): Promise<string> {
   const domain = args.domain || defaultDomain;
   if (!domain) {
@@ -129,7 +129,7 @@ export async function createRoute(
     bucket?: string;
     domain?: string;
   },
-  defaultDomain?: string
+  defaultDomain?: string,
 ): Promise<string> {
   const domain = args.domain || defaultDomain;
   if (!domain) {
@@ -148,9 +148,18 @@ export async function createRoute(
         cacheControl: args.cacheControl,
         hostHeader: args.hostHeader,
         forceDownload: args.forceDownload,
-        bucket: args.bucket as 'files' | 'assets' | 'files-user1' | 'files-user2' | 'files-user3' | 'files-user4' | 'files-user5' | 'files-user6' | undefined,
+        bucket: args.bucket as
+          | 'files'
+          | 'assets'
+          | 'files-anjachong'
+          | 'files-davidchong'
+          | 'files-nadjachong'
+          | 'files-sonjachong'
+          | 'files-valeriehung'
+          | 'files-vanessahung'
+          | undefined,
       },
-      domain
+      domain,
     );
 
     return `Route created successfully!\n\n${formatRouteDetails(route, domain)}`;
@@ -177,7 +186,7 @@ export async function updateRoute(
     bucket?: string;
     domain?: string;
   },
-  defaultDomain?: string
+  defaultDomain?: string,
 ): Promise<string> {
   const domain = args.domain || defaultDomain;
   if (!domain) {
@@ -196,9 +205,18 @@ export async function updateRoute(
         cacheControl: args.cacheControl,
         hostHeader: args.hostHeader,
         forceDownload: args.forceDownload,
-        bucket: args.bucket as 'files' | 'assets' | 'files-user1' | 'files-user2' | 'files-user3' | 'files-user4' | 'files-user5' | 'files-user6' | undefined,
+        bucket: args.bucket as
+          | 'files'
+          | 'assets'
+          | 'files-anjachong'
+          | 'files-davidchong'
+          | 'files-nadjachong'
+          | 'files-sonjachong'
+          | 'files-valeriehung'
+          | 'files-vanessahung'
+          | undefined,
       },
-      domain
+      domain,
     );
 
     return `Route updated successfully!\n\n${formatRouteDetails(route, domain)}`;
@@ -213,7 +231,7 @@ export async function updateRoute(
 export async function deleteRoute(
   client: EdgeRouterClient,
   args: { path: string; domain?: string },
-  defaultDomain?: string
+  defaultDomain?: string,
 ): Promise<string> {
   const domain = args.domain || defaultDomain;
   if (!domain) {
@@ -234,7 +252,7 @@ export async function deleteRoute(
 export async function toggleRoute(
   client: EdgeRouterClient,
   args: { path: string; enabled: boolean; domain?: string },
-  defaultDomain?: string
+  defaultDomain?: string,
 ): Promise<string> {
   const domain = args.domain || defaultDomain;
   if (!domain) {
@@ -251,12 +269,12 @@ export async function toggleRoute(
 }
 
 /**
- * Migrate a route from one path to another
+ * Migrate a route to a new path
  */
 export async function migrateRoute(
   client: EdgeRouterClient,
   args: { oldPath: string; newPath: string; domain?: string },
-  defaultDomain?: string
+  defaultDomain?: string,
 ): Promise<string> {
   const domain = args.domain || defaultDomain;
   if (!domain) {
@@ -265,7 +283,7 @@ export async function migrateRoute(
 
   try {
     const route = await client.migrateRoute(args.oldPath, args.newPath, domain);
-    return `Route migrated from ${args.oldPath} to ${args.newPath} successfully!\n\n${formatRouteDetails(route, domain)}`;
+    return `Route migrated successfully!\n\nOld path: ${args.oldPath}\nNew path: ${args.newPath}\n\n${formatRouteDetails(route, domain)}`;
   } catch (error) {
     return `Error migrating route: ${error instanceof Error ? error.message : String(error)}`;
   }

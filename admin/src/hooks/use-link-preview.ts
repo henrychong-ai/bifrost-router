@@ -12,8 +12,7 @@ export function useLinkPreview(url: string, options: UseLinkPreviewOptions = {})
 
   const debouncedUrl = useDebounce(url, debounceMs);
 
-  const isValidUrl =
-    debouncedUrl.startsWith('http://') || debouncedUrl.startsWith('https://');
+  const isValidUrl = debouncedUrl.startsWith('http://') || debouncedUrl.startsWith('https://');
 
   return useQuery<OpenGraphData>({
     queryKey: ['link-preview', debouncedUrl],

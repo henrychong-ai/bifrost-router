@@ -15,7 +15,7 @@ describe('Route tool handlers', () => {
   const mockRoute: Route = {
     path: '/github',
     type: 'redirect',
-    target: 'https://github.com/your-username',
+    target: 'https://github.com/henrychong-ai',
     statusCode: 302,
     preserveQuery: true,
     enabled: true,
@@ -38,20 +38,20 @@ describe('Route tool handlers', () => {
     it('returns formatted route list', async () => {
       vi.mocked(mockClient.listRoutes).mockResolvedValue([mockRoute]);
 
-      const result = await listRoutes(mockClient, {}, 'link.example.com');
+      const result = await listRoutes(mockClient, {}, 'link.henrychong.com');
 
-      expect(result).toContain('Routes for link.example.com');
+      expect(result).toContain('Routes for link.henrychong.com');
       expect(result).toContain('/github');
       expect(result).toContain('redirect');
-      expect(mockClient.listRoutes).toHaveBeenCalledWith('link.example.com');
+      expect(mockClient.listRoutes).toHaveBeenCalledWith('link.henrychong.com');
     });
 
     it('uses provided domain over default', async () => {
       vi.mocked(mockClient.listRoutes).mockResolvedValue([]);
 
-      await listRoutes(mockClient, { domain: 'example.com' }, 'link.example.com');
+      await listRoutes(mockClient, { domain: 'henrychong.com' }, 'link.henrychong.com');
 
-      expect(mockClient.listRoutes).toHaveBeenCalledWith('example.com');
+      expect(mockClient.listRoutes).toHaveBeenCalledWith('henrychong.com');
     });
 
     it('returns error message when no domain specified', async () => {
@@ -63,7 +63,7 @@ describe('Route tool handlers', () => {
     it('returns message for empty route list', async () => {
       vi.mocked(mockClient.listRoutes).mockResolvedValue([]);
 
-      const result = await listRoutes(mockClient, {}, 'link.example.com');
+      const result = await listRoutes(mockClient, {}, 'link.henrychong.com');
 
       expect(result).toContain('No routes configured');
     });
@@ -71,7 +71,7 @@ describe('Route tool handlers', () => {
     it('handles errors gracefully', async () => {
       vi.mocked(mockClient.listRoutes).mockRejectedValue(new Error('Network error'));
 
-      const result = await listRoutes(mockClient, {}, 'link.example.com');
+      const result = await listRoutes(mockClient, {}, 'link.henrychong.com');
 
       expect(result).toContain('Error listing routes');
       expect(result).toContain('Network error');
@@ -82,18 +82,18 @@ describe('Route tool handlers', () => {
     it('returns formatted route details', async () => {
       vi.mocked(mockClient.getRoute).mockResolvedValue(mockRoute);
 
-      const result = await getRoute(mockClient, { path: '/github' }, 'link.example.com');
+      const result = await getRoute(mockClient, { path: '/github' }, 'link.henrychong.com');
 
       expect(result).toContain('Route: /github');
-      expect(result).toContain('Domain: link.example.com');
+      expect(result).toContain('Domain: link.henrychong.com');
       expect(result).toContain('Type: redirect');
-      expect(result).toContain('Target: https://github.com/your-username');
+      expect(result).toContain('Target: https://github.com/henrychong-ai');
     });
 
     it('shows redirect-specific details', async () => {
       vi.mocked(mockClient.getRoute).mockResolvedValue(mockRoute);
 
-      const result = await getRoute(mockClient, { path: '/github' }, 'link.example.com');
+      const result = await getRoute(mockClient, { path: '/github' }, 'link.henrychong.com');
 
       expect(result).toContain('Status Code: 302');
       expect(result).toContain('Preserve Query: Yes');
@@ -102,7 +102,7 @@ describe('Route tool handlers', () => {
     it('handles errors gracefully', async () => {
       vi.mocked(mockClient.getRoute).mockRejectedValue(new Error('Not found'));
 
-      const result = await getRoute(mockClient, { path: '/notfound' }, 'link.example.com');
+      const result = await getRoute(mockClient, { path: '/notfound' }, 'link.henrychong.com');
 
       expect(result).toContain('Error getting route');
       expect(result).toContain('Not found');
@@ -118,10 +118,10 @@ describe('Route tool handlers', () => {
         {
           path: '/github',
           type: 'redirect',
-          target: 'https://github.com/your-username',
+          target: 'https://github.com/henrychong-ai',
           statusCode: 302,
         },
-        'link.example.com'
+        'link.henrychong.com',
       );
 
       expect(result).toContain('Route created successfully');
@@ -141,7 +141,7 @@ describe('Route tool handlers', () => {
           preserveQuery: false,
           cacheControl: 'max-age=3600',
         },
-        'link.example.com'
+        'link.henrychong.com',
       );
 
       expect(mockClient.createRoute).toHaveBeenCalledWith(
@@ -153,7 +153,7 @@ describe('Route tool handlers', () => {
           preserveQuery: false,
           cacheControl: 'max-age=3600',
         },
-        'link.example.com'
+        'link.henrychong.com',
       );
     });
 
@@ -163,7 +163,7 @@ describe('Route tool handlers', () => {
       const result = await createRoute(
         mockClient,
         { path: '/github', type: 'redirect', target: 'https://example.com' },
-        'link.example.com'
+        'link.henrychong.com',
       );
 
       expect(result).toContain('Error creating route');
@@ -179,7 +179,7 @@ describe('Route tool handlers', () => {
       const result = await updateRoute(
         mockClient,
         { path: '/github', target: 'https://github.com/updated' },
-        'link.example.com'
+        'link.henrychong.com',
       );
 
       expect(result).toContain('Route updated successfully');
@@ -192,7 +192,7 @@ describe('Route tool handlers', () => {
       const result = await updateRoute(
         mockClient,
         { path: '/notfound', target: 'https://example.com' },
-        'link.example.com'
+        'link.henrychong.com',
       );
 
       expect(result).toContain('Error updating route');
@@ -204,11 +204,7 @@ describe('Route tool handlers', () => {
     it('returns success message', async () => {
       vi.mocked(mockClient.deleteRoute).mockResolvedValue(undefined);
 
-      const result = await deleteRoute(
-        mockClient,
-        { path: '/github' },
-        'link.example.com'
-      );
+      const result = await deleteRoute(mockClient, { path: '/github' }, 'link.henrychong.com');
 
       expect(result).toContain('deleted successfully');
       expect(result).toContain('/github');
@@ -217,11 +213,7 @@ describe('Route tool handlers', () => {
     it('handles errors gracefully', async () => {
       vi.mocked(mockClient.deleteRoute).mockRejectedValue(new Error('Route not found'));
 
-      const result = await deleteRoute(
-        mockClient,
-        { path: '/notfound' },
-        'link.example.com'
-      );
+      const result = await deleteRoute(mockClient, { path: '/notfound' }, 'link.henrychong.com');
 
       expect(result).toContain('Error deleting route');
       expect(result).toContain('Route not found');
@@ -236,7 +228,7 @@ describe('Route tool handlers', () => {
       const result = await toggleRoute(
         mockClient,
         { path: '/github', enabled: true },
-        'link.example.com'
+        'link.henrychong.com',
       );
 
       expect(result).toContain('enabled successfully');
@@ -250,7 +242,7 @@ describe('Route tool handlers', () => {
       const result = await toggleRoute(
         mockClient,
         { path: '/github', enabled: false },
-        'link.example.com'
+        'link.henrychong.com',
       );
 
       expect(result).toContain('disabled successfully');
@@ -263,7 +255,7 @@ describe('Route tool handlers', () => {
       const result = await toggleRoute(
         mockClient,
         { path: '/notfound', enabled: true },
-        'link.example.com'
+        'link.henrychong.com',
       );
 
       expect(result).toContain('Error toggling route');

@@ -10,12 +10,12 @@
  */
 /* eslint-disable no-control-regex */
 const DANGEROUS_PATTERNS = [
-  /\.\./,                    // Parent directory traversal
-  /\x00/,                    // Null bytes
-  /^\/+/,                    // Leading slashes (normalize to relative)
-  /\/\.[^/]+\//,             // Hidden directory components (/.something/)
-  /[<>:"|?*]/,               // Windows illegal characters
-  /[\x00-\x1f]/,             // Control characters
+  /\.\./, // Parent directory traversal
+  /\x00/, // Null bytes
+  /^\/+/, // Leading slashes (normalize to relative)
+  /\/\.[^/]+\//, // Hidden directory components (/.something/)
+  /[<>:"|?*]/, // Windows illegal characters
+  /[\x00-\x1f]/, // Control characters
 ];
 /* eslint-enable no-control-regex */
 
@@ -26,7 +26,7 @@ const DANGEROUS_PATTERNS = [
  * @returns true if the key contains dangerous patterns
  */
 export function hasDangerousPath(key: string): boolean {
-  return DANGEROUS_PATTERNS.some((pattern) => pattern.test(key));
+  return DANGEROUS_PATTERNS.some(pattern => pattern.test(key));
 }
 
 /**
@@ -116,7 +116,7 @@ export function validateR2Key(key: string): R2KeyValidationResult {
         message: 'R2 key was sanitized',
         original: key,
         sanitized: sanitizedKey,
-      })
+      }),
     );
   }
 

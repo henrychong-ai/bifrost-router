@@ -30,7 +30,7 @@ export async function writeManifest(
   bucket: R2Bucket,
   date: string,
   kvResult: KVBackupResult,
-  d1Result: D1BackupResult
+  d1Result: D1BackupResult,
 ): Promise<BackupManifest> {
   const manifest: BackupManifest = {
     version: MANIFEST_VERSION,

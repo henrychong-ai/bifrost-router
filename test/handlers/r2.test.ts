@@ -4,10 +4,7 @@ import { handleR2 } from '../../src/handlers/r2';
 import type { AppEnv, KVRouteConfig } from '../../src/types';
 
 // Mock R2 object
-function createMockR2Object(
-  body: string,
-  contentType?: string
-): R2ObjectBody {
+function createMockR2Object(body: string, contentType?: string): R2ObjectBody {
   return {
     key: 'test-file.txt',
     version: 'v1',
@@ -46,11 +43,11 @@ describe('handleR2', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/media', (c) => handleR2(c, route));
+      app.get('/media', c => handleR2(c, route));
 
       const response = await app.fetch(
         new Request('http://localhost/media'),
-        { ENVIRONMENT: 'development' } // No FILES_BUCKET
+        { ENVIRONMENT: 'development' }, // No FILES_BUCKET
       );
 
       expect(response.status).toBe(500);
@@ -74,15 +71,12 @@ describe('handleR2', () => {
         get: vi.fn().mockResolvedValue(null),
       };
 
-      app.get('/media', (c) => handleR2(c, route));
+      app.get('/media', c => handleR2(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/media'),
-        {
-          ENVIRONMENT: 'development',
-          FILES_BUCKET: mockBucket as unknown as R2Bucket,
-        }
-      );
+      const response = await app.fetch(new Request('http://localhost/media'), {
+        ENVIRONMENT: 'development',
+        FILES_BUCKET: mockBucket as unknown as R2Bucket,
+      });
 
       expect(response.status).toBe(404);
       const data = await response.json();
@@ -104,15 +98,12 @@ describe('handleR2', () => {
         get: vi.fn().mockResolvedValue(mockObject),
       };
 
-      app.get('/media', (c) => handleR2(c, route));
+      app.get('/media', c => handleR2(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/media'),
-        {
-          ENVIRONMENT: 'development',
-          FILES_BUCKET: mockBucket as unknown as R2Bucket,
-        }
-      );
+      const response = await app.fetch(new Request('http://localhost/media'), {
+        ENVIRONMENT: 'development',
+        FILES_BUCKET: mockBucket as unknown as R2Bucket,
+      });
 
       expect(response.status).toBe(200);
       expect(response.headers.get('Content-Type')).toBe('application/pdf');
@@ -134,15 +125,12 @@ describe('handleR2', () => {
         get: vi.fn().mockResolvedValue(mockObject),
       };
 
-      app.get('/media', (c) => handleR2(c, route));
+      app.get('/media', c => handleR2(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/media'),
-        {
-          ENVIRONMENT: 'development',
-          FILES_BUCKET: mockBucket as unknown as R2Bucket,
-        }
-      );
+      const response = await app.fetch(new Request('http://localhost/media'), {
+        ENVIRONMENT: 'development',
+        FILES_BUCKET: mockBucket as unknown as R2Bucket,
+      });
 
       expect(response.headers.get('Content-Type')).toBe('image/png');
     });
@@ -162,15 +150,12 @@ describe('handleR2', () => {
         get: vi.fn().mockResolvedValue(mockObject),
       };
 
-      app.get('/media', (c) => handleR2(c, route));
+      app.get('/media', c => handleR2(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/media'),
-        {
-          ENVIRONMENT: 'development',
-          FILES_BUCKET: mockBucket as unknown as R2Bucket,
-        }
-      );
+      const response = await app.fetch(new Request('http://localhost/media'), {
+        ENVIRONMENT: 'development',
+        FILES_BUCKET: mockBucket as unknown as R2Bucket,
+      });
 
       expect(response.headers.get('Cache-Control')).toBe('public, max-age=3600');
     });
@@ -191,15 +176,12 @@ describe('handleR2', () => {
         get: vi.fn().mockResolvedValue(mockObject),
       };
 
-      app.get('/media', (c) => handleR2(c, route));
+      app.get('/media', c => handleR2(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/media'),
-        {
-          ENVIRONMENT: 'development',
-          FILES_BUCKET: mockBucket as unknown as R2Bucket,
-        }
-      );
+      const response = await app.fetch(new Request('http://localhost/media'), {
+        ENVIRONMENT: 'development',
+        FILES_BUCKET: mockBucket as unknown as R2Bucket,
+      });
 
       expect(response.headers.get('Cache-Control')).toBe('public, max-age=86400');
     });
@@ -221,15 +203,12 @@ describe('handleR2', () => {
         get: vi.fn().mockResolvedValue(mockObject),
       };
 
-      app.get('/download', (c) => handleR2(c, route));
+      app.get('/download', c => handleR2(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/download'),
-        {
-          ENVIRONMENT: 'development',
-          FILES_BUCKET: mockBucket as unknown as R2Bucket,
-        }
-      );
+      const response = await app.fetch(new Request('http://localhost/download'), {
+        ENVIRONMENT: 'development',
+        FILES_BUCKET: mockBucket as unknown as R2Bucket,
+      });
 
       expect(response.headers.get('Content-Disposition')).toBe('attachment; filename="report.pdf"');
     });
@@ -249,15 +228,12 @@ describe('handleR2', () => {
         get: vi.fn().mockResolvedValue(mockObject),
       };
 
-      app.get('/download', (c) => handleR2(c, route));
+      app.get('/download', c => handleR2(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/download'),
-        {
-          ENVIRONMENT: 'development',
-          FILES_BUCKET: mockBucket as unknown as R2Bucket,
-        }
-      );
+      const response = await app.fetch(new Request('http://localhost/download'), {
+        ENVIRONMENT: 'development',
+        FILES_BUCKET: mockBucket as unknown as R2Bucket,
+      });
 
       expect(response.headers.get('Content-Disposition')).toContain('attachment');
     });
@@ -277,15 +253,12 @@ describe('handleR2', () => {
         get: vi.fn().mockResolvedValue(mockObject),
       };
 
-      app.get('/image', (c) => handleR2(c, route));
+      app.get('/image', c => handleR2(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/image'),
-        {
-          ENVIRONMENT: 'development',
-          FILES_BUCKET: mockBucket as unknown as R2Bucket,
-        }
-      );
+      const response = await app.fetch(new Request('http://localhost/image'), {
+        ENVIRONMENT: 'development',
+        FILES_BUCKET: mockBucket as unknown as R2Bucket,
+      });
 
       expect(response.headers.get('Content-Disposition')).toBeNull();
     });
@@ -306,15 +279,12 @@ describe('handleR2', () => {
         get: vi.fn().mockResolvedValue(mockObject),
       };
 
-      app.get('/image', (c) => handleR2(c, route));
+      app.get('/image', c => handleR2(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/image'),
-        {
-          ENVIRONMENT: 'development',
-          FILES_BUCKET: mockBucket as unknown as R2Bucket,
-        }
-      );
+      const response = await app.fetch(new Request('http://localhost/image'), {
+        ENVIRONMENT: 'development',
+        FILES_BUCKET: mockBucket as unknown as R2Bucket,
+      });
 
       expect(response.headers.get('Content-Disposition')).toBe('attachment; filename="photo.jpg"');
     });
@@ -335,15 +305,12 @@ describe('handleR2', () => {
         get: vi.fn().mockResolvedValue(mockObject),
       };
 
-      app.get('/document', (c) => handleR2(c, route));
+      app.get('/document', c => handleR2(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/document'),
-        {
-          ENVIRONMENT: 'development',
-          FILES_BUCKET: mockBucket as unknown as R2Bucket,
-        }
-      );
+      const response = await app.fetch(new Request('http://localhost/document'), {
+        ENVIRONMENT: 'development',
+        FILES_BUCKET: mockBucket as unknown as R2Bucket,
+      });
 
       // forceDownload=false should override the default PDF download behavior
       expect(response.headers.get('Content-Disposition')).toBeNull();
@@ -365,15 +332,12 @@ describe('handleR2', () => {
         get: vi.fn(),
       };
 
-      app.get('/evil', (c) => handleR2(c, route));
+      app.get('/evil', c => handleR2(c, route));
 
-      await app.fetch(
-        new Request('http://localhost/evil'),
-        {
-          ENVIRONMENT: 'development',
-          FILES_BUCKET: mockBucket as unknown as R2Bucket,
-        }
-      );
+      await app.fetch(new Request('http://localhost/evil'), {
+        ENVIRONMENT: 'development',
+        FILES_BUCKET: mockBucket as unknown as R2Bucket,
+      });
 
       // Should either return 400 for blocked, or sanitize and attempt get
       // Based on our implementation, it sanitizes and uses the sanitized key

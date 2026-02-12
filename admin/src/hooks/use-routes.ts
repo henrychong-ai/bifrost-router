@@ -66,8 +66,15 @@ export function useUpdateRoute() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ path, data, domain }: { path: string; data: UpdateRouteInput; domain?: string }) =>
-      api.routes.update(path, data, domain),
+    mutationFn: ({
+      path,
+      data,
+      domain,
+    }: {
+      path: string;
+      data: UpdateRouteInput;
+      domain?: string;
+    }) => api.routes.update(path, data, domain),
     onSuccess: (_data, variables) => {
       // Invalidate both the list and the specific route
       queryClient.invalidateQueries({ queryKey: routeKeys.all });
@@ -112,14 +119,21 @@ export function useToggleRoute() {
 }
 
 /**
- * Migrate a route from one path to another
+ * Migrate a route to a new path
  */
 export function useMigrateRoute() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ oldPath, newPath, domain }: { oldPath: string; newPath: string; domain?: string }) =>
-      api.routes.migrate(oldPath, newPath, domain),
+    mutationFn: ({
+      oldPath,
+      newPath,
+      domain,
+    }: {
+      oldPath: string;
+      newPath: string;
+      domain?: string;
+    }) => api.routes.migrate(oldPath, newPath, domain),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: routeKeys.all });
       queryClient.removeQueries({ queryKey: routeKeys.detail(variables.oldPath) });

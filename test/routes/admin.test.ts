@@ -8,7 +8,7 @@ describe('admin routes', () => {
   const validApiKey = 'test-api-key-12345';
 
   // Create test env with ADMIN_API_DOMAIN set to enable domain restriction
-  const testEnv = { ...env, ADMIN_API_DOMAIN: 'example.com' };
+  const testEnv = { ...env, ADMIN_API_DOMAIN: 'henrychong.com' };
 
   describe('domain restriction', () => {
     it('returns 404 for requests from non-allowed domains', async () => {
@@ -18,7 +18,7 @@ describe('admin routes', () => {
         new Request('http://evil.com/api/routes', {
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(404);
@@ -26,27 +26,27 @@ describe('admin routes', () => {
       expect(data.error).toBe('Not Found');
     });
 
-    it('returns 404 for requests from link.example.com', async () => {
+    it('returns 404 for requests from link.henrychong.com', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://link.example.com/api/routes', {
+        new Request('http://link.henrychong.com/api/routes', {
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(404);
     });
 
-    it('allows requests from example.com', async () => {
+    it('allows requests from henrychong.com', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(200);
@@ -57,10 +57,7 @@ describe('admin routes', () => {
     it('rejects requests without API key', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
-      const response = await app.fetch(
-        new Request('http://example.com/api/routes'),
-        testEnv
-      );
+      const response = await app.fetch(new Request('http://henrychong.com/api/routes'), testEnv);
 
       expect(response.status).toBe(401);
     });
@@ -69,10 +66,10 @@ describe('admin routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           headers: { 'X-Admin-Key': 'wrong-key' },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(401);
@@ -82,10 +79,10 @@ describe('admin routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(200);
@@ -95,10 +92,10 @@ describe('admin routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/routes', {
-          headers: { 'Authorization': `Bearer ${validApiKey}` },
+        new Request('http://henrychong.com/api/routes', {
+          headers: { Authorization: `Bearer ${validApiKey}` },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(200);
@@ -110,10 +107,10 @@ describe('admin routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(200);
@@ -128,7 +125,7 @@ describe('admin routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -140,7 +137,7 @@ describe('admin routes', () => {
             target: 'https://github.com/test',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(201);
@@ -154,7 +151,7 @@ describe('admin routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -165,7 +162,7 @@ describe('admin routes', () => {
             // missing type and target
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(400);
@@ -178,7 +175,7 @@ describe('admin routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -190,7 +187,7 @@ describe('admin routes', () => {
             target: 'https://example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(400);
@@ -201,7 +198,7 @@ describe('admin routes', () => {
 
       // Create first route
       await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -213,12 +210,12 @@ describe('admin routes', () => {
             target: 'https://example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       // Try to create duplicate
       const response = await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -230,7 +227,7 @@ describe('admin routes', () => {
             target: 'https://other.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(409);
@@ -243,7 +240,7 @@ describe('admin routes', () => {
 
       // Create route first
       await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -255,15 +252,15 @@ describe('admin routes', () => {
             target: 'https://api.example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       // Get the route using query parameter
       const response = await app.fetch(
-        new Request('http://example.com/api/routes?path=/gettest', {
+        new Request('http://henrychong.com/api/routes?path=/gettest', {
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(200);
@@ -275,10 +272,10 @@ describe('admin routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/routes?path=/nonexistent', {
+        new Request('http://henrychong.com/api/routes?path=/nonexistent', {
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(404);
@@ -289,7 +286,7 @@ describe('admin routes', () => {
 
       // Create root path route
       await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -301,15 +298,15 @@ describe('admin routes', () => {
             target: 'https://example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       // Get the root route using query parameter
       const response = await app.fetch(
-        new Request('http://example.com/api/routes?path=/', {
+        new Request('http://henrychong.com/api/routes?path=/', {
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(200);
@@ -324,7 +321,7 @@ describe('admin routes', () => {
 
       // Create route first
       await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -336,12 +333,12 @@ describe('admin routes', () => {
             target: 'https://old.example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       // Update the route using query parameter
       const response = await app.fetch(
-        new Request('http://example.com/api/routes?path=/updatetest', {
+        new Request('http://henrychong.com/api/routes?path=/updatetest', {
           method: 'PUT',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -352,7 +349,7 @@ describe('admin routes', () => {
             statusCode: 301,
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(200);
@@ -365,7 +362,7 @@ describe('admin routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'PUT',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -375,7 +372,7 @@ describe('admin routes', () => {
             target: 'https://example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(400);
@@ -387,7 +384,7 @@ describe('admin routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/routes?path=/nonexistent', {
+        new Request('http://henrychong.com/api/routes?path=/nonexistent', {
           method: 'PUT',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -397,7 +394,7 @@ describe('admin routes', () => {
             target: 'https://example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(404);
@@ -410,7 +407,7 @@ describe('admin routes', () => {
 
       // Create route first
       await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -422,16 +419,16 @@ describe('admin routes', () => {
             target: 'https://example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       // Delete the route using query parameter
       const response = await app.fetch(
-        new Request('http://example.com/api/routes?path=/deletetest', {
+        new Request('http://henrychong.com/api/routes?path=/deletetest', {
           method: 'DELETE',
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(200);
@@ -443,11 +440,11 @@ describe('admin routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'DELETE',
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(400);
@@ -459,11 +456,11 @@ describe('admin routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/routes?path=/nonexistent', {
+        new Request('http://henrychong.com/api/routes?path=/nonexistent', {
           method: 'DELETE',
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(404);
@@ -474,7 +471,7 @@ describe('admin routes', () => {
 
       // Create root path route
       await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -486,16 +483,16 @@ describe('admin routes', () => {
             target: 'https://example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       // Delete the root route using query parameter
       const response = await app.fetch(
-        new Request('http://example.com/api/routes?path=/', {
+        new Request('http://henrychong.com/api/routes?path=/', {
           method: 'DELETE',
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(200);
@@ -509,7 +506,7 @@ describe('admin routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -522,7 +519,7 @@ describe('admin routes', () => {
             statusCode: 302,
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(201);
@@ -537,7 +534,7 @@ describe('admin routes', () => {
 
       // Create the wildcard route first
       await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -549,15 +546,15 @@ describe('admin routes', () => {
             target: 'https://fallback.example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       // Get the wildcard route using query parameter
       const response = await app.fetch(
-        new Request('http://example.com/api/routes?path=/*', {
+        new Request('http://henrychong.com/api/routes?path=/*', {
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(200);
@@ -571,7 +568,7 @@ describe('admin routes', () => {
 
       // Create the wildcard route first
       await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -584,12 +581,12 @@ describe('admin routes', () => {
             enabled: true,
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       // Update (toggle) the wildcard route using query parameter
       const response = await app.fetch(
-        new Request('http://example.com/api/routes?path=/*', {
+        new Request('http://henrychong.com/api/routes?path=/*', {
           method: 'PUT',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -599,7 +596,7 @@ describe('admin routes', () => {
             enabled: false,
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(200);
@@ -614,7 +611,7 @@ describe('admin routes', () => {
 
       // Create the wildcard route first
       await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -626,16 +623,16 @@ describe('admin routes', () => {
             target: 'https://fallback.example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       // Delete the wildcard route using query parameter
       const response = await app.fetch(
-        new Request('http://example.com/api/routes?path=/*', {
+        new Request('http://henrychong.com/api/routes?path=/*', {
           method: 'DELETE',
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(200);
@@ -648,7 +645,7 @@ describe('admin routes', () => {
 
       // Create a prefix wildcard route
       const createResponse = await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -660,14 +657,14 @@ describe('admin routes', () => {
             target: 'https://bio.example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       expect(createResponse.status).toBe(201);
 
       // Update the prefix wildcard route
       const updateResponse = await app.fetch(
-        new Request('http://example.com/api/routes?path=/bio*', {
+        new Request('http://henrychong.com/api/routes?path=/bio*', {
           method: 'PUT',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -677,7 +674,7 @@ describe('admin routes', () => {
             target: 'https://updated-bio.example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       expect(updateResponse.status).toBe(200);
@@ -688,11 +685,11 @@ describe('admin routes', () => {
 
       // Delete the prefix wildcard route
       const deleteResponse = await app.fetch(
-        new Request('http://example.com/api/routes?path=/bio*', {
+        new Request('http://henrychong.com/api/routes?path=/bio*', {
           method: 'DELETE',
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(deleteResponse.status).toBe(200);
@@ -703,7 +700,7 @@ describe('admin routes', () => {
 
       // Create wildcard route initially enabled
       await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -716,12 +713,12 @@ describe('admin routes', () => {
             enabled: true,
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       // Toggle to disabled
       const disableResponse = await app.fetch(
-        new Request('http://example.com/api/routes?path=/catch-all/*', {
+        new Request('http://henrychong.com/api/routes?path=/catch-all/*', {
           method: 'PUT',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -729,7 +726,7 @@ describe('admin routes', () => {
           },
           body: JSON.stringify({ enabled: false }),
         }),
-        testEnv
+        testEnv,
       );
 
       expect(disableResponse.status).toBe(200);
@@ -739,7 +736,7 @@ describe('admin routes', () => {
 
       // Toggle back to enabled
       const enableResponse = await app.fetch(
-        new Request('http://example.com/api/routes?path=/catch-all/*', {
+        new Request('http://henrychong.com/api/routes?path=/catch-all/*', {
           method: 'PUT',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -747,7 +744,7 @@ describe('admin routes', () => {
           },
           body: JSON.stringify({ enabled: true }),
         }),
-        testEnv
+        testEnv,
       );
 
       expect(enableResponse.status).toBe(200);
@@ -757,11 +754,11 @@ describe('admin routes', () => {
 
       // Clean up
       await app.fetch(
-        new Request('http://example.com/api/routes?path=/catch-all/*', {
+        new Request('http://henrychong.com/api/routes?path=/catch-all/*', {
           method: 'DELETE',
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
     });
   });
@@ -771,32 +768,32 @@ describe('admin routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'OPTIONS',
           headers: {
-            'Origin': 'https://example.com',
+            Origin: 'https://henrychong.com',
             'Access-Control-Request-Method': 'POST',
           },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(204);
-      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://henrychong.com');
     });
 
     it('rejects preflight requests from disallowed origins', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'OPTIONS',
           headers: {
-            'Origin': 'https://evil.com',
+            Origin: 'https://evil.com',
             'Access-Control-Request-Method': 'POST',
           },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(204);
@@ -810,7 +807,7 @@ describe('admin routes', () => {
 
       // Create route first
       await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -822,16 +819,19 @@ describe('admin routes', () => {
             target: 'https://example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       // Migrate the route
       const response = await app.fetch(
-        new Request('http://example.com/api/routes/migrate?oldPath=/migrate-test&newPath=/migrated', {
-          method: 'POST',
-          headers: { 'X-Admin-Key': validApiKey },
-        }),
-        testEnv
+        new Request(
+          'http://henrychong.com/api/routes/migrate?oldPath=/migrate-test&newPath=/migrated',
+          {
+            method: 'POST',
+            headers: { 'X-Admin-Key': validApiKey },
+          },
+        ),
+        testEnv,
       );
 
       expect(response.status).toBe(200);
@@ -843,20 +843,20 @@ describe('admin routes', () => {
 
       // Verify old path no longer exists
       const oldResponse = await app.fetch(
-        new Request('http://example.com/api/routes?path=/migrate-test', {
+        new Request('http://henrychong.com/api/routes?path=/migrate-test', {
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
       expect(oldResponse.status).toBe(404);
 
       // Clean up
       await app.fetch(
-        new Request('http://example.com/api/routes?path=/migrated', {
+        new Request('http://henrychong.com/api/routes?path=/migrated', {
           method: 'DELETE',
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
     });
 
@@ -865,7 +865,7 @@ describe('admin routes', () => {
 
       // Create route first
       const createResponse = await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -877,7 +877,7 @@ describe('admin routes', () => {
             target: 'https://example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
       const createData = await createResponse.json();
       const originalCreatedAt = createData.data.createdAt;
@@ -887,11 +887,14 @@ describe('admin routes', () => {
 
       // Migrate the route
       const migrateResponse = await app.fetch(
-        new Request('http://example.com/api/routes/migrate?oldPath=/timestamp-test&newPath=/timestamp-migrated', {
-          method: 'POST',
-          headers: { 'X-Admin-Key': validApiKey },
-        }),
-        testEnv
+        new Request(
+          'http://henrychong.com/api/routes/migrate?oldPath=/timestamp-test&newPath=/timestamp-migrated',
+          {
+            method: 'POST',
+            headers: { 'X-Admin-Key': validApiKey },
+          },
+        ),
+        testEnv,
       );
 
       expect(migrateResponse.status).toBe(200);
@@ -901,11 +904,11 @@ describe('admin routes', () => {
 
       // Clean up
       await app.fetch(
-        new Request('http://example.com/api/routes?path=/timestamp-migrated', {
+        new Request('http://henrychong.com/api/routes?path=/timestamp-migrated', {
           method: 'DELETE',
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
     });
 
@@ -913,11 +916,11 @@ describe('admin routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/routes/migrate?oldPath=/nonexistent&newPath=/new', {
+        new Request('http://henrychong.com/api/routes/migrate?oldPath=/nonexistent&newPath=/new', {
           method: 'POST',
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(404);
@@ -928,7 +931,7 @@ describe('admin routes', () => {
 
       // Create two routes
       await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -940,11 +943,11 @@ describe('admin routes', () => {
             target: 'https://source.example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -956,16 +959,19 @@ describe('admin routes', () => {
             target: 'https://target.example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       // Try to migrate to existing path
       const response = await app.fetch(
-        new Request('http://example.com/api/routes/migrate?oldPath=/conflict-source&newPath=/conflict-target', {
-          method: 'POST',
-          headers: { 'X-Admin-Key': validApiKey },
-        }),
-        testEnv
+        new Request(
+          'http://henrychong.com/api/routes/migrate?oldPath=/conflict-source&newPath=/conflict-target',
+          {
+            method: 'POST',
+            headers: { 'X-Admin-Key': validApiKey },
+          },
+        ),
+        testEnv,
       );
 
       expect(response.status).toBe(409);
@@ -974,18 +980,18 @@ describe('admin routes', () => {
 
       // Clean up
       await app.fetch(
-        new Request('http://example.com/api/routes?path=/conflict-source', {
+        new Request('http://henrychong.com/api/routes?path=/conflict-source', {
           method: 'DELETE',
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
       await app.fetch(
-        new Request('http://example.com/api/routes?path=/conflict-target', {
+        new Request('http://henrychong.com/api/routes?path=/conflict-target', {
           method: 'DELETE',
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
     });
 
@@ -994,7 +1000,7 @@ describe('admin routes', () => {
 
       // Create route first
       await app.fetch(
-        new Request('http://example.com/api/routes', {
+        new Request('http://henrychong.com/api/routes', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -1006,15 +1012,18 @@ describe('admin routes', () => {
             target: 'https://example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       const response = await app.fetch(
-        new Request('http://example.com/api/routes/migrate?oldPath=/same-path&newPath=/same-path', {
-          method: 'POST',
-          headers: { 'X-Admin-Key': validApiKey },
-        }),
-        testEnv
+        new Request(
+          'http://henrychong.com/api/routes/migrate?oldPath=/same-path&newPath=/same-path',
+          {
+            method: 'POST',
+            headers: { 'X-Admin-Key': validApiKey },
+          },
+        ),
+        testEnv,
       );
 
       expect(response.status).toBe(400);
@@ -1023,11 +1032,11 @@ describe('admin routes', () => {
 
       // Clean up
       await app.fetch(
-        new Request('http://example.com/api/routes?path=/same-path', {
+        new Request('http://henrychong.com/api/routes?path=/same-path', {
           method: 'DELETE',
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
     });
 
@@ -1035,11 +1044,11 @@ describe('admin routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/routes/migrate?newPath=/new', {
+        new Request('http://henrychong.com/api/routes/migrate?newPath=/new', {
           method: 'POST',
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(400);
@@ -1051,11 +1060,11 @@ describe('admin routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/routes/migrate?oldPath=/old', {
+        new Request('http://henrychong.com/api/routes/migrate?oldPath=/old', {
           method: 'POST',
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(400);
@@ -1067,11 +1076,11 @@ describe('admin routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response1 = await app.fetch(
-        new Request('http://example.com/api/routes/migrate?oldPath=no-slash&newPath=/new', {
+        new Request('http://henrychong.com/api/routes/migrate?oldPath=no-slash&newPath=/new', {
           method: 'POST',
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response1.status).toBe(400);
@@ -1079,11 +1088,11 @@ describe('admin routes', () => {
       expect(data1.error).toContain('oldPath must start with /');
 
       const response2 = await app.fetch(
-        new Request('http://example.com/api/routes/migrate?oldPath=/old&newPath=no-slash', {
+        new Request('http://henrychong.com/api/routes/migrate?oldPath=/old&newPath=no-slash', {
           method: 'POST',
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response2.status).toBe(400);
@@ -1096,7 +1105,7 @@ describe('admin routes', () => {
 
       // Create route on a specific domain
       await app.fetch(
-        new Request('http://example.com/api/routes?domain=link.example.com', {
+        new Request('http://henrychong.com/api/routes?domain=link.henrychong.com', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -1108,16 +1117,19 @@ describe('admin routes', () => {
             target: 'https://example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       // Migrate the route with domain param
       const response = await app.fetch(
-        new Request('http://example.com/api/routes/migrate?oldPath=/domain-migrate-test&newPath=/domain-migrated&domain=link.example.com', {
-          method: 'POST',
-          headers: { 'X-Admin-Key': validApiKey },
-        }),
-        testEnv
+        new Request(
+          'http://henrychong.com/api/routes/migrate?oldPath=/domain-migrate-test&newPath=/domain-migrated&domain=link.henrychong.com',
+          {
+            method: 'POST',
+            headers: { 'X-Admin-Key': validApiKey },
+          },
+        ),
+        testEnv,
       );
 
       expect(response.status).toBe(200);
@@ -1127,11 +1139,14 @@ describe('admin routes', () => {
 
       // Clean up
       await app.fetch(
-        new Request('http://example.com/api/routes?path=/domain-migrated&domain=link.example.com', {
-          method: 'DELETE',
-          headers: { 'X-Admin-Key': validApiKey },
-        }),
-        testEnv
+        new Request(
+          'http://henrychong.com/api/routes?path=/domain-migrated&domain=link.henrychong.com',
+          {
+            method: 'DELETE',
+            headers: { 'X-Admin-Key': validApiKey },
+          },
+        ),
+        testEnv,
       );
     });
   });
@@ -1140,9 +1155,9 @@ describe('admin routes', () => {
     it('toggles route on non-default domain with explicit domain param', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
-      // Create route on link.example.com (non-default domain)
+      // Create route on link.henrychong.com (non-default domain)
       const createResponse = await app.fetch(
-        new Request('http://example.com/api/routes?domain=link.example.com', {
+        new Request('http://henrychong.com/api/routes?domain=link.henrychong.com', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -1155,22 +1170,25 @@ describe('admin routes', () => {
             enabled: true,
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       expect(createResponse.status).toBe(201);
 
       // Toggle route with explicit domain - should succeed
       const toggleResponse = await app.fetch(
-        new Request('http://example.com/api/routes?path=/cross-domain-test&domain=link.example.com', {
-          method: 'PUT',
-          headers: {
-            'X-Admin-Key': validApiKey,
-            'Content-Type': 'application/json',
+        new Request(
+          'http://henrychong.com/api/routes?path=/cross-domain-test&domain=link.henrychong.com',
+          {
+            method: 'PUT',
+            headers: {
+              'X-Admin-Key': validApiKey,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ enabled: false }),
           },
-          body: JSON.stringify({ enabled: false }),
-        }),
-        testEnv
+        ),
+        testEnv,
       );
 
       expect(toggleResponse.status).toBe(200);
@@ -1180,20 +1198,23 @@ describe('admin routes', () => {
 
       // Clean up
       await app.fetch(
-        new Request('http://example.com/api/routes?path=/cross-domain-test&domain=link.example.com', {
-          method: 'DELETE',
-          headers: { 'X-Admin-Key': validApiKey },
-        }),
-        testEnv
+        new Request(
+          'http://henrychong.com/api/routes?path=/cross-domain-test&domain=link.henrychong.com',
+          {
+            method: 'DELETE',
+            headers: { 'X-Admin-Key': validApiKey },
+          },
+        ),
+        testEnv,
       );
     });
 
     it('returns 404 when updating route without domain param (documents bug fix)', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
-      // Create route on link.example.com
+      // Create route on link.henrychong.com
       await app.fetch(
-        new Request('http://example.com/api/routes?domain=link.example.com', {
+        new Request('http://henrychong.com/api/routes?domain=link.henrychong.com', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -1205,12 +1226,12 @@ describe('admin routes', () => {
             target: 'https://example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       // Try to update without domain param - falls back to default domain, returns 404
       const updateResponse = await app.fetch(
-        new Request('http://example.com/api/routes?path=/cross-domain-update-test', {
+        new Request('http://henrychong.com/api/routes?path=/cross-domain-update-test', {
           method: 'PUT',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -1218,28 +1239,31 @@ describe('admin routes', () => {
           },
           body: JSON.stringify({ enabled: false }),
         }),
-        testEnv
+        testEnv,
       );
 
-      // Without domain param, backend defaults to example.com where route doesn't exist
+      // Without domain param, backend defaults to henrychong.com where route doesn't exist
       expect(updateResponse.status).toBe(404);
 
       // Clean up with correct domain
       await app.fetch(
-        new Request('http://example.com/api/routes?path=/cross-domain-update-test&domain=link.example.com', {
-          method: 'DELETE',
-          headers: { 'X-Admin-Key': validApiKey },
-        }),
-        testEnv
+        new Request(
+          'http://henrychong.com/api/routes?path=/cross-domain-update-test&domain=link.henrychong.com',
+          {
+            method: 'DELETE',
+            headers: { 'X-Admin-Key': validApiKey },
+          },
+        ),
+        testEnv,
       );
     });
 
     it('returns 404 when deleting route without domain param, succeeds with domain', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
-      // Create route on example.net
+      // Create route on vanessahung.net
       await app.fetch(
-        new Request('http://example.com/api/routes?domain=example.net', {
+        new Request('http://henrychong.com/api/routes?domain=vanessahung.net', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -1251,27 +1275,30 @@ describe('admin routes', () => {
             target: 'https://example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       // Try to delete without domain param - should fail with 404
       const deleteWithoutDomain = await app.fetch(
-        new Request('http://example.com/api/routes?path=/cross-domain-delete-test', {
+        new Request('http://henrychong.com/api/routes?path=/cross-domain-delete-test', {
           method: 'DELETE',
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(deleteWithoutDomain.status).toBe(404);
 
       // Delete with correct domain - should succeed
       const deleteWithDomain = await app.fetch(
-        new Request('http://example.com/api/routes?path=/cross-domain-delete-test&domain=example.net', {
-          method: 'DELETE',
-          headers: { 'X-Admin-Key': validApiKey },
-        }),
-        testEnv
+        new Request(
+          'http://henrychong.com/api/routes?path=/cross-domain-delete-test&domain=vanessahung.net',
+          {
+            method: 'DELETE',
+            headers: { 'X-Admin-Key': validApiKey },
+          },
+        ),
+        testEnv,
       );
 
       expect(deleteWithDomain.status).toBe(200);
@@ -1280,9 +1307,9 @@ describe('admin routes', () => {
     it('includes domain field in single-domain list response', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
-      // Create route on link.example.com
+      // Create route on link.henrychong.com
       await app.fetch(
-        new Request('http://example.com/api/routes?domain=link.example.com', {
+        new Request('http://henrychong.com/api/routes?domain=link.henrychong.com', {
           method: 'POST',
           headers: {
             'X-Admin-Key': validApiKey,
@@ -1294,15 +1321,15 @@ describe('admin routes', () => {
             target: 'https://example.com',
           }),
         }),
-        testEnv
+        testEnv,
       );
 
       // Get routes for single domain - domain field should be present on each route
       const listResponse = await app.fetch(
-        new Request('http://example.com/api/routes?domain=link.example.com', {
+        new Request('http://henrychong.com/api/routes?domain=link.henrychong.com', {
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(listResponse.status).toBe(200);
@@ -1310,17 +1337,22 @@ describe('admin routes', () => {
       expect(listData.success).toBe(true);
 
       // Find our test route
-      const testRoute = listData.data.routes.find((r: { path: string }) => r.path === '/domain-field-test');
+      const testRoute = listData.data.routes.find(
+        (r: { path: string }) => r.path === '/domain-field-test',
+      );
       expect(testRoute).toBeDefined();
-      expect(testRoute.domain).toBe('link.example.com');
+      expect(testRoute.domain).toBe('link.henrychong.com');
 
       // Clean up
       await app.fetch(
-        new Request('http://example.com/api/routes?path=/domain-field-test&domain=link.example.com', {
-          method: 'DELETE',
-          headers: { 'X-Admin-Key': validApiKey },
-        }),
-        testEnv
+        new Request(
+          'http://henrychong.com/api/routes?path=/domain-field-test&domain=link.henrychong.com',
+          {
+            method: 'DELETE',
+            headers: { 'X-Admin-Key': validApiKey },
+          },
+        ),
+        testEnv,
       );
     });
   });

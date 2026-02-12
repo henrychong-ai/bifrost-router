@@ -47,14 +47,17 @@ export function ProxyPage() {
   const debouncedSearch = useDebounce(filters.search || '', 300);
 
   // Build query params for API
-  const queryParams = useMemo(() => ({
-    limit,
-    offset,
-    domain: filters.domain || undefined,
-    days: filters.days || 1,
-    country: filters.country || undefined,
-    path: debouncedSearch || undefined,
-  }), [limit, offset, filters.domain, filters.days, filters.country, debouncedSearch]);
+  const queryParams = useMemo(
+    () => ({
+      limit,
+      offset,
+      domain: filters.domain || undefined,
+      days: filters.days || 1,
+      country: filters.country || undefined,
+      path: debouncedSearch || undefined,
+    }),
+    [limit, offset, filters.domain, filters.days, filters.country, debouncedSearch],
+  );
 
   const { data, isLoading, error } = useProxyRequests(queryParams);
 
@@ -70,7 +73,12 @@ export function ProxyPage() {
   };
 
   // Check if any filters are active
-  const hasActiveFilters = !!(filters.search || filters.domain || filters.country || (filters.days && filters.days !== 1));
+  const hasActiveFilters = !!(
+    filters.search ||
+    filters.domain ||
+    filters.country ||
+    (filters.days && filters.days !== 1)
+  );
 
   if (error) {
     return (
@@ -78,7 +86,9 @@ export function ProxyPage() {
         <h1 className="text-huge font-gilroy font-bold text-blue-950">Proxy</h1>
         <Card className="border-destructive">
           <CardContent className="pt-6">
-            <p className="text-destructive font-gilroy">Failed to load proxy requests: {error.message}</p>
+            <p className="text-destructive font-gilroy">
+              Failed to load proxy requests: {error.message}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -125,27 +135,61 @@ export function ProxyPage() {
                 <Table>
                   <TableHeader>
                     <TableRow className="border-charcoal-100 bg-muted/30">
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Time</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Domain</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Path</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Target</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Status</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Type</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Size</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Query</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Referrer</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">City</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Country</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Continent</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Colo</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Timezone</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Protocol</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">User Agent</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">IP Address</TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Time
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Domain
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Path
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Target
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Status
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Type
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Size
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Query
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Referrer
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        City
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Country
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Continent
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Colo
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Timezone
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Protocol
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        User Agent
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        IP Address
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {data?.items.map((request) => (
+                    {data?.items.map(request => (
                       <TableRow key={request.id} className="hover:bg-gold-50/50 transition-colors">
                         <TableCell className="text-small font-gilroy whitespace-nowrap">
                           {formatDate(request.createdAt)}
@@ -167,16 +211,24 @@ export function ProxyPage() {
                             <ExternalLink className="h-3 w-3 flex-shrink-0" />
                           </a>
                         </TableCell>
-                        <TableCell className={`font-mono text-small whitespace-nowrap font-medium ${getStatusColor(request.responseStatus)}`}>
+                        <TableCell
+                          className={`font-mono text-small whitespace-nowrap font-medium ${getStatusColor(request.responseStatus)}`}
+                        >
                           {request.responseStatus || '-'}
                         </TableCell>
-                        <TableCell className="font-mono text-small whitespace-nowrap text-charcoal-500 max-w-[120px] truncate" title={request.contentType || ''}>
+                        <TableCell
+                          className="font-mono text-small whitespace-nowrap text-charcoal-500 max-w-[120px] truncate"
+                          title={request.contentType || ''}
+                        >
                           {request.contentType || '-'}
                         </TableCell>
                         <TableCell className="font-mono text-small whitespace-nowrap text-charcoal-500">
                           {formatContentLength(request.contentLength)}
                         </TableCell>
-                        <TableCell className="font-mono text-small max-w-[150px] truncate text-charcoal-500" title={request.queryString || ''}>
+                        <TableCell
+                          className="font-mono text-small max-w-[150px] truncate text-charcoal-500"
+                          title={request.queryString || ''}
+                        >
                           {request.queryString || '-'}
                         </TableCell>
                         <TableCell className="max-w-[200px] truncate text-small font-gilroy text-charcoal-600">
@@ -200,7 +252,10 @@ export function ProxyPage() {
                         <TableCell className="font-mono text-small whitespace-nowrap text-charcoal-500">
                           {request.httpProtocol || '-'}
                         </TableCell>
-                        <TableCell className="max-w-[300px] truncate text-small font-gilroy text-charcoal-400" title={request.userAgent || ''}>
+                        <TableCell
+                          className="max-w-[300px] truncate text-small font-gilroy text-charcoal-400"
+                          title={request.userAgent || ''}
+                        >
                           {request.userAgent || '-'}
                         </TableCell>
                         <TableCell className="font-mono text-small whitespace-nowrap text-charcoal-400">
@@ -210,7 +265,10 @@ export function ProxyPage() {
                     ))}
                     {(!data?.items || data.items.length === 0) && (
                       <TableRow>
-                        <TableCell colSpan={17} className="text-center text-muted-foreground font-gilroy">
+                        <TableCell
+                          colSpan={17}
+                          className="text-center text-muted-foreground font-gilroy"
+                        >
                           No proxy requests recorded
                         </TableCell>
                       </TableRow>

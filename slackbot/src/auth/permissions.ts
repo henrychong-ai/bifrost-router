@@ -4,10 +4,7 @@
  * Manages user permissions stored in KV for Slack-based route management
  */
 
-import type {
-  SlackUserPermissions,
-  PermissionLevel,
-} from './types';
+import type { SlackUserPermissions, PermissionLevel } from './types';
 import { hasPermission, TOOL_PERMISSIONS } from './types';
 
 /**
@@ -24,7 +21,7 @@ const KV_PREFIX = 'slack-permissions:';
  */
 export async function getUserPermissions(
   kv: KVNamespace,
-  userId: string
+  userId: string,
 ): Promise<SlackUserPermissions | null> {
   const key = `${KV_PREFIX}${userId}`;
   const data = await kv.get<SlackUserPermissions>(key, 'json');
@@ -35,7 +32,7 @@ export async function getUserPermissions(
         level: 'info',
         message: 'User permissions not found',
         userId,
-      })
+      }),
     );
     return null;
   }
@@ -51,7 +48,7 @@ export async function getUserPermissions(
  */
 export async function setUserPermissions(
   kv: KVNamespace,
-  permissions: SlackUserPermissions
+  permissions: SlackUserPermissions,
 ): Promise<void> {
   const key = `${KV_PREFIX}${permissions.user_id}`;
   await kv.put(key, JSON.stringify(permissions));
@@ -62,7 +59,7 @@ export async function setUserPermissions(
       message: 'User permissions updated',
       userId: permissions.user_id,
       userName: permissions.user_name,
-    })
+    }),
   );
 }
 
@@ -72,10 +69,7 @@ export async function setUserPermissions(
  * @param kv - KV namespace binding
  * @param userId - Slack user ID
  */
-export async function deleteUserPermissions(
-  kv: KVNamespace,
-  userId: string
-): Promise<void> {
+export async function deleteUserPermissions(kv: KVNamespace, userId: string): Promise<void> {
   const key = `${KV_PREFIX}${userId}`;
   await kv.delete(key);
 
@@ -84,7 +78,7 @@ export async function deleteUserPermissions(
       level: 'info',
       message: 'User permissions deleted',
       userId,
-    })
+    }),
   );
 }
 
@@ -107,7 +101,7 @@ export interface PermissionCheckResult {
 export function checkToolPermission(
   permissions: SlackUserPermissions | null,
   toolName: string,
-  domain: string
+  domain: string,
 ): PermissionCheckResult {
   const requiredLevel = TOOL_PERMISSIONS[toolName] || 'admin';
 
@@ -153,7 +147,7 @@ export function checkToolPermission(
  */
 export function getAccessibleDomains(
   permissions: SlackUserPermissions | null,
-  minLevel: PermissionLevel = 'read'
+  minLevel: PermissionLevel = 'read',
 ): string[] {
   if (!permissions) {
     return [];
@@ -179,8 +173,7 @@ export function formatPermissions(permissions: SlackUserPermissions): string {
     lines.push('No domain permissions configured.');
   } else {
     for (const [domain, level] of entries) {
-      const emoji =
-        level === 'admin' ? ':star:' : level === 'edit' ? ':pencil2:' : ':eye:';
+      const emoji = level === 'admin' ? ':star:' : level === 'edit' ? ':pencil2:' : ':eye:';
       lines.push(`${emoji} \`${domain}\` - ${level}`);
     }
   }

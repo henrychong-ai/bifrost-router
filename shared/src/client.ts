@@ -28,7 +28,7 @@ type FetchFunction = (input: string | URL | Request, init?: RequestInit) => Prom
  * Configuration for EdgeRouterClient
  */
 export interface EdgeRouterClientConfig {
-  /** Base URL for the Admin API (e.g., 'https://bifrost.example.com') */
+  /** Base URL for the Admin API (e.g., 'https://henrychong.com') */
   baseUrl: string;
 
   /** Admin API key for authentication */
@@ -48,7 +48,7 @@ export class EdgeRouterError extends Error {
   constructor(
     message: string,
     public readonly status: number,
-    public readonly details?: unknown
+    public readonly details?: unknown,
   ) {
     super(message);
     this.name = 'EdgeRouterError';
@@ -80,7 +80,7 @@ export class EdgeRouterClient {
     options: {
       body?: unknown;
       params?: Record<string, string | number | undefined>;
-    } = {}
+    } = {},
   ): Promise<T> {
     // Build URL with query params
     const url = new URL(`${this.baseUrl}${path}`);
@@ -109,7 +109,7 @@ export class EdgeRouterClient {
     } catch {
       throw new EdgeRouterError(
         `Failed to parse response: ${response.statusText}`,
-        response.status
+        response.status,
       );
     }
 
@@ -118,7 +118,7 @@ export class EdgeRouterClient {
       throw new EdgeRouterError(
         (data as ApiResponse).error ?? `Request failed: ${response.statusText}`,
         response.status,
-        (data as ApiResponse).details
+        (data as ApiResponse).details,
       );
     }
 
@@ -195,20 +195,6 @@ export class EdgeRouterClient {
   }
 
   /**
-   * Migrate a route from one path to another
-   */
-  async migrateRoute(oldPath: string, newPath: string, domain?: string): Promise<Route> {
-    const effectiveDomain = this.getDomain(domain);
-    return this.request<Route>('POST', '/api/routes/migrate', {
-      params: {
-        oldPath,
-        newPath,
-        ...(effectiveDomain && { domain: effectiveDomain }),
-      },
-    });
-  }
-
-  /**
    * Delete a route
    *
    * Uses query parameter for path to handle "/" and other special characters correctly.
@@ -228,6 +214,20 @@ export class EdgeRouterClient {
    */
   async toggleRoute(path: string, enabled: boolean, domain?: string): Promise<Route> {
     return this.updateRoute(path, { enabled }, domain);
+  }
+
+  /**
+   * Migrate a route to a new path
+   */
+  async migrateRoute(oldPath: string, newPath: string, domain?: string): Promise<Route> {
+    const effectiveDomain = this.getDomain(domain);
+    return this.request<Route>('POST', '/api/routes/migrate', {
+      params: {
+        oldPath,
+        newPath,
+        ...(effectiveDomain && { domain: effectiveDomain }),
+      },
+    });
   }
 
   // ===========================================================================
@@ -288,12 +288,16 @@ export class EdgeRouterClient {
     const effectiveDomain = this.getDomain(options.domain);
     // Remove leading slash from slug for URL path
     const cleanSlug = slug.startsWith('/') ? slug.slice(1) : slug;
-    return this.request<SlugStats>('GET', `/api/analytics/clicks/${encodeURIComponent(cleanSlug)}`, {
-      params: {
-        domain: effectiveDomain,
-        days: options.days,
+    return this.request<SlugStats>(
+      'GET',
+      `/api/analytics/clicks/${encodeURIComponent(cleanSlug)}`,
+      {
+        params: {
+          domain: effectiveDomain,
+          days: options.days,
+        },
       },
-    });
+    );
   }
 }
 
@@ -302,7 +306,7 @@ export class EdgeRouterClient {
  *
  * Expected environment variables:
  * - EDGE_ROUTER_API_KEY: Admin API key (required)
- * - EDGE_ROUTER_URL: Base URL (default: 'https://bifrost.example.com')
+ * - EDGE_ROUTER_URL: Base URL (default: 'https://henrychong.com')
  * - EDGE_ROUTER_DOMAIN: Default domain (optional)
  */
 export function createClientFromEnv(env?: Record<string, string | undefined>): EdgeRouterClient {
@@ -314,7 +318,7 @@ export function createClientFromEnv(env?: Record<string, string | undefined>): E
   }
 
   return new EdgeRouterClient({
-    baseUrl: resolvedEnv.EDGE_ROUTER_URL ?? 'https://bifrost.example.com',
+    baseUrl: resolvedEnv.EDGE_ROUTER_URL ?? 'https://henrychong.com',
     apiKey,
     defaultDomain: resolvedEnv.EDGE_ROUTER_DOMAIN,
   });

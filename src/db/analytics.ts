@@ -1,5 +1,6 @@
 import { createDb } from './index';
 import { linkClicks, pageViews, fileDownloads, proxyRequests, auditLogs } from './schema';
+import type { AuditAction } from '@bifrost/shared';
 
 /**
  * Data for recording a link click
@@ -99,7 +100,7 @@ export async function recordClick(db: D1Database, data: LinkClickData): Promise<
         message: 'Link click recorded',
         domain: data.domain,
         slug: data.slug,
-      })
+      }),
     );
   } catch (error) {
     // Log error but don't throw - analytics should never break main functionality
@@ -110,7 +111,7 @@ export async function recordClick(db: D1Database, data: LinkClickData): Promise<
         error: error instanceof Error ? error.message : String(error),
         domain: data.domain,
         slug: data.slug,
-      })
+      }),
     );
   }
 }
@@ -150,7 +151,7 @@ export async function recordPageView(db: D1Database, data: PageViewData): Promis
         message: 'Page view recorded',
         domain: data.domain,
         path: data.path,
-      })
+      }),
     );
   } catch (error) {
     // Log error but don't throw - analytics should never break main functionality
@@ -161,7 +162,7 @@ export async function recordPageView(db: D1Database, data: PageViewData): Promis
         error: error instanceof Error ? error.message : String(error),
         domain: data.domain,
         path: data.path,
-      })
+      }),
     );
   }
 }
@@ -249,7 +250,7 @@ export async function recordFileDownload(db: D1Database, data: FileDownloadData)
         domain: data.domain,
         path: data.path,
         r2Key: data.r2Key,
-      })
+      }),
     );
   } catch (error) {
     // Log error but don't throw - analytics should never break main functionality
@@ -261,7 +262,7 @@ export async function recordFileDownload(db: D1Database, data: FileDownloadData)
         domain: data.domain,
         path: data.path,
         r2Key: data.r2Key,
-      })
+      }),
     );
   }
 }
@@ -344,7 +345,7 @@ export async function recordProxyRequest(db: D1Database, data: ProxyRequestData)
         domain: data.domain,
         path: data.path,
         targetUrl: data.targetUrl,
-      })
+      }),
     );
   } catch (error) {
     // Log error but don't throw - analytics should never break main functionality
@@ -356,15 +357,13 @@ export async function recordProxyRequest(db: D1Database, data: ProxyRequestData)
         domain: data.domain,
         path: data.path,
         targetUrl: data.targetUrl,
-      })
+      }),
     );
   }
 }
 
-/**
- * Audit action types
- */
-export type AuditAction = 'create' | 'update' | 'delete' | 'toggle' | 'seed' | 'migrate';
+// Re-export AuditAction for backwards compatibility
+export type { AuditAction };
 
 /**
  * Data for recording an audit log entry
@@ -418,7 +417,7 @@ export async function recordAuditLog(db: D1Database, data: AuditLogData): Promis
         action: data.action,
         actor: data.actorLogin,
         path: data.path,
-      })
+      }),
     );
   } catch (error) {
     // Log error but don't throw - audit logging should never break main functionality
@@ -430,7 +429,7 @@ export async function recordAuditLog(db: D1Database, data: AuditLogData): Promis
         domain: data.domain,
         action: data.action,
         path: data.path,
-      })
+      }),
     );
   }
 }

@@ -12,7 +12,7 @@ export class KVError extends Error {
     message: string,
     public readonly operation: 'read' | 'write' | 'delete' | 'list',
     public readonly key?: string,
-    public readonly cause?: Error
+    public readonly cause?: Error,
   ) {
     super(message);
     this.name = 'KVError';
@@ -62,9 +62,7 @@ export class KVListError extends KVError {
 /**
  * Result type for KV operations
  */
-export type KVResult<T> =
-  | { success: true; data: T }
-  | { success: false; error: KVError };
+export type KVResult<T> = { success: true; data: T } | { success: false; error: KVError };
 
 /**
  * Wrap a KV operation with error handling
@@ -75,15 +73,13 @@ export type KVResult<T> =
  */
 export async function withKVErrorHandling<T>(
   operation: () => Promise<T>,
-  errorFactory: (cause: Error) => KVError
+  errorFactory: (cause: Error) => KVError,
 ): Promise<KVResult<T>> {
   try {
     const data = await operation();
     return { success: true, data };
   } catch (error) {
-    const kvError = errorFactory(
-      error instanceof Error ? error : new Error(String(error))
-    );
+    const kvError = errorFactory(error instanceof Error ? error : new Error(String(error)));
 
     console.error(
       JSON.stringify({
@@ -92,7 +88,7 @@ export async function withKVErrorHandling<T>(
         operation: kvError.operation,
         key: kvError.key,
         cause: kvError.cause?.message,
-      })
+      }),
     );
 
     return { success: false, error: kvError };

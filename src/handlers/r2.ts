@@ -20,10 +20,7 @@ export const CACHE_STATUS_HEADER = 'X-Cache-Status';
  * - Path traversal protection
  * - Cloudflare Cache API integration for edge caching
  */
-export async function handleR2(
-  c: Context<AppEnv>,
-  route: KVRouteConfig
-): Promise<Response> {
+export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promise<Response> {
   // Get bucket name from route config, default to "files"
   const bucketName: R2BucketName = route.bucket ?? 'files';
 
@@ -35,12 +32,9 @@ export async function handleR2(
         message: 'Invalid R2 bucket name',
         path: route.path,
         bucket: bucketName,
-      })
+      }),
     );
-    return c.json(
-      { error: `Invalid bucket: ${bucketName}` },
-      400
-    );
+    return c.json({ error: `Invalid bucket: ${bucketName}` }, 400);
   }
 
   // Get the binding name and access the bucket
@@ -55,12 +49,9 @@ export async function handleR2(
         path: route.path,
         bucket: bucketName,
         binding: bindingName,
-      })
+      }),
     );
-    return c.json(
-      { error: `R2 bucket not configured: ${bucketName}` },
-      500
-    );
+    return c.json({ error: `R2 bucket not configured: ${bucketName}` }, 500);
   }
 
   // Validate and sanitize R2 key for path traversal protection
@@ -73,14 +64,14 @@ export async function handleR2(
         path: route.path,
         target: route.target,
         error: validation.error,
-      })
+      }),
     );
     return c.json(
       {
         error: 'Invalid file path',
         message: 'The requested file path is not allowed.',
       },
-      400
+      400,
     );
   }
 
@@ -106,7 +97,7 @@ export async function handleR2(
         path: route.path,
         key: route.target,
         bucket: bucketName,
-      })
+      }),
     );
 
     return new Response(cachedResponse.body, {
@@ -120,10 +111,7 @@ export async function handleR2(
   const object = await bucket.get(validation.sanitizedKey);
 
   if (!object) {
-    return c.json(
-      { error: 'File not found', key: route.target },
-      404
-    );
+    return c.json({ error: 'File not found', key: route.target }, 404);
   }
 
   // Determine content type
@@ -136,7 +124,7 @@ export async function handleR2(
   const headers = new Headers({
     'Content-Type': contentType,
     'Content-Length': String(object.size),
-    'ETag': object.etag,
+    ETag: object.etag,
     'Cache-Control': route.cacheControl || 'public, max-age=3600',
     [CACHE_STATUS_HEADER]: 'MISS',
   });
@@ -173,7 +161,7 @@ export async function handleR2(
       path: route.path,
       key: route.target,
       bucket: bucketName,
-    })
+    }),
   );
 
   return response;

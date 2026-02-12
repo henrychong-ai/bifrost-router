@@ -111,14 +111,14 @@ export const AnalyticsSummarySchema = z.object({
       target: z.string(),
       country: z.string().nullable(),
       createdAt: z.number(),
-    })
+    }),
   ),
   recentViews: z.array(
     z.object({
       path: z.string(),
       country: z.string().nullable(),
       createdAt: z.number(),
-    })
+    }),
   ),
 });
 export type AnalyticsSummary = z.infer<typeof AnalyticsSummarySchema>;
@@ -189,9 +189,11 @@ export const ApiResponseSchema = <T extends z.ZodTypeAny>(dataSchema: T) =>
     error: z.string().optional(),
   });
 
-export const RoutesListResponseSchema = ApiResponseSchema(z.object({
-  routes: z.array(RouteSchema),
-}));
+export const RoutesListResponseSchema = ApiResponseSchema(
+  z.object({
+    routes: z.array(RouteSchema),
+  }),
+);
 export const RouteResponseSchema = ApiResponseSchema(RouteSchema);
 export const AnalyticsSummaryResponseSchema = ApiResponseSchema(AnalyticsSummarySchema);
 

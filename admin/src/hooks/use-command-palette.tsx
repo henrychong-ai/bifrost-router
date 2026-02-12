@@ -16,7 +16,7 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
 
   const open = useCallback(() => setIsOpen(true), []);
   const close = useCallback(() => setIsOpen(false), []);
-  const toggle = useCallback(() => setIsOpen((prev) => !prev), []);
+  const toggle = useCallback(() => setIsOpen(prev => !prev), []);
 
   return (
     <CommandPaletteContext.Provider value={{ isOpen, open, close, toggle }}>

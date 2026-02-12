@@ -76,7 +76,7 @@ function formatAnalyticsSummary(summary: AnalyticsSummary): string {
 
   if (summary.recentClicks.length > 0) {
     lines.push('', '⏱️ Recent Clicks');
-    summary.recentClicks.forEach((click) => {
+    summary.recentClicks.forEach(click => {
       const country = click.country ? ` (${click.country})` : '';
       lines.push(`• ${click.slug}${country} - ${formatRelativeTime(click.createdAt)}`);
     });
@@ -90,7 +90,7 @@ function formatAnalyticsSummary(summary: AnalyticsSummary): string {
  */
 function formatClickList(
   response: PaginatedResponse<LinkClick>,
-  domain: string | undefined
+  domain: string | undefined,
 ): string {
   const { items, meta } = response;
 
@@ -103,7 +103,7 @@ function formatClickList(
     '',
   ];
 
-  items.forEach((click) => {
+  items.forEach(click => {
     const country = click.country ? ` (${click.country})` : '';
     const time = formatRelativeTime(click.createdAt);
     lines.push(`• ${click.slug}${country} → ${click.targetUrl} - ${time}`);
@@ -119,10 +119,7 @@ function formatClickList(
 /**
  * Format view list for display
  */
-function formatViewList(
-  response: PaginatedResponse<PageView>,
-  domain: string | undefined
-): string {
+function formatViewList(response: PaginatedResponse<PageView>, domain: string | undefined): string {
   const { items, meta } = response;
 
   if (items.length === 0) {
@@ -134,7 +131,7 @@ function formatViewList(
     '',
   ];
 
-  items.forEach((view) => {
+  items.forEach(view => {
     const country = view.country ? ` (${view.country})` : '';
     const time = formatRelativeTime(view.createdAt);
     lines.push(`• ${view.path}${country} - ${time}`);
@@ -176,7 +173,7 @@ function formatSlugStats(stats: SlugStats): string {
   if (stats.clicksByDay.length > 0) {
     lines.push('', '📈 Recent Activity');
     // Show last 7 days
-    stats.clicksByDay.slice(-7).forEach((day) => {
+    stats.clicksByDay.slice(-7).forEach(day => {
       lines.push(`• ${day.date}: ${formatNumber(day.count)} clicks`);
     });
   }
@@ -190,7 +187,7 @@ function formatSlugStats(stats: SlugStats): string {
 export async function getAnalyticsSummary(
   client: EdgeRouterClient,
   args: { domain?: string; days?: number },
-  defaultDomain?: string
+  defaultDomain?: string,
 ): Promise<string> {
   const domain = args.domain || defaultDomain;
 
@@ -218,7 +215,7 @@ export async function getClicks(
     slug?: string;
     country?: string;
   },
-  defaultDomain?: string
+  defaultDomain?: string,
 ): Promise<string> {
   const domain = args.domain || defaultDomain;
 
@@ -250,7 +247,7 @@ export async function getViews(
     path?: string;
     country?: string;
   },
-  defaultDomain?: string
+  defaultDomain?: string,
 ): Promise<string> {
   const domain = args.domain || defaultDomain;
 
@@ -275,7 +272,7 @@ export async function getViews(
 export async function getSlugStats(
   client: EdgeRouterClient,
   args: { slug: string; domain?: string; days?: number },
-  defaultDomain?: string
+  defaultDomain?: string,
 ): Promise<string> {
   const domain = args.domain || defaultDomain;
 

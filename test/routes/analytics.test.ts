@@ -8,7 +8,7 @@ describe('analytics routes', () => {
   const validApiKey = 'test-api-key-12345';
 
   // Create test env with ADMIN_API_DOMAIN set to enable domain restriction
-  const testEnv = { ...env, ADMIN_API_DOMAIN: 'example.com' };
+  const testEnv = { ...env, ADMIN_API_DOMAIN: 'henrychong.com' };
 
   // Initialize D1 database schema before tests
   beforeAll(async () => {
@@ -52,20 +52,16 @@ describe('analytics routes', () => {
   });
 
   // Helper to make authenticated requests
-  const makeRequest = (
-    app: Hono<AppEnv>,
-    path: string,
-    options: RequestInit = {}
-  ) => {
+  const makeRequest = (app: Hono<AppEnv>, path: string, options: RequestInit = {}) => {
     return app.fetch(
-      new Request(`http://example.com${path}`, {
+      new Request(`http://henrychong.com${path}`, {
         ...options,
         headers: {
           'X-Admin-Key': validApiKey,
           ...options.headers,
         },
       }),
-      testEnv
+      testEnv,
     );
   };
 
@@ -74,8 +70,8 @@ describe('analytics routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/analytics/summary'),
-        testEnv
+        new Request('http://henrychong.com/api/analytics/summary'),
+        testEnv,
       );
 
       expect(response.status).toBe(401);
@@ -85,8 +81,8 @@ describe('analytics routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/analytics/clicks'),
-        testEnv
+        new Request('http://henrychong.com/api/analytics/clicks'),
+        testEnv,
       );
 
       expect(response.status).toBe(401);
@@ -96,8 +92,8 @@ describe('analytics routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/analytics/views'),
-        testEnv
+        new Request('http://henrychong.com/api/analytics/views'),
+        testEnv,
       );
 
       expect(response.status).toBe(401);
@@ -112,7 +108,7 @@ describe('analytics routes', () => {
         new Request('http://evil.com/api/analytics/summary', {
           headers: { 'X-Admin-Key': validApiKey },
         }),
-        testEnv
+        testEnv,
       );
 
       expect(response.status).toBe(404);
@@ -153,15 +149,12 @@ describe('analytics routes', () => {
     it('accepts domain parameter', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
-      const response = await makeRequest(
-        app,
-        '/api/analytics/summary?domain=example.com'
-      );
+      const response = await makeRequest(app, '/api/analytics/summary?domain=henrychong.com');
 
       expect(response.status).toBe(200);
       const data = await response.json();
       expect(data.success).toBe(true);
-      expect(data.data.domain).toBe('example.com');
+      expect(data.data.domain).toBe('henrychong.com');
     });
 
     it('validates days parameter range', async () => {
@@ -218,10 +211,7 @@ describe('analytics routes', () => {
     it('accepts pagination parameters', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
-      const response = await makeRequest(
-        app,
-        '/api/analytics/clicks?limit=10&offset=5'
-      );
+      const response = await makeRequest(app, '/api/analytics/clicks?limit=10&offset=5');
 
       expect(response.status).toBe(200);
       const data = await response.json();
@@ -234,7 +224,7 @@ describe('analytics routes', () => {
 
       const response = await makeRequest(
         app,
-        '/api/analytics/clicks?domain=example.com&country=SG&slug=/github'
+        '/api/analytics/clicks?domain=henrychong.com&country=SG&slug=/github',
       );
 
       expect(response.status).toBe(200);
@@ -245,10 +235,7 @@ describe('analytics routes', () => {
     it('validates limit maximum', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
-      const response = await makeRequest(
-        app,
-        '/api/analytics/clicks?limit=2000'
-      );
+      const response = await makeRequest(app, '/api/analytics/clicks?limit=2000');
 
       expect(response.status).toBe(400);
       const data = await response.json();
@@ -260,10 +247,7 @@ describe('analytics routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       // Country code must be exactly 2 characters
-      const response = await makeRequest(
-        app,
-        '/api/analytics/clicks?country=USA'
-      );
+      const response = await makeRequest(app, '/api/analytics/clicks?country=USA');
 
       expect(response.status).toBe(400);
       const data = await response.json();
@@ -297,10 +281,7 @@ describe('analytics routes', () => {
     it('accepts path filter parameter', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
-      const response = await makeRequest(
-        app,
-        '/api/analytics/views?path=/about'
-      );
+      const response = await makeRequest(app, '/api/analytics/views?path=/about');
 
       expect(response.status).toBe(200);
       const data = await response.json();
@@ -310,10 +291,7 @@ describe('analytics routes', () => {
     it('accepts pagination parameters', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
-      const response = await makeRequest(
-        app,
-        '/api/analytics/views?limit=50&offset=10'
-      );
+      const response = await makeRequest(app, '/api/analytics/views?limit=50&offset=10');
 
       expect(response.status).toBe(200);
       const data = await response.json();
@@ -326,10 +304,7 @@ describe('analytics routes', () => {
     it('returns 404 for non-existent slug', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
-      const response = await makeRequest(
-        app,
-        '/api/analytics/clicks/nonexistent-slug-12345'
-      );
+      const response = await makeRequest(app, '/api/analytics/clicks/nonexistent-slug-12345');
 
       expect(response.status).toBe(404);
       const data = await response.json();
@@ -339,10 +314,7 @@ describe('analytics routes', () => {
     it('accepts days parameter', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
-      const response = await makeRequest(
-        app,
-        '/api/analytics/clicks/test?days=7'
-      );
+      const response = await makeRequest(app, '/api/analytics/clicks/test?days=7');
 
       // Will return 404 if no clicks, but validates the parameter
       expect([200, 404]).toContain(response.status);
@@ -351,10 +323,7 @@ describe('analytics routes', () => {
     it('validates days parameter', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
-      const response = await makeRequest(
-        app,
-        '/api/analytics/clicks/test?days=500'
-      );
+      const response = await makeRequest(app, '/api/analytics/clicks/test?days=500');
 
       expect(response.status).toBe(400);
       const data = await response.json();

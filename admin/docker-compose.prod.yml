@@ -3,7 +3,7 @@
 
 services:
   admin:
-    image: ghcr.io/your-username/bifrost-dashboard:latest
+    image: ghcr.io/henrychong-ai/bifrost-dashboard:latest
     ports:
       - "3001:3001"
     restart: unless-stopped

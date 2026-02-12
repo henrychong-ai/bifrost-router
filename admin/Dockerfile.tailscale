@@ -27,7 +27,7 @@ RUN pnpm run build
 WORKDIR /app/admin
 
 # Build args for environment variables
-ARG VITE_API_URL=https://bifrost.example.com
+ARG VITE_API_URL=https://henrychong.com
 ARG VITE_ADMIN_API_KEY
 
 # Build the application
@@ -36,8 +36,11 @@ RUN VITE_API_URL=$VITE_API_URL VITE_ADMIN_API_KEY=$VITE_ADMIN_API_KEY pnpm run b
 # Production stage with Tailscale
 FROM nginx:alpine
 
-# Install Tailscale
-RUN apk add --no-cache tailscale ca-certificates iptables ip6tables
+# Install Tailscale from official image (avoids Alpine repo version lag)
+COPY --from=docker.io/tailscale/tailscale:stable /usr/local/bin/tailscale /usr/local/bin/tailscale
+COPY --from=docker.io/tailscale/tailscale:stable /usr/local/bin/tailscaled /usr/local/bin/tailscaled
+RUN apk add --no-cache ca-certificates iptables ip6tables \
+    && mkdir -p /var/run/tailscale /var/cache/tailscale /var/lib/tailscale
 
 # Copy built assets
 COPY --from=builder /app/admin/dist /usr/share/nginx/html

@@ -102,7 +102,7 @@ function getDaysAgoTimestamp(days: number): number {
  */
 export async function getAnalyticsSummary(
   db: Database,
-  options: AnalyticsQueryOptions = {}
+  options: AnalyticsQueryOptions = {},
 ): Promise<AnalyticsSummary> {
   const { domain, days = 30 } = options;
   const startTime = getDaysAgoTimestamp(days);
@@ -253,20 +253,20 @@ export async function getAnalyticsSummary(
       total: viewStats[0]?.total ?? 0,
       uniquePaths: viewStats[0]?.uniquePaths ?? 0,
     },
-    topClicks: topClicks.map((r) => ({
+    topClicks: topClicks.map(r => ({
       name: r.slug,
       count: r.count,
       extra: r.target,
     })),
-    topPages: topPages.map((r) => ({
+    topPages: topPages.map(r => ({
       name: r.path,
       count: r.count,
     })),
-    topCountries: topClickCountries.map((r) => ({
+    topCountries: topClickCountries.map(r => ({
       name: r.country ?? 'Unknown',
       count: r.count,
     })),
-    topReferrers: topReferrers.map((r) => ({
+    topReferrers: topReferrers.map(r => ({
       name: r.referrer ?? 'Direct',
       count: r.count,
     })),
@@ -282,7 +282,7 @@ export async function getAnalyticsSummary(
  */
 export async function getClicks(
   db: Database,
-  options: AnalyticsQueryOptions = {}
+  options: AnalyticsQueryOptions = {},
 ): Promise<PaginatedResponse<typeof linkClicks.$inferSelect>> {
   const { domain, days = 30, limit = 100, offset = 0, slug, country } = options;
   const startTime = getDaysAgoTimestamp(days);
@@ -326,7 +326,7 @@ export async function getClicks(
  */
 export async function getViews(
   db: Database,
-  options: AnalyticsQueryOptions = {}
+  options: AnalyticsQueryOptions = {},
 ): Promise<PaginatedResponse<typeof pageViews.$inferSelect>> {
   const { domain, days = 30, limit = 100, offset = 0, path, country } = options;
   const startTime = getDaysAgoTimestamp(days);
@@ -371,7 +371,7 @@ export async function getViews(
 export async function getSlugStats(
   db: Database,
   targetSlug: string,
-  options: AnalyticsQueryOptions = {}
+  options: AnalyticsQueryOptions = {},
 ): Promise<{
   slug: string;
   totalClicks: number;
@@ -383,10 +383,7 @@ export async function getSlugStats(
   const { domain, days = 30 } = options;
   const startTime = getDaysAgoTimestamp(days);
 
-  const conditions = [
-    gte(linkClicks.createdAt, startTime),
-    eq(linkClicks.slug, targetSlug),
-  ];
+  const conditions = [gte(linkClicks.createdAt, startTime), eq(linkClicks.slug, targetSlug)];
   if (domain) conditions.push(eq(linkClicks.domain, domain));
 
   const [stats, clicksByDay, topCountries, topReferrers] = await Promise.all([
@@ -437,11 +434,11 @@ export async function getSlugStats(
     totalClicks: stats[0]?.total ?? 0,
     target: stats[0]?.target ?? null,
     clicksByDay: clicksByDay ?? [],
-    topCountries: topCountries.map((r) => ({
+    topCountries: topCountries.map(r => ({
       name: r.country ?? 'Unknown',
       count: r.count,
     })),
-    topReferrers: topReferrers.map((r) => ({
+    topReferrers: topReferrers.map(r => ({
       name: r.referrer ?? 'Direct',
       count: r.count,
     })),
@@ -453,7 +450,7 @@ export async function getSlugStats(
  */
 export async function getDownloads(
   db: Database,
-  options: AnalyticsQueryOptions = {}
+  options: AnalyticsQueryOptions = {},
 ): Promise<PaginatedResponse<typeof fileDownloads.$inferSelect>> {
   const { domain, days = 30, limit = 100, offset = 0, path, r2Key, country } = options;
   const startTime = getDaysAgoTimestamp(days);
@@ -499,7 +496,7 @@ export async function getDownloads(
 export async function getDownloadStats(
   db: Database,
   targetPath: string,
-  options: AnalyticsQueryOptions = {}
+  options: AnalyticsQueryOptions = {},
 ): Promise<{
   path: string;
   totalDownloads: number;
@@ -512,10 +509,7 @@ export async function getDownloadStats(
   const { domain, days = 30 } = options;
   const startTime = getDaysAgoTimestamp(days);
 
-  const conditions = [
-    gte(fileDownloads.createdAt, startTime),
-    eq(fileDownloads.path, targetPath),
-  ];
+  const conditions = [gte(fileDownloads.createdAt, startTime), eq(fileDownloads.path, targetPath)];
   if (domain) conditions.push(eq(fileDownloads.domain, domain));
 
   const [stats, totalBytesResult, downloadsByDay, topCountries, topReferrers] = await Promise.all([
@@ -574,11 +568,11 @@ export async function getDownloadStats(
     r2Key: stats[0]?.r2Key ?? null,
     totalBytes: totalBytesResult?.[0]?.totalBytes ?? 0,
     downloadsByDay: downloadsByDay ?? [],
-    topCountries: topCountries.map((r) => ({
+    topCountries: topCountries.map(r => ({
       name: r.country ?? 'Unknown',
       count: r.count,
     })),
-    topReferrers: topReferrers.map((r) => ({
+    topReferrers: topReferrers.map(r => ({
       name: r.referrer ?? 'Direct',
       count: r.count,
     })),
@@ -590,7 +584,7 @@ export async function getDownloadStats(
  */
 export async function getProxyRequests(
   db: Database,
-  options: AnalyticsQueryOptions = {}
+  options: AnalyticsQueryOptions = {},
 ): Promise<PaginatedResponse<typeof proxyRequests.$inferSelect>> {
   const { domain, days = 30, limit = 100, offset = 0, path, targetUrl, country } = options;
   const startTime = getDaysAgoTimestamp(days);
@@ -636,7 +630,7 @@ export async function getProxyRequests(
 export async function getProxyStats(
   db: Database,
   targetPath: string,
-  options: AnalyticsQueryOptions = {}
+  options: AnalyticsQueryOptions = {},
 ): Promise<{
   path: string;
   totalRequests: number;
@@ -649,10 +643,7 @@ export async function getProxyStats(
   const { domain, days = 30 } = options;
   const startTime = getDaysAgoTimestamp(days);
 
-  const conditions = [
-    gte(proxyRequests.createdAt, startTime),
-    eq(proxyRequests.path, targetPath),
-  ];
+  const conditions = [gte(proxyRequests.createdAt, startTime), eq(proxyRequests.path, targetPath)];
   if (domain) conditions.push(eq(proxyRequests.domain, domain));
 
   const [stats, requestsByDay, topCountries, topReferrers, statusCodes] = await Promise.all([
@@ -714,15 +705,15 @@ export async function getProxyStats(
     totalRequests: stats[0]?.total ?? 0,
     targetUrl: stats[0]?.targetUrl ?? null,
     requestsByDay: requestsByDay ?? [],
-    topCountries: topCountries.map((r) => ({
+    topCountries: topCountries.map(r => ({
       name: r.country ?? 'Unknown',
       count: r.count,
     })),
-    topReferrers: topReferrers.map((r) => ({
+    topReferrers: topReferrers.map(r => ({
       name: r.referrer ?? 'Direct',
       count: r.count,
     })),
-    statusCodes: statusCodes.map((r) => ({
+    statusCodes: statusCodes.map(r => ({
       name: String(r.status ?? 'Unknown'),
       count: r.count,
     })),
@@ -754,7 +745,7 @@ export interface AuditQueryOptions {
  */
 export async function getAuditLogs(
   db: Database,
-  options: AuditQueryOptions = {}
+  options: AuditQueryOptions = {},
 ): Promise<PaginatedResponse<typeof auditLogs.$inferSelect>> {
   const { domain, action, actor, path, days = 30, limit = 100, offset = 0 } = options;
   const startTime = getDaysAgoTimestamp(days);

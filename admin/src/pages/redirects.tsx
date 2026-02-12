@@ -30,14 +30,17 @@ export function RedirectsPage() {
   const debouncedSearch = useDebounce(filters.search || '', 300);
 
   // Build query params for API
-  const queryParams = useMemo(() => ({
-    limit,
-    offset,
-    domain: filters.domain || undefined,
-    days: filters.days || 1,
-    country: filters.country || undefined,
-    slug: debouncedSearch || undefined,
-  }), [limit, offset, filters.domain, filters.days, filters.country, debouncedSearch]);
+  const queryParams = useMemo(
+    () => ({
+      limit,
+      offset,
+      domain: filters.domain || undefined,
+      days: filters.days || 1,
+      country: filters.country || undefined,
+      slug: debouncedSearch || undefined,
+    }),
+    [limit, offset, filters.domain, filters.days, filters.country, debouncedSearch],
+  );
 
   const { data, isLoading, error } = useClicks(queryParams);
 
@@ -53,7 +56,12 @@ export function RedirectsPage() {
   };
 
   // Check if any filters are active
-  const hasActiveFilters = !!(filters.search || filters.domain || filters.country || (filters.days && filters.days !== 1));
+  const hasActiveFilters = !!(
+    filters.search ||
+    filters.domain ||
+    filters.country ||
+    (filters.days && filters.days !== 1)
+  );
 
   if (error) {
     return (
@@ -61,7 +69,9 @@ export function RedirectsPage() {
         <h1 className="text-huge font-gilroy font-bold text-blue-950">Redirects</h1>
         <Card className="border-destructive">
           <CardContent className="pt-6">
-            <p className="text-destructive font-gilroy">Failed to load redirects: {error.message}</p>
+            <p className="text-destructive font-gilroy">
+              Failed to load redirects: {error.message}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -108,24 +118,52 @@ export function RedirectsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow className="border-charcoal-100 bg-muted/30">
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Time</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Domain</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Slug</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Target</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Query</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Referrer</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">City</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Country</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Continent</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Colo</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Timezone</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Protocol</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">User Agent</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">IP Address</TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Time
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Domain
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Slug
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Target
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Query
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Referrer
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        City
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Country
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Continent
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Colo
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Timezone
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Protocol
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        User Agent
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        IP Address
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {data?.items.map((click) => (
+                    {data?.items.map(click => (
                       <TableRow key={click.id} className="hover:bg-gold-50/50 transition-colors">
                         <TableCell className="text-small font-gilroy whitespace-nowrap">
                           {formatDate(click.createdAt)}
@@ -147,7 +185,10 @@ export function RedirectsPage() {
                             <ExternalLink className="h-3 w-3 flex-shrink-0" />
                           </a>
                         </TableCell>
-                        <TableCell className="font-mono text-small max-w-[150px] truncate text-charcoal-500" title={click.queryString || ''}>
+                        <TableCell
+                          className="font-mono text-small max-w-[150px] truncate text-charcoal-500"
+                          title={click.queryString || ''}
+                        >
                           {click.queryString || '-'}
                         </TableCell>
                         <TableCell className="max-w-[200px] truncate text-small font-gilroy text-charcoal-600">
@@ -171,7 +212,10 @@ export function RedirectsPage() {
                         <TableCell className="font-mono text-small whitespace-nowrap text-charcoal-500">
                           {click.httpProtocol || '-'}
                         </TableCell>
-                        <TableCell className="max-w-[300px] truncate text-small font-gilroy text-charcoal-400" title={click.userAgent || ''}>
+                        <TableCell
+                          className="max-w-[300px] truncate text-small font-gilroy text-charcoal-400"
+                          title={click.userAgent || ''}
+                        >
                           {click.userAgent || '-'}
                         </TableCell>
                         <TableCell className="font-mono text-small whitespace-nowrap text-charcoal-400">
@@ -181,7 +225,10 @@ export function RedirectsPage() {
                     ))}
                     {(!data?.items || data.items.length === 0) && (
                       <TableRow>
-                        <TableCell colSpan={14} className="text-center text-muted-foreground font-gilroy">
+                        <TableCell
+                          colSpan={14}
+                          className="text-center text-muted-foreground font-gilroy"
+                        >
                           No redirects recorded
                         </TableCell>
                       </TableRow>

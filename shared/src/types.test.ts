@@ -10,22 +10,22 @@ import {
 describe('types', () => {
   describe('SUPPORTED_DOMAINS', () => {
     it('contains expected domains', () => {
-      expect(SUPPORTED_DOMAINS).toContain('link.example.com');
-      expect(SUPPORTED_DOMAINS).toContain('example.com');
-      expect(SUPPORTED_DOMAINS).toContain('example.net');
+      expect(SUPPORTED_DOMAINS).toContain('link.henrychong.com');
+      expect(SUPPORTED_DOMAINS).toContain('henrychong.com');
+      expect(SUPPORTED_DOMAINS).toContain('vanessahung.net');
       expect(SUPPORTED_DOMAINS.length).toBe(9);
     });
   });
 
   describe('isSupportedDomain', () => {
     it('returns true for supported domains', () => {
-      expect(isSupportedDomain('link.example.com')).toBe(true);
-      expect(isSupportedDomain('example.com')).toBe(true);
-      expect(isSupportedDomain('example.net')).toBe(true);
+      expect(isSupportedDomain('link.henrychong.com')).toBe(true);
+      expect(isSupportedDomain('henrychong.com')).toBe(true);
+      expect(isSupportedDomain('vanessahung.net')).toBe(true);
     });
 
     it('returns false for unsupported domains', () => {
-      expect(isSupportedDomain('unknown.com')).toBe(false);
+      expect(isSupportedDomain('example.com')).toBe(false);
       expect(isSupportedDomain('localhost')).toBe(false);
       expect(isSupportedDomain('')).toBe(false);
     });

@@ -24,6 +24,8 @@ Admin dashboard for Bifrost edge router. React SPA built with Vite, Tailwind CSS
 pnpm --filter admin dev      # Start dev server on port 3001
 pnpm --filter admin build    # Production build
 pnpm --filter admin preview  # Preview production build
+pnpm -C admin lint           # Lint (oxlint + residual ESLint)
+pnpm -C admin lint:fix       # Lint + auto-fix
 ```
 
 ## Project Structure
@@ -54,7 +56,7 @@ admin/
 
 | Variable | Description |
 |----------|-------------|
-| `VITE_API_URL` | Admin API base URL (e.g., https://bifrost.example.com) |
+| `VITE_API_URL` | Admin API base URL (https://henrychong.com) |
 | `VITE_ADMIN_API_KEY` | Admin API key for authentication |
 
 ## Docker Container Architecture
@@ -64,7 +66,7 @@ The `:tailscale` image includes:
 2. **tailscaled** - Runs in userspace networking mode
 3. **Tailscale Serve** - Proxies HTTPS traffic to nginx
 
-Container authenticates to your tailnet as `bifrost.<your-tailnet>.ts.net` using the auth key from `auth.env`.
+Container authenticates to tailnet as `bifrost.parrot-lizard.ts.net` using the auth key from `auth.env`.
 
 ### Configuration Files
 

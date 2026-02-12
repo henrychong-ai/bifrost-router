@@ -19,7 +19,7 @@ const app: App = new Hono();
 /**
  * Health check endpoint
  */
-app.get('/health', (c) => {
+app.get('/health', c => {
   return c.json({
     status: 'ok',
     service: 'bifrost-slackbot',
@@ -31,7 +31,7 @@ app.get('/health', (c) => {
 /**
  * Slack Events API endpoint
  */
-app.post('/slack/events', async (c) => {
+app.post('/slack/events', async c => {
   // Get raw body for signature verification
   const body = await c.req.text();
 
@@ -44,7 +44,7 @@ app.post('/slack/events', async (c) => {
     c.env.SLACK_SIGNING_SECRET,
     signature,
     timestamp,
-    body
+    body,
   );
 
   if (!isValid) {
@@ -52,7 +52,7 @@ app.post('/slack/events', async (c) => {
       JSON.stringify({
         level: 'warn',
         message: 'Invalid Slack signature',
-      })
+      }),
     );
     return c.json({ error: 'Invalid signature' }, 401);
   }
@@ -90,15 +90,15 @@ app.post('/slack/events', async (c) => {
 
     // Process event asynchronously
     c.executionCtx.waitUntil(
-      processSlackEvent(payload, c.env).catch((error) => {
+      processSlackEvent(payload, c.env).catch(error => {
         console.error(
           JSON.stringify({
             level: 'error',
             message: 'Failed to process Slack event',
             error: error instanceof Error ? error.message : String(error),
-          })
+          }),
         );
-      })
+      }),
     );
 
     // Return immediately (Slack requires 3s response)
@@ -111,10 +111,7 @@ app.post('/slack/events', async (c) => {
 /**
  * Process a Slack event asynchronously
  */
-async function processSlackEvent(
-  payload: SlackEventPayload,
-  env: SlackbotBindings
-): Promise<void> {
+async function processSlackEvent(payload: SlackEventPayload, env: SlackbotBindings): Promise<void> {
   const event = payload.event;
   if (!event) return;
 
@@ -123,7 +120,7 @@ async function processSlackEvent(
 
   // Create EdgeRouterClient
   const client = new EdgeRouterClient({
-    baseUrl: env.EDGE_ROUTER_URL || 'https://example.com',
+    baseUrl: env.EDGE_ROUTER_URL || 'https://henrychong.com',
     apiKey: env.ADMIN_API_KEY,
   });
 
@@ -131,12 +128,7 @@ async function processSlackEvent(
   const response = await handleEvent(event, permissions, client, env.SLACK_BOT_TOKEN);
 
   // Post response to Slack
-  await postSlackMessage(
-    env.SLACK_BOT_TOKEN,
-    event.channel,
-    response,
-    event.thread_ts || event.ts
-  );
+  await postSlackMessage(env.SLACK_BOT_TOKEN, event.channel, response, event.thread_ts || event.ts);
 
   console.info(
     JSON.stringify({
@@ -145,7 +137,7 @@ async function processSlackEvent(
       eventType: event.type,
       user: event.user,
       channel: event.channel,
-    })
+    }),
   );
 }
 

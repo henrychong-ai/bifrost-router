@@ -53,7 +53,7 @@ interface SlackPayload {
  */
 export async function sendBackupAlert(
   health: BackupHealthResponse,
-  config: SlackNotificationConfig
+  config: SlackNotificationConfig,
 ): Promise<void> {
   // Don't send alerts for healthy status
   if (health.status === 'healthy') return;
@@ -101,7 +101,7 @@ export async function sendBackupAlert(
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `*Issues:*\n${health.issues.map((i) => `• ${i.message}`).join('\n')}`,
+        text: `*Issues:*\n${health.issues.map(i => `• ${i.message}`).join('\n')}`,
       },
     });
   }
@@ -129,8 +129,6 @@ export async function sendBackupAlert(
   });
 
   if (!response.ok) {
-    console.error(
-      `[Backup] Failed to send Slack alert: ${response.status} ${response.statusText}`
-    );
+    console.error(`[Backup] Failed to send Slack alert: ${response.status} ${response.statusText}`);
   }
 }

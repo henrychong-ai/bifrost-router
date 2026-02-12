@@ -11,7 +11,7 @@ export const linkClicks = sqliteTable('link_clicks', {
   /** Auto-increment primary key */
   id: integer('id').primaryKey({ autoIncrement: true }),
 
-  /** Domain that received the click (e.g., 'example.com') */
+  /** Domain that received the click (e.g., 'henrychong.com') */
   domain: text('domain').notNull(),
 
   /** Path/slug that was clicked (e.g., '/linkedin') */
@@ -51,9 +51,7 @@ export const linkClicks = sqliteTable('link_clicks', {
   ipAddress: text('ip_address'),
 
   /** Unix timestamp (seconds since epoch) */
-  createdAt: integer('created_at')
-    .notNull()
-    .default(sql`(unixepoch())`),
+  createdAt: integer('created_at').notNull().default(sql`(unixepoch())`),
 });
 
 /**
@@ -103,9 +101,7 @@ export const pageViews = sqliteTable('page_views', {
   ipAddress: text('ip_address'),
 
   /** Unix timestamp (seconds since epoch) */
-  createdAt: integer('created_at')
-    .notNull()
-    .default(sql`(unixepoch())`),
+  createdAt: integer('created_at').notNull().default(sql`(unixepoch())`),
 });
 
 /**
@@ -138,10 +134,10 @@ export const fileDownloads = sqliteTable('file_downloads', {
   /** Auto-increment primary key */
   id: integer('id').primaryKey({ autoIncrement: true }),
 
-  /** Domain that received the request (e.g., 'example.com') */
+  /** Domain that received the request (e.g., 'henrychong.com') */
   domain: text('domain').notNull(),
 
-  /** Path that was requested (e.g., '/files/document') */
+  /** Path that was requested (e.g., '/wedding/reception') */
   path: text('path').notNull(),
 
   /** R2 object key that was served */
@@ -187,9 +183,7 @@ export const fileDownloads = sqliteTable('file_downloads', {
   cacheStatus: text('cache_status'),
 
   /** Unix timestamp (seconds since epoch) */
-  createdAt: integer('created_at')
-    .notNull()
-    .default(sql`(unixepoch())`),
+  createdAt: integer('created_at').notNull().default(sql`(unixepoch())`),
 });
 
 /**
@@ -212,7 +206,7 @@ export const proxyRequests = sqliteTable('proxy_requests', {
   /** Auto-increment primary key */
   id: integer('id').primaryKey({ autoIncrement: true }),
 
-  /** Domain that received the request (e.g., 'example.com') */
+  /** Domain that received the request (e.g., 'henrychong.com') */
   domain: text('domain').notNull(),
 
   /** Path that was requested (e.g., '/api/data') */
@@ -261,9 +255,7 @@ export const proxyRequests = sqliteTable('proxy_requests', {
   ipAddress: text('ip_address'),
 
   /** Unix timestamp (seconds since epoch) */
-  createdAt: integer('created_at')
-    .notNull()
-    .default(sql`(unixepoch())`),
+  createdAt: integer('created_at').notNull().default(sql`(unixepoch())`),
 });
 
 /**
@@ -286,7 +278,7 @@ export const auditLogs = sqliteTable('audit_logs', {
   /** Auto-increment primary key */
   id: integer('id').primaryKey({ autoIncrement: true }),
 
-  /** Domain affected by the action (e.g., 'example.com') */
+  /** Domain affected by the action (e.g., 'henrychong.com') */
   domain: text('domain').notNull(),
 
   /** Action type: create, update, delete, toggle, seed */
@@ -308,9 +300,7 @@ export const auditLogs = sqliteTable('audit_logs', {
   ipAddress: text('ip_address'),
 
   /** Unix timestamp (seconds since epoch) */
-  createdAt: integer('created_at')
-    .notNull()
-    .default(sql`(unixepoch())`),
+  createdAt: integer('created_at').notNull().default(sql`(unixepoch())`),
 });
 
 /**

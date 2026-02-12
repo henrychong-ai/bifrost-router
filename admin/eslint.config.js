@@ -1,46 +1,33 @@
-import js from '@eslint/js'
-import globals from 'globals'
-import reactHooks from 'eslint-plugin-react-hooks'
-import reactRefresh from 'eslint-plugin-react-refresh'
-import tseslint from 'typescript-eslint'
-import { defineConfig, globalIgnores } from 'eslint/config'
+// Residual ESLint — only for plugins Oxlint doesn't support natively.
+// Oxlint handles all core, TypeScript, React hooks, and other linting.
+// eslint-plugin-oxlint disables all rules that Oxlint already covers.
+import reactRefresh from 'eslint-plugin-react-refresh';
+import tseslint from 'typescript-eslint';
+import oxlint from 'eslint-plugin-oxlint';
 
-export default defineConfig([
-  globalIgnores(['dist']),
+export default [
+  { ignores: ['dist'] },
+
+  // React Refresh (Vite HMR support — not in Oxlint)
   {
     files: ['**/*.{ts,tsx}'],
-    extends: [
-      js.configs.recommended,
-      tseslint.configs.recommended,
-      reactHooks.configs.flat.recommended,
-      reactRefresh.configs.vite,
-    ],
     languageOptions: {
-      ecmaVersion: 2020,
-      globals: globals.browser,
+      parser: tseslint.parser,
     },
+    plugins: { 'react-refresh': reactRefresh },
     rules: {
-      // Allow unused vars prefixed with underscore
-      '@typescript-eslint/no-unused-vars': [
-        'error',
-        {
-          argsIgnorePattern: '^_',
-          varsIgnorePattern: '^_',
-        },
-      ],
+      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
     },
   },
+
   // Relaxed rules for shadcn/ui components (generated code)
   {
     files: ['src/components/ui/**/*.{ts,tsx}'],
     rules: {
-      // shadcn components export variants alongside components
       'react-refresh/only-export-components': 'off',
-      // Some shadcn components use Math.random in skeleton loaders
-      'react-hooks/purity': 'off',
-      // Keep essential hooks rules
-      'react-hooks/rules-of-hooks': 'error',
-      'react-hooks/exhaustive-deps': 'warn',
     },
   },
-])
+
+  // eslint-plugin-oxlint MUST be last — disables rules Oxlint already covers
+  ...oxlint.buildFromOxlintConfigFile('../oxlint.json'),
+];

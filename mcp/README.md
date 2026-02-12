@@ -4,7 +4,7 @@ MCP (Model Context Protocol) server for bifrost. Provides AI-powered route manag
 
 ## Features
 
-- **10 Tools** for complete route and analytics management
+- **11 Tools** for complete route and analytics management
 - **Multi-domain support** for managing multiple domains through a single interface
 - **Stdio transport** for seamless Claude Code/Desktop integration
 - **Type-safe** with Zod validation for all inputs
@@ -29,7 +29,7 @@ pnpm -C mcp build
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `EDGE_ROUTER_URL` | `https://bifrost.example.com` | Base URL of the edge router |
+| `EDGE_ROUTER_URL` | `https://henrychong.com` | Base URL of the edge router |
 | `EDGE_ROUTER_DOMAIN` | - | Default domain for operations |
 
 ## Claude Code Integration
@@ -44,8 +44,8 @@ Add to your `~/.claude.json`:
       "args": ["/path/to/bifrost/mcp/dist/index.js"],
       "env": {
         "EDGE_ROUTER_API_KEY": "your-api-key",
-        "EDGE_ROUTER_URL": "https://bifrost.example.com",
-        "EDGE_ROUTER_DOMAIN": "link.example.com"
+        "EDGE_ROUTER_URL": "https://henrychong.com",
+        "EDGE_ROUTER_DOMAIN": "link.henrychong.com"
       }
     }
   }
@@ -67,9 +67,9 @@ Add to your `~/.claude.json`:
         "/path/to/bifrost/mcp/dist/index.js"
       ],
       "env": {
-        "EDGE_ROUTER_API_KEY": "op://Vault/Item/API Key",
-        "EDGE_ROUTER_URL": "https://bifrost.example.com",
-        "EDGE_ROUTER_DOMAIN": "link.example.com"
+        "EDGE_ROUTER_API_KEY": "op://Technology/Cloudflare - HC/API Tokens/ADMIN_API_KEY",
+        "EDGE_ROUTER_URL": "https://henrychong.com",
+        "EDGE_ROUTER_DOMAIN": "link.henrychong.com"
       }
     }
   }
@@ -88,8 +88,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
       "args": ["/path/to/bifrost/mcp/dist/index.js"],
       "env": {
         "EDGE_ROUTER_API_KEY": "your-api-key",
-        "EDGE_ROUTER_URL": "https://bifrost.example.com",
-        "EDGE_ROUTER_DOMAIN": "link.example.com"
+        "EDGE_ROUTER_URL": "https://henrychong.com",
+        "EDGE_ROUTER_DOMAIN": "link.henrychong.com"
       }
     }
   }
@@ -100,7 +100,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ## Available Tools
 
-### Route Management (6 tools)
+### Route Management (7 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -110,6 +110,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 | `update_route` | Update an existing route |
 | `delete_route` | Delete a route permanently |
 | `toggle_route` | Enable or disable a route |
+| `migrate_route` | Migrate a route to a new path |
 
 ### Analytics (4 tools)
 
@@ -125,13 +126,13 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ### List Routes
 
 ```
-"List all routes for link.example.com"
+"List all routes for link.henrychong.com"
 ```
 
 ### Create a Redirect
 
 ```
-"Create a redirect from /twitter to https://twitter.com/yourhandle"
+"Create a redirect from /twitter to https://twitter.com/henrychong"
 ```
 
 ### View Analytics
@@ -180,7 +181,12 @@ mcp/
 
 ## Supported Domains
 
-The MCP server can manage routes for any domain configured in bifrost. Configure your domains in `src/types.ts` and `wrangler.toml`.
+The MCP server can manage routes for any domain configured in bifrost:
+
+- `link.henrychong.com` - Short link service
+- `henrychong.com` - Personal domain
+- `vanessahung.net` - Personal domain
+- Additional domains as configured
 
 ## Security
 
@@ -197,4 +203,4 @@ The MCP server can manage routes for any domain configured in bifrost. Configure
 
 ## License
 
-MIT
+Private - Internal use only

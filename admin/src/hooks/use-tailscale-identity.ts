@@ -54,9 +54,7 @@ function decodeRFC2047(value: string | null): string | null {
     // Q-encoding: underscores are spaces, =XX is hex
     const decoded = encoded
       .replace(/_/g, ' ')
-      .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) =>
-        String.fromCharCode(parseInt(hex, 16))
-      );
+      .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
 
     // If charset is utf-8, decode as UTF-8
     if (charset.toLowerCase() === 'utf-8') {

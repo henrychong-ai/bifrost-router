@@ -54,7 +54,7 @@ class ApiError extends Error {
 async function fetchApi<T>(
   path: string,
   schema: z.ZodSchema<T>,
-  options: RequestInit = {}
+  options: RequestInit = {},
 ): Promise<T> {
   const url = new URL(path, API_BASE);
 
@@ -78,7 +78,7 @@ async function fetchApi<T>(
 
 function buildQueryString(params: Record<string, string | number | undefined>): string {
   const filtered = Object.entries(params).filter(
-    (entry): entry is [string, string | number] => entry[1] !== undefined
+    (entry): entry is [string, string | number] => entry[1] !== undefined,
   );
   if (filtered.length === 0) return '';
   return '?' + new URLSearchParams(filtered.map(([k, v]) => [k, String(v)])).toString();
@@ -91,7 +91,7 @@ function buildQueryString(params: Record<string, string | number | undefined>): 
 export const routesApi = {
   /**
    * List all routes for a domain
-   * @param domain - Optional domain to filter routes (defaults to example.com)
+   * @param domain - Optional domain to filter routes (defaults to henrychong.com)
    */
   async list(domain?: string): Promise<Route[]> {
     const query = domain ? buildQueryString({ domain }) : '';
@@ -152,10 +152,24 @@ export const routesApi = {
   },
 
   /**
-   * Migrate a route from one path to another
+   * Delete a route
+   * @param path - Route path to delete
+   * @param domain - Target domain (required when viewing all domains)
+   */
+  async delete(path: string, domain?: string): Promise<void> {
+    const query = buildQueryString({ path, domain });
+    await fetchApi(
+      `/api/routes${query}`,
+      z.object({ success: z.boolean(), error: z.string().optional() }),
+      { method: 'DELETE' },
+    );
+  },
+
+  /**
+   * Migrate a route to a new path
    * @param oldPath - Current route path
    * @param newPath - New route path
-   * @param domain - Target domain (required when viewing all domains)
+   * @param domain - Target domain
    */
   async migrate(oldPath: string, newPath: string, domain?: string): Promise<Route> {
     const query = buildQueryString({ oldPath, newPath, domain });
@@ -166,20 +180,6 @@ export const routesApi = {
       throw new ApiError(400, response.error || 'Failed to migrate route');
     }
     return response.data;
-  },
-
-  /**
-   * Delete a route
-   * @param path - Route path to delete
-   * @param domain - Target domain (required when viewing all domains)
-   */
-  async delete(path: string, domain?: string): Promise<void> {
-    const query = buildQueryString({ path, domain });
-    await fetchApi(
-      `/api/routes${query}`,
-      z.object({ success: z.boolean(), error: z.string().optional() }),
-      { method: 'DELETE' }
-    );
   },
 };
 
@@ -193,7 +193,10 @@ export const analyticsApi = {
    */
   async summary(params: AnalyticsQueryParams = {}): Promise<AnalyticsSummary> {
     const query = buildQueryString(params as Record<string, string | number | undefined>);
-    const response = await fetchApi(`/api/analytics/summary${query}`, AnalyticsSummaryResponseSchema);
+    const response = await fetchApi(
+      `/api/analytics/summary${query}`,
+      AnalyticsSummaryResponseSchema,
+    );
     if (!response.success || !response.data) {
       throw new ApiError(500, response.error || 'Failed to fetch analytics summary');
     }
@@ -243,7 +246,7 @@ export const analyticsApi = {
     const query = buildQueryString(params as Record<string, string | number | undefined>);
     const response = await fetchApi(
       `/api/analytics/clicks/${encodeURIComponent(slug)}${query}`,
-      SlugStatsResponseSchema
+      SlugStatsResponseSchema,
     );
     if (!response.success || !response.data) {
       throw new ApiError(404, response.error || 'Slug not found');
@@ -259,7 +262,10 @@ export const analyticsApi = {
     meta: PaginationMeta;
   }> {
     const query = buildQueryString(params as Record<string, string | number | undefined>);
-    const response = await fetchApi(`/api/analytics/downloads${query}`, DownloadsListResponseSchema);
+    const response = await fetchApi(
+      `/api/analytics/downloads${query}`,
+      DownloadsListResponseSchema,
+    );
     if (!response.success) {
       throw new ApiError(500, response.error || 'Failed to fetch downloads');
     }
@@ -276,7 +282,7 @@ export const analyticsApi = {
     const query = buildQueryString(params as Record<string, string | number | undefined>);
     const response = await fetchApi(
       `/api/analytics/downloads/${encodeURIComponent(path)}${query}`,
-      DownloadStatsResponseSchema
+      DownloadStatsResponseSchema,
     );
     if (!response.success || !response.data) {
       throw new ApiError(404, response.error || 'Download path not found');
@@ -292,7 +298,10 @@ export const analyticsApi = {
     meta: PaginationMeta;
   }> {
     const query = buildQueryString(params as Record<string, string | number | undefined>);
-    const response = await fetchApi(`/api/analytics/proxy${query}`, ProxyRequestsListResponseSchema);
+    const response = await fetchApi(
+      `/api/analytics/proxy${query}`,
+      ProxyRequestsListResponseSchema,
+    );
     if (!response.success) {
       throw new ApiError(500, response.error || 'Failed to fetch proxy requests');
     }
@@ -309,7 +318,7 @@ export const analyticsApi = {
     const query = buildQueryString(params as Record<string, string | number | undefined>);
     const response = await fetchApi(
       `/api/analytics/proxy/${encodeURIComponent(path)}${query}`,
-      ProxyStatsResponseSchema
+      ProxyStatsResponseSchema,
     );
     if (!response.success || !response.data) {
       throw new ApiError(404, response.error || 'Proxy path not found');
@@ -434,13 +443,15 @@ export interface OpenGraphData {
 
 const OpenGraphResponseSchema = z.object({
   success: z.boolean(),
-  data: z.object({
-    title: z.string().nullable(),
-    description: z.string().nullable(),
-    image: z.string().nullable(),
-    siteName: z.string().nullable(),
-    url: z.string().nullable(),
-  }).optional(),
+  data: z
+    .object({
+      title: z.string().nullable(),
+      description: z.string().nullable(),
+      image: z.string().nullable(),
+      siteName: z.string().nullable(),
+      url: z.string().nullable(),
+    })
+    .optional(),
   error: z.string().optional(),
 });
 

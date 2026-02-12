@@ -9,21 +9,18 @@ export function FilterProvider({ children }: { children: ReactNode }) {
     <K extends PageKey>(page: K): PageFilters[K] => {
       return filters[page];
     },
-    [filters]
+    [filters],
   );
 
-  const setFilters = useCallback(
-    <K extends PageKey>(page: K, newFilters: PageFilters[K]) => {
-      setFiltersState((prev) => ({
-        ...prev,
-        [page]: newFilters,
-      }));
-    },
-    []
-  );
+  const setFilters = useCallback(<K extends PageKey>(page: K, newFilters: PageFilters[K]) => {
+    setFiltersState(prev => ({
+      ...prev,
+      [page]: newFilters,
+    }));
+  }, []);
 
   const resetFilters = useCallback((page: PageKey) => {
-    setFiltersState((prev) => ({
+    setFiltersState(prev => ({
       ...prev,
       [page]: DEFAULT_FILTERS[page],
     }));

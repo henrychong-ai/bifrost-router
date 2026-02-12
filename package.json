@@ -1,6 +1,6 @@
 {
   "name": "bifrost",
-  "version": "1.11.7",
+  "version": "1.11.8",
   "description": "Bifrost - Edge router with Cloudflare Workers and Hono",
   "type": "module",
   "private": true,
@@ -9,8 +9,11 @@
     "deploy": "wrangler deploy",
     "deploy:dev": "wrangler deploy --env dev",
     "tail": "wrangler tail",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
+    "lint": "oxlint --max-warnings=0",
+    "lint:fix": "oxlint --fix --max-warnings=0",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "check": "pnpm lint && pnpm format:check && pnpm typecheck",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -41,20 +44,19 @@
     "node": ">=24.0.0"
   },
   "dependencies": {
+    "@bifrost/shared": "workspace:*",
     "drizzle-orm": "^0.45.1",
     "hono": "^4.11.8",
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.3.15",
     "@cloudflare/vitest-pool-workers": "^0.8.0",
     "@cloudflare/workers-types": "^4.20260207.0",
-    "@eslint/js": "^9.39.2",
     "@vitest/coverage-v8": "^3.1.0",
     "drizzle-kit": "^0.31.8",
-    "eslint": "^9.39.2",
-    "globals": "^17.3.0",
+    "oxlint": "^1.0.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.54.0",
     "vitest": "^3.1.0",
     "wrangler": "4.63.0"
   },

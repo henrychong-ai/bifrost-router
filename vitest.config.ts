@@ -21,12 +21,7 @@ export default defineWorkersConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
-      exclude: [
-        'node_modules/**',
-        'test/**',
-        '**/*.test.ts',
-        'vitest.config.ts',
-      ],
+      exclude: ['node_modules/**', 'test/**', '**/*.test.ts', 'vitest.config.ts'],
     },
   },
 });

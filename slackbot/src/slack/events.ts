@@ -32,7 +32,7 @@ export async function handleEvent(
   event: SlackEvent,
   permissions: SlackUserPermissions | null,
   client: EdgeRouterClient,
-  _botToken: string
+  _botToken: string,
 ): Promise<string> {
   const text = event.text?.toLowerCase() || '';
 
@@ -100,7 +100,7 @@ function parseCommand(text: string): ParsedCommand | null {
   // Create route
   if (text.includes('create') || text.includes('add')) {
     const match = text.match(
-      /(?:create|add)\s+(?:a\s+)?(?:redirect|proxy)\s+(?:from\s+)?([/\w-]+)\s+(?:to|->|→)\s+(https?:\/\/[^\s]+)/i
+      /(?:create|add)\s+(?:a\s+)?(?:redirect|proxy)\s+(?:from\s+)?([/\w-]+)\s+(?:to|->|→)\s+(https?:\/\/[^\s]+)/i,
     );
     if (match) {
       const domain = extractDomain(text);
@@ -144,10 +144,10 @@ function extractDomain(text: string): string | undefined {
   // Match common domain patterns
   const patterns = [
     /(?:for|on)\s+([a-z0-9][a-z0-9-]*\.(?:com|net|co|io))/i,
-    /([a-z0-9][a-z0-9-]*\.example\.(?:com|net))/i,
-    /(link\.example\.com)/i,
-    /(example\.com)/i,
-    /(example\.net)/i,
+    /([a-z0-9][a-z0-9-]*\.(?:henrychong|vanessahung|davidchong|sonjachong|anjachong|kitkatcouple|valeriehung)\.(?:com|net|co))/i,
+    /(link\.henrychong\.com)/i,
+    /(henrychong\.com)/i,
+    /(vanessahung\.net)/i,
   ];
 
   for (const pattern of patterns) {
@@ -211,11 +211,11 @@ function extractDays(text: string): number | undefined {
 async function executeCommand(
   command: ParsedCommand,
   permissions: SlackUserPermissions | null,
-  client: EdgeRouterClient
+  client: EdgeRouterClient,
 ): Promise<string> {
   // Determine default domain
   const accessibleDomains = getAccessibleDomains(permissions);
-  const domain = command.domain || accessibleDomains[0] || 'link.example.com';
+  const domain = command.domain || accessibleDomains[0] || 'link.henrychong.com';
 
   try {
     switch (command.action) {
@@ -268,7 +268,7 @@ async function executeCommand(
       case 'create': {
         if (!command.path || !command.target) {
           return formatError(
-            'Please specify path and target. Example: "create redirect from /twitter to https://twitter.com/user"'
+            'Please specify path and target. Example: "create redirect from /twitter to https://twitter.com/user"',
           );
         }
 
@@ -283,7 +283,7 @@ async function executeCommand(
             type: command.type || 'redirect',
             target: command.target,
           },
-          domain
+          domain,
         );
 
         return formatRouteCreated({
@@ -334,7 +334,7 @@ async function executeCommand(
         message: 'Command execution failed',
         command,
         error: message,
-      })
+      }),
     );
     return formatError(message);
   }
@@ -352,7 +352,7 @@ export async function postSlackMessage(
   botToken: string,
   channel: string,
   text: string,
-  threadTs?: string
+  threadTs?: string,
 ): Promise<void> {
   const body: Record<string, string> = {
     channel,

@@ -14,8 +14,6 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src/ test/ --ext .ts,.tsx",
-    "lint:fix": "eslint src/ test/ --ext .ts,.tsx --fix",
     "tail": "wrangler tail"
   },
   "dependencies": {
@@ -27,9 +25,7 @@
     "@cloudflare/vitest-pool-workers": "^0.8.0",
     "@cloudflare/workers-types": "^4.20260207.0",
     "@types/node": "^24.0.0",
-    "eslint": "^9.28.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.54.0",
     "vitest": "^3.1.0",
     "wrangler": "4.63.0"
   }

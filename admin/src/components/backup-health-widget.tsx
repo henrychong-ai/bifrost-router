@@ -36,7 +36,13 @@ function BackupHealthSkeleton() {
 /**
  * Error state for the backup health widget
  */
-function BackupHealthError({ onRetry, isRetrying }: { onRetry?: () => void; isRetrying?: boolean }) {
+function BackupHealthError({
+  onRetry,
+  isRetrying,
+}: {
+  onRetry?: () => void;
+  isRetrying?: boolean;
+}) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -49,7 +55,9 @@ function BackupHealthError({ onRetry, isRetrying }: { onRetry?: () => void; isRe
               className="p-1 hover:bg-muted rounded transition-colors disabled:opacity-50"
               title="Retry loading backup status"
             >
-              <RefreshCw className={`h-3 w-3 text-muted-foreground ${isRetrying ? 'animate-spin' : ''}`} />
+              <RefreshCw
+                className={`h-3 w-3 text-muted-foreground ${isRetrying ? 'animate-spin' : ''}`}
+              />
             </button>
           )}
           <Badge variant="destructive">
@@ -79,7 +87,8 @@ export function BackupHealthWidget() {
   const { data: health, isLoading, error, refetch, isFetching } = useBackupHealth();
 
   if (isLoading) return <BackupHealthSkeleton />;
-  if (error || !health) return <BackupHealthError onRetry={() => refetch()} isRetrying={isFetching} />;
+  if (error || !health)
+    return <BackupHealthError onRetry={() => refetch()} isRetrying={isFetching} />;
 
   const statusIcon = {
     healthy: <CheckCircle className="h-4 w-4" />,
@@ -110,11 +119,15 @@ export function BackupHealthWidget() {
             className="p-1 hover:bg-muted rounded transition-colors disabled:opacity-50"
             title="Refresh backup status"
           >
-            <RefreshCw className={`h-3 w-3 text-muted-foreground ${isFetching ? 'animate-spin' : ''}`} />
+            <RefreshCw
+              className={`h-3 w-3 text-muted-foreground ${isFetching ? 'animate-spin' : ''}`}
+            />
           </button>
           <Badge
             variant={statusVariant}
-            className={health.status === 'critical' ? 'bg-red-600 text-white border-red-600' : statusColor}
+            className={
+              health.status === 'critical' ? 'bg-red-600 text-white border-red-600' : statusColor
+            }
           >
             {statusIcon}
             <span className="ml-1 capitalize">{health.status}</span>

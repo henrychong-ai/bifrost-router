@@ -7,7 +7,7 @@ export const fixtures = {
   redirectRoute: {
     path: '/github',
     type: 'redirect' as const,
-    target: 'https://github.com/your-username',
+    target: 'https://github.com/henrychong-ai',
     statusCode: 302 as const,
     preserveQuery: true,
     enabled: true,
@@ -28,7 +28,7 @@ export const fixtures = {
   r2Route: {
     path: '/media-kit/download',
     type: 'r2' as const,
-    target: 'media-kit/example-media-kit.zip',
+    target: 'media-kit/henrychong-media-kit.zip',
     cacheControl: 'public, max-age=86400',
     enabled: true,
     createdAt: Date.now(),
@@ -48,9 +48,7 @@ export const fixtures = {
 /**
  * Create a mock route with custom overrides
  */
-export function createMockRoute(
-  overrides: Partial<KVRouteConfig> = {}
-): KVRouteConfig {
+export function createMockRoute(overrides: Partial<KVRouteConfig> = {}): KVRouteConfig {
   return {
     path: '/test',
     type: 'redirect',

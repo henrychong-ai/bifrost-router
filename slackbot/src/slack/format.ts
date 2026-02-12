@@ -22,9 +22,9 @@ export function formatRouteList(routes: Route[], domain: string): string {
   }
 
   // Group by type
-  const redirects = routes.filter((r) => r.type === 'redirect');
-  const proxies = routes.filter((r) => r.type === 'proxy');
-  const r2Routes = routes.filter((r) => r.type === 'r2');
+  const redirects = routes.filter(r => r.type === 'redirect');
+  const proxies = routes.filter(r => r.type === 'proxy');
+  const r2Routes = routes.filter(r => r.type === 'r2');
 
   if (redirects.length > 0) {
     lines.push(`*Redirects (${redirects.length})*`);
@@ -89,7 +89,9 @@ export function formatAnalyticsSummary(summary: AnalyticsSummary): string {
   if (summary.topClicks.length > 0) {
     lines.push('', ':link: *Top Links*');
     for (const item of summary.topClicks.slice(0, 5)) {
-      lines.push(`${getPositionEmoji(summary.topClicks.indexOf(item) + 1)} \`${item.name}\` - ${item.count} clicks`);
+      lines.push(
+        `${getPositionEmoji(summary.topClicks.indexOf(item) + 1)} \`${item.name}\` - ${item.count} clicks`,
+      );
     }
   }
 
@@ -97,7 +99,9 @@ export function formatAnalyticsSummary(summary: AnalyticsSummary): string {
   if (summary.topPages.length > 0) {
     lines.push('', ':page_facing_up: *Top Pages*');
     for (const item of summary.topPages.slice(0, 5)) {
-      lines.push(`${getPositionEmoji(summary.topPages.indexOf(item) + 1)} \`${item.name}\` - ${item.count} views`);
+      lines.push(
+        `${getPositionEmoji(summary.topPages.indexOf(item) + 1)} \`${item.name}\` - ${item.count} views`,
+      );
     }
   }
 
@@ -106,11 +110,13 @@ export function formatAnalyticsSummary(summary: AnalyticsSummary): string {
     lines.push('', ':earth_americas: *Top Countries*');
     for (const item of summary.topCountries.slice(0, 5)) {
       const country = item.name || 'Unknown';
-      lines.push(`${getPositionEmoji(summary.topCountries.indexOf(item) + 1)} ${country} - ${item.count}`);
+      lines.push(
+        `${getPositionEmoji(summary.topCountries.indexOf(item) + 1)} ${country} - ${item.count}`,
+      );
     }
   }
 
-  return lines.filter((l) => l !== '').join('\n');
+  return lines.filter(l => l !== '').join('\n');
 }
 
 /**
@@ -165,7 +171,7 @@ export function formatRouteUpdated(path: string, changes: string[]): string {
     `Path: \`${path}\``,
     '',
     'Changes:',
-    ...changes.map((c) => `• ${c}`),
+    ...changes.map(c => `• ${c}`),
   ].join('\n');
 }
 
@@ -212,8 +218,8 @@ export function formatHelp(domains: string[]): string {
     'I can help you manage routes and view analytics. Just mention me with your request!',
     '',
     '*Examples:*',
-    '• "List all routes for link.example.com"',
-    '• "Create a redirect from /twitter to https://twitter.com/example"',
+    '• "List all routes for link.henrychong.com"',
+    '• "Create a redirect from /twitter to https://twitter.com/henrychong"',
     '• "Show me analytics for the last 7 days"',
     '• "How many clicks did /linkedin get?"',
     '• "Disable the /test route"',

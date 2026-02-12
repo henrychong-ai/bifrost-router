@@ -43,7 +43,7 @@ function createTestManifest(overrides: Partial<BackupManifest> = {}): BackupMani
     timestamp: Date.now() - 4 * 60 * 60 * 1000, // 4 hours ago
     date: '20260123',
     kv: {
-      domains: ['example.com', 'link.example.com'],
+      domains: ['henrychong.com', 'link.henrychong.com'],
       totalRoutes: 320,
       file: 'daily/20260123/kv-routes.ndjson.gz',
     },
@@ -145,7 +145,7 @@ describe('checkBackupHealth', () => {
         expect.objectContaining({
           severity: 'warning',
           message: expect.stringContaining('hours old'),
-        })
+        }),
       );
     });
 
@@ -154,7 +154,7 @@ describe('checkBackupHealth', () => {
       const manifest = createTestManifest({
         date,
         kv: {
-          domains: ['example.com'],
+          domains: ['henrychong.com'],
           totalRoutes: 50, // Below default minimum of 100
           file: 'daily/20260123/kv-routes.ndjson.gz',
         },
@@ -174,7 +174,7 @@ describe('checkBackupHealth', () => {
         expect.objectContaining({
           severity: 'warning',
           message: expect.stringContaining('Route count'),
-        })
+        }),
       );
     });
   });
@@ -194,7 +194,7 @@ describe('checkBackupHealth', () => {
         expect.objectContaining({
           severity: 'critical',
           message: 'No backup found in R2 bucket',
-        })
+        }),
       );
     });
 
@@ -217,7 +217,7 @@ describe('checkBackupHealth', () => {
         expect.objectContaining({
           severity: 'critical',
           message: expect.stringContaining('hours old'),
-        })
+        }),
       );
     });
 
@@ -237,7 +237,7 @@ describe('checkBackupHealth', () => {
         expect.objectContaining({
           severity: 'critical',
           message: 'Backup manifest is missing or invalid',
-        })
+        }),
       );
     });
 
@@ -261,7 +261,7 @@ describe('checkBackupHealth', () => {
         expect.objectContaining({
           severity: 'critical',
           message: expect.stringContaining('Missing backup files'),
-        })
+        }),
       );
     });
   });
@@ -289,7 +289,7 @@ describe('checkBackupHealth', () => {
       const manifest = createTestManifest({
         date,
         kv: {
-          domains: ['example.com'],
+          domains: ['henrychong.com'],
           totalRoutes: 50, // Below default minimum but above custom
           file: 'daily/20260123/kv-routes.ndjson.gz',
         },
@@ -341,7 +341,7 @@ describe('checkBackupHealth', () => {
       const health = await checkBackupHealth(bucket);
 
       const missingFile = health.lastBackup?.files.find(
-        (f) => f.key === `daily/${date}/kv-routes.ndjson.gz`
+        f => f.key === `daily/${date}/kv-routes.ndjson.gz`,
       );
       expect(missingFile).toEqual({
         key: `daily/${date}/kv-routes.ndjson.gz`,
@@ -365,7 +365,7 @@ describe('checkBackupHealth', () => {
       expect(health.lastBackup?.manifest).not.toBeNull();
       expect(health.lastBackup?.manifest?.version).toBe('1.0.0');
       expect(health.lastBackup?.manifest?.kv.totalRoutes).toBe(320);
-      expect(health.lastBackup?.manifest?.kv.domains).toContain('example.com');
+      expect(health.lastBackup?.manifest?.kv.domains).toContain('henrychong.com');
       expect(health.lastBackup?.manifest?.d1.totalRows).toBe(18046);
       expect(health.lastBackup?.manifest?.d1.tables).toHaveLength(5);
     });

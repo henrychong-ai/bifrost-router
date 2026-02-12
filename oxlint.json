@@ -1,0 +1,33 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicolo-ribaudo/oxlint-config-schema/refs/heads/main/schema.json",
+  "plugins": ["import", "promise", "node", "vitest", "react", "jsx-a11y"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "pedantic": "off",
+    "style": "warn",
+    "restriction": "off",
+    "nursery": "off"
+  },
+  "rules": {
+    "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+    "typescript/no-explicit-any": "warn",
+    "typescript/consistent-type-imports": ["error", { "prefer": "type-imports" }],
+    "import/no-duplicates": "error",
+    "import/no-cycle": "warn",
+    "import/no-self-import": "error",
+    "unicorn/filename-case": ["error", { "cases": { "kebabCase": true, "pascalCase": true } }],
+    "unicorn/prevent-abbreviations": "off",
+    "unicorn/no-null": "off"
+  },
+  "ignorePatterns": [
+    "dist",
+    "node_modules",
+    ".wrangler",
+    "drizzle",
+    "coverage",
+    "*.config.js",
+    "*.config.ts",
+    "*.config.mjs"
+  ]
+}

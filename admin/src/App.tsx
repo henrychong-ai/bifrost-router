@@ -6,7 +6,15 @@ import { AppLayout } from '@/components/layout';
 import { FilterProvider } from '@/context';
 import { CommandPaletteProvider } from '@/hooks';
 import { CommandPalette } from '@/components/command-palette';
-import { DashboardPage, RoutesPage, RedirectsPage, ViewsPage, DownloadsPage, ProxyPage, AuditPage } from '@/pages';
+import {
+  DashboardPage,
+  RoutesPage,
+  RedirectsPage,
+  ViewsPage,
+  DownloadsPage,
+  ProxyPage,
+  AuditPage,
+} from '@/pages';
 
 function App() {
   return (

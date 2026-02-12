@@ -95,8 +95,8 @@ describe('checkToolPermission', () => {
     user_id: 'U_ADMIN',
     user_name: 'admin_user',
     permissions: {
-      'link.example.com': 'admin',
-      'example.com': 'admin',
+      'link.henrychong.com': 'admin',
+      'henrychong.com': 'admin',
     },
     created_at: Date.now(),
     updated_at: Date.now(),
@@ -106,7 +106,7 @@ describe('checkToolPermission', () => {
     user_id: 'U_EDIT',
     user_name: 'edit_user',
     permissions: {
-      'link.example.com': 'edit',
+      'link.henrychong.com': 'edit',
     },
     created_at: Date.now(),
     updated_at: Date.now(),
@@ -116,7 +116,7 @@ describe('checkToolPermission', () => {
     user_id: 'U_READ',
     user_name: 'readonly_user',
     permissions: {
-      'link.example.com': 'read',
+      'link.henrychong.com': 'read',
     },
     created_at: Date.now(),
     updated_at: Date.now(),
@@ -124,35 +124,35 @@ describe('checkToolPermission', () => {
 
   describe('admin user permissions', () => {
     it('should allow admin to read routes', () => {
-      const result = checkToolPermission(adminUser, 'list_routes', 'link.example.com');
+      const result = checkToolPermission(adminUser, 'list_routes', 'link.henrychong.com');
       expect(result.allowed).toBe(true);
       expect(result.userLevel).toBe('admin');
     });
 
     it('should allow admin to create routes', () => {
-      const result = checkToolPermission(adminUser, 'create_route', 'link.example.com');
+      const result = checkToolPermission(adminUser, 'create_route', 'link.henrychong.com');
       expect(result.allowed).toBe(true);
     });
 
     it('should allow admin to delete routes', () => {
-      const result = checkToolPermission(adminUser, 'delete_route', 'link.example.com');
+      const result = checkToolPermission(adminUser, 'delete_route', 'link.henrychong.com');
       expect(result.allowed).toBe(true);
     });
   });
 
   describe('edit user permissions', () => {
     it('should allow edit user to read routes', () => {
-      const result = checkToolPermission(editUser, 'list_routes', 'link.example.com');
+      const result = checkToolPermission(editUser, 'list_routes', 'link.henrychong.com');
       expect(result.allowed).toBe(true);
     });
 
     it('should allow edit user to create routes', () => {
-      const result = checkToolPermission(editUser, 'create_route', 'link.example.com');
+      const result = checkToolPermission(editUser, 'create_route', 'link.henrychong.com');
       expect(result.allowed).toBe(true);
     });
 
     it('should NOT allow edit user to delete routes', () => {
-      const result = checkToolPermission(editUser, 'delete_route', 'link.example.com');
+      const result = checkToolPermission(editUser, 'delete_route', 'link.henrychong.com');
       expect(result.allowed).toBe(false);
       expect(result.message).toContain('Permission denied');
       expect(result.userLevel).toBe('edit');
@@ -162,37 +162,33 @@ describe('checkToolPermission', () => {
 
   describe('read-only user permissions', () => {
     it('should allow read user to read routes', () => {
-      const result = checkToolPermission(readOnlyUser, 'list_routes', 'link.example.com');
+      const result = checkToolPermission(readOnlyUser, 'list_routes', 'link.henrychong.com');
       expect(result.allowed).toBe(true);
     });
 
     it('should NOT allow read user to create routes', () => {
-      const result = checkToolPermission(readOnlyUser, 'create_route', 'link.example.com');
+      const result = checkToolPermission(readOnlyUser, 'create_route', 'link.henrychong.com');
       expect(result.allowed).toBe(false);
       expect(result.userLevel).toBe('read');
       expect(result.requiredLevel).toBe('edit');
     });
 
     it('should NOT allow read user to delete routes', () => {
-      const result = checkToolPermission(readOnlyUser, 'delete_route', 'link.example.com');
+      const result = checkToolPermission(readOnlyUser, 'delete_route', 'link.henrychong.com');
       expect(result.allowed).toBe(false);
     });
   });
 
   describe('domain-specific permissions', () => {
     it('should deny access to domain user does not have permission for', () => {
-      const result = checkToolPermission(editUser, 'list_routes', 'example.com');
+      const result = checkToolPermission(editUser, 'list_routes', 'henrychong.com');
       expect(result.allowed).toBe(false);
       expect(result.userLevel).toBe('none');
     });
 
     it('should allow admin access to multiple domains', () => {
-      const result1 = checkToolPermission(
-        adminUser,
-        'delete_route',
-        'link.example.com'
-      );
-      const result2 = checkToolPermission(adminUser, 'delete_route', 'example.com');
+      const result1 = checkToolPermission(adminUser, 'delete_route', 'link.henrychong.com');
+      const result2 = checkToolPermission(adminUser, 'delete_route', 'henrychong.com');
 
       expect(result1.allowed).toBe(true);
       expect(result2.allowed).toBe(true);
@@ -201,7 +197,7 @@ describe('checkToolPermission', () => {
 
   describe('null permissions (no user record)', () => {
     it('should deny all access when permissions are null', () => {
-      const result = checkToolPermission(null, 'list_routes', 'link.example.com');
+      const result = checkToolPermission(null, 'list_routes', 'link.henrychong.com');
       expect(result.allowed).toBe(false);
       expect(result.userLevel).toBe('none');
       expect(result.message).toContain("don't have any permissions");
@@ -210,7 +206,7 @@ describe('checkToolPermission', () => {
 
   describe('unknown tools', () => {
     it('should default to admin permission for unknown tools', () => {
-      const result = checkToolPermission(editUser, 'unknown_tool', 'link.example.com');
+      const result = checkToolPermission(editUser, 'unknown_tool', 'link.henrychong.com');
       expect(result.allowed).toBe(false);
       expect(result.requiredLevel).toBe('admin');
     });
@@ -222,9 +218,9 @@ describe('getAccessibleDomains', () => {
     user_id: 'U_MULTI',
     user_name: 'multi_user',
     permissions: {
-      'link.example.com': 'admin',
-      'example.com': 'edit',
-      'example.net': 'read',
+      'link.henrychong.com': 'admin',
+      'henrychong.com': 'edit',
+      'vanessahung.net': 'read',
     },
     created_at: Date.now(),
     updated_at: Date.now(),
@@ -233,23 +229,23 @@ describe('getAccessibleDomains', () => {
   it('should return all domains with read access by default', () => {
     const domains = getAccessibleDomains(multiDomainUser);
     expect(domains).toHaveLength(3);
-    expect(domains).toContain('link.example.com');
-    expect(domains).toContain('example.com');
-    expect(domains).toContain('example.net');
+    expect(domains).toContain('link.henrychong.com');
+    expect(domains).toContain('henrychong.com');
+    expect(domains).toContain('vanessahung.net');
   });
 
   it('should return only domains with edit access when specified', () => {
     const domains = getAccessibleDomains(multiDomainUser, 'edit');
     expect(domains).toHaveLength(2);
-    expect(domains).toContain('link.example.com');
-    expect(domains).toContain('example.com');
-    expect(domains).not.toContain('example.net');
+    expect(domains).toContain('link.henrychong.com');
+    expect(domains).toContain('henrychong.com');
+    expect(domains).not.toContain('vanessahung.net');
   });
 
   it('should return only domains with admin access when specified', () => {
     const domains = getAccessibleDomains(multiDomainUser, 'admin');
     expect(domains).toHaveLength(1);
-    expect(domains).toContain('link.example.com');
+    expect(domains).toContain('link.henrychong.com');
   });
 
   it('should return empty array for null permissions', () => {
@@ -262,7 +258,7 @@ describe('getAccessibleDomains', () => {
       user_id: 'U_READ',
       user_name: 'read_user',
       permissions: {
-        'link.example.com': 'read',
+        'link.henrychong.com': 'read',
       },
       created_at: Date.now(),
       updated_at: Date.now(),
@@ -279,9 +275,9 @@ describe('formatPermissions', () => {
       user_id: 'U123',
       user_name: 'test_user',
       permissions: {
-        'link.example.com': 'admin',
-        'example.com': 'edit',
-        'example.net': 'read',
+        'link.henrychong.com': 'admin',
+        'henrychong.com': 'edit',
+        'vanessahung.net': 'read',
       },
       created_at: Date.now(),
       updated_at: Date.now(),
@@ -293,7 +289,7 @@ describe('formatPermissions', () => {
     expect(result).toContain(':star:');
     expect(result).toContain(':pencil2:');
     expect(result).toContain(':eye:');
-    expect(result).toContain('`link.example.com`');
+    expect(result).toContain('`link.henrychong.com`');
   });
 
   it('should handle user with no permissions', () => {

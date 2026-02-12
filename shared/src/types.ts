@@ -16,12 +16,12 @@
 export const R2_BUCKETS = [
   'files',
   'assets',
-  'files-user1',
-  'files-user2',
-  'files-user3',
-  'files-user4',
-  'files-user5',
-  'files-user6',
+  'files-anjachong',
+  'files-davidchong',
+  'files-nadjachong',
+  'files-sonjachong',
+  'files-valeriehung',
+  'files-vanessahung',
 ] as const;
 
 export type R2BucketName = (typeof R2_BUCKETS)[number];
@@ -41,15 +41,15 @@ export function isValidR2Bucket(bucket: string): bucket is R2BucketName {
  * Supported domains for the edge router
  */
 export const SUPPORTED_DOMAINS = [
-  'example.com',
-  'link.example.com',
-  'bifrost.example.com',
-  'example.net',
-  'user1.example.com',
-  'user2.example.com',
-  'user3.example.com',
-  'user4.example.com',
-  'user5.example.com',
+  'henrychong.com',
+  'link.henrychong.com',
+  'bifrost.henrychong.com',
+  'vanessahung.net',
+  'davidchong.co',
+  'sonjachong.com',
+  'anjachong.com',
+  'kitkatcouple.com',
+  'valeriehung.com',
 ] as const;
 
 export type SupportedDomain = (typeof SUPPORTED_DOMAINS)[number];
@@ -100,7 +100,7 @@ export interface Route {
   /** Cache-Control header for proxied/R2 content */
   cacheControl?: string;
 
-  /** Override Host header for proxy requests (e.g., "example.com" when proxying to cdn.webflow.com) */
+  /** Override Host header for proxy requests (e.g., "fusang.co" when proxying to cdn.webflow.com) */
   hostHeader?: string;
 
   /** Force browser to download instead of display inline (R2 only, default: false) */
@@ -347,10 +347,7 @@ export const PERMISSION_HIERARCHY: Record<PermissionLevel, number> = {
 /**
  * Check if a user has at least the required permission level
  */
-export function hasPermission(
-  userLevel: PermissionLevel,
-  requiredLevel: PermissionLevel
-): boolean {
+export function hasPermission(userLevel: PermissionLevel, requiredLevel: PermissionLevel): boolean {
   return PERMISSION_HIERARCHY[userLevel] >= PERMISSION_HIERARCHY[requiredLevel];
 }
 

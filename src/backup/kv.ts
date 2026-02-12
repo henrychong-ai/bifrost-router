@@ -16,7 +16,7 @@ import type { KVBackupResult } from './types';
 export async function backupKV(
   kv: KVNamespace,
   bucket: R2Bucket,
-  date: string
+  date: string,
 ): Promise<KVBackupResult> {
   const allRoutes: Array<{ key: string; value: unknown }> = [];
 
@@ -40,7 +40,7 @@ export async function backupKV(
   }
 
   // Convert to NDJSON (newline-delimited JSON)
-  const ndjson = allRoutes.map((r) => JSON.stringify(r)).join('\n');
+  const ndjson = allRoutes.map(r => JSON.stringify(r)).join('\n');
   const compressed = await gzipCompress(ndjson);
 
   const filename = `daily/${date}/kv-routes.ndjson.gz`;

@@ -49,7 +49,7 @@ export function timingSafeEqual(a: string, b: string): boolean {
  */
 export function validateApiKey(
   providedKey: string | undefined | null,
-  expectedKey: string | undefined | null
+  expectedKey: string | undefined | null,
 ): boolean {
   // Both must be non-empty strings
   if (!providedKey || !expectedKey) {

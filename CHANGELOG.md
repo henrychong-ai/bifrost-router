@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## v1.11.8 (2026-02-13)
+- Tooling: Migrate from ESLint to Oxlint (primary linter) + Biome (formatter)
+- Added `oxlint.json` with native plugins (import, promise, node, vitest, react, jsx-a11y)
+- Added `biome.json` (Biome 2.3.15, formatter only, Tailwind CSS parser enabled)
+- Admin: residual ESLint for `eslint-plugin-react-refresh` only (via `eslint-plugin-oxlint`)
+- Removed root `eslint.config.js`, replaced by `oxlint.json`
+- Fixed: missing `@bifrost/shared` workspace dependency in root package.json
+- Fixed: domain validation type error — aligned `providedValue` → `error` pattern
+
 ## v1.11.7 (2026-02-12)
 - Security: Remove `includeSubDomains` from HSTS header to avoid forcing HTTPS on non-proxied subdomains (e.g., CNAME records to external services)
 - Added secure headers middleware tests

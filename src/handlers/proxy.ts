@@ -11,11 +11,7 @@ const DEFAULT_TIMEOUT_MS = 30000;
 /**
  * Proxy error types for categorization
  */
-export type ProxyErrorType =
-  | 'validation_error'
-  | 'timeout'
-  | 'network_error'
-  | 'upstream_error';
+export type ProxyErrorType = 'validation_error' | 'timeout' | 'network_error' | 'upstream_error';
 
 /**
  * Create an error response for proxy failures
@@ -25,7 +21,7 @@ function createProxyErrorResponse(
   type: ProxyErrorType,
   message: string,
   statusCode: number,
-  details?: Record<string, unknown>
+  details?: Record<string, unknown>,
 ): Response {
   console.error(
     JSON.stringify({
@@ -33,7 +29,7 @@ function createProxyErrorResponse(
       message: `Proxy ${type}`,
       details: message,
       ...details,
-    })
+    }),
   );
 
   return c.json(
@@ -42,7 +38,7 @@ function createProxyErrorResponse(
       message,
       type,
     },
-    statusCode as 502 | 504
+    statusCode as 502 | 504,
   );
 }
 
@@ -61,7 +57,7 @@ function createProxyErrorResponse(
 export async function handleProxy(
   c: Context<AppEnv>,
   route: KVRouteConfig,
-  options: { timeoutMs?: number } = {}
+  options: { timeoutMs?: number } = {},
 ): Promise<Response> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
@@ -73,7 +69,7 @@ export async function handleProxy(
       'validation_error',
       'The proxy target is not allowed.',
       502,
-      { path: route.path, target: route.target, validationError: validation.error }
+      { path: route.path, target: route.target, validationError: validation.error },
     );
   }
 
@@ -153,7 +149,7 @@ export async function handleProxy(
         'timeout',
         `Upstream server did not respond within ${timeoutMs / 1000} seconds.`,
         504,
-        { path: route.path, target: route.target, timeoutMs }
+        { path: route.path, target: route.target, timeoutMs },
       );
     }
 
@@ -164,7 +160,7 @@ export async function handleProxy(
       'network_error',
       `Failed to connect to upstream server: ${errorMessage}`,
       502,
-      { path: route.path, target: route.target }
+      { path: route.path, target: route.target },
     );
   }
 }

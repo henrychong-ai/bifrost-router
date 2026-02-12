@@ -17,7 +17,7 @@ describe('tools', () => {
     });
 
     it('has all expected route tools', () => {
-      const names = toolDefinitions.map((t) => t.name);
+      const names = toolDefinitions.map(t => t.name);
       expect(names).toContain('list_routes');
       expect(names).toContain('get_route');
       expect(names).toContain('create_route');
@@ -28,7 +28,7 @@ describe('tools', () => {
     });
 
     it('has all expected analytics tools', () => {
-      const names = toolDefinitions.map((t) => t.name);
+      const names = toolDefinitions.map(t => t.name);
       expect(names).toContain('get_analytics_summary');
       expect(names).toContain('get_clicks');
       expect(names).toContain('get_views');

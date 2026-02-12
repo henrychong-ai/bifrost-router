@@ -7,7 +7,12 @@ import { getServiceFallback, isValidDomain } from './types';
 import { matchRoute } from './kv/lookup';
 import { handleRedirect, handleProxy, handleR2, CACHE_STATUS_HEADER } from './handlers';
 import { adminRoutes } from './routes/admin';
-import { recordClick, recordPageView, recordFileDownload, recordProxyRequest } from './db/analytics';
+import {
+  recordClick,
+  recordPageView,
+  recordFileDownload,
+  recordProxyRequest,
+} from './db/analytics';
 import { handleScheduled } from './backup';
 
 /**
@@ -25,7 +30,9 @@ interface CfProperties {
 /**
  * Extract analytics data from request context
  */
-function getAnalyticsData(c: { req: { raw: Request; header: (name: string) => string | undefined } }) {
+function getAnalyticsData(c: {
+  req: { raw: Request; header: (name: string) => string | undefined };
+}) {
   const cf = c.req.raw.cf as CfProperties | undefined;
   return {
     referrer: c.req.header('referer'),
@@ -47,9 +54,12 @@ const app = new Hono<AppEnv>();
 // ============================================
 
 app.use('*', logger());
-app.use('*', secureHeaders({
-  strictTransportSecurity: 'max-age=15552000',
-}));
+app.use(
+  '*',
+  secureHeaders({
+    strictTransportSecurity: 'max-age=15552000',
+  }),
+);
 
 // ============================================
 // SYSTEM ROUTES (not in KV)
@@ -58,7 +68,7 @@ app.use('*', secureHeaders({
 /**
  * Health check endpoint
  */
-app.get('/health', (c) => {
+app.get('/health', c => {
   const url = new URL(c.req.url);
   const isDomainSupported = isValidDomain(url.hostname);
 
@@ -90,7 +100,7 @@ app.route('/api', adminRoutes);
  * 3. Matches exact paths first, then wildcards
  * 4. Delegates to appropriate handler based on route type
  */
-app.all('*', async (c) => {
+app.all('*', async c => {
   const path = c.req.path;
 
   // Skip system routes
@@ -110,14 +120,14 @@ app.all('*', async (c) => {
       domain,
       path,
       domainSupported: isValidDomain(domain),
-    })
+    }),
   );
 
   // Look up route in unified KV namespace with domain prefix
   const route = await matchRoute(c.env.ROUTES, domain, path);
 
   if (!route) {
-    // Check for service binding fallback (e.g., example-site for example.com)
+    // Check for service binding fallback (e.g., henrychong-site for henrychong.com)
     const serviceFallback = getServiceFallback(c.env, url.hostname);
     if (serviceFallback) {
       console.log(
@@ -126,7 +136,7 @@ app.all('*', async (c) => {
           message: 'Forwarding to service binding',
           hostname: url.hostname,
           path,
-        })
+        }),
       );
       // Forward the request to the service binding
       // Clone both request and response to avoid immutable headers issue from Hono middleware
@@ -143,7 +153,7 @@ app.all('*', async (c) => {
             path: path,
             queryString: url.search || null,
             ...analyticsData,
-          })
+          }),
         );
       }
 
@@ -157,7 +167,7 @@ app.all('*', async (c) => {
         message: 'No route configured for this path.',
         hint: 'Use the admin API to add routes: POST /api/routes',
       },
-      404
+      404,
     );
   }
 
@@ -170,7 +180,7 @@ app.all('*', async (c) => {
       routePath: route.path,
       routeType: route.type,
       target: route.target,
-    })
+    }),
   );
 
   // Delegate to appropriate handler and get response
@@ -188,7 +198,7 @@ app.all('*', async (c) => {
         targetUrl: route.target,
         queryString: url.search || null,
         ...analyticsData,
-      })
+      }),
     );
   }
 
@@ -211,7 +221,7 @@ app.all('*', async (c) => {
         cacheStatus,
         queryString: url.search || null,
         ...analyticsData,
-      })
+      }),
     );
   }
 
@@ -232,7 +242,7 @@ app.all('*', async (c) => {
         contentLength,
         queryString: url.search || null,
         ...analyticsData,
-      })
+      }),
     );
   }
 
@@ -245,7 +255,7 @@ app.all('*', async (c) => {
  */
 async function handleRoute(
   c: Parameters<typeof handleRedirect>[0],
-  route: KVRouteConfig
+  route: KVRouteConfig,
 ): Promise<Response> {
   switch (route.type) {
     case 'redirect':
@@ -263,7 +273,7 @@ async function handleRoute(
           error: 'Invalid route type',
           type: route.type,
         },
-        500
+        500,
       );
   }
 }
@@ -287,7 +297,7 @@ app.onError((err, c) => {
       stack: c.env.ENVIRONMENT === 'development' ? err.stack : undefined,
       path: c.req.path,
       method: c.req.method,
-    })
+    }),
   );
 
   return c.json(
@@ -295,7 +305,7 @@ app.onError((err, c) => {
       error: 'Internal Server Error',
       message: c.env.ENVIRONMENT === 'development' ? err.message : undefined,
     },
-    500
+    500,
   );
 });
 
@@ -313,22 +323,18 @@ export default {
    * Scheduled event handler for cron-triggered backups
    * Runs daily at 8 PM UTC (4 AM SGT)
    */
-  scheduled: async (
-    _event: ScheduledEvent,
-    env: Bindings,
-    ctx: ExecutionContext
-  ) => {
+  scheduled: async (_event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) => {
     ctx.waitUntil(
-      handleScheduled(env).then((result) => {
+      handleScheduled(env).then(result => {
         if (result.success) {
           console.log(
             `[Scheduled] Backup completed in ${result.duration}ms - ` +
-              `${result.manifest?.kv.totalRoutes} routes, ${result.manifest?.d1.totalRows} rows`
+              `${result.manifest?.kv.totalRoutes} routes, ${result.manifest?.d1.totalRows} rows`,
           );
         } else {
           console.error(`[Scheduled] Backup failed: ${result.error}`);
         }
-      })
+      }),
     );
   },
 };

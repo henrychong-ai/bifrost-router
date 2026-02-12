@@ -16,12 +16,9 @@ describe('handleProxy', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/internal', (c) => handleProxy(c, route));
+      app.get('/internal', c => handleProxy(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/internal'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/internal'), env);
 
       expect(response.status).toBe(502);
       const data = await response.json();
@@ -38,12 +35,9 @@ describe('handleProxy', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/local', (c) => handleProxy(c, route));
+      app.get('/local', c => handleProxy(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/local'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/local'), env);
 
       expect(response.status).toBe(502);
       const data = await response.json();
@@ -60,12 +54,9 @@ describe('handleProxy', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/loopback', (c) => handleProxy(c, route));
+      app.get('/loopback', c => handleProxy(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/loopback'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/loopback'), env);
 
       expect(response.status).toBe(502);
       const data = await response.json();
@@ -82,12 +73,9 @@ describe('handleProxy', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/private', (c) => handleProxy(c, route));
+      app.get('/private', c => handleProxy(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/private'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/private'), env);
 
       expect(response.status).toBe(502);
     });
@@ -102,12 +90,9 @@ describe('handleProxy', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/private', (c) => handleProxy(c, route));
+      app.get('/private', c => handleProxy(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/private'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/private'), env);
 
       expect(response.status).toBe(502);
     });
@@ -122,12 +107,9 @@ describe('handleProxy', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/file', (c) => handleProxy(c, route));
+      app.get('/file', c => handleProxy(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/file'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/file'), env);
 
       expect(response.status).toBe(502);
     });
@@ -142,12 +124,9 @@ describe('handleProxy', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/ftp', (c) => handleProxy(c, route));
+      app.get('/ftp', c => handleProxy(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/ftp'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/ftp'), env);
 
       expect(response.status).toBe(502);
     });
@@ -171,7 +150,7 @@ describe('handleProxy', () => {
 
       // Validation should pass (it's a valid public URL)
       // The actual fetch will fail in test environment but that's expected
-      app.get('/api/*', (c) => handleProxy(c, route));
+      app.get('/api/*', c => handleProxy(c, route));
 
       // We can't easily test the actual proxy behavior without network mocks
       // but we've verified validation works in other tests
@@ -190,7 +169,7 @@ describe('handleProxy', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/webflow', (c) => handleProxy(c, route));
+      app.get('/webflow', c => handleProxy(c, route));
 
       // Validation should pass - the route configuration with hostHeader is valid
       // Actual fetch will fail in test environment without network mocks
@@ -207,7 +186,7 @@ describe('handleProxy', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/api', (c) => handleProxy(c, route));
+      app.get('/api', c => handleProxy(c, route));
 
       // Route without hostHeader should be valid
       expect(route.hostHeader).toBeUndefined();

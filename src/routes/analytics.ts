@@ -100,7 +100,7 @@ const AuditListQuerySchema = z.object({
  * - domain: Filter by domain (optional)
  * - days: Time range in days (default: 30, max: 365)
  */
-analyticsRoutes.get('/summary', async (c) => {
+analyticsRoutes.get('/summary', async c => {
   const queryResult = SummaryQuerySchema.safeParse({
     domain: c.req.query('domain'),
     days: c.req.query('days'),
@@ -113,7 +113,7 @@ analyticsRoutes.get('/summary', async (c) => {
         error: 'Invalid query parameters',
         details: queryResult.error.issues,
       },
-      400
+      400,
     );
   }
 
@@ -131,7 +131,7 @@ analyticsRoutes.get('/summary', async (c) => {
         level: 'error',
         message: 'Analytics summary query failed',
         error: error instanceof Error ? error.message : String(error),
-      })
+      }),
     );
 
     return c.json(
@@ -139,7 +139,7 @@ analyticsRoutes.get('/summary', async (c) => {
         success: false,
         error: 'Failed to fetch analytics summary',
       },
-      500
+      500,
     );
   }
 });
@@ -157,7 +157,7 @@ analyticsRoutes.get('/summary', async (c) => {
  * - slug: Filter by slug (optional)
  * - country: Filter by country code (optional, 2-letter ISO)
  */
-analyticsRoutes.get('/clicks', async (c) => {
+analyticsRoutes.get('/clicks', async c => {
   const queryResult = ListQuerySchema.safeParse({
     domain: c.req.query('domain'),
     days: c.req.query('days'),
@@ -174,7 +174,7 @@ analyticsRoutes.get('/clicks', async (c) => {
         error: 'Invalid query parameters',
         details: queryResult.error.issues,
       },
-      400
+      400,
     );
   }
 
@@ -196,7 +196,7 @@ analyticsRoutes.get('/clicks', async (c) => {
         level: 'error',
         message: 'Analytics clicks query failed',
         error: error instanceof Error ? error.message : String(error),
-      })
+      }),
     );
 
     return c.json(
@@ -204,7 +204,7 @@ analyticsRoutes.get('/clicks', async (c) => {
         success: false,
         error: 'Failed to fetch click analytics',
       },
-      500
+      500,
     );
   }
 });
@@ -222,7 +222,7 @@ analyticsRoutes.get('/clicks', async (c) => {
  * - path: Filter by path (optional)
  * - country: Filter by country code (optional, 2-letter ISO)
  */
-analyticsRoutes.get('/views', async (c) => {
+analyticsRoutes.get('/views', async c => {
   const queryResult = ListQuerySchema.safeParse({
     domain: c.req.query('domain'),
     days: c.req.query('days'),
@@ -239,7 +239,7 @@ analyticsRoutes.get('/views', async (c) => {
         error: 'Invalid query parameters',
         details: queryResult.error.issues,
       },
-      400
+      400,
     );
   }
 
@@ -261,7 +261,7 @@ analyticsRoutes.get('/views', async (c) => {
         level: 'error',
         message: 'Analytics views query failed',
         error: error instanceof Error ? error.message : String(error),
-      })
+      }),
     );
 
     return c.json(
@@ -269,7 +269,7 @@ analyticsRoutes.get('/views', async (c) => {
         success: false,
         error: 'Failed to fetch view analytics',
       },
-      500
+      500,
     );
   }
 });
@@ -286,7 +286,7 @@ analyticsRoutes.get('/views', async (c) => {
  * - domain: Filter by domain (optional)
  * - days: Time range in days (default: 30, max: 365)
  */
-analyticsRoutes.get('/clicks/:slug', async (c) => {
+analyticsRoutes.get('/clicks/:slug', async c => {
   const slug = '/' + c.req.param('slug');
 
   const queryResult = SlugQuerySchema.safeParse({
@@ -301,7 +301,7 @@ analyticsRoutes.get('/clicks/:slug', async (c) => {
         error: 'Invalid query parameters',
         details: queryResult.error.issues,
       },
-      400
+      400,
     );
   }
 
@@ -315,7 +315,7 @@ analyticsRoutes.get('/clicks/:slug', async (c) => {
           success: false,
           error: `No clicks found for slug: ${slug}`,
         },
-        404
+        404,
       );
     }
 
@@ -330,7 +330,7 @@ analyticsRoutes.get('/clicks/:slug', async (c) => {
         message: 'Analytics slug stats query failed',
         error: error instanceof Error ? error.message : String(error),
         slug,
-      })
+      }),
     );
 
     return c.json(
@@ -338,7 +338,7 @@ analyticsRoutes.get('/clicks/:slug', async (c) => {
         success: false,
         error: 'Failed to fetch slug statistics',
       },
-      500
+      500,
     );
   }
 });
@@ -357,7 +357,7 @@ analyticsRoutes.get('/clicks/:slug', async (c) => {
  * - r2Key: Filter by R2 key (optional)
  * - country: Filter by country code (optional, 2-letter ISO)
  */
-analyticsRoutes.get('/downloads', async (c) => {
+analyticsRoutes.get('/downloads', async c => {
   const queryResult = DownloadsListQuerySchema.safeParse({
     domain: c.req.query('domain'),
     days: c.req.query('days'),
@@ -375,7 +375,7 @@ analyticsRoutes.get('/downloads', async (c) => {
         error: 'Invalid query parameters',
         details: queryResult.error.issues,
       },
-      400
+      400,
     );
   }
 
@@ -397,7 +397,7 @@ analyticsRoutes.get('/downloads', async (c) => {
         level: 'error',
         message: 'Analytics downloads query failed',
         error: error instanceof Error ? error.message : String(error),
-      })
+      }),
     );
 
     return c.json(
@@ -405,7 +405,7 @@ analyticsRoutes.get('/downloads', async (c) => {
         success: false,
         error: 'Failed to fetch download analytics',
       },
-      500
+      500,
     );
   }
 });
@@ -422,7 +422,7 @@ analyticsRoutes.get('/downloads', async (c) => {
  * - domain: Filter by domain (optional)
  * - days: Time range in days (default: 30, max: 365)
  */
-analyticsRoutes.get('/downloads/:path{.+}', async (c) => {
+analyticsRoutes.get('/downloads/:path{.+}', async c => {
   const path = '/' + c.req.param('path');
 
   const queryResult = SlugQuerySchema.safeParse({
@@ -437,7 +437,7 @@ analyticsRoutes.get('/downloads/:path{.+}', async (c) => {
         error: 'Invalid query parameters',
         details: queryResult.error.issues,
       },
-      400
+      400,
     );
   }
 
@@ -451,7 +451,7 @@ analyticsRoutes.get('/downloads/:path{.+}', async (c) => {
           success: false,
           error: `No downloads found for path: ${path}`,
         },
-        404
+        404,
       );
     }
 
@@ -466,7 +466,7 @@ analyticsRoutes.get('/downloads/:path{.+}', async (c) => {
         message: 'Analytics download stats query failed',
         error: error instanceof Error ? error.message : String(error),
         path,
-      })
+      }),
     );
 
     return c.json(
@@ -474,7 +474,7 @@ analyticsRoutes.get('/downloads/:path{.+}', async (c) => {
         success: false,
         error: 'Failed to fetch download statistics',
       },
-      500
+      500,
     );
   }
 });
@@ -493,7 +493,7 @@ analyticsRoutes.get('/downloads/:path{.+}', async (c) => {
  * - targetUrl: Filter by target URL (optional)
  * - country: Filter by country code (optional, 2-letter ISO)
  */
-analyticsRoutes.get('/proxy', async (c) => {
+analyticsRoutes.get('/proxy', async c => {
   const queryResult = ProxyListQuerySchema.safeParse({
     domain: c.req.query('domain'),
     days: c.req.query('days'),
@@ -511,7 +511,7 @@ analyticsRoutes.get('/proxy', async (c) => {
         error: 'Invalid query parameters',
         details: queryResult.error.issues,
       },
-      400
+      400,
     );
   }
 
@@ -533,7 +533,7 @@ analyticsRoutes.get('/proxy', async (c) => {
         level: 'error',
         message: 'Analytics proxy query failed',
         error: error instanceof Error ? error.message : String(error),
-      })
+      }),
     );
 
     return c.json(
@@ -541,7 +541,7 @@ analyticsRoutes.get('/proxy', async (c) => {
         success: false,
         error: 'Failed to fetch proxy analytics',
       },
-      500
+      500,
     );
   }
 });
@@ -558,7 +558,7 @@ analyticsRoutes.get('/proxy', async (c) => {
  * - domain: Filter by domain (optional)
  * - days: Time range in days (default: 30, max: 365)
  */
-analyticsRoutes.get('/proxy/:path{.+}', async (c) => {
+analyticsRoutes.get('/proxy/:path{.+}', async c => {
   const path = '/' + c.req.param('path');
 
   const queryResult = SlugQuerySchema.safeParse({
@@ -573,7 +573,7 @@ analyticsRoutes.get('/proxy/:path{.+}', async (c) => {
         error: 'Invalid query parameters',
         details: queryResult.error.issues,
       },
-      400
+      400,
     );
   }
 
@@ -587,7 +587,7 @@ analyticsRoutes.get('/proxy/:path{.+}', async (c) => {
           success: false,
           error: `No proxy requests found for path: ${path}`,
         },
-        404
+        404,
       );
     }
 
@@ -602,7 +602,7 @@ analyticsRoutes.get('/proxy/:path{.+}', async (c) => {
         message: 'Analytics proxy stats query failed',
         error: error instanceof Error ? error.message : String(error),
         path,
-      })
+      }),
     );
 
     return c.json(
@@ -610,7 +610,7 @@ analyticsRoutes.get('/proxy/:path{.+}', async (c) => {
         success: false,
         error: 'Failed to fetch proxy statistics',
       },
-      500
+      500,
     );
   }
 });
@@ -629,7 +629,7 @@ analyticsRoutes.get('/proxy/:path{.+}', async (c) => {
  * - limit: Results per page (default: 100, max: 1000)
  * - offset: Pagination offset (default: 0)
  */
-analyticsRoutes.get('/audit', async (c) => {
+analyticsRoutes.get('/audit', async c => {
   const queryResult = AuditListQuerySchema.safeParse({
     domain: c.req.query('domain'),
     action: c.req.query('action'),
@@ -647,7 +647,7 @@ analyticsRoutes.get('/audit', async (c) => {
         error: 'Invalid query parameters',
         details: queryResult.error.issues,
       },
-      400
+      400,
     );
   }
 
@@ -669,7 +669,7 @@ analyticsRoutes.get('/audit', async (c) => {
         level: 'error',
         message: 'Analytics audit query failed',
         error: error instanceof Error ? error.message : String(error),
-      })
+      }),
     );
 
     return c.json(
@@ -677,7 +677,7 @@ analyticsRoutes.get('/audit', async (c) => {
         success: false,
         error: 'Failed to fetch audit logs',
       },
-      500
+      500,
     );
   }
 });

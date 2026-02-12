@@ -6,7 +6,7 @@ import type { AppEnv } from '../types';
  * Single source of truth - used by index.ts, admin.ts, and cors middleware
  */
 export const ALLOWED_ORIGINS = [
-  'https://bifrost.example.com',
+  'https://bifrost.henrychong.com',
   'http://localhost:3001',
   'http://localhost:5173',
   'http://127.0.0.1:3001',
@@ -19,10 +19,7 @@ export const ALLOWED_ORIGINS = [
  * @param origin - The Origin header value
  * @param isDev - Whether to allow workers.dev origins (default: true for backwards compatibility)
  */
-export function isAllowedOrigin(
-  origin: string | undefined,
-  isDev = true
-): string {
+export function isAllowedOrigin(origin: string | undefined, isDev = true): string {
   if (!origin) return '';
   if ((ALLOWED_ORIGINS as readonly string[]).includes(origin)) return origin;
 
@@ -69,11 +66,7 @@ const DEFAULT_CONFIG: CorsConfig = {
   origins: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   headers: ['Content-Type', 'X-Admin-Key', 'Authorization'],
-  exposeHeaders: [
-    'X-RateLimit-Limit',
-    'X-RateLimit-Remaining',
-    'X-RateLimit-Reset',
-  ],
+  exposeHeaders: ['X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset'],
   credentials: false,
   maxAge: 86400, // 24 hours
 };
@@ -81,10 +74,7 @@ const DEFAULT_CONFIG: CorsConfig = {
 /**
  * Check if origin is allowed
  */
-function isOriginAllowed(
-  origin: string,
-  allowed: string | string[] | OriginChecker
-): boolean {
+function isOriginAllowed(origin: string, allowed: string | string[] | OriginChecker): boolean {
   if (allowed === '*') return true;
   if (typeof allowed === 'function') return allowed(origin);
   if (typeof allowed === 'string') return origin === allowed;
@@ -105,7 +95,6 @@ function getAllowedOrigin(origin: string | null, config: CorsConfig): string {
 
   return '';
 }
-
 
 /**
  * CORS middleware for Hono

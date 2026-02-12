@@ -16,7 +16,7 @@ describe('rateLimit middleware', () => {
 
     app = new Hono<AppEnv>();
     app.use('*', rateLimit({ maxRequests: 3, windowSeconds: 60 }));
-    app.get('/test', (c) => c.json({ success: true }));
+    app.get('/test', c => c.json({ success: true }));
   });
 
   it('allows requests within rate limit', async () => {
@@ -36,7 +36,7 @@ describe('rateLimit middleware', () => {
         new Request('http://localhost/test', {
           headers: { 'CF-Connecting-IP': '5.6.7.8' },
         }),
-        env
+        env,
       );
 
     // First 3 requests should succeed
@@ -49,7 +49,7 @@ describe('rateLimit middleware', () => {
     const response = await makeRequest();
     expect(response.status).toBe(429);
 
-    const body = await response.json() as { error: string };
+    const body = (await response.json()) as { error: string };
     expect(body.error).toBe('Too Many Requests');
     expect(response.headers.get('Retry-After')).toBeTruthy();
   });
@@ -60,7 +60,7 @@ describe('rateLimit middleware', () => {
       new Request('http://localhost/test', {
         headers: { 'CF-Connecting-IP': '10.0.0.1' },
       }),
-      env
+      env,
     );
     expect(response1.status).toBe(200);
     expect(response1.headers.get('X-RateLimit-Remaining')).toBe('2');
@@ -70,7 +70,7 @@ describe('rateLimit middleware', () => {
       new Request('http://localhost/test', {
         headers: { 'CF-Connecting-IP': '10.0.0.2' },
       }),
-      env
+      env,
     );
     expect(response2.status).toBe(200);
     expect(response2.headers.get('X-RateLimit-Remaining')).toBe('2');
@@ -88,7 +88,7 @@ describe('rateLimitStrict middleware', () => {
 
     app = new Hono<AppEnv>();
     app.use('*', rateLimitStrict({ maxRequests: 2, windowSeconds: 60 }));
-    app.get('/test', (c) => c.json({ success: true }));
+    app.get('/test', c => c.json({ success: true }));
   });
 
   it('allows requests within limit', async () => {
@@ -96,7 +96,7 @@ describe('rateLimitStrict middleware', () => {
       new Request('http://localhost/test', {
         headers: { 'CF-Connecting-IP': '20.0.0.1' },
       }),
-      env
+      env,
     );
     expect(response.status).toBe(200);
   });
@@ -107,7 +107,7 @@ describe('rateLimitStrict middleware', () => {
         new Request('http://localhost/test', {
           headers: { 'CF-Connecting-IP': '20.0.0.2' },
         }),
-        env
+        env,
       );
 
     await makeRequest();

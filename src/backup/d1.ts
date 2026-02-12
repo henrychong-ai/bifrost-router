@@ -29,7 +29,7 @@ export async function backupD1(
   db: D1Database,
   bucket: R2Bucket,
   date: string,
-  daysToBackup: number = 30
+  daysToBackup: number = 30,
 ): Promise<D1BackupResult> {
   // Calculate cutoff timestamp (Unix seconds)
   const cutoffTimestamp = Math.floor(Date.now() / 1000) - daysToBackup * 24 * 60 * 60;
@@ -46,7 +46,7 @@ export async function backupD1(
       .all();
 
     // Convert to NDJSON (empty string if no rows - still creates valid gzip file)
-    const ndjson = result.results.map((row) => JSON.stringify(row)).join('\n');
+    const ndjson = result.results.map(row => JSON.stringify(row)).join('\n');
     const compressed = await gzipCompress(ndjson);
 
     const filename = `daily/${date}/d1-${table}.ndjson.gz`;

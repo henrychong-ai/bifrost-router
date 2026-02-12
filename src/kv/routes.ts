@@ -1,6 +1,12 @@
 import type { KVRouteConfig, RoutesMetadata, SupportedDomain } from '../types';
 import { SUPPORTED_DOMAINS } from '../types';
-import { routeKey, domainPrefix, parseRouteKey, SCHEMA_VERSION, type CreateRouteInput } from './schema';
+import {
+  routeKey,
+  domainPrefix,
+  parseRouteKey,
+  SCHEMA_VERSION,
+  type CreateRouteInput,
+} from './schema';
 import {
   KVReadError,
   KVWriteError,
@@ -17,16 +23,13 @@ import { normalizePath } from './lookup';
 export async function getRoute(
   kv: KVNamespace,
   domain: string,
-  path: string
+  path: string,
 ): Promise<KVRouteConfig | null> {
   const key = routeKey(domain, path);
   try {
     return await kv.get<KVRouteConfig>(key, 'json');
   } catch (error) {
-    throw new KVReadError(
-      key,
-      error instanceof Error ? error : new Error(String(error))
-    );
+    throw new KVReadError(key, error instanceof Error ? error : new Error(String(error)));
   }
 }
 
@@ -37,12 +40,12 @@ export async function getRoute(
 export async function getRouteSafe(
   kv: KVNamespace,
   domain: string,
-  path: string
+  path: string,
 ): Promise<KVResult<KVRouteConfig | null>> {
   const key = routeKey(domain, path);
   return withKVErrorHandling(
     () => kv.get<KVRouteConfig>(key, 'json'),
-    (cause) => new KVReadError(key, cause)
+    cause => new KVReadError(key, cause),
   );
 }
 
@@ -51,10 +54,7 @@ export async function getRouteSafe(
  * Uses prefix-based listing for unified KV namespace
  * Throws KVReadError on failure
  */
-export async function getAllRoutes(
-  kv: KVNamespace,
-  domain: string
-): Promise<KVRouteConfig[]> {
+export async function getAllRoutes(kv: KVNamespace, domain: string): Promise<KVRouteConfig[]> {
   try {
     const prefix = domainPrefix(domain);
     const routes: KVRouteConfig[] = [];
@@ -65,7 +65,7 @@ export async function getAllRoutes(
       const result = await kv.list({ prefix, cursor });
 
       // Fetch route values for each key
-      const routePromises = result.keys.map(async (key) => {
+      const routePromises = result.keys.map(async key => {
         const route = await kv.get<KVRouteConfig>(key.name, 'json');
         return route;
       });
@@ -81,7 +81,7 @@ export async function getAllRoutes(
     if (error instanceof KVReadError) throw error;
     throw new KVReadError(
       `list:${domain}`,
-      error instanceof Error ? error : new Error(String(error))
+      error instanceof Error ? error : new Error(String(error)),
     );
   }
 }
@@ -97,9 +97,7 @@ export type KVRouteConfigWithDomain = KVRouteConfig & { domain: SupportedDomain 
  * Returns routes with domain field included
  * Throws KVReadError on failure
  */
-export async function getAllRoutesAllDomains(
-  kv: KVNamespace
-): Promise<KVRouteConfigWithDomain[]> {
+export async function getAllRoutesAllDomains(kv: KVNamespace): Promise<KVRouteConfigWithDomain[]> {
   try {
     const routes: KVRouteConfigWithDomain[] = [];
     let cursor: string | undefined;
@@ -109,7 +107,7 @@ export async function getAllRoutesAllDomains(
       const result = await kv.list({ cursor });
 
       // Fetch route values and parse domain from key
-      const routePromises = result.keys.map(async (key) => {
+      const routePromises = result.keys.map(async key => {
         try {
           // Parse domain from key (format: "domain:/path")
           const [domain] = parseRouteKey(key.name);
@@ -138,10 +136,7 @@ export async function getAllRoutesAllDomains(
     return routes;
   } catch (error) {
     if (error instanceof KVReadError) throw error;
-    throw new KVReadError(
-      'list:all',
-      error instanceof Error ? error : new Error(String(error))
-    );
+    throw new KVReadError('list:all', error instanceof Error ? error : new Error(String(error)));
   }
 }
 
@@ -152,7 +147,7 @@ export async function getAllRoutesAllDomains(
 export async function createRoute(
   kv: KVNamespace,
   domain: string,
-  input: CreateRouteInput
+  input: CreateRouteInput,
 ): Promise<KVRouteConfig> {
   const now = Date.now();
   const normalizedPath = normalizePath(input.path);
@@ -171,10 +166,7 @@ export async function createRoute(
     await kv.put(key, JSON.stringify(route));
     return route;
   } catch (error) {
-    throw new KVWriteError(
-      key,
-      error instanceof Error ? error : new Error(String(error))
-    );
+    throw new KVWriteError(key, error instanceof Error ? error : new Error(String(error)));
   }
 }
 
@@ -186,7 +178,7 @@ export async function updateRoute(
   kv: KVNamespace,
   domain: string,
   path: string,
-  updates: Partial<CreateRouteInput>
+  updates: Partial<CreateRouteInput>,
 ): Promise<KVRouteConfig | null> {
   const normalizedPath = normalizePath(path);
   const existing = await getRoute(kv, domain, normalizedPath);
@@ -205,10 +197,7 @@ export async function updateRoute(
     await kv.put(key, JSON.stringify(updated));
     return updated;
   } catch (error) {
-    throw new KVWriteError(
-      key,
-      error instanceof Error ? error : new Error(String(error))
-    );
+    throw new KVWriteError(key, error instanceof Error ? error : new Error(String(error)));
   }
 }
 
@@ -216,11 +205,7 @@ export async function updateRoute(
  * Delete a route
  * Returns false if not found, throws KVDeleteError on failure
  */
-export async function deleteRoute(
-  kv: KVNamespace,
-  domain: string,
-  path: string
-): Promise<boolean> {
+export async function deleteRoute(kv: KVNamespace, domain: string, path: string): Promise<boolean> {
   const existing = await getRoute(kv, domain, path);
   if (!existing) return false;
 
@@ -229,10 +214,7 @@ export async function deleteRoute(
     await kv.delete(key);
     return true;
   } catch (error) {
-    throw new KVDeleteError(
-      key,
-      error instanceof Error ? error : new Error(String(error))
-    );
+    throw new KVDeleteError(key, error instanceof Error ? error : new Error(String(error)));
   }
 }
 
@@ -242,7 +224,7 @@ export async function deleteRoute(
 export async function seedRoutes(
   kv: KVNamespace,
   domain: string,
-  routes: CreateRouteInput[]
+  routes: CreateRouteInput[],
 ): Promise<{ created: number; skipped: number }> {
   let created = 0;
   let skipped = 0;
@@ -264,10 +246,7 @@ export async function seedRoutes(
  * Get metadata for routes in a domain
  * Returns computed metadata based on route count
  */
-export async function getMetadata(
-  kv: KVNamespace,
-  domain: string
-): Promise<RoutesMetadata> {
+export async function getMetadata(kv: KVNamespace, domain: string): Promise<RoutesMetadata> {
   const routes = await getAllRoutes(kv, domain);
   return {
     version: SCHEMA_VERSION,
@@ -286,7 +265,7 @@ export async function migrateRoute(
   kv: KVNamespace,
   domain: string,
   oldPath: string,
-  newPath: string
+  newPath: string,
 ): Promise<KVRouteConfig | null> {
   const normalizedOldPath = normalizePath(oldPath);
   const normalizedNewPath = normalizePath(newPath);
@@ -334,7 +313,7 @@ export async function migrateRoute(
     }
     throw new KVWriteError(
       `migrate:${oldKey}->${newKey}`,
-      error instanceof Error ? error : new Error(String(error))
+      error instanceof Error ? error : new Error(String(error)),
     );
   }
 }

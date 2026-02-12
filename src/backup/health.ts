@@ -28,7 +28,7 @@ const EXPECTED_FILES = [
  * Find the most recent backup in the R2 bucket
  */
 async function findLatestBackup(
-  bucket: R2Bucket
+  bucket: R2Bucket,
 ): Promise<{ date: string; timestamp: string } | null> {
   // List objects with prefix 'daily/' to find backup directories
   const list = await bucket.list({ prefix: 'daily/', delimiter: '/' });
@@ -39,8 +39,8 @@ async function findLatestBackup(
 
   // Extract dates and sort descending to get most recent
   const dates = list.delimitedPrefixes
-    .map((p) => p.replace('daily/', '').replace('/', ''))
-    .filter((d) => /^\d{8}$/.test(d))
+    .map(p => p.replace('daily/', '').replace('/', ''))
+    .filter(d => /^\d{8}$/.test(d))
     .sort((a, b) => b.localeCompare(a));
 
   if (dates.length === 0) return null;
@@ -59,10 +59,7 @@ async function findLatestBackup(
 /**
  * Fetch and parse the backup manifest
  */
-async function fetchManifest(
-  bucket: R2Bucket,
-  date: string
-): Promise<BackupManifest | null> {
+async function fetchManifest(bucket: R2Bucket, date: string): Promise<BackupManifest | null> {
   try {
     const obj = await bucket.get(`daily/${date}/manifest.json`);
     if (!obj) return null;
@@ -78,7 +75,7 @@ async function fetchManifest(
 function manifestToSummary(manifest: BackupManifest): ManifestSummary {
   // Convert the tables from string[] to D1TableInfo[]
   // We don't have per-table row counts in the current manifest, so estimate
-  const tables = manifest.d1.tables.map((name) => ({
+  const tables = manifest.d1.tables.map(name => ({
     name,
     // Estimate: distribute total rows evenly across tables
     rows: Math.floor(manifest.d1.totalRows / manifest.d1.tables.length),
@@ -100,12 +97,9 @@ function manifestToSummary(manifest: BackupManifest): ManifestSummary {
 /**
  * Check existence and size of all expected backup files
  */
-async function checkBackupFiles(
-  bucket: R2Bucket,
-  date: string
-): Promise<BackupFileStatus[]> {
+async function checkBackupFiles(bucket: R2Bucket, date: string): Promise<BackupFileStatus[]> {
   const results = await Promise.all(
-    EXPECTED_FILES.map(async (filename) => {
+    EXPECTED_FILES.map(async filename => {
       const key = `daily/${date}/${filename}`;
       const obj = await bucket.head(key);
       return {
@@ -113,7 +107,7 @@ async function checkBackupFiles(
         size: obj?.size ?? 0,
         exists: obj !== null,
       };
-    })
+    }),
   );
 
   return results;
@@ -131,7 +125,7 @@ async function checkBackupFiles(
  */
 export async function checkBackupHealth(
   bucket: R2Bucket,
-  config: Partial<HealthCheckConfig> = {}
+  config: Partial<HealthCheckConfig> = {},
 ): Promise<BackupHealthResponse> {
   const cfg = { ...DEFAULT_HEALTH_CONFIG, ...config };
   const now = new Date();
@@ -146,9 +140,7 @@ export async function checkBackupHealth(
       status: 'critical',
       timestamp: now.toISOString(),
       lastBackup: null,
-      issues: [
-        { severity: 'critical', message: 'No backup found in R2 bucket' },
-      ],
+      issues: [{ severity: 'critical', message: 'No backup found in R2 bucket' }],
       checks: {
         backupExists: false,
         backupAge: 'critical',
@@ -191,10 +183,10 @@ export async function checkBackupHealth(
 
   // Check file completeness
   const files = await checkBackupFiles(bucket, latestBackup.date);
-  const filesComplete = files.every((f) => f.exists);
+  const filesComplete = files.every(f => f.exists);
 
   if (!filesComplete) {
-    const missing = files.filter((f) => !f.exists).map((f) => f.key);
+    const missing = files.filter(f => !f.exists).map(f => f.key);
     issues.push({
       severity: 'critical',
       message: `Missing backup files: ${missing.join(', ')}`,
@@ -212,13 +204,9 @@ export async function checkBackupHealth(
   }
 
   // Determine overall status
-  const hasCritical = issues.some((i) => i.severity === 'critical');
-  const hasWarning = issues.some((i) => i.severity === 'warning');
-  const status: HealthStatus = hasCritical
-    ? 'critical'
-    : hasWarning
-      ? 'warning'
-      : 'healthy';
+  const hasCritical = issues.some(i => i.severity === 'critical');
+  const hasWarning = issues.some(i => i.severity === 'warning');
+  const status: HealthStatus = hasCritical ? 'critical' : hasWarning ? 'warning' : 'healthy';
 
   return {
     status,

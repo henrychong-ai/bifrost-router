@@ -18,7 +18,7 @@ export async function verifySlackSignature(
   signingSecret: string,
   signature: string,
   timestamp: string,
-  body: string
+  body: string,
 ): Promise<boolean> {
   // Reject if timestamp is more than 5 minutes old (replay attack protection)
   const currentTime = Math.floor(Date.now() / 1000);
@@ -30,7 +30,7 @@ export async function verifySlackSignature(
         level: 'warn',
         message: 'Invalid Slack timestamp',
         timestamp,
-      })
+      }),
     );
     return false;
   }
@@ -43,7 +43,7 @@ export async function verifySlackSignature(
         currentTime,
         requestTime,
         diff: Math.abs(currentTime - requestTime),
-      })
+      }),
     );
     return false;
   }
@@ -61,13 +61,13 @@ export async function verifySlackSignature(
     keyData,
     { name: 'HMAC', hash: 'SHA-256' },
     false,
-    ['sign']
+    ['sign'],
   );
 
   const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
   const signatureArray = Array.from(new Uint8Array(signatureBuffer));
   const computedSignature =
-    'v0=' + signatureArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+    'v0=' + signatureArray.map(b => b.toString(16).padStart(2, '0')).join('');
 
   // Timing-safe comparison
   return timingSafeEqual(computedSignature, signature);
@@ -145,7 +145,7 @@ export function parseSlackPayload(body: string): SlackEventPayload | null {
       JSON.stringify({
         level: 'error',
         message: 'Failed to parse Slack payload',
-      })
+      }),
     );
     return null;
   }

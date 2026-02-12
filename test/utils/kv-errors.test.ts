@@ -71,7 +71,7 @@ describe('withKVErrorHandling', () => {
   it('returns success result on successful operation', async () => {
     const result = await withKVErrorHandling(
       async () => 'success',
-      () => new KVReadError('test')
+      () => new KVReadError('test'),
     );
 
     expect(result.success).toBe(true);
@@ -85,7 +85,7 @@ describe('withKVErrorHandling', () => {
       async () => {
         throw new Error('Original error');
       },
-      (cause) => new KVReadError('test', cause)
+      cause => new KVReadError('test', cause),
     );
 
     expect(result.success).toBe(false);
@@ -100,7 +100,7 @@ describe('withKVErrorHandling', () => {
       async () => {
         throw 'string error';
       },
-      (cause) => new KVWriteError('test', cause)
+      cause => new KVWriteError('test', cause),
     );
 
     expect(result.success).toBe(false);

@@ -6,17 +6,17 @@ workers_dev = true
 # KV namespace for Slack user permissions
 [[kv_namespaces]]
 binding = "SLACK_PERMISSIONS"
-id = "your-slack-permissions-kv-id"
+id = "e33dd19d7e6a43b0a6cf671b8e473cc9"
 
 # D1 database for conversations (reuse analytics DB)
 [[d1_databases]]
 binding = "DB"
 database_name = "bifrost-analytics"
-database_id = "your-d1-database-id"
+database_id = "739159f2-a558-44a0-b26d-81ea30effc83"
 
 [vars]
 ENVIRONMENT = "production"
-EDGE_ROUTER_URL = "https://example.com"
+EDGE_ROUTER_URL = "https://henrychong.com"
 
 # Required secrets (set via wrangler secret put):
 # - SLACK_SIGNING_SECRET: Slack app signing secret

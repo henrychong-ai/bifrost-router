@@ -1,5 +1,10 @@
 // Types and constants
-export { type RoutesFilterState, type AuditFilterState, type SupportedDomain, SUPPORTED_DOMAINS } from './filter-types';
+export {
+  type RoutesFilterState,
+  type AuditFilterState,
+  type SupportedDomain,
+  SUPPORTED_DOMAINS,
+} from './filter-types';
 
 // Context provider component
 export { FilterProvider } from './filter-context';

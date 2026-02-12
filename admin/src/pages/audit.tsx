@@ -20,7 +20,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, ToggleLeft, Layers, ArrowRightLeft } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Pencil,
+  Trash2,
+  ToggleLeft,
+  Layers,
+  ArrowRightLeft,
+} from 'lucide-react';
 import { FilterToolbar, type FilterState } from '@/components/filters';
 import type { AuditFilterState } from '@/context';
 import type { AuditAction, AuditLog } from '@/lib/schemas';
@@ -94,15 +103,18 @@ export function AuditPage() {
   const debouncedSearch = useDebounce(filters.search || '', 300);
 
   // Build query params for API
-  const queryParams = useMemo(() => ({
-    limit,
-    offset,
-    domain: filters.domain || undefined,
-    days: filters.days || 30,
-    action: filters.action || undefined,
-    actor: filters.actor || undefined,
-    path: debouncedSearch || undefined,
-  }), [limit, offset, filters.domain, filters.days, filters.action, filters.actor, debouncedSearch]);
+  const queryParams = useMemo(
+    () => ({
+      limit,
+      offset,
+      domain: filters.domain || undefined,
+      days: filters.days || 30,
+      action: filters.action || undefined,
+      actor: filters.actor || undefined,
+      path: debouncedSearch || undefined,
+    }),
+    [limit, offset, filters.domain, filters.days, filters.action, filters.actor, debouncedSearch],
+  );
 
   const { data, isLoading, error } = useAuditLogs(queryParams);
 
@@ -130,7 +142,13 @@ export function AuditPage() {
   };
 
   // Check if any filters are active
-  const hasActiveFilters = !!(filters.search || filters.domain || filters.action || filters.actor || (filters.days && filters.days !== 30));
+  const hasActiveFilters = !!(
+    filters.search ||
+    filters.domain ||
+    filters.action ||
+    filters.actor ||
+    (filters.days && filters.days !== 30)
+  );
 
   if (error) {
     return (
@@ -138,7 +156,9 @@ export function AuditPage() {
         <h1 className="text-huge font-gilroy font-bold text-blue-950">Audit Log</h1>
         <Card className="border-destructive">
           <CardContent className="pt-6">
-            <p className="text-destructive font-gilroy">Failed to load audit logs: {error.message}</p>
+            <p className="text-destructive font-gilroy">
+              Failed to load audit logs: {error.message}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -172,13 +192,27 @@ export function AuditPage() {
               <SelectValue placeholder="Action" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all" className="font-gilroy">All Actions</SelectItem>
-              <SelectItem value="create" className="font-gilroy">Create</SelectItem>
-              <SelectItem value="update" className="font-gilroy">Update</SelectItem>
-              <SelectItem value="delete" className="font-gilroy">Delete</SelectItem>
-              <SelectItem value="toggle" className="font-gilroy">Toggle</SelectItem>
-              <SelectItem value="seed" className="font-gilroy">Seed</SelectItem>
-              <SelectItem value="migrate" className="font-gilroy">Migrate</SelectItem>
+              <SelectItem value="all" className="font-gilroy">
+                All Actions
+              </SelectItem>
+              <SelectItem value="create" className="font-gilroy">
+                Create
+              </SelectItem>
+              <SelectItem value="update" className="font-gilroy">
+                Update
+              </SelectItem>
+              <SelectItem value="delete" className="font-gilroy">
+                Delete
+              </SelectItem>
+              <SelectItem value="toggle" className="font-gilroy">
+                Toggle
+              </SelectItem>
+              <SelectItem value="seed" className="font-gilroy">
+                Seed
+              </SelectItem>
+              <SelectItem value="migrate" className="font-gilroy">
+                Migrate
+              </SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -186,7 +220,9 @@ export function AuditPage() {
 
       <Card className="border-border/50">
         <CardHeader>
-          <CardTitle className="font-gilroy font-semibold text-blue-950">Activity History</CardTitle>
+          <CardTitle className="font-gilroy font-semibold text-blue-950">
+            Activity History
+          </CardTitle>
           <CardDescription className="font-gilroy">
             {isLoading
               ? 'Loading...'
@@ -206,19 +242,36 @@ export function AuditPage() {
                 <Table>
                   <TableHeader>
                     <TableRow className="border-charcoal-100 bg-muted/30">
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Time</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Action</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Domain</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Path</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Actor</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">Details</TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">IP Address</TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Time
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Action
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Domain
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Path
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Actor
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        Details
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                        IP Address
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {data?.items.map((log: AuditLog) => (
                       <TableRow key={log.id} className="hover:bg-gold-50/50 transition-colors">
-                        <TableCell className="text-small font-gilroy whitespace-nowrap" title={formatDate(log.createdAt)}>
+                        <TableCell
+                          className="text-small font-gilroy whitespace-nowrap"
+                          title={formatDate(log.createdAt)}
+                        >
                           {formatRelativeTime(log.createdAt)}
                         </TableCell>
                         <TableCell>
@@ -238,13 +291,20 @@ export function AuditPage() {
                         </TableCell>
                         <TableCell className="text-small font-gilroy whitespace-nowrap">
                           <div className="flex flex-col">
-                            <span className="font-medium">{log.actorName || log.actorLogin || 'Unknown'}</span>
-                            {log.actorName && log.actorLogin && log.actorLogin !== log.actorName && (
-                              <span className="text-charcoal-400 text-xs">{log.actorLogin}</span>
-                            )}
+                            <span className="font-medium">
+                              {log.actorName || log.actorLogin || 'Unknown'}
+                            </span>
+                            {log.actorName &&
+                              log.actorLogin &&
+                              log.actorLogin !== log.actorName && (
+                                <span className="text-charcoal-400 text-xs">{log.actorLogin}</span>
+                              )}
                           </div>
                         </TableCell>
-                        <TableCell className="text-small font-gilroy text-charcoal-600 max-w-[200px] truncate" title={log.details || ''}>
+                        <TableCell
+                          className="text-small font-gilroy text-charcoal-600 max-w-[200px] truncate"
+                          title={log.details || ''}
+                        >
                           {parseDetails(log.details)}
                         </TableCell>
                         <TableCell className="font-mono text-small whitespace-nowrap text-charcoal-400">
@@ -254,7 +314,10 @@ export function AuditPage() {
                     ))}
                     {(!data?.items || data.items.length === 0) && (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center text-muted-foreground font-gilroy">
+                        <TableCell
+                          colSpan={7}
+                          className="text-center text-muted-foreground font-gilroy"
+                        >
                           No audit logs recorded
                         </TableCell>
                       </TableRow>

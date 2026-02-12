@@ -27,7 +27,7 @@ RUN pnpm run build
 WORKDIR /app/admin
 
 # Build args for environment variables
-ARG VITE_API_URL=https://example.com
+ARG VITE_API_URL=https://henrychong.com
 ARG VITE_ADMIN_API_KEY
 
 # Build the application

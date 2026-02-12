@@ -9,17 +9,17 @@ describe('cors middleware', () => {
     it('handles OPTIONS preflight with correct headers', async () => {
       const app = new Hono<AppEnv>();
       app.use('*', cors());
-      app.get('/test', (c) => c.json({ success: true }));
+      app.get('/test', c => c.json({ success: true }));
 
       const response = await app.fetch(
         new Request('http://localhost/test', {
           method: 'OPTIONS',
           headers: {
-            'Origin': 'https://example.com',
+            Origin: 'https://example.com',
             'Access-Control-Request-Method': 'POST',
           },
         }),
-        env
+        env,
       );
 
       expect(response.status).toBe(204);
@@ -30,17 +30,17 @@ describe('cors middleware', () => {
     it('includes configured headers in preflight response', async () => {
       const app = new Hono<AppEnv>();
       app.use('*', cors({ headers: ['X-Custom-Header', 'Content-Type'] }));
-      app.get('/test', (c) => c.json({ success: true }));
+      app.get('/test', c => c.json({ success: true }));
 
       const response = await app.fetch(
         new Request('http://localhost/test', {
           method: 'OPTIONS',
           headers: {
-            'Origin': 'https://example.com',
+            Origin: 'https://example.com',
             'Access-Control-Request-Method': 'GET',
           },
         }),
-        env
+        env,
       );
 
       expect(response.headers.get('Access-Control-Allow-Headers')).toContain('X-Custom-Header');
@@ -51,13 +51,13 @@ describe('cors middleware', () => {
     it('adds CORS headers to response', async () => {
       const app = new Hono<AppEnv>();
       app.use('*', cors());
-      app.get('/test', (c) => c.json({ success: true }));
+      app.get('/test', c => c.json({ success: true }));
 
       const response = await app.fetch(
         new Request('http://localhost/test', {
-          headers: { 'Origin': 'https://example.com' },
+          headers: { Origin: 'https://example.com' },
         }),
-        env
+        env,
       );
 
       expect(response.status).toBe(200);
@@ -67,13 +67,13 @@ describe('cors middleware', () => {
     it('exposes configured headers', async () => {
       const app = new Hono<AppEnv>();
       app.use('*', cors({ exposeHeaders: ['X-Custom-Exposed'] }));
-      app.get('/test', (c) => c.json({ success: true }));
+      app.get('/test', c => c.json({ success: true }));
 
       const response = await app.fetch(
         new Request('http://localhost/test', {
-          headers: { 'Origin': 'https://example.com' },
+          headers: { Origin: 'https://example.com' },
         }),
-        env
+        env,
       );
 
       expect(response.headers.get('Access-Control-Expose-Headers')).toContain('X-Custom-Exposed');
@@ -84,13 +84,13 @@ describe('cors middleware', () => {
     it('allows specific origin when configured', async () => {
       const app = new Hono<AppEnv>();
       app.use('*', cors({ origins: 'https://allowed.com' }));
-      app.get('/test', (c) => c.json({ success: true }));
+      app.get('/test', c => c.json({ success: true }));
 
       const response = await app.fetch(
         new Request('http://localhost/test', {
-          headers: { 'Origin': 'https://allowed.com' },
+          headers: { Origin: 'https://allowed.com' },
         }),
-        env
+        env,
       );
 
       expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://allowed.com');
@@ -99,13 +99,13 @@ describe('cors middleware', () => {
     it('rejects disallowed origin', async () => {
       const app = new Hono<AppEnv>();
       app.use('*', cors({ origins: 'https://allowed.com' }));
-      app.get('/test', (c) => c.json({ success: true }));
+      app.get('/test', c => c.json({ success: true }));
 
       const response = await app.fetch(
         new Request('http://localhost/test', {
-          headers: { 'Origin': 'https://notallowed.com' },
+          headers: { Origin: 'https://notallowed.com' },
         }),
-        env
+        env,
       );
 
       expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
@@ -114,13 +114,13 @@ describe('cors middleware', () => {
     it('allows array of origins', async () => {
       const app = new Hono<AppEnv>();
       app.use('*', cors({ origins: ['https://one.com', 'https://two.com'] }));
-      app.get('/test', (c) => c.json({ success: true }));
+      app.get('/test', c => c.json({ success: true }));
 
       const response = await app.fetch(
         new Request('http://localhost/test', {
-          headers: { 'Origin': 'https://two.com' },
+          headers: { Origin: 'https://two.com' },
         }),
-        env
+        env,
       );
 
       expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://two.com');
@@ -131,13 +131,13 @@ describe('cors middleware', () => {
     it('sets credentials header when enabled', async () => {
       const app = new Hono<AppEnv>();
       app.use('*', cors({ credentials: true }));
-      app.get('/test', (c) => c.json({ success: true }));
+      app.get('/test', c => c.json({ success: true }));
 
       const response = await app.fetch(
         new Request('http://localhost/test', {
-          headers: { 'Origin': 'https://example.com' },
+          headers: { Origin: 'https://example.com' },
         }),
-        env
+        env,
       );
 
       expect(response.headers.get('Access-Control-Allow-Credentials')).toBe('true');
@@ -147,14 +147,14 @@ describe('cors middleware', () => {
   describe('function-based origins', () => {
     it('allows origin when function returns true', async () => {
       const app = new Hono<AppEnv>();
-      app.use('*', cors({ origins: (origin) => origin.endsWith('.example.com') }));
-      app.get('/test', (c) => c.json({ success: true }));
+      app.use('*', cors({ origins: origin => origin.endsWith('.example.com') }));
+      app.get('/test', c => c.json({ success: true }));
 
       const response = await app.fetch(
         new Request('http://localhost/test', {
-          headers: { 'Origin': 'https://sub.example.com' },
+          headers: { Origin: 'https://sub.example.com' },
         }),
-        env
+        env,
       );
 
       expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://sub.example.com');
@@ -162,14 +162,14 @@ describe('cors middleware', () => {
 
     it('rejects origin when function returns false', async () => {
       const app = new Hono<AppEnv>();
-      app.use('*', cors({ origins: (origin) => origin.endsWith('.example.com') }));
-      app.get('/test', (c) => c.json({ success: true }));
+      app.use('*', cors({ origins: origin => origin.endsWith('.example.com') }));
+      app.get('/test', c => c.json({ success: true }));
 
       const response = await app.fetch(
         new Request('http://localhost/test', {
-          headers: { 'Origin': 'https://other.com' },
+          headers: { Origin: 'https://other.com' },
         }),
-        env
+        env,
       );
 
       expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
@@ -179,7 +179,9 @@ describe('cors middleware', () => {
 
 describe('isAllowedOrigin', () => {
   it('returns origin for allowed origins in ALLOWED_ORIGINS', () => {
-    expect(isAllowedOrigin('https://bifrost.example.com')).toBe('https://bifrost.example.com');
+    expect(isAllowedOrigin('https://bifrost.henrychong.com')).toBe(
+      'https://bifrost.henrychong.com',
+    );
     expect(isAllowedOrigin('http://localhost:3001')).toBe('http://localhost:3001');
     expect(isAllowedOrigin('http://localhost:5173')).toBe('http://localhost:5173');
     expect(isAllowedOrigin('http://127.0.0.1:3001')).toBe('http://127.0.0.1:3001');
@@ -195,8 +197,12 @@ describe('isAllowedOrigin', () => {
   });
 
   it('allows workers.dev origins in dev mode', () => {
-    expect(isAllowedOrigin('https://my-worker.workers.dev', true)).toBe('https://my-worker.workers.dev');
-    expect(isAllowedOrigin('https://test.my-worker.workers.dev', true)).toBe('https://test.my-worker.workers.dev');
+    expect(isAllowedOrigin('https://my-worker.workers.dev', true)).toBe(
+      'https://my-worker.workers.dev',
+    );
+    expect(isAllowedOrigin('https://test.my-worker.workers.dev', true)).toBe(
+      'https://test.my-worker.workers.dev',
+    );
   });
 
   it('blocks workers.dev origins when dev mode is false', () => {
@@ -210,7 +216,7 @@ describe('isAllowedOrigin', () => {
 
 describe('ALLOWED_ORIGINS', () => {
   it('contains expected origins', () => {
-    expect(ALLOWED_ORIGINS).toContain('https://bifrost.example.com');
+    expect(ALLOWED_ORIGINS).toContain('https://bifrost.henrychong.com');
     expect(ALLOWED_ORIGINS).toContain('http://localhost:3001');
     expect(ALLOWED_ORIGINS).toContain('http://localhost:5173');
   });

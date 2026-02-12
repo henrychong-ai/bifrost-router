@@ -77,7 +77,7 @@ export function AppSidebar() {
       <SidebarHeader className="border-b border-sidebar-border px-6 py-4">
         <div className="flex items-center gap-3">
           <img
-            src="https://assets.example.com/bifrost/bifrost-icon-64.png"
+            src="https://assets.henrychong.com/bifrost/bifrost-icon-64.png"
             alt="Bifrost"
             className="h-10 w-10 rounded-lg"
           />
@@ -95,7 +95,7 @@ export function AppSidebar() {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navigationItems.map((item) => (
+              {navigationItems.map(item => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton
                     asChild
@@ -119,7 +119,7 @@ export function AppSidebar() {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {analyticsItems.map((item) => (
+              {analyticsItems.map(item => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton
                     asChild

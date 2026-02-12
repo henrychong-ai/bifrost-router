@@ -9,17 +9,17 @@
  */
 const PRIVATE_IP_RANGES = [
   // IPv4 private ranges
-  /^10\./,                      // 10.0.0.0/8
+  /^10\./, // 10.0.0.0/8
   /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // 172.16.0.0/12
-  /^192\.168\./,                // 192.168.0.0/16
-  /^127\./,                     // 127.0.0.0/8 (loopback)
-  /^169\.254\./,                // 169.254.0.0/16 (link-local)
-  /^0\./,                       // 0.0.0.0/8
+  /^192\.168\./, // 192.168.0.0/16
+  /^127\./, // 127.0.0.0/8 (loopback)
+  /^169\.254\./, // 169.254.0.0/16 (link-local)
+  /^0\./, // 0.0.0.0/8
   // IPv6 private ranges (simplified patterns)
-  /^::1$/,                      // Loopback
-  /^fe80:/i,                    // Link-local
-  /^fc00:/i,                    // Unique local
-  /^fd[0-9a-f]{2}:/i,           // Unique local
+  /^::1$/, // Loopback
+  /^fe80:/i, // Link-local
+  /^fc00:/i, // Unique local
+  /^fd[0-9a-f]{2}:/i, // Unique local
 ];
 
 /**
@@ -34,9 +34,9 @@ const BLOCKED_HOSTNAMES = [
   '[::]',
   '[::1]',
   // Cloud metadata endpoints (common SSRF targets)
-  '169.254.169.254',            // AWS, GCP, Azure metadata
-  'metadata.google.internal',   // GCP metadata
-  'metadata.google',            // GCP metadata alternative
+  '169.254.169.254', // AWS, GCP, Azure metadata
+  'metadata.google.internal', // GCP metadata
+  'metadata.google', // GCP metadata alternative
 ];
 
 /**
@@ -55,7 +55,7 @@ export function isPrivateIP(hostname: string): boolean {
   }
 
   // Check against private IP patterns
-  return PRIVATE_IP_RANGES.some((pattern) => pattern.test(hostname));
+  return PRIVATE_IP_RANGES.some(pattern => pattern.test(hostname));
 }
 
 /**

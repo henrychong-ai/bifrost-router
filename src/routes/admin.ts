@@ -2,11 +2,7 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import type { AppEnv } from '../types';
 import { SUPPORTED_DOMAINS, isValidDomain } from '../types';
-import {
-  CreateRouteSchema,
-  UpdateRouteSchema,
-  SCHEMA_VERSION,
-} from '../kv/schema';
+import { CreateRouteSchema, UpdateRouteSchema, SCHEMA_VERSION } from '../kv/schema';
 import {
   getAllRoutes,
   getAllRoutesAllDomains,
@@ -24,32 +20,33 @@ import { analyticsRoutes } from './analytics';
 import { recordAuditLog } from '../db/analytics';
 import type { AuditAction } from '../db/analytics';
 import { checkBackupHealth } from '../backup/health';
-import {
-  parseOpenGraph,
-  SSRFBlockedError,
-  ResponseTooLargeError,
-} from '../utils/og-parser';
+import { parseOpenGraph, SSRFBlockedError, ResponseTooLargeError } from '../utils/og-parser';
 
 /**
  * Result of parsing domain from request
  */
 type DomainParseResult =
-  | { valid: true; domain: string | undefined; providedValue?: undefined }
-  | { valid: false; domain?: undefined; providedValue: string };
+  | { valid: true; domain: string | undefined }
+  | { valid: false; error: string; domain?: undefined };
 
 /**
  * Get target domain from request (for listing routes)
  * Priority: X-Domain header > ?domain query param > undefined (all domains)
  * Returns validation result including whether an invalid domain was provided
  */
-function getDomainFromRequest(c: { req: { header: (name: string) => string | undefined; query: (name: string) => string | undefined } }): DomainParseResult {
+function getDomainFromRequest(c: {
+  req: {
+    header: (name: string) => string | undefined;
+    query: (name: string) => string | undefined;
+  };
+}): DomainParseResult {
   // Check X-Domain header first
   const domainHeader = c.req.header('X-Domain');
   if (domainHeader) {
     if (isValidDomain(domainHeader)) {
       return { valid: true, domain: domainHeader };
     }
-    return { valid: false, providedValue: domainHeader };
+    return { valid: false, error: `Invalid domain: ${domainHeader}` };
   }
 
   // Check query parameter
@@ -58,7 +55,7 @@ function getDomainFromRequest(c: { req: { header: (name: string) => string | und
     if (isValidDomain(domainQuery)) {
       return { valid: true, domain: domainQuery };
     }
-    return { valid: false, providedValue: domainQuery };
+    return { valid: false, error: `Invalid domain: ${domainQuery}` };
   }
 
   // Return undefined for "all domains" mode
@@ -69,34 +66,38 @@ function getDomainFromRequest(c: { req: { header: (name: string) => string | und
  * Result of parsing required domain from request
  */
 type RequiredDomainParseResult =
-  | { valid: true; domain: string; providedValue?: undefined }
-  | { valid: false; domain?: undefined; providedValue: string };
+  | { valid: true; domain: string }
+  | { valid: false; error: string; domain?: undefined };
 
 /**
  * Get target domain from request (required for mutations)
- * Priority: X-Domain header > ?domain query param > ADMIN_API_DOMAIN env var > example.com fallback
+ * Priority: X-Domain header > ?domain query param > ADMIN_API_DOMAIN env var > henrychong.com fallback
  * Returns validation result - if invalid domain provided, returns validation failure
  */
-function getRequiredDomainFromRequest(
-  c: {
-    req: { header: (name: string) => string | undefined; query: (name: string) => string | undefined };
-    env: { ADMIN_API_DOMAIN?: string };
-  }
-): RequiredDomainParseResult {
+function getRequiredDomainFromRequest(c: {
+  req: {
+    header: (name: string) => string | undefined;
+    query: (name: string) => string | undefined;
+  };
+  env: { ADMIN_API_DOMAIN?: string };
+}): RequiredDomainParseResult {
   const result = getDomainFromRequest(c);
   if (!result.valid) {
     // Invalid domain provided - caller should return 400
     return result;
   }
-  // Default to ADMIN_API_DOMAIN from env, or 'example.com' as fallback
-  const defaultDomain = c.env.ADMIN_API_DOMAIN || 'example.com';
+  // Default to ADMIN_API_DOMAIN from env, or 'henrychong.com' as fallback
+  const defaultDomain = c.env.ADMIN_API_DOMAIN || 'henrychong.com';
   return { valid: true, domain: result.domain ?? defaultDomain };
 }
 
 /**
  * Get actor info from Tailscale headers
  */
-function getActorInfo(c: { req: { header: (name: string) => string | undefined } }): { login: string; name: string | null } {
+function getActorInfo(c: { req: { header: (name: string) => string | undefined } }): {
+  login: string;
+  name: string | null;
+} {
   const login = c.req.header('Tailscale-User-Login') || 'api-key';
   const name = c.req.header('Tailscale-User-Name') || null;
   return { login, name };
@@ -130,7 +131,7 @@ adminRoutes.use('*', async (c, next) => {
         path: c.req.path,
         message: 'No route configured for this path.',
       },
-      404
+      404,
     );
   }
   await next();
@@ -144,12 +145,12 @@ adminRoutes.use(
   '*',
   cors({
     origins: [
-      'https://bifrost.example.com',
-      'https://example.com',
-      'https://bifrost.<tailnet>.ts.net', // Admin dashboard on Tailscale
+      'https://bifrost.henrychong.com',
+      'https://henrychong.com',
+      'https://bifrost.parrot-lizard.ts.net', // Admin dashboard on Tailscale
       'http://localhost:3001', // Local development (API key still required)
     ],
-  })
+  }),
 );
 
 /**
@@ -163,7 +164,8 @@ adminRoutes.use('*', async (c, next) => {
     return;
   }
 
-  const apiKey = c.req.header('X-Admin-Key') || c.req.header('Authorization')?.replace('Bearer ', '');
+  const apiKey =
+    c.req.header('X-Admin-Key') || c.req.header('Authorization')?.replace('Bearer ', '');
   const expectedKey = c.env.ADMIN_API_KEY;
 
   if (!expectedKey) {
@@ -186,7 +188,7 @@ adminRoutes.use('*', async (c, next) => {
  *
  * Supports: X-Domain header, ?domain= query param, ?path= query param
  */
-adminRoutes.get('/routes', async (c) => {
+adminRoutes.get('/routes', async c => {
   const pathQuery = c.req.query('path');
 
   // Single route lookup mode
@@ -197,10 +199,10 @@ adminRoutes.get('/routes', async (c) => {
       return c.json(
         {
           success: false,
-          error: `Invalid domain: ${domainResult.providedValue}`,
+          error: domainResult.error,
           supportedDomains: SUPPORTED_DOMAINS,
         },
-        400
+        400,
       );
     }
 
@@ -225,10 +227,10 @@ adminRoutes.get('/routes', async (c) => {
     return c.json(
       {
         success: false,
-        error: `Invalid domain: ${domainResult.providedValue}`,
+        error: domainResult.error,
         supportedDomains: SUPPORTED_DOMAINS,
       },
-      400
+      400,
     );
   }
 
@@ -242,7 +244,7 @@ adminRoutes.get('/routes', async (c) => {
     return c.json({
       success: true,
       data: {
-        routes: routes.map((r) => ({ ...r, domain })),
+        routes: routes.map(r => ({ ...r, domain })),
         meta,
         targetDomain: domain,
         supportedDomains: SUPPORTED_DOMAINS,
@@ -271,7 +273,7 @@ adminRoutes.get('/routes', async (c) => {
 /**
  * POST /api/routes - Create a new route
  */
-adminRoutes.post('/routes', async (c) => {
+adminRoutes.post('/routes', async c => {
   const domainResult = getRequiredDomainFromRequest(c);
 
   // Return 400 for invalid domain values
@@ -279,10 +281,10 @@ adminRoutes.post('/routes', async (c) => {
     return c.json(
       {
         success: false,
-        error: `Invalid domain: ${domainResult.providedValue}`,
+        error: domainResult.error,
         supportedDomains: SUPPORTED_DOMAINS,
       },
-      400
+      400,
     );
   }
 
@@ -298,7 +300,7 @@ adminRoutes.post('/routes', async (c) => {
         error: 'Validation failed',
         details: result.error.issues,
       },
-      400
+      400,
     );
   }
 
@@ -310,7 +312,7 @@ adminRoutes.post('/routes', async (c) => {
         success: false,
         error: `Route already exists: ${result.data.path}`,
       },
-      409
+      409,
     );
   }
 
@@ -328,7 +330,7 @@ adminRoutes.post('/routes', async (c) => {
         path: result.data.path,
         details: JSON.stringify({ route }),
         ipAddress: c.req.header('CF-Connecting-IP') || null,
-      })
+      }),
     );
   } catch {
     // executionCtx not available (e.g., in tests) - skip audit logging
@@ -339,7 +341,7 @@ adminRoutes.post('/routes', async (c) => {
       success: true,
       data: route,
     },
-    201
+    201,
   );
 });
 
@@ -349,7 +351,7 @@ adminRoutes.post('/routes', async (c) => {
  * Requires ?path= query parameter to specify which route to update.
  * This avoids URL encoding issues with paths containing "/" characters.
  */
-adminRoutes.put('/routes', async (c) => {
+adminRoutes.put('/routes', async c => {
   const path = c.req.query('path');
 
   if (!path) {
@@ -358,7 +360,7 @@ adminRoutes.put('/routes', async (c) => {
         success: false,
         error: 'Path query parameter is required',
       },
-      400
+      400,
     );
   }
 
@@ -369,10 +371,10 @@ adminRoutes.put('/routes', async (c) => {
     return c.json(
       {
         success: false,
-        error: `Invalid domain: ${domainResult.providedValue}`,
+        error: domainResult.error,
         supportedDomains: SUPPORTED_DOMAINS,
       },
-      400
+      400,
     );
   }
 
@@ -388,7 +390,7 @@ adminRoutes.put('/routes', async (c) => {
         error: 'Validation failed',
         details: result.error.issues,
       },
-      400
+      400,
     );
   }
 
@@ -419,7 +421,7 @@ adminRoutes.put('/routes', async (c) => {
           ? JSON.stringify({ enabled: body.enabled })
           : JSON.stringify({ before: beforeRoute, after: route }),
         ipAddress: c.req.header('CF-Connecting-IP') || null,
-      })
+      }),
     );
   } catch {
     // executionCtx not available (e.g., in tests) - skip audit logging
@@ -437,7 +439,7 @@ adminRoutes.put('/routes', async (c) => {
  * Requires ?path= query parameter to specify which route to delete.
  * This avoids URL encoding issues with paths containing "/" characters (e.g., root path "/").
  */
-adminRoutes.delete('/routes', async (c) => {
+adminRoutes.delete('/routes', async c => {
   const path = c.req.query('path');
 
   if (!path) {
@@ -446,7 +448,7 @@ adminRoutes.delete('/routes', async (c) => {
         success: false,
         error: 'Path query parameter is required',
       },
-      400
+      400,
     );
   }
 
@@ -457,10 +459,10 @@ adminRoutes.delete('/routes', async (c) => {
     return c.json(
       {
         success: false,
-        error: `Invalid domain: ${domainResult.providedValue}`,
+        error: domainResult.error,
         supportedDomains: SUPPORTED_DOMAINS,
       },
-      400
+      400,
     );
   }
 
@@ -487,7 +489,7 @@ adminRoutes.delete('/routes', async (c) => {
         path,
         details: JSON.stringify({ route: routeBeforeDelete }),
         ipAddress: c.req.header('CF-Connecting-IP') || null,
-      })
+      }),
     );
   } catch {
     // executionCtx not available (e.g., in tests) - skip audit logging
@@ -502,7 +504,7 @@ adminRoutes.delete('/routes', async (c) => {
 /**
  * POST /api/routes/seed - Seed routes from static config
  */
-adminRoutes.post('/routes/seed', async (c) => {
+adminRoutes.post('/routes/seed', async c => {
   const domainResult = getRequiredDomainFromRequest(c);
 
   // Return 400 for invalid domain values
@@ -510,10 +512,10 @@ adminRoutes.post('/routes/seed', async (c) => {
     return c.json(
       {
         success: false,
-        error: `Invalid domain: ${domainResult.providedValue}`,
+        error: domainResult.error,
         supportedDomains: SUPPORTED_DOMAINS,
       },
-      400
+      400,
     );
   }
 
@@ -526,7 +528,7 @@ adminRoutes.post('/routes/seed', async (c) => {
         success: false,
         error: 'Request body must contain a "routes" array',
       },
-      400
+      400,
     );
   }
 
@@ -550,7 +552,7 @@ adminRoutes.post('/routes/seed', async (c) => {
         error: 'Some routes failed validation',
         details: errors,
       },
-      400
+      400,
     );
   }
 
@@ -568,10 +570,10 @@ adminRoutes.post('/routes/seed', async (c) => {
         path: null,
         details: JSON.stringify({
           count: validRoutes.length,
-          paths: validRoutes.map((r) => r.path),
+          paths: validRoutes.map(r => r.path),
         }),
         ipAddress: c.req.header('CF-Connecting-IP') || null,
-      })
+      }),
     );
   } catch {
     // executionCtx not available (e.g., in tests) - skip audit logging
@@ -586,7 +588,7 @@ adminRoutes.post('/routes/seed', async (c) => {
 /**
  * POST /api/routes/migrate - Migrate a route to a new path
  */
-adminRoutes.post('/routes/migrate', async (c) => {
+adminRoutes.post('/routes/migrate', async c => {
   const oldPath = c.req.query('oldPath');
   const newPath = c.req.query('newPath');
 
@@ -605,7 +607,14 @@ adminRoutes.post('/routes/migrate', async (c) => {
 
   const domainResult = getRequiredDomainFromRequest(c);
   if (!domainResult.valid) {
-    return c.json({ success: false, error: domainResult.error || 'Domain is required' }, 400);
+    return c.json(
+      {
+        success: false,
+        error: domainResult.error,
+        supportedDomains: SUPPORTED_DOMAINS,
+      },
+      400,
+    );
   }
 
   const domain = domainResult.domain;
@@ -629,7 +638,7 @@ adminRoutes.post('/routes/migrate', async (c) => {
           path: newPath,
           details: JSON.stringify({ oldPath, newPath, route }),
           ipAddress: c.req.header('CF-Connecting-IP') || null,
-        })
+        }),
       );
     } catch {
       /* skip in tests */
@@ -664,7 +673,7 @@ adminRoutes.post('/routes/migrate', async (c) => {
  * HTTP Status:
  * - 200: Always (status conveyed via JSON body field)
  */
-adminRoutes.get('/backups/health', async (c) => {
+adminRoutes.get('/backups/health', async c => {
   const bucket = c.env.BACKUP_BUCKET;
 
   if (!bucket) {
@@ -673,7 +682,7 @@ adminRoutes.get('/backups/health', async (c) => {
         success: false,
         error: 'Backup bucket not configured',
       },
-      503
+      503,
     );
   }
 
@@ -695,7 +704,7 @@ adminRoutes.get('/backups/health', async (c) => {
  * - Response size limited to 1MB
  * - Request timeout of 5 seconds
  */
-adminRoutes.get('/metadata/og', async (c) => {
+adminRoutes.get('/metadata/og', async c => {
   const url = c.req.query('url');
 
   if (!url) {
@@ -704,7 +713,7 @@ adminRoutes.get('/metadata/og', async (c) => {
         success: false,
         error: 'URL query parameter is required',
       },
-      400
+      400,
     );
   }
 
@@ -722,7 +731,7 @@ adminRoutes.get('/metadata/og', async (c) => {
           error: 'URL blocked for security reasons',
           details: error.message,
         },
-        403
+        403,
       );
     }
 
@@ -733,7 +742,7 @@ adminRoutes.get('/metadata/og', async (c) => {
           error: 'Response too large',
           details: error.message,
         },
-        413
+        413,
       );
     }
 
@@ -744,7 +753,7 @@ adminRoutes.get('/metadata/og', async (c) => {
         error: 'Failed to fetch URL',
         details: error instanceof Error ? error.message : 'Unknown error',
       },
-      502
+      502,
     );
   }
 });

@@ -8,16 +8,9 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
-import {
-  createClientFromEnv,
-  toolDefinitions,
-  type EdgeRouterClient,
-} from '@bifrost/shared';
+import { createClientFromEnv, toolDefinitions, type EdgeRouterClient } from '@bifrost/shared';
 
 import {
   listRoutes,
@@ -29,12 +22,7 @@ import {
   migrateRoute,
 } from './tools/routes.js';
 
-import {
-  getAnalyticsSummary,
-  getClicks,
-  getViews,
-  getSlugStats,
-} from './tools/analytics.js';
+import { getAnalyticsSummary, getClicks, getViews, getSlugStats } from './tools/analytics.js';
 
 /**
  * Main entry point
@@ -50,14 +38,14 @@ async function main(): Promise<void> {
   } catch (error) {
     console.error(
       'Failed to initialize Edge Router client:',
-      error instanceof Error ? error.message : String(error)
+      error instanceof Error ? error.message : String(error),
     );
     console.error('');
     console.error('Required environment variables:');
     console.error('  EDGE_ROUTER_API_KEY - Admin API key for authentication');
     console.error('');
     console.error('Optional environment variables:');
-    console.error('  EDGE_ROUTER_URL     - Base URL (default: https://example.com)');
+    console.error('  EDGE_ROUTER_URL     - Base URL (default: https://henrychong.com)');
     console.error('  EDGE_ROUTER_DOMAIN  - Default domain for operations');
     process.exit(1);
   }
@@ -72,13 +60,13 @@ async function main(): Promise<void> {
       capabilities: {
         tools: {},
       },
-    }
+    },
   );
 
   // Register tool listing handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
-      tools: toolDefinitions.map((tool) => ({
+      tools: toolDefinitions.map(tool => ({
         name: tool.name,
         description: tool.description,
         inputSchema: tool.inputSchema,
@@ -87,7 +75,7 @@ async function main(): Promise<void> {
   });
 
   // Register tool execution handler
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async request => {
     const { name, arguments: args } = request.params;
 
     try {
@@ -100,11 +88,7 @@ async function main(): Promise<void> {
           break;
 
         case 'get_route':
-          result = await getRoute(
-            client,
-            args as { path: string; domain?: string },
-            defaultDomain
-          );
+          result = await getRoute(client, args as { path: string; domain?: string }, defaultDomain);
           break;
 
         case 'create_route':
@@ -123,7 +107,7 @@ async function main(): Promise<void> {
               bucket?: string;
               domain?: string;
             },
-            defaultDomain
+            defaultDomain,
           );
           break;
 
@@ -143,7 +127,7 @@ async function main(): Promise<void> {
               bucket?: string;
               domain?: string;
             },
-            defaultDomain
+            defaultDomain,
           );
           break;
 
@@ -151,7 +135,7 @@ async function main(): Promise<void> {
           result = await deleteRoute(
             client,
             args as { path: string; domain?: string },
-            defaultDomain
+            defaultDomain,
           );
           break;
 
@@ -159,7 +143,7 @@ async function main(): Promise<void> {
           result = await toggleRoute(
             client,
             args as { path: string; enabled: boolean; domain?: string },
-            defaultDomain
+            defaultDomain,
           );
           break;
 
@@ -167,7 +151,7 @@ async function main(): Promise<void> {
           result = await migrateRoute(
             client,
             args as { oldPath: string; newPath: string; domain?: string },
-            defaultDomain
+            defaultDomain,
           );
           break;
 
@@ -176,7 +160,7 @@ async function main(): Promise<void> {
           result = await getAnalyticsSummary(
             client,
             args as { domain?: string; days?: number },
-            defaultDomain
+            defaultDomain,
           );
           break;
 
@@ -191,7 +175,7 @@ async function main(): Promise<void> {
               slug?: string;
               country?: string;
             },
-            defaultDomain
+            defaultDomain,
           );
           break;
 
@@ -206,7 +190,7 @@ async function main(): Promise<void> {
               path?: string;
               country?: string;
             },
-            defaultDomain
+            defaultDomain,
           );
           break;
 
@@ -214,7 +198,7 @@ async function main(): Promise<void> {
           result = await getSlugStats(
             client,
             args as { slug: string; domain?: string; days?: number },
-            defaultDomain
+            defaultDomain,
           );
           break;
 
@@ -264,7 +248,7 @@ async function main(): Promise<void> {
 }
 
 // Run the server
-main().catch((error) => {
+main().catch(error => {
   console.error('Fatal error:', error);
   process.exit(1);
 });

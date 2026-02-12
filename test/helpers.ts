@@ -5,7 +5,7 @@ import { routeKey, domainPrefix } from '../src/kv/schema';
 /**
  * Default test domain
  */
-export const TEST_DOMAIN = 'example.com';
+export const TEST_DOMAIN = 'henrychong.com';
 
 /**
  * Seed a single route into KV for testing
@@ -14,7 +14,7 @@ export const TEST_DOMAIN = 'example.com';
  */
 export async function seedRoute(route: KVRouteConfig, domain = TEST_DOMAIN): Promise<void> {
   const kv = env.ROUTES;
-  // Store the route with domain prefix (e.g., "example.com:/github")
+  // Store the route with domain prefix (e.g., "henrychong.com:/github")
   await kv.put(routeKey(domain, route.path), JSON.stringify(route));
 }
 
@@ -52,7 +52,7 @@ export async function clearRoutes(domain = TEST_DOMAIN): Promise<void> {
  * Clear all routes from KV for all test domains
  */
 export async function clearAllRoutes(): Promise<void> {
-  const testDomains = ['example.com', 'link.example.com', 'example.net'];
+  const testDomains = ['henrychong.com', 'link.henrychong.com', 'vanessahung.net'];
   for (const domain of testDomains) {
     await clearRoutes(domain);
   }
@@ -61,10 +61,7 @@ export async function clearAllRoutes(): Promise<void> {
 /**
  * Make a request to the worker
  */
-export async function makeRequest(
-  path: string,
-  options: RequestInit = {}
-): Promise<Response> {
+export async function makeRequest(path: string, options: RequestInit = {}): Promise<Response> {
   return SELF.fetch(`http://localhost${path}`, options);
 }
 
@@ -74,7 +71,7 @@ export async function makeRequest(
 export async function makeAdminRequest(
   path: string,
   options: RequestInit = {},
-  apiKey = 'test-api-key-12345'
+  apiKey = 'test-api-key-12345',
 ): Promise<Response> {
   const headers = new Headers(options.headers);
   headers.set('X-Admin-Key', apiKey);
@@ -95,7 +92,7 @@ export async function makeAdminRequest(
 export async function seedR2Object(
   key: string,
   content: string | ArrayBuffer,
-  contentType = 'application/octet-stream'
+  contentType = 'application/octet-stream',
 ): Promise<void> {
   const bucket = env.FILES_BUCKET;
   await bucket.put(key, content, {

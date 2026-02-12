@@ -81,9 +81,9 @@ describe('validateR2Key', () => {
     });
 
     it('accepts paths with directories', () => {
-      const result = validateR2Key('media-kit/example-user.zip');
+      const result = validateR2Key('media-kit/henrychong.zip');
       expect(result.valid).toBe(true);
-      expect(result.sanitizedKey).toBe('media-kit/example-user.zip');
+      expect(result.sanitizedKey).toBe('media-kit/henrychong.zip');
     });
 
     it('accepts deeply nested paths', () => {

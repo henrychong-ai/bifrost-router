@@ -16,12 +16,9 @@ describe('handleRedirect', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/github', (c) => handleRedirect(c, route));
+      app.get('/github', c => handleRedirect(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/github'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/github'), env);
 
       expect(response.status).toBe(302);
       expect(response.headers.get('Location')).toBe('https://github.com/test');
@@ -38,12 +35,9 @@ describe('handleRedirect', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/old-page', (c) => handleRedirect(c, route));
+      app.get('/old-page', c => handleRedirect(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/old-page'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/old-page'), env);
 
       expect(response.status).toBe(301);
     });
@@ -59,12 +53,9 @@ describe('handleRedirect', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/api', (c) => handleRedirect(c, route));
+      app.get('/api', c => handleRedirect(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/api'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/api'), env);
 
       expect(response.status).toBe(307);
     });
@@ -80,12 +71,9 @@ describe('handleRedirect', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/permanent', (c) => handleRedirect(c, route));
+      app.get('/permanent', c => handleRedirect(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/permanent'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/permanent'), env);
 
       expect(response.status).toBe(308);
     });
@@ -102,12 +90,9 @@ describe('handleRedirect', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/search', (c) => handleRedirect(c, route));
+      app.get('/search', c => handleRedirect(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/search?q=test&page=1'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/search?q=test&page=1'), env);
 
       expect(response.status).toBe(302);
       const location = response.headers.get('Location');
@@ -125,11 +110,11 @@ describe('handleRedirect', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/search', (c) => handleRedirect(c, route));
+      app.get('/search', c => handleRedirect(c, route));
 
       const response = await app.fetch(
         new Request('http://localhost/search?source=web&q=test'),
-        env
+        env,
       );
 
       const location = response.headers.get('Location');
@@ -150,12 +135,9 @@ describe('handleRedirect', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/clean', (c) => handleRedirect(c, route));
+      app.get('/clean', c => handleRedirect(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/clean?unwanted=true'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/clean?unwanted=true'), env);
 
       expect(response.headers.get('Location')).toBe('https://example.com/clean');
     });
@@ -170,12 +152,9 @@ describe('handleRedirect', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/page', (c) => handleRedirect(c, route));
+      app.get('/page', c => handleRedirect(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/page'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/page'), env);
 
       expect(response.headers.get('Location')).toBe('https://example.com/page');
     });
@@ -192,12 +171,9 @@ describe('handleRedirect', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/*', (c) => handleRedirect(c, route));
+      app.get('/*', c => handleRedirect(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/linkedin'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/linkedin'), env);
 
       expect(response.headers.get('Location')).toBe('https://example.com/');
     });
@@ -213,12 +189,9 @@ describe('handleRedirect', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/*', (c) => handleRedirect(c, route));
+      app.get('/*', c => handleRedirect(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/linkedin'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/linkedin'), env);
 
       expect(response.headers.get('Location')).toBe('https://example.com/linkedin');
     });
@@ -234,12 +207,9 @@ describe('handleRedirect', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/blog/*', (c) => handleRedirect(c, route));
+      app.get('/blog/*', c => handleRedirect(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/blog/my-post'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/blog/my-post'), env);
 
       expect(response.headers.get('Location')).toBe('https://blog.example.com/my-post');
     });
@@ -255,12 +225,9 @@ describe('handleRedirect', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/*', (c) => handleRedirect(c, route));
+      app.get('/*', c => handleRedirect(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/'), env);
 
       expect(response.headers.get('Location')).toBe('https://example.com/');
     });
@@ -277,12 +244,9 @@ describe('handleRedirect', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/*', (c) => handleRedirect(c, route));
+      app.get('/*', c => handleRedirect(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/linkedin?ref=twitter'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/linkedin?ref=twitter'), env);
 
       const location = response.headers.get('Location');
       expect(location).toBe('https://example.com/linkedin?ref=twitter');
@@ -300,12 +264,9 @@ describe('handleRedirect', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/*', (c) => handleRedirect(c, route));
+      app.get('/*', c => handleRedirect(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/linkedin?ref=twitter'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/linkedin?ref=twitter'), env);
 
       expect(response.headers.get('Location')).toBe('https://example.com/linkedin');
     });
@@ -321,12 +282,9 @@ describe('handleRedirect', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/*', (c) => handleRedirect(c, route));
+      app.get('/*', c => handleRedirect(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/extra/path'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/extra/path'), env);
 
       expect(response.headers.get('Location')).toBe('https://example.com/base/extra/path');
     });
@@ -342,12 +300,9 @@ describe('handleRedirect', () => {
         updatedAt: Date.now(),
       };
 
-      app.get('/specific', (c) => handleRedirect(c, route));
+      app.get('/specific', c => handleRedirect(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/specific'),
-        env
-      );
+      const response = await app.fetch(new Request('http://localhost/specific'), env);
 
       expect(response.headers.get('Location')).toBe('https://example.com/target');
     });

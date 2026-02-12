@@ -42,7 +42,7 @@ export interface ToolDefinition {
  */
 const domainProperty: JsonSchemaProperty = {
   type: 'string',
-  description: `Target domain (e.g., 'link.example.com'). Supported: ${SUPPORTED_DOMAINS.join(', ')}. Defaults to EDGE_ROUTER_DOMAIN env var if set.`,
+  description: `Target domain (e.g., 'link.henrychong.com'). Supported: ${SUPPORTED_DOMAINS.join(', ')}. Defaults to EDGE_ROUTER_DOMAIN env var if set.`,
   enum: [...SUPPORTED_DOMAINS],
 };
 
@@ -92,7 +92,8 @@ export const toolDefinitions: ToolDefinition[] = [
         },
         type: {
           type: 'string',
-          description: 'Route type: redirect (URL change), proxy (fetch content), or r2 (serve from bucket)',
+          description:
+            'Route type: redirect (URL change), proxy (fetch content), or r2 (serve from bucket)',
           enum: ['redirect', 'proxy', 'r2'],
         },
         target: {
@@ -101,7 +102,8 @@ export const toolDefinitions: ToolDefinition[] = [
         },
         statusCode: {
           type: 'number',
-          description: 'HTTP status code for redirects: 301 (permanent), 302 (temporary), 307/308 (preserve method)',
+          description:
+            'HTTP status code for redirects: 301 (permanent), 302 (temporary), 307/308 (preserve method)',
           enum: [301, 302, 307, 308],
         },
         preserveQuery: {
@@ -115,7 +117,8 @@ export const toolDefinitions: ToolDefinition[] = [
         },
         hostHeader: {
           type: 'string',
-          description: 'Override Host header for proxy requests (e.g., "example.com" when proxying to cdn.webflow.com)',
+          description:
+            'Override Host header for proxy requests (e.g., "fusang.co" when proxying to cdn.webflow.com)',
         },
         bucket: {
           type: 'string',
@@ -207,20 +210,20 @@ export const toolDefinitions: ToolDefinition[] = [
       required: ['path', 'enabled'],
     },
   },
-
   {
     name: 'migrate_route',
-    description: 'Migrate a route from one path to another. Preserves all configuration and creation timestamp.',
+    description:
+      'Migrate a route to a new path. Preserves configuration and original creation timestamp.',
     inputSchema: {
       type: 'object',
       properties: {
         oldPath: {
           type: 'string',
-          description: 'Current route path to migrate from (e.g., "/old-path")',
+          description: 'Current route path to migrate from (e.g., "/old-link")',
         },
         newPath: {
           type: 'string',
-          description: 'New route path to migrate to (e.g., "/new-path")',
+          description: 'New route path to migrate to (e.g., "/new-link")',
         },
         domain: domainProperty,
       },
@@ -327,7 +330,8 @@ export const toolDefinitions: ToolDefinition[] = [
   },
   {
     name: 'get_slug_stats',
-    description: 'Get detailed statistics for a specific link slug including clicks by day and top referrers.',
+    description:
+      'Get detailed statistics for a specific link slug including clicks by day and top referrers.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -353,7 +357,7 @@ export const toolDefinitions: ToolDefinition[] = [
  * Get a tool definition by name
  */
 export function getToolDefinition(name: string): ToolDefinition | undefined {
-  return toolDefinitions.find((t) => t.name === name);
+  return toolDefinitions.find(t => t.name === name);
 }
 
 /**
@@ -374,7 +378,7 @@ export function toClaudeTools(): Array<{
   description: string;
   input_schema: JsonSchemaObject;
 }> {
-  return toolDefinitions.map((tool) => ({
+  return toolDefinitions.map(tool => ({
     name: tool.name,
     description: tool.description,
     input_schema: tool.inputSchema,
@@ -402,7 +406,7 @@ export const toolCategories: Record<string, 'route' | 'analytics'> = {
  * Get tools by category
  */
 export function getToolsByCategory(category: 'route' | 'analytics'): ToolDefinition[] {
-  return toolDefinitions.filter((tool) => toolCategories[tool.name] === category);
+  return toolDefinitions.filter(tool => toolCategories[tool.name] === category);
 }
 
 /**

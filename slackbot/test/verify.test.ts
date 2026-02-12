@@ -14,7 +14,7 @@ describe('verifySlackSignature', () => {
   async function generateSignature(
     secret: string,
     timestamp: string,
-    body: string
+    body: string,
   ): Promise<string> {
     const sigBasestring = `v0:${timestamp}:${body}`;
     const encoder = new TextEncoder();
@@ -26,12 +26,12 @@ describe('verifySlackSignature', () => {
       keyData,
       { name: 'HMAC', hash: 'SHA-256' },
       false,
-      ['sign']
+      ['sign'],
     );
 
     const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
     const signatureArray = Array.from(new Uint8Array(signatureBuffer));
-    return 'v0=' + signatureArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+    return 'v0=' + signatureArray.map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
   describe('valid signatures', () => {
@@ -71,12 +71,7 @@ describe('verifySlackSignature', () => {
       const body = '{"type":"url_verification","challenge":"test"}';
       const invalidSignature = 'v0=invalid123456789';
 
-      const result = await verifySlackSignature(
-        signingSecret,
-        invalidSignature,
-        timestamp,
-        body
-      );
+      const result = await verifySlackSignature(signingSecret, invalidSignature, timestamp, body);
 
       expect(result).toBe(false);
     });
@@ -97,12 +92,7 @@ describe('verifySlackSignature', () => {
       const signature = await generateSignature(signingSecret, timestamp, originalBody);
       const tamperedBody = '{"type":"url_verification","challenge":"hacked"}';
 
-      const result = await verifySlackSignature(
-        signingSecret,
-        signature,
-        timestamp,
-        tamperedBody
-      );
+      const result = await verifySlackSignature(signingSecret, signature, timestamp, tamperedBody);
 
       expect(result).toBe(false);
     });
@@ -114,12 +104,7 @@ describe('verifySlackSignature', () => {
       const body = '{"type":"url_verification","challenge":"test"}';
       const signature = await generateSignature(signingSecret, oldTimestamp, body);
 
-      const result = await verifySlackSignature(
-        signingSecret,
-        signature,
-        oldTimestamp,
-        body
-      );
+      const result = await verifySlackSignature(signingSecret, signature, oldTimestamp, body);
 
       expect(result).toBe(false);
     });
@@ -129,12 +114,7 @@ describe('verifySlackSignature', () => {
       const body = '{"type":"url_verification","challenge":"test"}';
       const signature = await generateSignature(signingSecret, futureTimestamp, body);
 
-      const result = await verifySlackSignature(
-        signingSecret,
-        signature,
-        futureTimestamp,
-        body
-      );
+      const result = await verifySlackSignature(signingSecret, signature, futureTimestamp, body);
 
       expect(result).toBe(false);
     });
@@ -144,12 +124,7 @@ describe('verifySlackSignature', () => {
       const body = '{"type":"url_verification","challenge":"test"}';
       const signature = await generateSignature(signingSecret, recentTimestamp, body);
 
-      const result = await verifySlackSignature(
-        signingSecret,
-        signature,
-        recentTimestamp,
-        body
-      );
+      const result = await verifySlackSignature(signingSecret, signature, recentTimestamp, body);
 
       expect(result).toBe(true);
     });
@@ -159,12 +134,7 @@ describe('verifySlackSignature', () => {
       const body = '{"type":"url_verification","challenge":"test"}';
       const signature = 'v0=doesntmatter';
 
-      const result = await verifySlackSignature(
-        signingSecret,
-        signature,
-        invalidTimestamp,
-        body
-      );
+      const result = await verifySlackSignature(signingSecret, signature, invalidTimestamp, body);
 
       expect(result).toBe(false);
     });

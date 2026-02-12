@@ -2,7 +2,7 @@
 set -e
 
 # Startup script for admin dashboard with Tailscale
-# Provides HTTPS access via bifrost.<your-tailnet>.ts.net
+# Provides HTTPS access via bifrost.parrot-lizard.ts.net
 
 echo "[startup] Starting admin dashboard with Tailscale..."
 
@@ -35,7 +35,7 @@ sleep 2
 tailscale status
 
 # Configure Tailscale Serve for HTTPS
-# This exposes https://bifrost.<your-tailnet>.ts.net -> localhost:3001
+# This exposes https://bifrost.parrot-lizard.ts.net -> localhost:3001
 echo "[startup] Configuring Tailscale Serve..."
 tailscale serve --bg --https=443 http://localhost:3001
 
@@ -46,7 +46,7 @@ tailscale serve status
 echo "[startup] Starting nginx..."
 nginx
 
-echo "[startup] Admin dashboard ready at https://${HOSTNAME}.<your-tailnet>.ts.net"
+echo "[startup] Admin dashboard ready at https://${HOSTNAME}.parrot-lizard.ts.net"
 
 # Keep container running and forward signals
 exec tail -f /dev/null

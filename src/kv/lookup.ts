@@ -72,7 +72,7 @@ export function getWildcardCandidates(path: string): string[] {
 export async function matchRoute(
   kv: KVNamespace,
   domain: string,
-  requestPath: string
+  requestPath: string,
 ): Promise<KVRouteConfig | null> {
   const path = normalizePath(requestPath);
 

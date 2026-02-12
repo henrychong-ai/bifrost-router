@@ -109,7 +109,7 @@ export function rateLimit(config: Partial<RateLimitConfig> = {}) {
             'X-RateLimit-Limit': String(finalConfig.maxRequests),
             'X-RateLimit-Remaining': '0',
             'X-RateLimit-Reset': String(Math.ceil(entry.resetAt / 1000)),
-          }
+          },
         );
       }
 
@@ -133,7 +133,7 @@ export function rateLimit(config: Partial<RateLimitConfig> = {}) {
           message: 'Rate limiting error (failing open)',
           error: error instanceof Error ? error.message : String(error),
           clientIP,
-        })
+        }),
       );
 
       await next();
@@ -191,7 +191,7 @@ export function rateLimitStrict(config: Partial<RateLimitConfig> = {}) {
             'X-RateLimit-Limit': String(finalConfig.maxRequests),
             'X-RateLimit-Remaining': '0',
             'X-RateLimit-Reset': String(Math.ceil(entry.resetAt / 1000)),
-          }
+          },
         );
       }
 
@@ -213,7 +213,7 @@ export function rateLimitStrict(config: Partial<RateLimitConfig> = {}) {
           message: 'Rate limiting error (failing closed)',
           error: error instanceof Error ? error.message : String(error),
           clientIP,
-        })
+        }),
       );
 
       return c.json(
@@ -221,7 +221,7 @@ export function rateLimitStrict(config: Partial<RateLimitConfig> = {}) {
           error: 'Service Unavailable',
           message: 'Rate limiting service temporarily unavailable.',
         },
-        503
+        503,
       );
     }
   };

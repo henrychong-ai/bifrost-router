@@ -10,7 +10,7 @@ describe('EdgeRouterClient', () => {
     client = new EdgeRouterClient({
       baseUrl: 'https://test.example.com',
       apiKey: 'test-api-key',
-      defaultDomain: 'link.example.com',
+      defaultDomain: 'link.henrychong.com',
       fetch: mockFetch,
     });
   });
@@ -32,7 +32,7 @@ describe('EdgeRouterClient', () => {
 
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining('https://test.example.com/api/routes'),
-        expect.any(Object)
+        expect.any(Object),
       );
     });
   });
@@ -47,14 +47,14 @@ describe('EdgeRouterClient', () => {
       await client.listRoutes();
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://test.example.com/api/routes?domain=link.example.com',
+        'https://test.example.com/api/routes?domain=link.henrychong.com',
         expect.objectContaining({
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
             'X-Admin-Key': 'test-api-key',
           },
-        })
+        }),
       );
     });
 
@@ -64,18 +64,16 @@ describe('EdgeRouterClient', () => {
         json: async () => ({ success: true, data: [] }),
       });
 
-      await client.listRoutes('example.com');
+      await client.listRoutes('henrychong.com');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://test.example.com/api/routes?domain=example.com',
-        expect.any(Object)
+        'https://test.example.com/api/routes?domain=henrychong.com',
+        expect.any(Object),
       );
     });
 
     it('returns routes array', async () => {
-      const mockRoutes = [
-        { path: '/test', type: 'redirect', target: 'https://example.com' },
-      ];
+      const mockRoutes = [{ path: '/test', type: 'redirect', target: 'https://example.com' }];
       mockFetch.mockResolvedValueOnce({
         ok: true,
         // API returns { routes: [...], total: N }
@@ -103,7 +101,7 @@ describe('EdgeRouterClient', () => {
       // Path is passed as query parameter, URLSearchParams handles encoding
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining('/api/routes?'),
-        expect.any(Object)
+        expect.any(Object),
       );
       const url = mockFetch.mock.calls[0][0];
       expect(url).toContain('path=%2Ftest%2Fpath');
@@ -125,7 +123,7 @@ describe('EdgeRouterClient', () => {
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify(input),
-        })
+        }),
       );
     });
   });
@@ -149,7 +147,7 @@ describe('EdgeRouterClient', () => {
         expect.objectContaining({
           method: 'PUT',
           body: JSON.stringify(input),
-        })
+        }),
       );
       const url = mockFetch.mock.calls[0][0];
       expect(url).toContain('path=%2Ftest');
@@ -168,7 +166,7 @@ describe('EdgeRouterClient', () => {
       // Path is passed as query parameter
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining('/api/routes?'),
-        expect.objectContaining({ method: 'DELETE' })
+        expect.objectContaining({ method: 'DELETE' }),
       );
       const url = mockFetch.mock.calls[0][0];
       expect(url).toContain('path=%2Ftest');
@@ -193,7 +191,7 @@ describe('EdgeRouterClient', () => {
         expect.objectContaining({
           method: 'PUT',
           body: JSON.stringify({ enabled: false }),
-        })
+        }),
       );
       const url = mockFetch.mock.calls[0][0];
       expect(url).toContain('path=%2Ftest');
@@ -213,8 +211,8 @@ describe('EdgeRouterClient', () => {
       await client.getAnalyticsSummary({ days: 7 });
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://test.example.com/api/analytics/summary?domain=link.example.com&days=7',
-        expect.any(Object)
+        'https://test.example.com/api/analytics/summary?domain=link.henrychong.com&days=7',
+        expect.any(Object),
       );
     });
   });
@@ -253,7 +251,7 @@ describe('EdgeRouterClient', () => {
 
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining('/api/analytics/clicks/linkedin'),
-        expect.any(Object)
+        expect.any(Object),
       );
     });
   });
@@ -304,7 +302,7 @@ describe('createClientFromEnv', () => {
     const client = createClientFromEnv({
       EDGE_ROUTER_API_KEY: 'test-key',
       EDGE_ROUTER_URL: 'https://custom.com',
-      EDGE_ROUTER_DOMAIN: 'example.com',
+      EDGE_ROUTER_DOMAIN: 'henrychong.com',
     });
 
     expect(client).toBeInstanceOf(EdgeRouterClient);
@@ -319,6 +317,8 @@ describe('createClientFromEnv', () => {
   });
 
   it('throws when API key is missing', () => {
-    expect(() => createClientFromEnv({})).toThrow('EDGE_ROUTER_API_KEY environment variable is required');
+    expect(() => createClientFromEnv({})).toThrow(
+      'EDGE_ROUTER_API_KEY environment variable is required',
+    );
   });
 });

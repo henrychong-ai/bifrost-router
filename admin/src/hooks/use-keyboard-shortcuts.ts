@@ -26,7 +26,7 @@ function isMac(): boolean {
 export function useKeyboardShortcut(
   key: string,
   callback: () => void,
-  options: KeyboardShortcutOptions = {}
+  options: KeyboardShortcutOptions = {},
 ) {
   const { modifiers = [], ignoreInputs = true, enabled = true } = options;
 
@@ -61,7 +61,7 @@ export function useKeyboardShortcut(
       event.preventDefault();
       callback();
     },
-    [key, callback, modifiers, ignoreInputs, enabled]
+    [key, callback, modifiers, ignoreInputs, enabled],
   );
 
   useEffect(() => {

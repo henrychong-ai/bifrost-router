@@ -32,96 +32,99 @@ export function CommandPalette() {
 
   useKeyboardShortcut('k', toggle, { modifiers: ['cmd'], ignoreInputs: false });
 
-  const commands: CommandItemType[] = useMemo(() => [
-    {
-      id: 'dashboard',
-      label: 'Dashboard',
-      icon: LayoutDashboard,
-      action: () => navigate('/'),
-      group: 'navigation',
-    },
-    {
-      id: 'routes',
-      label: 'Routes',
-      icon: Route,
-      action: () => navigate('/routes'),
-      group: 'navigation',
-    },
-    {
-      id: 'audit',
-      label: 'Audit',
-      icon: ClipboardList,
-      action: () => navigate('/audit'),
-      group: 'navigation',
-    },
-    {
-      id: 'redirects',
-      label: 'Redirects',
-      icon: ArrowUpRight,
-      action: () => navigate('/analytics/redirects'),
-      group: 'analytics',
-    },
-    {
-      id: 'views',
-      label: 'Views',
-      icon: Eye,
-      action: () => navigate('/analytics/views'),
-      group: 'analytics',
-    },
-    {
-      id: 'downloads',
-      label: 'Downloads',
-      icon: Download,
-      action: () => navigate('/analytics/downloads'),
-      group: 'analytics',
-    },
-    {
-      id: 'proxy',
-      label: 'Proxy',
-      icon: Globe,
-      action: () => navigate('/analytics/proxy'),
-      group: 'analytics',
-    },
-    {
-      id: 'create-route',
-      label: 'Create New Route',
-      icon: Plus,
-      shortcut: 'N',
-      action: () => {
-        navigate('/routes');
-        setTimeout(() => {
-          const createButton = document.querySelector('[data-create-route-trigger]');
-          if (createButton instanceof HTMLElement) {
-            createButton.click();
+  const commands: CommandItemType[] = useMemo(
+    () => [
+      {
+        id: 'dashboard',
+        label: 'Dashboard',
+        icon: LayoutDashboard,
+        action: () => navigate('/'),
+        group: 'navigation',
+      },
+      {
+        id: 'routes',
+        label: 'Routes',
+        icon: Route,
+        action: () => navigate('/routes'),
+        group: 'navigation',
+      },
+      {
+        id: 'audit',
+        label: 'Audit',
+        icon: ClipboardList,
+        action: () => navigate('/audit'),
+        group: 'navigation',
+      },
+      {
+        id: 'redirects',
+        label: 'Redirects',
+        icon: ArrowUpRight,
+        action: () => navigate('/analytics/redirects'),
+        group: 'analytics',
+      },
+      {
+        id: 'views',
+        label: 'Views',
+        icon: Eye,
+        action: () => navigate('/analytics/views'),
+        group: 'analytics',
+      },
+      {
+        id: 'downloads',
+        label: 'Downloads',
+        icon: Download,
+        action: () => navigate('/analytics/downloads'),
+        group: 'analytics',
+      },
+      {
+        id: 'proxy',
+        label: 'Proxy',
+        icon: Globe,
+        action: () => navigate('/analytics/proxy'),
+        group: 'analytics',
+      },
+      {
+        id: 'create-route',
+        label: 'Create New Route',
+        icon: Plus,
+        shortcut: 'N',
+        action: () => {
+          navigate('/routes');
+          setTimeout(() => {
+            const createButton = document.querySelector('[data-create-route-trigger]');
+            if (createButton instanceof HTMLElement) {
+              createButton.click();
+            }
+          }, 100);
+        },
+        group: 'actions',
+      },
+      {
+        id: 'focus-search',
+        label: 'Focus Search',
+        icon: Search,
+        shortcut: '/',
+        action: () => {
+          const searchInput = document.querySelector('[data-search-input]');
+          if (searchInput instanceof HTMLInputElement) {
+            searchInput.focus();
           }
-        }, 100);
+        },
+        group: 'actions',
       },
-      group: 'actions',
-    },
-    {
-      id: 'focus-search',
-      label: 'Focus Search',
-      icon: Search,
-      shortcut: '/',
-      action: () => {
-        const searchInput = document.querySelector('[data-search-input]');
-        if (searchInput instanceof HTMLInputElement) {
-          searchInput.focus();
-        }
-      },
-      group: 'actions',
-    },
-  ], [navigate]);
+    ],
+    [navigate],
+  );
 
   const handleSelect = useCallback(
     (commandId: string) => {
-      const command = commands.find((c) => c.id === commandId);
+      const command = commands.find(c => c.id === commandId);
       if (command) {
         close();
         command.action();
       }
     },
-    [commands, close]
+    [commands, close],
   );
 
   useEffect(() => {
@@ -136,12 +139,12 @@ export function CommandPalette() {
     }
   }, [isOpen, close]);
 
-  const navigationCommands = commands.filter((c) => c.group === 'navigation');
-  const analyticsCommands = commands.filter((c) => c.group === 'analytics');
-  const actionCommands = commands.filter((c) => c.group === 'actions');
+  const navigationCommands = commands.filter(c => c.group === 'navigation');
+  const analyticsCommands = commands.filter(c => c.group === 'analytics');
+  const actionCommands = commands.filter(c => c.group === 'actions');
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && close()}>
+    <Dialog open={isOpen} onOpenChange={open => !open && close()}>
       <DialogContent className="overflow-hidden p-0 max-w-lg">
         <Command className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-4 [&_[cmdk-item]_svg]:w-4">
           <div className="flex items-center border-b px-3">
@@ -158,7 +161,7 @@ export function CommandPalette() {
 
             {navigationCommands.length > 0 && (
               <Command.Group heading="Navigation" className="px-1 py-1.5">
-                {navigationCommands.map((command) => (
+                {navigationCommands.map(command => (
                   <CommandItem key={command.id} command={command} onSelect={handleSelect} />
                 ))}
               </Command.Group>
@@ -166,7 +169,7 @@ export function CommandPalette() {
 
             {analyticsCommands.length > 0 && (
               <Command.Group heading="Analytics" className="px-1 py-1.5">
-                {analyticsCommands.map((command) => (
+                {analyticsCommands.map(command => (
                   <CommandItem key={command.id} command={command} onSelect={handleSelect} />
                 ))}
               </Command.Group>
@@ -174,7 +177,7 @@ export function CommandPalette() {
 
             {actionCommands.length > 0 && (
               <Command.Group heading="Actions" className="px-1 py-1.5">
-                {actionCommands.map((command) => (
+                {actionCommands.map(command => (
                   <CommandItem key={command.id} command={command} onSelect={handleSelect} />
                 ))}
               </Command.Group>
@@ -221,7 +224,9 @@ function CommandItem({
       <Icon className="mr-2 h-4 w-4 text-muted-foreground" />
       <span className="font-medium">{command.label}</span>
       {command.shortcut && (
-        <Kbd size="sm" className="ml-auto">{command.shortcut}</Kbd>
+        <Kbd size="sm" className="ml-auto">
+          {command.shortcut}
+        </Kbd>
       )}
     </Command.Item>
   );
