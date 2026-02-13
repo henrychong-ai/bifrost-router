@@ -40,6 +40,9 @@ jobs:
       - name: Lint admin
         run: pnpm -C admin run lint
 
+      - name: Format check
+        run: pnpm run format:check
+
       - name: Type check
         run: pnpm run -r typecheck
 
