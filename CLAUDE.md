@@ -173,6 +173,10 @@ Automated daily backups via cron trigger at 20:00 UTC.
 - Unhandled errors → logged, return 500
 - Development mode includes stack traces
 
+## API Shield (Optional)
+
+If using Cloudflare API Shield, `scripts/upload-api-shield.mjs` auto-uploads the OpenAPI schema after deploy. See `ci-cd.yml.example` for pipeline integration. Requires `CLOUDFLARE_ZONE_ID` secret and API token with "Zone > API Gateway > Edit" permission.
+
 ## Version Policy
 
 | Change Type | Version | Examples |
@@ -203,6 +207,7 @@ bifrost/                        # pnpm monorepo
 ├── slackbot/src/               # Slack bot (events, auth, formatting)
 ├── drizzle/                    # 8 D1 migration SQL files (0000-0007)
 ├── openapi/                    # API Shield OpenAPI spec
+├── scripts/                    # CI/CD utility scripts
 └── wrangler.toml               # Worker config with placeholder IDs
 ```
 

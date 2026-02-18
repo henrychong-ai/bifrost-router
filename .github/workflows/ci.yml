@@ -18,8 +18,8 @@ permissions:
   contents: read
 
 jobs:
-  build-lint-test:
-    name: Build, Lint & Test
+  lint-format-typecheck-and-test:
+    name: Lint-Format-Typecheck & Test
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
