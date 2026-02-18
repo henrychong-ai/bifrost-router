@@ -101,9 +101,15 @@ describe('schemas', () => {
 
   describe('UpdateRouteInputSchema', () => {
     it('accepts partial update input', () => {
-      expect(UpdateRouteInputSchema.safeParse({ target: 'https://new.com' }).success).toBe(true);
-      expect(UpdateRouteInputSchema.safeParse({ enabled: false }).success).toBe(true);
-      expect(UpdateRouteInputSchema.safeParse({ type: 'proxy' }).success).toBe(true);
+      expect(
+        UpdateRouteInputSchema.safeParse({ target: 'https://new.com' }).success,
+      ).toBe(true);
+      expect(UpdateRouteInputSchema.safeParse({ enabled: false }).success).toBe(
+        true,
+      );
+      expect(UpdateRouteInputSchema.safeParse({ type: 'proxy' }).success).toBe(
+        true,
+      );
     });
 
     it('accepts empty update (no fields)', () => {
@@ -114,18 +120,24 @@ describe('schemas', () => {
   describe('ListRoutesInputSchema', () => {
     it('accepts optional domain', () => {
       expect(ListRoutesInputSchema.safeParse({}).success).toBe(true);
-      expect(ListRoutesInputSchema.safeParse({ domain: 'henrychong.com' }).success).toBe(true);
+      expect(
+        ListRoutesInputSchema.safeParse({ domain: 'henrychong.com' }).success,
+      ).toBe(true);
     });
   });
 
   describe('GetRouteInputSchema', () => {
     it('requires path', () => {
-      expect(GetRouteInputSchema.safeParse({ path: '/test' }).success).toBe(true);
+      expect(GetRouteInputSchema.safeParse({ path: '/test' }).success).toBe(
+        true,
+      );
       expect(GetRouteInputSchema.safeParse({}).success).toBe(false);
     });
 
     it('rejects path not starting with /', () => {
-      expect(GetRouteInputSchema.safeParse({ path: 'test' }).success).toBe(false);
+      expect(GetRouteInputSchema.safeParse({ path: 'test' }).success).toBe(
+        false,
+      );
     });
   });
 
@@ -143,63 +155,97 @@ describe('schemas', () => {
 
   describe('DeleteRouteInputSchema', () => {
     it('requires path', () => {
-      expect(DeleteRouteInputSchema.safeParse({ path: '/test' }).success).toBe(true);
+      expect(DeleteRouteInputSchema.safeParse({ path: '/test' }).success).toBe(
+        true,
+      );
       expect(DeleteRouteInputSchema.safeParse({}).success).toBe(false);
     });
   });
 
   describe('ToggleRouteInputSchema', () => {
     it('requires path and enabled', () => {
-      expect(ToggleRouteInputSchema.safeParse({ path: '/test', enabled: true }).success).toBe(true);
-      expect(ToggleRouteInputSchema.safeParse({ path: '/test', enabled: false }).success).toBe(
-        true,
+      expect(
+        ToggleRouteInputSchema.safeParse({ path: '/test', enabled: true })
+          .success,
+      ).toBe(true);
+      expect(
+        ToggleRouteInputSchema.safeParse({ path: '/test', enabled: false })
+          .success,
+      ).toBe(true);
+      expect(ToggleRouteInputSchema.safeParse({ path: '/test' }).success).toBe(
+        false,
       );
-      expect(ToggleRouteInputSchema.safeParse({ path: '/test' }).success).toBe(false);
-      expect(ToggleRouteInputSchema.safeParse({ enabled: true }).success).toBe(false);
+      expect(ToggleRouteInputSchema.safeParse({ enabled: true }).success).toBe(
+        false,
+      );
     });
   });
 
   describe('GetAnalyticsSummaryInputSchema', () => {
     it('accepts optional domain and days', () => {
       expect(GetAnalyticsSummaryInputSchema.safeParse({}).success).toBe(true);
-      expect(GetAnalyticsSummaryInputSchema.safeParse({ domain: 'henrychong.com' }).success).toBe(
-        true,
-      );
-      expect(GetAnalyticsSummaryInputSchema.safeParse({ days: 7 }).success).toBe(true);
       expect(
-        GetAnalyticsSummaryInputSchema.safeParse({ domain: 'henrychong.com', days: 30 }).success,
+        GetAnalyticsSummaryInputSchema.safeParse({ domain: 'henrychong.com' })
+          .success,
+      ).toBe(true);
+      expect(
+        GetAnalyticsSummaryInputSchema.safeParse({ days: 7 }).success,
+      ).toBe(true);
+      expect(
+        GetAnalyticsSummaryInputSchema.safeParse({
+          domain: 'henrychong.com',
+          days: 30,
+        }).success,
       ).toBe(true);
     });
 
     it('rejects days out of range', () => {
-      expect(GetAnalyticsSummaryInputSchema.safeParse({ days: 0 }).success).toBe(false);
-      expect(GetAnalyticsSummaryInputSchema.safeParse({ days: 366 }).success).toBe(false);
+      expect(
+        GetAnalyticsSummaryInputSchema.safeParse({ days: 0 }).success,
+      ).toBe(false);
+      expect(
+        GetAnalyticsSummaryInputSchema.safeParse({ days: 366 }).success,
+      ).toBe(false);
     });
   });
 
   describe('GetClicksInputSchema', () => {
     it('accepts optional filters', () => {
       expect(GetClicksInputSchema.safeParse({}).success).toBe(true);
-      expect(GetClicksInputSchema.safeParse({ slug: '/linkedin' }).success).toBe(true);
-      expect(GetClicksInputSchema.safeParse({ country: 'US' }).success).toBe(true);
-      expect(GetClicksInputSchema.safeParse({ limit: 50, offset: 10 }).success).toBe(true);
+      expect(
+        GetClicksInputSchema.safeParse({ slug: '/linkedin' }).success,
+      ).toBe(true);
+      expect(GetClicksInputSchema.safeParse({ country: 'US' }).success).toBe(
+        true,
+      );
+      expect(
+        GetClicksInputSchema.safeParse({ limit: 50, offset: 10 }).success,
+      ).toBe(true);
     });
 
     it('rejects invalid limit/offset', () => {
       expect(GetClicksInputSchema.safeParse({ limit: 0 }).success).toBe(false);
-      expect(GetClicksInputSchema.safeParse({ limit: 101 }).success).toBe(false);
-      expect(GetClicksInputSchema.safeParse({ offset: -1 }).success).toBe(false);
+      expect(GetClicksInputSchema.safeParse({ limit: 101 }).success).toBe(
+        false,
+      );
+      expect(GetClicksInputSchema.safeParse({ offset: -1 }).success).toBe(
+        false,
+      );
     });
   });
 
   describe('GetSlugStatsInputSchema', () => {
     it('requires slug', () => {
-      expect(GetSlugStatsInputSchema.safeParse({ slug: '/linkedin' }).success).toBe(true);
+      expect(
+        GetSlugStatsInputSchema.safeParse({ slug: '/linkedin' }).success,
+      ).toBe(true);
       expect(GetSlugStatsInputSchema.safeParse({}).success).toBe(false);
     });
 
     it('rejects slug not starting with /', () => {
-      expect(GetSlugStatsInputSchema.safeParse({ slug: 'linkedin' }).success).toBe(false);
+      expect(
+        GetSlugStatsInputSchema.safeParse({ slug: 'linkedin' }).success,
+      ).toBe(false);
     });
   });
 });

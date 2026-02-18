@@ -12,7 +12,10 @@ export const TEST_DOMAIN = 'henrychong.com';
  * @param route - Route configuration
  * @param domain - Domain for the route (defaults to TEST_DOMAIN)
  */
-export async function seedRoute(route: KVRouteConfig, domain = TEST_DOMAIN): Promise<void> {
+export async function seedRoute(
+  route: KVRouteConfig,
+  domain = TEST_DOMAIN,
+): Promise<void> {
   const kv = env.ROUTES;
   // Store the route with domain prefix (e.g., "henrychong.com:/github")
   await kv.put(routeKey(domain, route.path), JSON.stringify(route));
@@ -23,7 +26,10 @@ export async function seedRoute(route: KVRouteConfig, domain = TEST_DOMAIN): Pro
  * @param routes - Array of route configurations
  * @param domain - Domain for the routes (defaults to TEST_DOMAIN)
  */
-export async function seedRoutes(routes: KVRouteConfig[], domain = TEST_DOMAIN): Promise<void> {
+export async function seedRoutes(
+  routes: KVRouteConfig[],
+  domain = TEST_DOMAIN,
+): Promise<void> {
   for (const route of routes) {
     await seedRoute(route, domain);
   }
@@ -52,7 +58,11 @@ export async function clearRoutes(domain = TEST_DOMAIN): Promise<void> {
  * Clear all routes from KV for all test domains
  */
 export async function clearAllRoutes(): Promise<void> {
-  const testDomains = ['henrychong.com', 'link.henrychong.com', 'vanessahung.net'];
+  const testDomains = [
+    'henrychong.com',
+    'link.henrychong.com',
+    'vanessahung.net',
+  ];
   for (const domain of testDomains) {
     await clearRoutes(domain);
   }
@@ -61,7 +71,10 @@ export async function clearAllRoutes(): Promise<void> {
 /**
  * Make a request to the worker
  */
-export async function makeRequest(path: string, options: RequestInit = {}): Promise<Response> {
+export async function makeRequest(
+  path: string,
+  options: RequestInit = {},
+): Promise<Response> {
   return SELF.fetch(`http://localhost${path}`, options);
 }
 

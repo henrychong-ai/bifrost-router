@@ -18,7 +18,10 @@ describe('handleRedirect', () => {
 
       app.get('/github', c => handleRedirect(c, route));
 
-      const response = await app.fetch(new Request('http://localhost/github'), env);
+      const response = await app.fetch(
+        new Request('http://localhost/github'),
+        env,
+      );
 
       expect(response.status).toBe(302);
       expect(response.headers.get('Location')).toBe('https://github.com/test');
@@ -37,7 +40,10 @@ describe('handleRedirect', () => {
 
       app.get('/old-page', c => handleRedirect(c, route));
 
-      const response = await app.fetch(new Request('http://localhost/old-page'), env);
+      const response = await app.fetch(
+        new Request('http://localhost/old-page'),
+        env,
+      );
 
       expect(response.status).toBe(301);
     });
@@ -55,7 +61,10 @@ describe('handleRedirect', () => {
 
       app.get('/api', c => handleRedirect(c, route));
 
-      const response = await app.fetch(new Request('http://localhost/api'), env);
+      const response = await app.fetch(
+        new Request('http://localhost/api'),
+        env,
+      );
 
       expect(response.status).toBe(307);
     });
@@ -73,7 +82,10 @@ describe('handleRedirect', () => {
 
       app.get('/permanent', c => handleRedirect(c, route));
 
-      const response = await app.fetch(new Request('http://localhost/permanent'), env);
+      const response = await app.fetch(
+        new Request('http://localhost/permanent'),
+        env,
+      );
 
       expect(response.status).toBe(308);
     });
@@ -92,7 +104,10 @@ describe('handleRedirect', () => {
 
       app.get('/search', c => handleRedirect(c, route));
 
-      const response = await app.fetch(new Request('http://localhost/search?q=test&page=1'), env);
+      const response = await app.fetch(
+        new Request('http://localhost/search?q=test&page=1'),
+        env,
+      );
 
       expect(response.status).toBe(302);
       const location = response.headers.get('Location');
@@ -137,9 +152,14 @@ describe('handleRedirect', () => {
 
       app.get('/clean', c => handleRedirect(c, route));
 
-      const response = await app.fetch(new Request('http://localhost/clean?unwanted=true'), env);
+      const response = await app.fetch(
+        new Request('http://localhost/clean?unwanted=true'),
+        env,
+      );
 
-      expect(response.headers.get('Location')).toBe('https://example.com/clean');
+      expect(response.headers.get('Location')).toBe(
+        'https://example.com/clean',
+      );
     });
 
     it('handles empty query string', async () => {
@@ -154,7 +174,10 @@ describe('handleRedirect', () => {
 
       app.get('/page', c => handleRedirect(c, route));
 
-      const response = await app.fetch(new Request('http://localhost/page'), env);
+      const response = await app.fetch(
+        new Request('http://localhost/page'),
+        env,
+      );
 
       expect(response.headers.get('Location')).toBe('https://example.com/page');
     });
@@ -173,7 +196,10 @@ describe('handleRedirect', () => {
 
       app.get('/*', c => handleRedirect(c, route));
 
-      const response = await app.fetch(new Request('http://localhost/linkedin'), env);
+      const response = await app.fetch(
+        new Request('http://localhost/linkedin'),
+        env,
+      );
 
       expect(response.headers.get('Location')).toBe('https://example.com/');
     });
@@ -191,9 +217,14 @@ describe('handleRedirect', () => {
 
       app.get('/*', c => handleRedirect(c, route));
 
-      const response = await app.fetch(new Request('http://localhost/linkedin'), env);
+      const response = await app.fetch(
+        new Request('http://localhost/linkedin'),
+        env,
+      );
 
-      expect(response.headers.get('Location')).toBe('https://example.com/linkedin');
+      expect(response.headers.get('Location')).toBe(
+        'https://example.com/linkedin',
+      );
     });
 
     it('preserves path with nested wildcard', async () => {
@@ -209,9 +240,14 @@ describe('handleRedirect', () => {
 
       app.get('/blog/*', c => handleRedirect(c, route));
 
-      const response = await app.fetch(new Request('http://localhost/blog/my-post'), env);
+      const response = await app.fetch(
+        new Request('http://localhost/blog/my-post'),
+        env,
+      );
 
-      expect(response.headers.get('Location')).toBe('https://blog.example.com/my-post');
+      expect(response.headers.get('Location')).toBe(
+        'https://blog.example.com/my-post',
+      );
     });
 
     it('handles root path with wildcard', async () => {
@@ -246,7 +282,10 @@ describe('handleRedirect', () => {
 
       app.get('/*', c => handleRedirect(c, route));
 
-      const response = await app.fetch(new Request('http://localhost/linkedin?ref=twitter'), env);
+      const response = await app.fetch(
+        new Request('http://localhost/linkedin?ref=twitter'),
+        env,
+      );
 
       const location = response.headers.get('Location');
       expect(location).toBe('https://example.com/linkedin?ref=twitter');
@@ -266,9 +305,14 @@ describe('handleRedirect', () => {
 
       app.get('/*', c => handleRedirect(c, route));
 
-      const response = await app.fetch(new Request('http://localhost/linkedin?ref=twitter'), env);
+      const response = await app.fetch(
+        new Request('http://localhost/linkedin?ref=twitter'),
+        env,
+      );
 
-      expect(response.headers.get('Location')).toBe('https://example.com/linkedin');
+      expect(response.headers.get('Location')).toBe(
+        'https://example.com/linkedin',
+      );
     });
 
     it('handles target with existing path correctly', async () => {
@@ -284,9 +328,14 @@ describe('handleRedirect', () => {
 
       app.get('/*', c => handleRedirect(c, route));
 
-      const response = await app.fetch(new Request('http://localhost/extra/path'), env);
+      const response = await app.fetch(
+        new Request('http://localhost/extra/path'),
+        env,
+      );
 
-      expect(response.headers.get('Location')).toBe('https://example.com/base/extra/path');
+      expect(response.headers.get('Location')).toBe(
+        'https://example.com/base/extra/path',
+      );
     });
 
     it('does not affect non-wildcard routes', async () => {
@@ -302,9 +351,14 @@ describe('handleRedirect', () => {
 
       app.get('/specific', c => handleRedirect(c, route));
 
-      const response = await app.fetch(new Request('http://localhost/specific'), env);
+      const response = await app.fetch(
+        new Request('http://localhost/specific'),
+        env,
+      );
 
-      expect(response.headers.get('Location')).toBe('https://example.com/target');
+      expect(response.headers.get('Location')).toBe(
+        'https://example.com/target',
+      );
     });
   });
 });

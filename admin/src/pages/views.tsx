@@ -1,7 +1,13 @@
 import { useState, useMemo } from 'react';
 import { useViews, useDebounce } from '@/hooks';
 import { useViewsFilters } from '@/context';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -39,7 +45,14 @@ export function ViewsPage() {
       country: filters.country || undefined,
       path: debouncedSearch || undefined,
     }),
-    [limit, offset, filters.domain, filters.days, filters.country, debouncedSearch],
+    [
+      limit,
+      offset,
+      filters.domain,
+      filters.days,
+      filters.country,
+      debouncedSearch,
+    ],
   );
 
   const { data, isLoading, error } = useViews(queryParams);
@@ -66,10 +79,14 @@ export function ViewsPage() {
   if (error) {
     return (
       <div className="space-y-6">
-        <h1 className="text-huge font-gilroy font-bold text-blue-950">Page Views</h1>
+        <h1 className="text-huge font-gilroy font-bold text-blue-950">
+          Page Views
+        </h1>
         <Card className="border-destructive">
           <CardContent className="pt-6">
-            <p className="text-destructive font-gilroy">Failed to load views: {error.message}</p>
+            <p className="text-destructive font-gilroy">
+              Failed to load views: {error.message}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -82,7 +99,9 @@ export function ViewsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <h1 className="text-huge font-gilroy font-bold text-blue-950">Page Views</h1>
+        <h1 className="text-huge font-gilroy font-bold text-blue-950">
+          Page Views
+        </h1>
         <div className="h-1 flex-1 rounded-full gradient-accent-bar opacity-30" />
       </div>
 
@@ -96,7 +115,9 @@ export function ViewsPage() {
 
       <Card className="border-border/50">
         <CardHeader>
-          <CardTitle className="font-gilroy font-semibold text-blue-950">View Log</CardTitle>
+          <CardTitle className="font-gilroy font-semibold text-blue-950">
+            View Log
+          </CardTitle>
           <CardDescription className="font-gilroy">
             {isLoading
               ? 'Loading...'
@@ -159,7 +180,10 @@ export function ViewsPage() {
                   </TableHeader>
                   <TableBody>
                     {data?.items.map(view => (
-                      <TableRow key={view.id} className="hover:bg-gold-50/50 transition-colors">
+                      <TableRow
+                        key={view.id}
+                        className="hover:bg-gold-50/50 transition-colors"
+                      >
                         <TableCell className="text-small font-gilroy whitespace-nowrap">
                           {formatDate(view.createdAt)}
                         </TableCell>
@@ -225,7 +249,8 @@ export function ViewsPage() {
               {data && data.meta.total > limit && (
                 <div className="flex items-center justify-between pt-4 border-t border-border/30 mt-4">
                   <div className="text-small text-muted-foreground font-gilroy">
-                    Showing {offset + 1} - {Math.min(offset + limit, data.meta.total)} of{' '}
+                    Showing {offset + 1} -{' '}
+                    {Math.min(offset + limit, data.meta.total)} of{' '}
                     {data.meta.total}
                   </div>
                   <div className="flex gap-2">

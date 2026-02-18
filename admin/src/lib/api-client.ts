@@ -68,20 +68,30 @@ async function fetchApi<T>(
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new ApiError(response.status, error.error || `HTTP ${response.status}`);
+    const error = await response
+      .json()
+      .catch(() => ({ error: 'Unknown error' }));
+    throw new ApiError(
+      response.status,
+      error.error || `HTTP ${response.status}`,
+    );
   }
 
   const data = await response.json();
   return schema.parse(data);
 }
 
-function buildQueryString(params: Record<string, string | number | undefined>): string {
+function buildQueryString(
+  params: Record<string, string | number | undefined>,
+): string {
   const filtered = Object.entries(params).filter(
     (entry): entry is [string, string | number] => entry[1] !== undefined,
   );
   if (filtered.length === 0) return '';
-  return '?' + new URLSearchParams(filtered.map(([k, v]) => [k, String(v)])).toString();
+  return (
+    '?' +
+    new URLSearchParams(filtered.map(([k, v]) => [k, String(v)])).toString()
+  );
 }
 
 // =============================================================================
@@ -95,7 +105,10 @@ export const routesApi = {
    */
   async list(domain?: string): Promise<Route[]> {
     const query = domain ? buildQueryString({ domain }) : '';
-    const response = await fetchApi(`/api/routes${query}`, RoutesListResponseSchema);
+    const response = await fetchApi(
+      `/api/routes${query}`,
+      RoutesListResponseSchema,
+    );
     if (!response.success || !response.data) {
       throw new ApiError(500, response.error || 'Failed to fetch routes');
     }
@@ -123,10 +136,14 @@ export const routesApi = {
    */
   async create(data: CreateRouteInput, domain?: string): Promise<Route> {
     const query = domain ? buildQueryString({ domain }) : '';
-    const response = await fetchApi(`/api/routes${query}`, RouteResponseSchema, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    const response = await fetchApi(
+      `/api/routes${query}`,
+      RouteResponseSchema,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      },
+    );
     if (!response.success || !response.data) {
       throw new ApiError(400, response.error || 'Failed to create route');
     }
@@ -139,12 +156,20 @@ export const routesApi = {
    * @param data - Update data
    * @param domain - Target domain (required when viewing all domains)
    */
-  async update(path: string, data: UpdateRouteInput, domain?: string): Promise<Route> {
+  async update(
+    path: string,
+    data: UpdateRouteInput,
+    domain?: string,
+  ): Promise<Route> {
     const query = buildQueryString({ path, domain });
-    const response = await fetchApi(`/api/routes${query}`, RouteResponseSchema, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+    const response = await fetchApi(
+      `/api/routes${query}`,
+      RouteResponseSchema,
+      {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      },
+    );
     if (!response.success || !response.data) {
       throw new ApiError(400, response.error || 'Failed to update route');
     }
@@ -171,11 +196,19 @@ export const routesApi = {
    * @param newPath - New route path
    * @param domain - Target domain
    */
-  async migrate(oldPath: string, newPath: string, domain?: string): Promise<Route> {
+  async migrate(
+    oldPath: string,
+    newPath: string,
+    domain?: string,
+  ): Promise<Route> {
     const query = buildQueryString({ oldPath, newPath, domain });
-    const response = await fetchApi(`/api/routes/migrate${query}`, RouteResponseSchema, {
-      method: 'POST',
-    });
+    const response = await fetchApi(
+      `/api/routes/migrate${query}`,
+      RouteResponseSchema,
+      {
+        method: 'POST',
+      },
+    );
     if (!response.success || !response.data) {
       throw new ApiError(400, response.error || 'Failed to migrate route');
     }
@@ -192,13 +225,18 @@ export const analyticsApi = {
    * Get analytics summary for dashboard
    */
   async summary(params: AnalyticsQueryParams = {}): Promise<AnalyticsSummary> {
-    const query = buildQueryString(params as Record<string, string | number | undefined>);
+    const query = buildQueryString(
+      params as Record<string, string | number | undefined>,
+    );
     const response = await fetchApi(
       `/api/analytics/summary${query}`,
       AnalyticsSummaryResponseSchema,
     );
     if (!response.success || !response.data) {
-      throw new ApiError(500, response.error || 'Failed to fetch analytics summary');
+      throw new ApiError(
+        500,
+        response.error || 'Failed to fetch analytics summary',
+      );
     }
     return response.data;
   },
@@ -210,8 +248,13 @@ export const analyticsApi = {
     items: LinkClick[];
     meta: PaginationMeta;
   }> {
-    const query = buildQueryString(params as Record<string, string | number | undefined>);
-    const response = await fetchApi(`/api/analytics/clicks${query}`, ClicksListResponseSchema);
+    const query = buildQueryString(
+      params as Record<string, string | number | undefined>,
+    );
+    const response = await fetchApi(
+      `/api/analytics/clicks${query}`,
+      ClicksListResponseSchema,
+    );
     if (!response.success) {
       throw new ApiError(500, response.error || 'Failed to fetch clicks');
     }
@@ -228,8 +271,13 @@ export const analyticsApi = {
     items: PageView[];
     meta: PaginationMeta;
   }> {
-    const query = buildQueryString(params as Record<string, string | number | undefined>);
-    const response = await fetchApi(`/api/analytics/views${query}`, ViewsListResponseSchema);
+    const query = buildQueryString(
+      params as Record<string, string | number | undefined>,
+    );
+    const response = await fetchApi(
+      `/api/analytics/views${query}`,
+      ViewsListResponseSchema,
+    );
     if (!response.success) {
       throw new ApiError(500, response.error || 'Failed to fetch views');
     }
@@ -242,8 +290,13 @@ export const analyticsApi = {
   /**
    * Get statistics for a specific slug
    */
-  async slugStats(slug: string, params: AnalyticsQueryParams = {}): Promise<SlugStats> {
-    const query = buildQueryString(params as Record<string, string | number | undefined>);
+  async slugStats(
+    slug: string,
+    params: AnalyticsQueryParams = {},
+  ): Promise<SlugStats> {
+    const query = buildQueryString(
+      params as Record<string, string | number | undefined>,
+    );
     const response = await fetchApi(
       `/api/analytics/clicks/${encodeURIComponent(slug)}${query}`,
       SlugStatsResponseSchema,
@@ -261,7 +314,9 @@ export const analyticsApi = {
     items: FileDownload[];
     meta: PaginationMeta;
   }> {
-    const query = buildQueryString(params as Record<string, string | number | undefined>);
+    const query = buildQueryString(
+      params as Record<string, string | number | undefined>,
+    );
     const response = await fetchApi(
       `/api/analytics/downloads${query}`,
       DownloadsListResponseSchema,
@@ -278,8 +333,13 @@ export const analyticsApi = {
   /**
    * Get statistics for a specific download path
    */
-  async downloadStats(path: string, params: AnalyticsQueryParams = {}): Promise<DownloadStats> {
-    const query = buildQueryString(params as Record<string, string | number | undefined>);
+  async downloadStats(
+    path: string,
+    params: AnalyticsQueryParams = {},
+  ): Promise<DownloadStats> {
+    const query = buildQueryString(
+      params as Record<string, string | number | undefined>,
+    );
     const response = await fetchApi(
       `/api/analytics/downloads/${encodeURIComponent(path)}${query}`,
       DownloadStatsResponseSchema,
@@ -297,13 +357,18 @@ export const analyticsApi = {
     items: ProxyRequest[];
     meta: PaginationMeta;
   }> {
-    const query = buildQueryString(params as Record<string, string | number | undefined>);
+    const query = buildQueryString(
+      params as Record<string, string | number | undefined>,
+    );
     const response = await fetchApi(
       `/api/analytics/proxy${query}`,
       ProxyRequestsListResponseSchema,
     );
     if (!response.success) {
-      throw new ApiError(500, response.error || 'Failed to fetch proxy requests');
+      throw new ApiError(
+        500,
+        response.error || 'Failed to fetch proxy requests',
+      );
     }
     return {
       items: response.data,
@@ -314,8 +379,13 @@ export const analyticsApi = {
   /**
    * Get statistics for a specific proxy path
    */
-  async proxyStats(path: string, params: AnalyticsQueryParams = {}): Promise<ProxyStats> {
-    const query = buildQueryString(params as Record<string, string | number | undefined>);
+  async proxyStats(
+    path: string,
+    params: AnalyticsQueryParams = {},
+  ): Promise<ProxyStats> {
+    const query = buildQueryString(
+      params as Record<string, string | number | undefined>,
+    );
     const response = await fetchApi(
       `/api/analytics/proxy/${encodeURIComponent(path)}${query}`,
       ProxyStatsResponseSchema,
@@ -333,8 +403,13 @@ export const analyticsApi = {
     items: AuditLog[];
     meta: PaginationMeta;
   }> {
-    const query = buildQueryString(params as Record<string, string | number | undefined>);
-    const response = await fetchApi(`/api/analytics/audit${query}`, AuditLogsListResponseSchema);
+    const query = buildQueryString(
+      params as Record<string, string | number | undefined>,
+    );
+    const response = await fetchApi(
+      `/api/analytics/audit${query}`,
+      AuditLogsListResponseSchema,
+    );
     if (!response.success) {
       throw new ApiError(500, response.error || 'Failed to fetch audit logs');
     }
@@ -365,8 +440,13 @@ export const backupApi = {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-      throw new ApiError(response.status, error.error || `HTTP ${response.status}`);
+      const error = await response
+        .json()
+        .catch(() => ({ error: 'Unknown error' }));
+      throw new ApiError(
+        response.status,
+        error.error || `HTTP ${response.status}`,
+      );
     }
 
     return response.json();
@@ -462,7 +542,10 @@ export const metadataApi = {
    */
   async getOpenGraph(url: string): Promise<OpenGraphData> {
     const query = buildQueryString({ url });
-    const response = await fetchApi(`/api/metadata/og${query}`, OpenGraphResponseSchema);
+    const response = await fetchApi(
+      `/api/metadata/og${query}`,
+      OpenGraphResponseSchema,
+    );
     if (!response.success || !response.data) {
       throw new ApiError(400, response.error || 'Failed to fetch metadata');
     }

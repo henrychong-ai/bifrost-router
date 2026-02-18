@@ -49,8 +49,13 @@ export function useCreateRoute() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ data, domain }: { data: CreateRouteInput; domain?: string }) =>
-      api.routes.create(data, domain),
+    mutationFn: ({
+      data,
+      domain,
+    }: {
+      data: CreateRouteInput;
+      domain?: string;
+    }) => api.routes.create(data, domain),
     onSuccess: () => {
       // Invalidate routes list to refetch
       queryClient.invalidateQueries({ queryKey: routeKeys.all });
@@ -78,7 +83,9 @@ export function useUpdateRoute() {
     onSuccess: (_data, variables) => {
       // Invalidate both the list and the specific route
       queryClient.invalidateQueries({ queryKey: routeKeys.all });
-      queryClient.invalidateQueries({ queryKey: routeKeys.detail(variables.path) });
+      queryClient.invalidateQueries({
+        queryKey: routeKeys.detail(variables.path),
+      });
     },
   });
 }
@@ -109,11 +116,20 @@ export function useToggleRoute() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ path, enabled, domain }: { path: string; enabled: boolean; domain?: string }) =>
-      api.routes.update(path, { enabled }, domain),
+    mutationFn: ({
+      path,
+      enabled,
+      domain,
+    }: {
+      path: string;
+      enabled: boolean;
+      domain?: string;
+    }) => api.routes.update(path, { enabled }, domain),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: routeKeys.all });
-      queryClient.invalidateQueries({ queryKey: routeKeys.detail(variables.path) });
+      queryClient.invalidateQueries({
+        queryKey: routeKeys.detail(variables.path),
+      });
     },
   });
 }
@@ -136,7 +152,9 @@ export function useMigrateRoute() {
     }) => api.routes.migrate(oldPath, newPath, domain),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: routeKeys.all });
-      queryClient.removeQueries({ queryKey: routeKeys.detail(variables.oldPath) });
+      queryClient.removeQueries({
+        queryKey: routeKeys.detail(variables.oldPath),
+      });
     },
   });
 }

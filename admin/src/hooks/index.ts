@@ -32,7 +32,11 @@ export {
 } from './use-tailscale-identity';
 
 // Backup hooks
-export { backupKeys, useBackupHealth, type BackupHealthResponse } from './use-backup-health';
+export {
+  backupKeys,
+  useBackupHealth,
+  type BackupHealthResponse,
+} from './use-backup-health';
 
 // Link preview hooks
 export { useLinkPreview } from './use-link-preview';
@@ -42,4 +46,7 @@ export { useDebounce } from './use-debounce';
 export { useKeyboardShortcut, getModifierKey } from './use-keyboard-shortcuts';
 
 // Command palette
-export { CommandPaletteProvider, useCommandPalette } from './use-command-palette';
+export {
+  CommandPaletteProvider,
+  useCommandPalette,
+} from './use-command-palette';

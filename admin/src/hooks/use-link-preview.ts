@@ -7,12 +7,16 @@ interface UseLinkPreviewOptions {
   debounceMs?: number;
 }
 
-export function useLinkPreview(url: string, options: UseLinkPreviewOptions = {}) {
+export function useLinkPreview(
+  url: string,
+  options: UseLinkPreviewOptions = {},
+) {
   const { enabled = true, debounceMs = 500 } = options;
 
   const debouncedUrl = useDebounce(url, debounceMs);
 
-  const isValidUrl = debouncedUrl.startsWith('http://') || debouncedUrl.startsWith('https://');
+  const isValidUrl =
+    debouncedUrl.startsWith('http://') || debouncedUrl.startsWith('https://');
 
   return useQuery<OpenGraphData>({
     queryKey: ['link-preview', debouncedUrl],

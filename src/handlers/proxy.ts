@@ -11,7 +11,11 @@ const DEFAULT_TIMEOUT_MS = 30000;
 /**
  * Proxy error types for categorization
  */
-export type ProxyErrorType = 'validation_error' | 'timeout' | 'network_error' | 'upstream_error';
+export type ProxyErrorType =
+  | 'validation_error'
+  | 'timeout'
+  | 'network_error'
+  | 'upstream_error';
 
 /**
  * Create an error response for proxy failures
@@ -69,7 +73,11 @@ export async function handleProxy(
       'validation_error',
       'The proxy target is not allowed.',
       502,
-      { path: route.path, target: route.target, validationError: validation.error },
+      {
+        path: route.path,
+        target: route.target,
+        validationError: validation.error,
+      },
     );
   }
 

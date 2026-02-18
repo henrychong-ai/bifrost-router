@@ -20,7 +20,10 @@ export const CACHE_STATUS_HEADER = 'X-Cache-Status';
  * - Path traversal protection
  * - Cloudflare Cache API integration for edge caching
  */
-export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promise<Response> {
+export async function handleR2(
+  c: Context<AppEnv>,
+  route: KVRouteConfig,
+): Promise<Response> {
   // Get bucket name from route config, default to "files"
   const bucketName: R2BucketName = route.bucket ?? 'files';
 
@@ -131,7 +134,8 @@ export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promis
 
   // Add Content-Disposition for downloadable files
   // Use route.forceDownload if explicitly set, otherwise fall back to content-type based logic
-  const shouldDownload = route.forceDownload ?? shouldForceDownload(contentType);
+  const shouldDownload =
+    route.forceDownload ?? shouldForceDownload(contentType);
   if (shouldDownload) {
     const filename = route.target.split('/').pop() || 'download';
     headers.set('Content-Disposition', `attachment; filename="${filename}"`);

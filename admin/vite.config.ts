@@ -21,7 +21,9 @@ function tailscaleIdentityMiddleware(): Connect.NextHandleFunction {
     if (req.url === '/api/tailscale/identity') {
       const login = req.headers['tailscale-user-login'] as string | undefined;
       const name = req.headers['tailscale-user-name'] as string | undefined;
-      const profilePic = req.headers['tailscale-user-profile-pic'] as string | undefined;
+      const profilePic = req.headers['tailscale-user-profile-pic'] as
+        | string
+        | undefined;
 
       const identity = {
         login: login || null,

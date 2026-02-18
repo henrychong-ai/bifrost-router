@@ -1,6 +1,12 @@
 /* eslint-disable react-refresh/only-export-components */
 // Provider + hook pattern: both exports required for context API
-import { useState, useCallback, createContext, useContext, type ReactNode } from 'react';
+import {
+  useState,
+  useCallback,
+  createContext,
+  useContext,
+  type ReactNode,
+} from 'react';
 
 interface CommandPaletteContextValue {
   isOpen: boolean;
@@ -9,7 +15,9 @@ interface CommandPaletteContextValue {
   toggle: () => void;
 }
 
-const CommandPaletteContext = createContext<CommandPaletteContextValue | null>(null);
+const CommandPaletteContext = createContext<CommandPaletteContextValue | null>(
+  null,
+);
 
 export function CommandPaletteProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -28,7 +36,9 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
 export function useCommandPalette(): CommandPaletteContextValue {
   const context = useContext(CommandPaletteContext);
   if (!context) {
-    throw new Error('useCommandPalette must be used within a CommandPaletteProvider');
+    throw new Error(
+      'useCommandPalette must be used within a CommandPaletteProvider',
+    );
   }
   return context;
 }

@@ -62,7 +62,9 @@ export class KVListError extends KVError {
 /**
  * Result type for KV operations
  */
-export type KVResult<T> = { success: true; data: T } | { success: false; error: KVError };
+export type KVResult<T> =
+  | { success: true; data: T }
+  | { success: false; error: KVError };
 
 /**
  * Wrap a KV operation with error handling
@@ -79,7 +81,9 @@ export async function withKVErrorHandling<T>(
     const data = await operation();
     return { success: true, data };
   } catch (error) {
-    const kvError = errorFactory(error instanceof Error ? error : new Error(String(error)));
+    const kvError = errorFactory(
+      error instanceof Error ? error : new Error(String(error)),
+    );
 
     console.error(
       JSON.stringify({

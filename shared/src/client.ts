@@ -22,7 +22,10 @@ import type {
 /**
  * Type for fetch function
  */
-type FetchFunction = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+type FetchFunction = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
 
 /**
  * Configuration for EdgeRouterClient
@@ -146,9 +149,13 @@ export class EdgeRouterClient {
   async listRoutes(domain?: string): Promise<Route[]> {
     const effectiveDomain = this.getDomain(domain);
     // The API returns { routes: Route[], total: number }
-    const response = await this.request<{ routes: Route[]; total: number }>('GET', '/api/routes', {
-      params: effectiveDomain ? { domain: effectiveDomain } : undefined,
-    });
+    const response = await this.request<{ routes: Route[]; total: number }>(
+      'GET',
+      '/api/routes',
+      {
+        params: effectiveDomain ? { domain: effectiveDomain } : undefined,
+      },
+    );
     return response.routes;
   }
 
@@ -183,7 +190,11 @@ export class EdgeRouterClient {
    *
    * Uses query parameter for path to handle "/" and other special characters correctly.
    */
-  async updateRoute(path: string, input: UpdateRouteInput, domain?: string): Promise<Route> {
+  async updateRoute(
+    path: string,
+    input: UpdateRouteInput,
+    domain?: string,
+  ): Promise<Route> {
     const effectiveDomain = this.getDomain(domain);
     return this.request<Route>('PUT', '/api/routes', {
       body: input,
@@ -212,14 +223,22 @@ export class EdgeRouterClient {
   /**
    * Toggle a route's enabled status
    */
-  async toggleRoute(path: string, enabled: boolean, domain?: string): Promise<Route> {
+  async toggleRoute(
+    path: string,
+    enabled: boolean,
+    domain?: string,
+  ): Promise<Route> {
     return this.updateRoute(path, { enabled }, domain);
   }
 
   /**
    * Migrate a route to a new path
    */
-  async migrateRoute(oldPath: string, newPath: string, domain?: string): Promise<Route> {
+  async migrateRoute(
+    oldPath: string,
+    newPath: string,
+    domain?: string,
+  ): Promise<Route> {
     const effectiveDomain = this.getDomain(domain);
     return this.request<Route>('POST', '/api/routes/migrate', {
       params: {
@@ -237,7 +256,9 @@ export class EdgeRouterClient {
   /**
    * Get analytics summary
    */
-  async getAnalyticsSummary(options: AnalyticsQueryOptions = {}): Promise<AnalyticsSummary> {
+  async getAnalyticsSummary(
+    options: AnalyticsQueryOptions = {},
+  ): Promise<AnalyticsSummary> {
     const effectiveDomain = this.getDomain(options.domain);
     return this.request<AnalyticsSummary>('GET', '/api/analytics/summary', {
       params: {
@@ -250,41 +271,56 @@ export class EdgeRouterClient {
   /**
    * Get paginated list of clicks
    */
-  async getClicks(options: AnalyticsQueryOptions = {}): Promise<PaginatedResponse<LinkClick>> {
+  async getClicks(
+    options: AnalyticsQueryOptions = {},
+  ): Promise<PaginatedResponse<LinkClick>> {
     const effectiveDomain = this.getDomain(options.domain);
-    return this.request<PaginatedResponse<LinkClick>>('GET', '/api/analytics/clicks', {
-      params: {
-        domain: effectiveDomain,
-        days: options.days,
-        limit: options.limit,
-        offset: options.offset,
-        slug: options.slug,
-        country: options.country,
+    return this.request<PaginatedResponse<LinkClick>>(
+      'GET',
+      '/api/analytics/clicks',
+      {
+        params: {
+          domain: effectiveDomain,
+          days: options.days,
+          limit: options.limit,
+          offset: options.offset,
+          slug: options.slug,
+          country: options.country,
+        },
       },
-    });
+    );
   }
 
   /**
    * Get paginated list of page views
    */
-  async getViews(options: AnalyticsQueryOptions = {}): Promise<PaginatedResponse<PageView>> {
+  async getViews(
+    options: AnalyticsQueryOptions = {},
+  ): Promise<PaginatedResponse<PageView>> {
     const effectiveDomain = this.getDomain(options.domain);
-    return this.request<PaginatedResponse<PageView>>('GET', '/api/analytics/views', {
-      params: {
-        domain: effectiveDomain,
-        days: options.days,
-        limit: options.limit,
-        offset: options.offset,
-        path: options.path,
-        country: options.country,
+    return this.request<PaginatedResponse<PageView>>(
+      'GET',
+      '/api/analytics/views',
+      {
+        params: {
+          domain: effectiveDomain,
+          days: options.days,
+          limit: options.limit,
+          offset: options.offset,
+          path: options.path,
+          country: options.country,
+        },
       },
-    });
+    );
   }
 
   /**
    * Get detailed statistics for a specific slug
    */
-  async getSlugStats(slug: string, options: AnalyticsQueryOptions = {}): Promise<SlugStats> {
+  async getSlugStats(
+    slug: string,
+    options: AnalyticsQueryOptions = {},
+  ): Promise<SlugStats> {
     const effectiveDomain = this.getDomain(options.domain);
     // Remove leading slash from slug for URL path
     const cleanSlug = slug.startsWith('/') ? slug.slice(1) : slug;
@@ -309,9 +345,12 @@ export class EdgeRouterClient {
  * - EDGE_ROUTER_URL: Base URL (default: 'https://henrychong.com')
  * - EDGE_ROUTER_DOMAIN: Default domain (optional)
  */
-export function createClientFromEnv(env?: Record<string, string | undefined>): EdgeRouterClient {
+export function createClientFromEnv(
+  env?: Record<string, string | undefined>,
+): EdgeRouterClient {
   // Use provided env or try to use process.env if available
-  const resolvedEnv = env ?? (typeof process !== 'undefined' ? process.env : {});
+  const resolvedEnv =
+    env ?? (typeof process !== 'undefined' ? process.env : {});
   const apiKey = resolvedEnv.EDGE_ROUTER_API_KEY;
   if (!apiKey) {
     throw new Error('EDGE_ROUTER_API_KEY environment variable is required');

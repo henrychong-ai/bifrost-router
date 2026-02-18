@@ -59,7 +59,10 @@ async function findLatestBackup(
 /**
  * Fetch and parse the backup manifest
  */
-async function fetchManifest(bucket: R2Bucket, date: string): Promise<BackupManifest | null> {
+async function fetchManifest(
+  bucket: R2Bucket,
+  date: string,
+): Promise<BackupManifest | null> {
   try {
     const obj = await bucket.get(`daily/${date}/manifest.json`);
     if (!obj) return null;
@@ -97,7 +100,10 @@ function manifestToSummary(manifest: BackupManifest): ManifestSummary {
 /**
  * Check existence and size of all expected backup files
  */
-async function checkBackupFiles(bucket: R2Bucket, date: string): Promise<BackupFileStatus[]> {
+async function checkBackupFiles(
+  bucket: R2Bucket,
+  date: string,
+): Promise<BackupFileStatus[]> {
   const results = await Promise.all(
     EXPECTED_FILES.map(async filename => {
       const key = `daily/${date}/${filename}`;
@@ -140,7 +146,9 @@ export async function checkBackupHealth(
       status: 'critical',
       timestamp: now.toISOString(),
       lastBackup: null,
-      issues: [{ severity: 'critical', message: 'No backup found in R2 bucket' }],
+      issues: [
+        { severity: 'critical', message: 'No backup found in R2 bucket' },
+      ],
       checks: {
         backupExists: false,
         backupAge: 'critical',
@@ -206,7 +214,11 @@ export async function checkBackupHealth(
   // Determine overall status
   const hasCritical = issues.some(i => i.severity === 'critical');
   const hasWarning = issues.some(i => i.severity === 'warning');
-  const status: HealthStatus = hasCritical ? 'critical' : hasWarning ? 'warning' : 'healthy';
+  const status: HealthStatus = hasCritical
+    ? 'critical'
+    : hasWarning
+      ? 'warning'
+      : 'healthy';
 
   return {
     status,

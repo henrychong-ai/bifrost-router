@@ -77,7 +77,9 @@ describe('validateProxyTarget', () => {
     });
 
     it('accepts URLs with paths and query strings', () => {
-      const result = validateProxyTarget('https://example.com/api/v1?key=value');
+      const result = validateProxyTarget(
+        'https://example.com/api/v1?key=value',
+      );
       expect(result.valid).toBe(true);
     });
   });
@@ -135,7 +137,9 @@ describe('validateProxyTarget', () => {
     });
 
     it('rejects AWS metadata endpoint', () => {
-      const result = validateProxyTarget('http://169.254.169.254/latest/meta-data');
+      const result = validateProxyTarget(
+        'http://169.254.169.254/latest/meta-data',
+      );
       expect(result.valid).toBe(false);
       expect(result.error).toContain('private/internal');
     });

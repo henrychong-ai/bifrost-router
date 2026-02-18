@@ -124,35 +124,59 @@ describe('checkToolPermission', () => {
 
   describe('admin user permissions', () => {
     it('should allow admin to read routes', () => {
-      const result = checkToolPermission(adminUser, 'list_routes', 'link.henrychong.com');
+      const result = checkToolPermission(
+        adminUser,
+        'list_routes',
+        'link.henrychong.com',
+      );
       expect(result.allowed).toBe(true);
       expect(result.userLevel).toBe('admin');
     });
 
     it('should allow admin to create routes', () => {
-      const result = checkToolPermission(adminUser, 'create_route', 'link.henrychong.com');
+      const result = checkToolPermission(
+        adminUser,
+        'create_route',
+        'link.henrychong.com',
+      );
       expect(result.allowed).toBe(true);
     });
 
     it('should allow admin to delete routes', () => {
-      const result = checkToolPermission(adminUser, 'delete_route', 'link.henrychong.com');
+      const result = checkToolPermission(
+        adminUser,
+        'delete_route',
+        'link.henrychong.com',
+      );
       expect(result.allowed).toBe(true);
     });
   });
 
   describe('edit user permissions', () => {
     it('should allow edit user to read routes', () => {
-      const result = checkToolPermission(editUser, 'list_routes', 'link.henrychong.com');
+      const result = checkToolPermission(
+        editUser,
+        'list_routes',
+        'link.henrychong.com',
+      );
       expect(result.allowed).toBe(true);
     });
 
     it('should allow edit user to create routes', () => {
-      const result = checkToolPermission(editUser, 'create_route', 'link.henrychong.com');
+      const result = checkToolPermission(
+        editUser,
+        'create_route',
+        'link.henrychong.com',
+      );
       expect(result.allowed).toBe(true);
     });
 
     it('should NOT allow edit user to delete routes', () => {
-      const result = checkToolPermission(editUser, 'delete_route', 'link.henrychong.com');
+      const result = checkToolPermission(
+        editUser,
+        'delete_route',
+        'link.henrychong.com',
+      );
       expect(result.allowed).toBe(false);
       expect(result.message).toContain('Permission denied');
       expect(result.userLevel).toBe('edit');
@@ -162,33 +186,57 @@ describe('checkToolPermission', () => {
 
   describe('read-only user permissions', () => {
     it('should allow read user to read routes', () => {
-      const result = checkToolPermission(readOnlyUser, 'list_routes', 'link.henrychong.com');
+      const result = checkToolPermission(
+        readOnlyUser,
+        'list_routes',
+        'link.henrychong.com',
+      );
       expect(result.allowed).toBe(true);
     });
 
     it('should NOT allow read user to create routes', () => {
-      const result = checkToolPermission(readOnlyUser, 'create_route', 'link.henrychong.com');
+      const result = checkToolPermission(
+        readOnlyUser,
+        'create_route',
+        'link.henrychong.com',
+      );
       expect(result.allowed).toBe(false);
       expect(result.userLevel).toBe('read');
       expect(result.requiredLevel).toBe('edit');
     });
 
     it('should NOT allow read user to delete routes', () => {
-      const result = checkToolPermission(readOnlyUser, 'delete_route', 'link.henrychong.com');
+      const result = checkToolPermission(
+        readOnlyUser,
+        'delete_route',
+        'link.henrychong.com',
+      );
       expect(result.allowed).toBe(false);
     });
   });
 
   describe('domain-specific permissions', () => {
     it('should deny access to domain user does not have permission for', () => {
-      const result = checkToolPermission(editUser, 'list_routes', 'henrychong.com');
+      const result = checkToolPermission(
+        editUser,
+        'list_routes',
+        'henrychong.com',
+      );
       expect(result.allowed).toBe(false);
       expect(result.userLevel).toBe('none');
     });
 
     it('should allow admin access to multiple domains', () => {
-      const result1 = checkToolPermission(adminUser, 'delete_route', 'link.henrychong.com');
-      const result2 = checkToolPermission(adminUser, 'delete_route', 'henrychong.com');
+      const result1 = checkToolPermission(
+        adminUser,
+        'delete_route',
+        'link.henrychong.com',
+      );
+      const result2 = checkToolPermission(
+        adminUser,
+        'delete_route',
+        'henrychong.com',
+      );
 
       expect(result1.allowed).toBe(true);
       expect(result2.allowed).toBe(true);
@@ -197,7 +245,11 @@ describe('checkToolPermission', () => {
 
   describe('null permissions (no user record)', () => {
     it('should deny all access when permissions are null', () => {
-      const result = checkToolPermission(null, 'list_routes', 'link.henrychong.com');
+      const result = checkToolPermission(
+        null,
+        'list_routes',
+        'link.henrychong.com',
+      );
       expect(result.allowed).toBe(false);
       expect(result.userLevel).toBe('none');
       expect(result.message).toContain("don't have any permissions");
@@ -206,7 +258,11 @@ describe('checkToolPermission', () => {
 
   describe('unknown tools', () => {
     it('should default to admin permission for unknown tools', () => {
-      const result = checkToolPermission(editUser, 'unknown_tool', 'link.henrychong.com');
+      const result = checkToolPermission(
+        editUser,
+        'unknown_tool',
+        'link.henrychong.com',
+      );
       expect(result.allowed).toBe(false);
       expect(result.requiredLevel).toBe('admin');
     });

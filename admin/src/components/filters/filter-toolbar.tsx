@@ -120,7 +120,10 @@ export function FilterToolbar({
   };
 
   const handleDomainChange = (value: string) => {
-    onFiltersChange({ ...filters, domain: value === 'all' ? undefined : value });
+    onFiltersChange({
+      ...filters,
+      domain: value === 'all' ? undefined : value,
+    });
   };
 
   const handleCountryChange = (value: string) => {
@@ -159,7 +162,9 @@ export function FilterToolbar({
     <div className={`flex flex-wrap items-end gap-3 ${className}`}>
       {/* Primary Search Input */}
       <div className="flex flex-col gap-1.5">
-        <label className="text-small font-gilroy text-charcoal-600">{searchLabel}</label>
+        <label className="text-small font-gilroy text-charcoal-600">
+          {searchLabel}
+        </label>
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-charcoal-400" />
           <Input
@@ -175,12 +180,16 @@ export function FilterToolbar({
       {/* Secondary Search Input (optional) */}
       {search2Label && (
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-gilroy text-charcoal-600">{search2Label}</label>
+          <label className="text-small font-gilroy text-charcoal-600">
+            {search2Label}
+          </label>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-charcoal-400" />
             <Input
               type="text"
-              placeholder={search2Placeholder || `Search ${search2Label.toLowerCase()}...`}
+              placeholder={
+                search2Placeholder || `Search ${search2Label.toLowerCase()}...`
+              }
               value={filters.search2 || ''}
               onChange={e => handleSearch2Change(e.target.value)}
               className="pl-8 w-48 font-gilroy"
@@ -192,8 +201,13 @@ export function FilterToolbar({
       {/* Domain Filter */}
       {showDomain && (
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-gilroy text-charcoal-600">Domain</label>
-          <Select value={filters.domain || 'all'} onValueChange={handleDomainChange}>
+          <label className="text-small font-gilroy text-charcoal-600">
+            Domain
+          </label>
+          <Select
+            value={filters.domain || 'all'}
+            onValueChange={handleDomainChange}
+          >
             <SelectTrigger className="w-48 font-gilroy">
               <SelectValue placeholder="All domains" />
             </SelectTrigger>
@@ -214,7 +228,9 @@ export function FilterToolbar({
       {/* Country Filter */}
       {showCountry && (
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-gilroy text-charcoal-600">Country</label>
+          <label className="text-small font-gilroy text-charcoal-600">
+            Country
+          </label>
           <Input
             type="text"
             placeholder="e.g. US, SG"
@@ -237,8 +253,13 @@ export function FilterToolbar({
       {/* Days Filter */}
       {showDays && (
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-gilroy text-charcoal-600">Time Range</label>
-          <Select value={String(filters.days || 1)} onValueChange={handleDaysChange}>
+          <label className="text-small font-gilroy text-charcoal-600">
+            Time Range
+          </label>
+          <Select
+            value={String(filters.days || 1)}
+            onValueChange={handleDaysChange}
+          >
             <SelectTrigger className="w-32 font-gilroy">
               <SelectValue />
             </SelectTrigger>

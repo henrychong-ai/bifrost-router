@@ -2,7 +2,11 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import type { AppEnv } from '../types';
 import { SUPPORTED_DOMAINS, isValidDomain } from '../types';
-import { CreateRouteSchema, UpdateRouteSchema, SCHEMA_VERSION } from '../kv/schema';
+import {
+  CreateRouteSchema,
+  UpdateRouteSchema,
+  SCHEMA_VERSION,
+} from '../kv/schema';
 import {
   getAllRoutes,
   getAllRoutesAllDomains,
@@ -20,7 +24,11 @@ import { analyticsRoutes } from './analytics';
 import { recordAuditLog } from '../db/analytics';
 import type { AuditAction } from '../db/analytics';
 import { checkBackupHealth } from '../backup/health';
-import { parseOpenGraph, SSRFBlockedError, ResponseTooLargeError } from '../utils/og-parser';
+import {
+  parseOpenGraph,
+  SSRFBlockedError,
+  ResponseTooLargeError,
+} from '../utils/og-parser';
 
 /**
  * Result of parsing domain from request
@@ -94,7 +102,9 @@ function getRequiredDomainFromRequest(c: {
 /**
  * Get actor info from Tailscale headers
  */
-function getActorInfo(c: { req: { header: (name: string) => string | undefined } }): {
+function getActorInfo(c: {
+  req: { header: (name: string) => string | undefined };
+}): {
   login: string;
   name: string | null;
 } {
@@ -165,7 +175,8 @@ adminRoutes.use('*', async (c, next) => {
   }
 
   const apiKey =
-    c.req.header('X-Admin-Key') || c.req.header('Authorization')?.replace('Bearer ', '');
+    c.req.header('X-Admin-Key') ||
+    c.req.header('Authorization')?.replace('Bearer ', '');
   const expectedKey = c.env.ADMIN_API_KEY;
 
   if (!expectedKey) {
@@ -210,7 +221,9 @@ adminRoutes.get('/routes', async c => {
     const route = await getRoute(c.env.ROUTES, domain, pathQuery);
 
     if (!route) {
-      throw new HTTPException(404, { message: `Route not found: ${pathQuery}` });
+      throw new HTTPException(404, {
+        message: `Route not found: ${pathQuery}`,
+      });
     }
 
     return c.json({
@@ -593,10 +606,16 @@ adminRoutes.post('/routes/migrate', async c => {
   const newPath = c.req.query('newPath');
 
   if (!oldPath) {
-    return c.json({ success: false, error: 'oldPath query parameter is required' }, 400);
+    return c.json(
+      { success: false, error: 'oldPath query parameter is required' },
+      400,
+    );
   }
   if (!newPath) {
-    return c.json({ success: false, error: 'newPath query parameter is required' }, 400);
+    return c.json(
+      { success: false, error: 'newPath query parameter is required' },
+      400,
+    );
   }
   if (!oldPath.startsWith('/')) {
     return c.json({ success: false, error: 'oldPath must start with /' }, 400);
@@ -654,7 +673,10 @@ adminRoutes.post('/routes/migrate', async c => {
     if (error instanceof Error && error.message.includes('already exists')) {
       return c.json({ success: false, error: error.message }, 409);
     }
-    if (error instanceof Error && error.message.includes('cannot be the same')) {
+    if (
+      error instanceof Error &&
+      error.message.includes('cannot be the same')
+    ) {
       return c.json({ success: false, error: error.message }, 400);
     }
     throw error;

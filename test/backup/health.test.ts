@@ -10,7 +10,11 @@ function createMockBucket(options: {
   manifest?: BackupManifest | null;
   files?: Map<string, { size: number } | null>;
 }) {
-  const { delimitedPrefixes = [], manifest = null, files = new Map() } = options;
+  const {
+    delimitedPrefixes = [],
+    manifest = null,
+    files = new Map(),
+  } = options;
 
   return {
     list: vi.fn().mockResolvedValue({
@@ -37,7 +41,9 @@ function createMockBucket(options: {
 /**
  * Create a valid test manifest
  */
-function createTestManifest(overrides: Partial<BackupManifest> = {}): BackupManifest {
+function createTestManifest(
+  overrides: Partial<BackupManifest> = {},
+): BackupManifest {
   return {
     version: '1.0.0',
     timestamp: Date.now() - 4 * 60 * 60 * 1000, // 4 hours ago
@@ -48,7 +54,13 @@ function createTestManifest(overrides: Partial<BackupManifest> = {}): BackupMani
       file: 'daily/20260123/kv-routes.ndjson.gz',
     },
     d1: {
-      tables: ['link_clicks', 'page_views', 'file_downloads', 'proxy_requests', 'audit_logs'],
+      tables: [
+        'link_clicks',
+        'page_views',
+        'file_downloads',
+        'proxy_requests',
+        'audit_logs',
+      ],
       totalRows: 18046,
       files: {
         link_clicks: 'daily/20260123/d1-link_clicks.ndjson.gz',
@@ -365,7 +377,9 @@ describe('checkBackupHealth', () => {
       expect(health.lastBackup?.manifest).not.toBeNull();
       expect(health.lastBackup?.manifest?.version).toBe('1.0.0');
       expect(health.lastBackup?.manifest?.kv.totalRoutes).toBe(320);
-      expect(health.lastBackup?.manifest?.kv.domains).toContain('henrychong.com');
+      expect(health.lastBackup?.manifest?.kv.domains).toContain(
+        'henrychong.com',
+      );
       expect(health.lastBackup?.manifest?.d1.totalRows).toBe(18046);
       expect(health.lastBackup?.manifest?.d1.tables).toHaveLength(5);
     });
@@ -374,7 +388,11 @@ describe('checkBackupHealth', () => {
   describe('edge cases', () => {
     it('handles multiple backup dates and picks most recent', async () => {
       const bucket = createMockBucket({
-        delimitedPrefixes: ['daily/20260120/', 'daily/20260122/', 'daily/20260121/'],
+        delimitedPrefixes: [
+          'daily/20260120/',
+          'daily/20260122/',
+          'daily/20260121/',
+        ],
         manifest: createTestManifest({ date: '20260122' }),
         files: createCompleteFilesMap('20260122'),
       });
@@ -386,7 +404,11 @@ describe('checkBackupHealth', () => {
 
     it('ignores invalid date prefixes', async () => {
       const bucket = createMockBucket({
-        delimitedPrefixes: ['daily/invalid/', 'daily/20260122/', 'daily/notadate/'],
+        delimitedPrefixes: [
+          'daily/invalid/',
+          'daily/20260122/',
+          'daily/notadate/',
+        ],
         manifest: createTestManifest({ date: '20260122' }),
         files: createCompleteFilesMap('20260122'),
       });

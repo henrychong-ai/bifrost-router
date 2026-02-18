@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { Hono } from 'hono';
 import { env } from 'cloudflare:test';
-import { cors, isAllowedOrigin, ALLOWED_ORIGINS } from '../../src/middleware/cors';
+import {
+  cors,
+  isAllowedOrigin,
+  ALLOWED_ORIGINS,
+} from '../../src/middleware/cors';
 import type { AppEnv } from '../../src/types';
 
 describe('cors middleware', () => {
@@ -24,7 +28,9 @@ describe('cors middleware', () => {
 
       expect(response.status).toBe(204);
       expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
-      expect(response.headers.get('Access-Control-Allow-Methods')).toContain('POST');
+      expect(response.headers.get('Access-Control-Allow-Methods')).toContain(
+        'POST',
+      );
     });
 
     it('includes configured headers in preflight response', async () => {
@@ -43,7 +49,9 @@ describe('cors middleware', () => {
         env,
       );
 
-      expect(response.headers.get('Access-Control-Allow-Headers')).toContain('X-Custom-Header');
+      expect(response.headers.get('Access-Control-Allow-Headers')).toContain(
+        'X-Custom-Header',
+      );
     });
   });
 
@@ -76,7 +84,9 @@ describe('cors middleware', () => {
         env,
       );
 
-      expect(response.headers.get('Access-Control-Expose-Headers')).toContain('X-Custom-Exposed');
+      expect(response.headers.get('Access-Control-Expose-Headers')).toContain(
+        'X-Custom-Exposed',
+      );
     });
   });
 
@@ -93,7 +103,9 @@ describe('cors middleware', () => {
         env,
       );
 
-      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://allowed.com');
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe(
+        'https://allowed.com',
+      );
     });
 
     it('rejects disallowed origin', async () => {
@@ -123,7 +135,9 @@ describe('cors middleware', () => {
         env,
       );
 
-      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://two.com');
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe(
+        'https://two.com',
+      );
     });
   });
 
@@ -140,14 +154,19 @@ describe('cors middleware', () => {
         env,
       );
 
-      expect(response.headers.get('Access-Control-Allow-Credentials')).toBe('true');
+      expect(response.headers.get('Access-Control-Allow-Credentials')).toBe(
+        'true',
+      );
     });
   });
 
   describe('function-based origins', () => {
     it('allows origin when function returns true', async () => {
       const app = new Hono<AppEnv>();
-      app.use('*', cors({ origins: origin => origin.endsWith('.example.com') }));
+      app.use(
+        '*',
+        cors({ origins: origin => origin.endsWith('.example.com') }),
+      );
       app.get('/test', c => c.json({ success: true }));
 
       const response = await app.fetch(
@@ -157,12 +176,17 @@ describe('cors middleware', () => {
         env,
       );
 
-      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://sub.example.com');
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe(
+        'https://sub.example.com',
+      );
     });
 
     it('rejects origin when function returns false', async () => {
       const app = new Hono<AppEnv>();
-      app.use('*', cors({ origins: origin => origin.endsWith('.example.com') }));
+      app.use(
+        '*',
+        cors({ origins: origin => origin.endsWith('.example.com') }),
+      );
       app.get('/test', c => c.json({ success: true }));
 
       const response = await app.fetch(
@@ -182,9 +206,15 @@ describe('isAllowedOrigin', () => {
     expect(isAllowedOrigin('https://bifrost.henrychong.com')).toBe(
       'https://bifrost.henrychong.com',
     );
-    expect(isAllowedOrigin('http://localhost:3001')).toBe('http://localhost:3001');
-    expect(isAllowedOrigin('http://localhost:5173')).toBe('http://localhost:5173');
-    expect(isAllowedOrigin('http://127.0.0.1:3001')).toBe('http://127.0.0.1:3001');
+    expect(isAllowedOrigin('http://localhost:3001')).toBe(
+      'http://localhost:3001',
+    );
+    expect(isAllowedOrigin('http://localhost:5173')).toBe(
+      'http://localhost:5173',
+    );
+    expect(isAllowedOrigin('http://127.0.0.1:3001')).toBe(
+      'http://127.0.0.1:3001',
+    );
   });
 
   it('returns empty string for disallowed origins', () => {

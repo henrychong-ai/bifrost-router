@@ -128,7 +128,10 @@ export const DOMAIN_SERVICE_FALLBACK: Record<string, ServiceBindingName> = {
 /**
  * Get service binding for fallback (if configured)
  */
-export function getServiceFallback(env: Bindings, hostname: string): Fetcher | undefined {
+export function getServiceFallback(
+  env: Bindings,
+  hostname: string,
+): Fetcher | undefined {
   const binding = DOMAIN_SERVICE_FALLBACK[hostname];
   if (!binding) return undefined;
   return env[binding];
@@ -215,7 +218,10 @@ export interface R2RouteConfig extends BaseRouteConfig {
  * Discriminated union of all route configurations
  * Use this for type-safe route handling
  */
-export type TypedRouteConfig = RedirectRouteConfig | ProxyRouteConfig | R2RouteConfig;
+export type TypedRouteConfig =
+  | RedirectRouteConfig
+  | ProxyRouteConfig
+  | R2RouteConfig;
 
 /**
  * Route configuration stored in KV
@@ -274,14 +280,18 @@ export function isRedirectRoute(
 /**
  * Type guard for proxy routes
  */
-export function isProxyRoute(route: KVRouteConfig): route is KVRouteConfig & { type: 'proxy' } {
+export function isProxyRoute(
+  route: KVRouteConfig,
+): route is KVRouteConfig & { type: 'proxy' } {
   return route.type === 'proxy';
 }
 
 /**
  * Type guard for R2 routes
  */
-export function isR2Route(route: KVRouteConfig): route is KVRouteConfig & { type: 'r2' } {
+export function isR2Route(
+  route: KVRouteConfig,
+): route is KVRouteConfig & { type: 'r2' } {
   return route.type === 'r2';
 }
 

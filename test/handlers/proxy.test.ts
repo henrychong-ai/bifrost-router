@@ -18,7 +18,10 @@ describe('handleProxy', () => {
 
       app.get('/internal', c => handleProxy(c, route));
 
-      const response = await app.fetch(new Request('http://localhost/internal'), env);
+      const response = await app.fetch(
+        new Request('http://localhost/internal'),
+        env,
+      );
 
       expect(response.status).toBe(502);
       const data = await response.json();
@@ -37,7 +40,10 @@ describe('handleProxy', () => {
 
       app.get('/local', c => handleProxy(c, route));
 
-      const response = await app.fetch(new Request('http://localhost/local'), env);
+      const response = await app.fetch(
+        new Request('http://localhost/local'),
+        env,
+      );
 
       expect(response.status).toBe(502);
       const data = await response.json();
@@ -56,7 +62,10 @@ describe('handleProxy', () => {
 
       app.get('/loopback', c => handleProxy(c, route));
 
-      const response = await app.fetch(new Request('http://localhost/loopback'), env);
+      const response = await app.fetch(
+        new Request('http://localhost/loopback'),
+        env,
+      );
 
       expect(response.status).toBe(502);
       const data = await response.json();
@@ -75,7 +84,10 @@ describe('handleProxy', () => {
 
       app.get('/private', c => handleProxy(c, route));
 
-      const response = await app.fetch(new Request('http://localhost/private'), env);
+      const response = await app.fetch(
+        new Request('http://localhost/private'),
+        env,
+      );
 
       expect(response.status).toBe(502);
     });
@@ -92,7 +104,10 @@ describe('handleProxy', () => {
 
       app.get('/private', c => handleProxy(c, route));
 
-      const response = await app.fetch(new Request('http://localhost/private'), env);
+      const response = await app.fetch(
+        new Request('http://localhost/private'),
+        env,
+      );
 
       expect(response.status).toBe(502);
     });
@@ -109,7 +124,10 @@ describe('handleProxy', () => {
 
       app.get('/file', c => handleProxy(c, route));
 
-      const response = await app.fetch(new Request('http://localhost/file'), env);
+      const response = await app.fetch(
+        new Request('http://localhost/file'),
+        env,
+      );
 
       expect(response.status).toBe(502);
     });
@@ -126,7 +144,10 @@ describe('handleProxy', () => {
 
       app.get('/ftp', c => handleProxy(c, route));
 
-      const response = await app.fetch(new Request('http://localhost/ftp'), env);
+      const response = await app.fetch(
+        new Request('http://localhost/ftp'),
+        env,
+      );
 
       expect(response.status).toBe(502);
     });

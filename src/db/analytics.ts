@@ -1,5 +1,11 @@
 import { createDb } from './index';
-import { linkClicks, pageViews, fileDownloads, proxyRequests, auditLogs } from './schema';
+import {
+  linkClicks,
+  pageViews,
+  fileDownloads,
+  proxyRequests,
+  auditLogs,
+} from './schema';
 import type { AuditAction } from '@bifrost/shared';
 
 /**
@@ -74,7 +80,10 @@ export interface PageViewData {
  * @param db - D1Database binding
  * @param data - Click data to record
  */
-export async function recordClick(db: D1Database, data: LinkClickData): Promise<void> {
+export async function recordClick(
+  db: D1Database,
+  data: LinkClickData,
+): Promise<void> {
   try {
     const drizzleDb = createDb(db);
 
@@ -126,7 +135,10 @@ export async function recordClick(db: D1Database, data: LinkClickData): Promise<
  * @param db - D1Database binding
  * @param data - Page view data to record
  */
-export async function recordPageView(db: D1Database, data: PageViewData): Promise<void> {
+export async function recordPageView(
+  db: D1Database,
+  data: PageViewData,
+): Promise<void> {
   try {
     const drizzleDb = createDb(db);
 
@@ -220,7 +232,10 @@ export interface FileDownloadData {
  * @param db - D1Database binding
  * @param data - File download data to record
  */
-export async function recordFileDownload(db: D1Database, data: FileDownloadData): Promise<void> {
+export async function recordFileDownload(
+  db: D1Database,
+  data: FileDownloadData,
+): Promise<void> {
   try {
     const drizzleDb = createDb(db);
 
@@ -315,7 +330,10 @@ export interface ProxyRequestData {
  * @param db - D1Database binding
  * @param data - Proxy request data to record
  */
-export async function recordProxyRequest(db: D1Database, data: ProxyRequestData): Promise<void> {
+export async function recordProxyRequest(
+  db: D1Database,
+  data: ProxyRequestData,
+): Promise<void> {
   try {
     const drizzleDb = createDb(db);
 
@@ -395,7 +413,10 @@ export interface AuditLogData {
  * @param db - D1Database binding
  * @param data - Audit log data to record
  */
-export async function recordAuditLog(db: D1Database, data: AuditLogData): Promise<void> {
+export async function recordAuditLog(
+  db: D1Database,
+  data: AuditLogData,
+): Promise<void> {
   try {
     const drizzleDb = createDb(db);
 

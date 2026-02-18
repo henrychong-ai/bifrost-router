@@ -57,7 +57,10 @@ describe('admin routes', () => {
     it('rejects requests without API key', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
-      const response = await app.fetch(new Request('http://henrychong.com/api/routes'), testEnv);
+      const response = await app.fetch(
+        new Request('http://henrychong.com/api/routes'),
+        testEnv,
+      );
 
       expect(response.status).toBe(401);
     });
@@ -779,7 +782,9 @@ describe('admin routes', () => {
       );
 
       expect(response.status).toBe(204);
-      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://henrychong.com');
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe(
+        'https://henrychong.com',
+      );
     });
 
     it('rejects preflight requests from disallowed origins', async () => {
@@ -904,10 +909,13 @@ describe('admin routes', () => {
 
       // Clean up
       await app.fetch(
-        new Request('http://henrychong.com/api/routes?path=/timestamp-migrated', {
-          method: 'DELETE',
-          headers: { 'X-Admin-Key': validApiKey },
-        }),
+        new Request(
+          'http://henrychong.com/api/routes?path=/timestamp-migrated',
+          {
+            method: 'DELETE',
+            headers: { 'X-Admin-Key': validApiKey },
+          },
+        ),
         testEnv,
       );
     });
@@ -916,10 +924,13 @@ describe('admin routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://henrychong.com/api/routes/migrate?oldPath=/nonexistent&newPath=/new', {
-          method: 'POST',
-          headers: { 'X-Admin-Key': validApiKey },
-        }),
+        new Request(
+          'http://henrychong.com/api/routes/migrate?oldPath=/nonexistent&newPath=/new',
+          {
+            method: 'POST',
+            headers: { 'X-Admin-Key': validApiKey },
+          },
+        ),
         testEnv,
       );
 
@@ -1076,10 +1087,13 @@ describe('admin routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response1 = await app.fetch(
-        new Request('http://henrychong.com/api/routes/migrate?oldPath=no-slash&newPath=/new', {
-          method: 'POST',
-          headers: { 'X-Admin-Key': validApiKey },
-        }),
+        new Request(
+          'http://henrychong.com/api/routes/migrate?oldPath=no-slash&newPath=/new',
+          {
+            method: 'POST',
+            headers: { 'X-Admin-Key': validApiKey },
+          },
+        ),
         testEnv,
       );
 
@@ -1088,10 +1102,13 @@ describe('admin routes', () => {
       expect(data1.error).toContain('oldPath must start with /');
 
       const response2 = await app.fetch(
-        new Request('http://henrychong.com/api/routes/migrate?oldPath=/old&newPath=no-slash', {
-          method: 'POST',
-          headers: { 'X-Admin-Key': validApiKey },
-        }),
+        new Request(
+          'http://henrychong.com/api/routes/migrate?oldPath=/old&newPath=no-slash',
+          {
+            method: 'POST',
+            headers: { 'X-Admin-Key': validApiKey },
+          },
+        ),
         testEnv,
       );
 
@@ -1105,18 +1122,21 @@ describe('admin routes', () => {
 
       // Create route on a specific domain
       await app.fetch(
-        new Request('http://henrychong.com/api/routes?domain=link.henrychong.com', {
-          method: 'POST',
-          headers: {
-            'X-Admin-Key': validApiKey,
-            'Content-Type': 'application/json',
+        new Request(
+          'http://henrychong.com/api/routes?domain=link.henrychong.com',
+          {
+            method: 'POST',
+            headers: {
+              'X-Admin-Key': validApiKey,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              path: '/domain-migrate-test',
+              type: 'redirect',
+              target: 'https://example.com',
+            }),
           },
-          body: JSON.stringify({
-            path: '/domain-migrate-test',
-            type: 'redirect',
-            target: 'https://example.com',
-          }),
-        }),
+        ),
         testEnv,
       );
 
@@ -1157,19 +1177,22 @@ describe('admin routes', () => {
 
       // Create route on link.henrychong.com (non-default domain)
       const createResponse = await app.fetch(
-        new Request('http://henrychong.com/api/routes?domain=link.henrychong.com', {
-          method: 'POST',
-          headers: {
-            'X-Admin-Key': validApiKey,
-            'Content-Type': 'application/json',
+        new Request(
+          'http://henrychong.com/api/routes?domain=link.henrychong.com',
+          {
+            method: 'POST',
+            headers: {
+              'X-Admin-Key': validApiKey,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              path: '/cross-domain-test',
+              type: 'redirect',
+              target: 'https://example.com',
+              enabled: true,
+            }),
           },
-          body: JSON.stringify({
-            path: '/cross-domain-test',
-            type: 'redirect',
-            target: 'https://example.com',
-            enabled: true,
-          }),
-        }),
+        ),
         testEnv,
       );
 
@@ -1214,31 +1237,37 @@ describe('admin routes', () => {
 
       // Create route on link.henrychong.com
       await app.fetch(
-        new Request('http://henrychong.com/api/routes?domain=link.henrychong.com', {
-          method: 'POST',
-          headers: {
-            'X-Admin-Key': validApiKey,
-            'Content-Type': 'application/json',
+        new Request(
+          'http://henrychong.com/api/routes?domain=link.henrychong.com',
+          {
+            method: 'POST',
+            headers: {
+              'X-Admin-Key': validApiKey,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              path: '/cross-domain-update-test',
+              type: 'redirect',
+              target: 'https://example.com',
+            }),
           },
-          body: JSON.stringify({
-            path: '/cross-domain-update-test',
-            type: 'redirect',
-            target: 'https://example.com',
-          }),
-        }),
+        ),
         testEnv,
       );
 
       // Try to update without domain param - falls back to default domain, returns 404
       const updateResponse = await app.fetch(
-        new Request('http://henrychong.com/api/routes?path=/cross-domain-update-test', {
-          method: 'PUT',
-          headers: {
-            'X-Admin-Key': validApiKey,
-            'Content-Type': 'application/json',
+        new Request(
+          'http://henrychong.com/api/routes?path=/cross-domain-update-test',
+          {
+            method: 'PUT',
+            headers: {
+              'X-Admin-Key': validApiKey,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ enabled: false }),
           },
-          body: JSON.stringify({ enabled: false }),
-        }),
+        ),
         testEnv,
       );
 
@@ -1280,10 +1309,13 @@ describe('admin routes', () => {
 
       // Try to delete without domain param - should fail with 404
       const deleteWithoutDomain = await app.fetch(
-        new Request('http://henrychong.com/api/routes?path=/cross-domain-delete-test', {
-          method: 'DELETE',
-          headers: { 'X-Admin-Key': validApiKey },
-        }),
+        new Request(
+          'http://henrychong.com/api/routes?path=/cross-domain-delete-test',
+          {
+            method: 'DELETE',
+            headers: { 'X-Admin-Key': validApiKey },
+          },
+        ),
         testEnv,
       );
 
@@ -1309,26 +1341,32 @@ describe('admin routes', () => {
 
       // Create route on link.henrychong.com
       await app.fetch(
-        new Request('http://henrychong.com/api/routes?domain=link.henrychong.com', {
-          method: 'POST',
-          headers: {
-            'X-Admin-Key': validApiKey,
-            'Content-Type': 'application/json',
+        new Request(
+          'http://henrychong.com/api/routes?domain=link.henrychong.com',
+          {
+            method: 'POST',
+            headers: {
+              'X-Admin-Key': validApiKey,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              path: '/domain-field-test',
+              type: 'redirect',
+              target: 'https://example.com',
+            }),
           },
-          body: JSON.stringify({
-            path: '/domain-field-test',
-            type: 'redirect',
-            target: 'https://example.com',
-          }),
-        }),
+        ),
         testEnv,
       );
 
       // Get routes for single domain - domain field should be present on each route
       const listResponse = await app.fetch(
-        new Request('http://henrychong.com/api/routes?domain=link.henrychong.com', {
-          headers: { 'X-Admin-Key': validApiKey },
-        }),
+        new Request(
+          'http://henrychong.com/api/routes?domain=link.henrychong.com',
+          {
+            headers: { 'X-Admin-Key': validApiKey },
+          },
+        ),
         testEnv,
       );
 

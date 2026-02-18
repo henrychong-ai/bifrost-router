@@ -69,7 +69,10 @@ export async function setUserPermissions(
  * @param kv - KV namespace binding
  * @param userId - Slack user ID
  */
-export async function deleteUserPermissions(kv: KVNamespace, userId: string): Promise<void> {
+export async function deleteUserPermissions(
+  kv: KVNamespace,
+  userId: string,
+): Promise<void> {
   const key = `${KV_PREFIX}${userId}`;
   await kv.delete(key);
 
@@ -173,7 +176,8 @@ export function formatPermissions(permissions: SlackUserPermissions): string {
     lines.push('No domain permissions configured.');
   } else {
     for (const [domain, level] of entries) {
-      const emoji = level === 'admin' ? ':star:' : level === 'edit' ? ':pencil2:' : ':eye:';
+      const emoji =
+        level === 'admin' ? ':star:' : level === 'edit' ? ':pencil2:' : ':eye:';
       lines.push(`${emoji} \`${domain}\` - ${level}`);
     }
   }

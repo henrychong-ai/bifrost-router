@@ -82,8 +82,12 @@ export function AppSidebar() {
             className="h-10 w-10 rounded-lg"
           />
           <div className="flex flex-col">
-            <span className="font-gilroy font-semibold text-white">Bifrost</span>
-            <span className="text-tiny text-sidebar-foreground/60">Analytics Dashboard</span>
+            <span className="font-gilroy font-semibold text-white">
+              Bifrost
+            </span>
+            <span className="text-tiny text-sidebar-foreground/60">
+              Analytics Dashboard
+            </span>
           </div>
         </div>
       </SidebarHeader>

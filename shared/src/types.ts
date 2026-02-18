@@ -347,7 +347,10 @@ export const PERMISSION_HIERARCHY: Record<PermissionLevel, number> = {
 /**
  * Check if a user has at least the required permission level
  */
-export function hasPermission(userLevel: PermissionLevel, requiredLevel: PermissionLevel): boolean {
+export function hasPermission(
+  userLevel: PermissionLevel,
+  requiredLevel: PermissionLevel,
+): boolean {
   return PERMISSION_HIERARCHY[userLevel] >= PERMISSION_HIERARCHY[requiredLevel];
 }
 

@@ -67,7 +67,9 @@ function BackupHealthError({
         </div>
       </CardHeader>
       <CardContent>
-        <p className="text-sm text-muted-foreground">Failed to load backup health status</p>
+        <p className="text-sm text-muted-foreground">
+          Failed to load backup health status
+        </p>
       </CardContent>
     </Card>
   );
@@ -84,11 +86,19 @@ function BackupHealthError({
  * - Any issues detected
  */
 export function BackupHealthWidget() {
-  const { data: health, isLoading, error, refetch, isFetching } = useBackupHealth();
+  const {
+    data: health,
+    isLoading,
+    error,
+    refetch,
+    isFetching,
+  } = useBackupHealth();
 
   if (isLoading) return <BackupHealthSkeleton />;
   if (error || !health)
-    return <BackupHealthError onRetry={() => refetch()} isRetrying={isFetching} />;
+    return (
+      <BackupHealthError onRetry={() => refetch()} isRetrying={isFetching} />
+    );
 
   const statusIcon = {
     healthy: <CheckCircle className="h-4 w-4" />,
@@ -126,7 +136,9 @@ export function BackupHealthWidget() {
           <Badge
             variant={statusVariant}
             className={
-              health.status === 'critical' ? 'bg-red-600 text-white border-red-600' : statusColor
+              health.status === 'critical'
+                ? 'bg-red-600 text-white border-red-600'
+                : statusColor
             }
           >
             {statusIcon}
@@ -142,7 +154,9 @@ export function BackupHealthWidget() {
                 <Clock className="h-4 w-4 mr-2 text-muted-foreground" />
                 <span>
                   Last backup:{' '}
-                  <span className="font-medium">{health.lastBackup.ageHours.toFixed(1)}h ago</span>
+                  <span className="font-medium">
+                    {health.lastBackup.ageHours.toFixed(1)}h ago
+                  </span>
                 </span>
               </div>
               <div className="flex items-center text-sm">
@@ -158,7 +172,8 @@ export function BackupHealthWidget() {
                 <Database className="h-4 w-4 mr-2 text-muted-foreground" />
                 <span>
                   <span className="font-medium">
-                    {health.lastBackup.manifest?.d1.totalRows?.toLocaleString() ?? 0}
+                    {health.lastBackup.manifest?.d1.totalRows?.toLocaleString() ??
+                      0}
                   </span>{' '}
                   analytics rows
                 </span>
@@ -170,12 +185,16 @@ export function BackupHealthWidget() {
 
           {health.issues.length > 0 && (
             <div className="mt-3 pt-3 border-t">
-              <p className="text-xs font-medium text-muted-foreground mb-1">Issues:</p>
+              <p className="text-xs font-medium text-muted-foreground mb-1">
+                Issues:
+              </p>
               {health.issues.map((issue, i) => (
                 <p
                   key={i}
                   className={`text-xs ${
-                    issue.severity === 'critical' ? 'text-red-600' : 'text-yellow-600'
+                    issue.severity === 'critical'
+                      ? 'text-red-600'
+                      : 'text-yellow-600'
                   }`}
                 >
                   • {issue.message}

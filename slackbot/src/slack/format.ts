@@ -233,7 +233,9 @@ export function formatHelp(domains: string[]): string {
       lines.push(`• \`${domain}\``);
     }
   } else {
-    lines.push("_You don't have access to any domains yet. Contact an administrator._");
+    lines.push(
+      "_You don't have access to any domains yet. Contact an administrator._",
+    );
   }
 
   return lines.join('\n');

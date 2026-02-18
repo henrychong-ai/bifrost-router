@@ -45,7 +45,9 @@ function formatRouteDetails(route: Route, domain: string): string {
 
   if (route.type === 'redirect') {
     lines.push(`Status Code: ${route.statusCode || 302}`);
-    lines.push(`Preserve Query: ${route.preserveQuery !== false ? 'Yes' : 'No'}`);
+    lines.push(
+      `Preserve Query: ${route.preserveQuery !== false ? 'Yes' : 'No'}`,
+    );
     lines.push(`Preserve Path: ${route.preservePath === true ? 'Yes' : 'No'}`);
   }
 
@@ -55,7 +57,9 @@ function formatRouteDetails(route: Route, domain: string): string {
 
   if (route.type === 'r2') {
     lines.push(`Bucket: ${route.bucket || 'files'}`);
-    lines.push(`Force Download: ${route.forceDownload === true ? 'Yes' : 'No'}`);
+    lines.push(
+      `Force Download: ${route.forceDownload === true ? 'Yes' : 'No'}`,
+    );
   }
 
   if (route.cacheControl) {

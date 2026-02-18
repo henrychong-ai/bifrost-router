@@ -48,7 +48,9 @@ export const fixtures = {
 /**
  * Create a mock route with custom overrides
  */
-export function createMockRoute(overrides: Partial<KVRouteConfig> = {}): KVRouteConfig {
+export function createMockRoute(
+  overrides: Partial<KVRouteConfig> = {},
+): KVRouteConfig {
   return {
     path: '/test',
     type: 'redirect',

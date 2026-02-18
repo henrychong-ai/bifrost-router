@@ -19,7 +19,10 @@ export const ALLOWED_ORIGINS = [
  * @param origin - The Origin header value
  * @param isDev - Whether to allow workers.dev origins (default: true for backwards compatibility)
  */
-export function isAllowedOrigin(origin: string | undefined, isDev = true): string {
+export function isAllowedOrigin(
+  origin: string | undefined,
+  isDev = true,
+): string {
   if (!origin) return '';
   if ((ALLOWED_ORIGINS as readonly string[]).includes(origin)) return origin;
 
@@ -66,7 +69,11 @@ const DEFAULT_CONFIG: CorsConfig = {
   origins: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   headers: ['Content-Type', 'X-Admin-Key', 'Authorization'],
-  exposeHeaders: ['X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset'],
+  exposeHeaders: [
+    'X-RateLimit-Limit',
+    'X-RateLimit-Remaining',
+    'X-RateLimit-Reset',
+  ],
   credentials: false,
   maxAge: 86400, // 24 hours
 };
@@ -74,7 +81,10 @@ const DEFAULT_CONFIG: CorsConfig = {
 /**
  * Check if origin is allowed
  */
-function isOriginAllowed(origin: string, allowed: string | string[] | OriginChecker): boolean {
+function isOriginAllowed(
+  origin: string,
+  allowed: string | string[] | OriginChecker,
+): boolean {
   if (allowed === '*') return true;
   if (typeof allowed === 'function') return allowed(origin);
   if (typeof allowed === 'string') return origin === allowed;
@@ -144,7 +154,10 @@ export function cors(config: Partial<CorsConfig> = {}) {
     }
 
     if (finalConfig.exposeHeaders?.length) {
-      c.header('Access-Control-Expose-Headers', finalConfig.exposeHeaders.join(', '));
+      c.header(
+        'Access-Control-Expose-Headers',
+        finalConfig.exposeHeaders.join(', '),
+      );
     }
 
     if (finalConfig.credentials) {

@@ -50,7 +50,11 @@ export {
 } from './schemas.js';
 
 // Client
-export { EdgeRouterClient, EdgeRouterError, createClientFromEnv } from './client.js';
+export {
+  EdgeRouterClient,
+  EdgeRouterError,
+  createClientFromEnv,
+} from './client.js';
 export type { EdgeRouterClientConfig } from './client.js';
 
 // Tool definitions
@@ -64,4 +68,8 @@ export {
   routeTools,
   analyticsTools,
 } from './tools.js';
-export type { ToolDefinition, JsonSchemaObject, JsonSchemaProperty } from './tools.js';
+export type {
+  ToolDefinition,
+  JsonSchemaObject,
+  JsonSchemaProperty,
+} from './tools.js';

@@ -68,7 +68,9 @@ export const CreateRouteSchema = z.object({
 });
 export type CreateRouteInput = z.infer<typeof CreateRouteSchema>;
 
-export const UpdateRouteSchema = CreateRouteSchema.partial().omit({ path: true });
+export const UpdateRouteSchema = CreateRouteSchema.partial().omit({
+  path: true,
+});
 export type UpdateRouteInput = z.infer<typeof UpdateRouteSchema>;
 
 // =============================================================================
@@ -195,7 +197,9 @@ export const RoutesListResponseSchema = ApiResponseSchema(
   }),
 );
 export const RouteResponseSchema = ApiResponseSchema(RouteSchema);
-export const AnalyticsSummaryResponseSchema = ApiResponseSchema(AnalyticsSummarySchema);
+export const AnalyticsSummaryResponseSchema = ApiResponseSchema(
+  AnalyticsSummarySchema,
+);
 
 export const ClicksListResponseSchema = z.object({
   success: z.boolean(),
@@ -260,7 +264,8 @@ export const DownloadStatsSchema = z.object({
 });
 export type DownloadStats = z.infer<typeof DownloadStatsSchema>;
 
-export const DownloadStatsResponseSchema = ApiResponseSchema(DownloadStatsSchema);
+export const DownloadStatsResponseSchema =
+  ApiResponseSchema(DownloadStatsSchema);
 
 // =============================================================================
 // Proxy Request Schemas

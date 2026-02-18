@@ -1,6 +1,10 @@
 import { useState, useCallback, type ReactNode } from 'react';
 import { FilterContext } from './filter-context-value';
-import { DEFAULT_FILTERS, type PageFilters, type PageKey } from './filter-types';
+import {
+  DEFAULT_FILTERS,
+  type PageFilters,
+  type PageKey,
+} from './filter-types';
 
 export function FilterProvider({ children }: { children: ReactNode }) {
   const [filters, setFiltersState] = useState<PageFilters>(DEFAULT_FILTERS);
@@ -12,12 +16,15 @@ export function FilterProvider({ children }: { children: ReactNode }) {
     [filters],
   );
 
-  const setFilters = useCallback(<K extends PageKey>(page: K, newFilters: PageFilters[K]) => {
-    setFiltersState(prev => ({
-      ...prev,
-      [page]: newFilters,
-    }));
-  }, []);
+  const setFilters = useCallback(
+    <K extends PageKey>(page: K, newFilters: PageFilters[K]) => {
+      setFiltersState(prev => ({
+        ...prev,
+        [page]: newFilters,
+      }));
+    },
+    [],
+  );
 
   const resetFilters = useCallback((page: PageKey) => {
     setFiltersState(prev => ({

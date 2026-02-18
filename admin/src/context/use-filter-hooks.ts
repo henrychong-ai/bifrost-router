@@ -21,7 +21,8 @@ export function useRoutesFilters() {
   const { getFilters, setFilters, resetFilters } = useFilterContext();
   return {
     filters: getFilters('routes'),
-    setFilters: (newFilters: RoutesFilterState) => setFilters('routes', newFilters),
+    setFilters: (newFilters: RoutesFilterState) =>
+      setFilters('routes', newFilters),
     resetFilters: () => resetFilters('routes'),
   };
 }
@@ -33,7 +34,8 @@ export function useRedirectsFilters() {
   const { getFilters, setFilters, resetFilters } = useFilterContext();
   return {
     filters: getFilters('redirects'),
-    setFilters: (newFilters: FilterState) => setFilters('redirects', newFilters),
+    setFilters: (newFilters: FilterState) =>
+      setFilters('redirects', newFilters),
     resetFilters: () => resetFilters('redirects'),
   };
 }
@@ -57,7 +59,8 @@ export function useDownloadsFilters() {
   const { getFilters, setFilters, resetFilters } = useFilterContext();
   return {
     filters: getFilters('downloads'),
-    setFilters: (newFilters: FilterState) => setFilters('downloads', newFilters),
+    setFilters: (newFilters: FilterState) =>
+      setFilters('downloads', newFilters),
     resetFilters: () => resetFilters('downloads'),
   };
 }
@@ -81,7 +84,8 @@ export function useAuditFilters() {
   const { getFilters, setFilters, resetFilters } = useFilterContext();
   return {
     filters: getFilters('audit'),
-    setFilters: (newFilters: AuditFilterState) => setFilters('audit', newFilters),
+    setFilters: (newFilters: AuditFilterState) =>
+      setFilters('audit', newFilters),
     resetFilters: () => resetFilters('audit'),
   };
 }

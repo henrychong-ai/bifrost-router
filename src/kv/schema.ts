@@ -49,7 +49,11 @@ export function domainPrefix(domain: string): string {
  * Zod schema for route configuration validation
  */
 export const RouteConfigSchema = z.object({
-  path: z.string().min(1).startsWith('/').describe('URL path pattern (e.g., "/github", "/blog/*")'),
+  path: z
+    .string()
+    .min(1)
+    .startsWith('/')
+    .describe('URL path pattern (e.g., "/github", "/blog/*")'),
 
   type: z.enum(['redirect', 'proxy', 'r2']).describe('Route handler type'),
 
@@ -60,13 +64,24 @@ export const RouteConfigSchema = z.object({
     .optional()
     .describe('HTTP redirect status code'),
 
-  preserveQuery: z.boolean().optional().default(true).describe('Preserve query params on redirect'),
+  preserveQuery: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe('Preserve query params on redirect'),
 
-  preservePath: z.boolean().optional().default(false).describe('Preserve path for wildcard routes'),
+  preservePath: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe('Preserve path for wildcard routes'),
 
   cacheControl: z.string().optional().describe('Cache-Control header value'),
 
-  hostHeader: z.string().optional().describe('Override Host header for proxy requests'),
+  hostHeader: z
+    .string()
+    .optional()
+    .describe('Override Host header for proxy requests'),
 
   forceDownload: z
     .boolean()
@@ -79,7 +94,11 @@ export const RouteConfigSchema = z.object({
     .optional()
     .describe('R2 bucket for file serving (R2 only, default: "files")'),
 
-  enabled: z.boolean().optional().default(true).describe('Enable/disable route'),
+  enabled: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe('Enable/disable route'),
 });
 
 /**
@@ -90,7 +109,9 @@ export const CreateRouteSchema = RouteConfigSchema;
 /**
  * Zod schema for updating a route (all fields optional except path)
  */
-export const UpdateRouteSchema = RouteConfigSchema.partial().required({ path: true });
+export const UpdateRouteSchema = RouteConfigSchema.partial().required({
+  path: true,
+});
 
 /**
  * Inferred types from Zod schemas

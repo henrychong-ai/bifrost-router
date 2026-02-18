@@ -32,7 +32,8 @@ export async function backupD1(
   daysToBackup: number = 30,
 ): Promise<D1BackupResult> {
   // Calculate cutoff timestamp (Unix seconds)
-  const cutoffTimestamp = Math.floor(Date.now() / 1000) - daysToBackup * 24 * 60 * 60;
+  const cutoffTimestamp =
+    Math.floor(Date.now() / 1000) - daysToBackup * 24 * 60 * 60;
 
   const files: Record<string, string> = {};
   let totalRows = 0;
@@ -41,7 +42,9 @@ export async function backupD1(
     // Query recent data from each table
     // All analytics tables have created_at column (Unix timestamp)
     const result = await db
-      .prepare(`SELECT * FROM ${table} WHERE created_at >= ? ORDER BY created_at ASC`)
+      .prepare(
+        `SELECT * FROM ${table} WHERE created_at >= ? ORDER BY created_at ASC`,
+      )
       .bind(cutoffTimestamp)
       .all();
 

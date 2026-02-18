@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { EdgeRouterClient, EdgeRouterError, createClientFromEnv } from './client.js';
+import {
+  EdgeRouterClient,
+  EdgeRouterError,
+  createClientFromEnv,
+} from './client.js';
 
 describe('EdgeRouterClient', () => {
   const mockFetch = vi.fn();
@@ -73,11 +77,16 @@ describe('EdgeRouterClient', () => {
     });
 
     it('returns routes array', async () => {
-      const mockRoutes = [{ path: '/test', type: 'redirect', target: 'https://example.com' }];
+      const mockRoutes = [
+        { path: '/test', type: 'redirect', target: 'https://example.com' },
+      ];
       mockFetch.mockResolvedValueOnce({
         ok: true,
         // API returns { routes: [...], total: N }
-        json: async () => ({ success: true, data: { routes: mockRoutes, total: 1 } }),
+        json: async () => ({
+          success: true,
+          data: { routes: mockRoutes, total: 1 },
+        }),
       });
 
       const routes = await client.listRoutes();
@@ -92,7 +101,11 @@ describe('EdgeRouterClient', () => {
         ok: true,
         json: async () => ({
           success: true,
-          data: { path: '/test/path', type: 'redirect', target: 'https://example.com' },
+          data: {
+            path: '/test/path',
+            type: 'redirect',
+            target: 'https://example.com',
+          },
         }),
       });
 
@@ -110,7 +123,11 @@ describe('EdgeRouterClient', () => {
 
   describe('createRoute', () => {
     it('calls POST /api/routes with body', async () => {
-      const input = { path: '/new', type: 'redirect' as const, target: 'https://new.com' };
+      const input = {
+        path: '/new',
+        type: 'redirect' as const,
+        target: 'https://new.com',
+      };
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({ success: true, data: input }),
@@ -135,7 +152,11 @@ describe('EdgeRouterClient', () => {
         ok: true,
         json: async () => ({
           success: true,
-          data: { path: '/test', type: 'redirect', target: 'https://updated.com' },
+          data: {
+            path: '/test',
+            type: 'redirect',
+            target: 'https://updated.com',
+          },
         }),
       });
 
@@ -179,7 +200,12 @@ describe('EdgeRouterClient', () => {
         ok: true,
         json: async () => ({
           success: true,
-          data: { path: '/test', type: 'redirect', target: 'https://example.com', enabled: false },
+          data: {
+            path: '/test',
+            type: 'redirect',
+            target: 'https://example.com',
+            enabled: false,
+          },
         }),
       });
 
@@ -204,7 +230,11 @@ describe('EdgeRouterClient', () => {
         ok: true,
         json: async () => ({
           success: true,
-          data: { period: '30d', domain: 'all', clicks: { total: 0, uniqueSlugs: 0 } },
+          data: {
+            period: '30d',
+            domain: 'all',
+            clicks: { total: 0, uniqueSlugs: 0 },
+          },
         }),
       });
 
@@ -290,7 +320,9 @@ describe('EdgeRouterClient', () => {
         expect.fail('Should have thrown');
       } catch (error) {
         expect(error).toBeInstanceOf(EdgeRouterError);
-        expect((error as EdgeRouterError).message).toContain('Failed to parse response');
+        expect((error as EdgeRouterError).message).toContain(
+          'Failed to parse response',
+        );
         expect((error as EdgeRouterError).status).toBe(500);
       }
     });

@@ -1,5 +1,9 @@
 import { Outlet } from 'react-router-dom';
-import { SidebarProvider, SidebarTrigger, SidebarInset } from '@/components/ui/sidebar';
+import {
+  SidebarProvider,
+  SidebarTrigger,
+  SidebarInset,
+} from '@/components/ui/sidebar';
 import { AppSidebar } from './app-sidebar';
 import { TailscaleIdentity } from './tailscale-identity';
 import { CommandPaletteTrigger } from '@/components/command-palette';

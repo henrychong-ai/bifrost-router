@@ -64,7 +64,11 @@ export async function verifySlackSignature(
     ['sign'],
   );
 
-  const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
+  const signatureBuffer = await crypto.subtle.sign(
+    'HMAC',
+    cryptoKey,
+    messageData,
+  );
   const signatureArray = Array.from(new Uint8Array(signatureBuffer));
   const computedSignature =
     'v0=' + signatureArray.map(b => b.toString(16).padStart(2, '0')).join('');

@@ -4,7 +4,9 @@ import { timingSafeEqual, validateApiKey } from '../../src/utils/crypto';
 describe('timingSafeEqual', () => {
   it('returns true for identical strings', () => {
     expect(timingSafeEqual('hello', 'hello')).toBe(true);
-    expect(timingSafeEqual('test-api-key-12345', 'test-api-key-12345')).toBe(true);
+    expect(timingSafeEqual('test-api-key-12345', 'test-api-key-12345')).toBe(
+      true,
+    );
     expect(timingSafeEqual('', '')).toBe(true);
   });
 
