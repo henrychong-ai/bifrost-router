@@ -1,9 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  normalizePath,
-  getWildcardCandidates,
-  getWildcardRemainder,
-} from '../../src/kv/lookup';
+import { normalizePath, getWildcardCandidates, getWildcardRemainder } from '../../src/kv/lookup';
 
 describe('normalizePath', () => {
   describe('query strings and hashes', () => {
@@ -39,9 +35,7 @@ describe('normalizePath', () => {
   describe('URL encoding', () => {
     it('decodes URL-encoded characters', () => {
       expect(normalizePath('/hello%20world')).toBe('/hello world');
-      expect(normalizePath('/path%2Fwith%2Fslashes')).toBe(
-        '/path/with/slashes',
-      );
+      expect(normalizePath('/path%2Fwith%2Fslashes')).toBe('/path/with/slashes');
     });
 
     it('handles malformed encoding gracefully', () => {

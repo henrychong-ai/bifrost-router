@@ -121,10 +121,7 @@ export function rateLimit(config: Partial<RateLimitConfig> = {}) {
 
       // Add rate limit headers to response
       c.header('X-RateLimit-Limit', String(finalConfig.maxRequests));
-      c.header(
-        'X-RateLimit-Remaining',
-        String(finalConfig.maxRequests - entry.count),
-      );
+      c.header('X-RateLimit-Remaining', String(finalConfig.maxRequests - entry.count));
       c.header('X-RateLimit-Reset', String(Math.ceil(entry.resetAt / 1000)));
 
       await next();
@@ -153,10 +150,7 @@ export function rateLimit(config: Partial<RateLimitConfig> = {}) {
 export function rateLimitStrict(config: Partial<RateLimitConfig> = {}) {
   const finalConfig = { ...DEFAULT_CONFIG, ...config };
 
-  return async function rateLimitStrictMiddleware(
-    c: Context<AppEnv>,
-    next: Next,
-  ) {
+  return async function rateLimitStrictMiddleware(c: Context<AppEnv>, next: Next) {
     // Use unified ROUTES KV namespace for rate limiting
     const kv = c.env.ROUTES;
     const clientIP = getClientIP(c);
@@ -207,10 +201,7 @@ export function rateLimitStrict(config: Partial<RateLimitConfig> = {}) {
       });
 
       c.header('X-RateLimit-Limit', String(finalConfig.maxRequests));
-      c.header(
-        'X-RateLimit-Remaining',
-        String(finalConfig.maxRequests - entry.count),
-      );
+      c.header('X-RateLimit-Remaining', String(finalConfig.maxRequests - entry.count));
       c.header('X-RateLimit-Reset', String(Math.ceil(entry.resetAt / 1000)));
 
       await next();

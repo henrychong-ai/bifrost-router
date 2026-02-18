@@ -27,9 +27,7 @@ const token = process.env.CLOUDFLARE_API_TOKEN;
 const zoneId = process.env.CLOUDFLARE_ZONE_ID;
 
 if (!token || !zoneId) {
-  console.error(
-    '❌ Missing required env vars: CLOUDFLARE_API_TOKEN and CLOUDFLARE_ZONE_ID',
-  );
+  console.error('❌ Missing required env vars: CLOUDFLARE_API_TOKEN and CLOUDFLARE_ZONE_ID');
   process.exit(1);
 }
 
@@ -64,21 +62,14 @@ async function cfFetch(method, path, body) {
 
 // Step 1: Find existing schemas
 console.log('🔍 Looking for existing API Shield schemas...');
-const listData = await cfFetch(
-  'GET',
-  '/schema_validation/schemas?omit_source=true',
-);
+const listData = await cfFetch('GET', '/schema_validation/schemas?omit_source=true');
 // Response: { result: [ { schema_id, name, kind, ... }, ... ] }
 const allSchemas = Array.isArray(listData.result)
   ? listData.result
   : listData.result?.schemas || [];
 // Match by name with or without .yaml extension (manual uploads use filename)
-const matching = allSchemas.filter(
-  s => s.name === SCHEMA_NAME || s.name === `${SCHEMA_NAME}.yaml`,
-);
-console.log(
-  `   Found ${matching.length} matching schema(s) out of ${allSchemas.length} total.`,
-);
+const matching = allSchemas.filter(s => s.name === SCHEMA_NAME || s.name === `${SCHEMA_NAME}.yaml`);
+console.log(`   Found ${matching.length} matching schema(s) out of ${allSchemas.length} total.`);
 
 // Step 2: Delete ALL matching schemas (cleans up duplicates)
 for (const schema of matching) {

@@ -1,10 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
-import type {
-  AnalyticsQueryParams,
-  PaginationQueryParams,
-  AuditQueryParams,
-} from '@/lib/schemas';
+import type { AnalyticsQueryParams, PaginationQueryParams, AuditQueryParams } from '@/lib/schemas';
 
 // =============================================================================
 // Query Keys
@@ -12,24 +8,18 @@ import type {
 
 export const analyticsKeys = {
   all: ['analytics'] as const,
-  summary: (params?: AnalyticsQueryParams) =>
-    ['analytics', 'summary', params] as const,
-  clicks: (params?: PaginationQueryParams) =>
-    ['analytics', 'clicks', params] as const,
-  views: (params?: PaginationQueryParams) =>
-    ['analytics', 'views', params] as const,
+  summary: (params?: AnalyticsQueryParams) => ['analytics', 'summary', params] as const,
+  clicks: (params?: PaginationQueryParams) => ['analytics', 'clicks', params] as const,
+  views: (params?: PaginationQueryParams) => ['analytics', 'views', params] as const,
   slugStats: (slug: string, params?: AnalyticsQueryParams) =>
     ['analytics', 'slug', slug, params] as const,
-  downloads: (params?: PaginationQueryParams) =>
-    ['analytics', 'downloads', params] as const,
+  downloads: (params?: PaginationQueryParams) => ['analytics', 'downloads', params] as const,
   downloadStats: (path: string, params?: AnalyticsQueryParams) =>
     ['analytics', 'download', path, params] as const,
-  proxyRequests: (params?: PaginationQueryParams) =>
-    ['analytics', 'proxy', params] as const,
+  proxyRequests: (params?: PaginationQueryParams) => ['analytics', 'proxy', params] as const,
   proxyStats: (path: string, params?: AnalyticsQueryParams) =>
     ['analytics', 'proxyStats', path, params] as const,
-  auditLogs: (params?: AuditQueryParams) =>
-    ['analytics', 'audit', params] as const,
+  auditLogs: (params?: AuditQueryParams) => ['analytics', 'audit', params] as const,
 };
 
 // =============================================================================
@@ -90,10 +80,7 @@ export function useDownloads(params: PaginationQueryParams = {}) {
 /**
  * Fetch statistics for a specific download path
  */
-export function useDownloadStats(
-  path: string,
-  params: AnalyticsQueryParams = {},
-) {
+export function useDownloadStats(path: string, params: AnalyticsQueryParams = {}) {
   return useQuery({
     queryKey: analyticsKeys.downloadStats(path, params),
     queryFn: () => api.analytics.downloadStats(path, params),

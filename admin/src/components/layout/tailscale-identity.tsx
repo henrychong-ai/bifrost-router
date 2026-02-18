@@ -27,9 +27,7 @@ export function TailscaleIdentity() {
     return (
       <div className="flex items-center gap-3">
         <div className="text-right">
-          <p className="text-sm font-medium text-muted-foreground">
-            Not authenticated
-          </p>
+          <p className="text-sm font-medium text-muted-foreground">Not authenticated</p>
           <p className="text-xs text-muted-foreground/60">Local development</p>
         </div>
       </div>
@@ -43,9 +41,7 @@ export function TailscaleIdentity() {
     <div className="flex items-center gap-3">
       <div className="text-right">
         <p className="text-sm font-medium text-foreground">{displayName}</p>
-        <p className="text-xs text-muted-foreground">
-          Authenticated via Tailscale
-        </p>
+        <p className="text-xs text-muted-foreground">Authenticated via Tailscale</p>
       </div>
       {identity.profilePic ? (
         <img

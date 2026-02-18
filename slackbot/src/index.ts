@@ -111,18 +111,12 @@ app.post('/slack/events', async c => {
 /**
  * Process a Slack event asynchronously
  */
-async function processSlackEvent(
-  payload: SlackEventPayload,
-  env: SlackbotBindings,
-): Promise<void> {
+async function processSlackEvent(payload: SlackEventPayload, env: SlackbotBindings): Promise<void> {
   const event = payload.event;
   if (!event) return;
 
   // Get user permissions
-  const permissions = await getUserPermissions(
-    env.SLACK_PERMISSIONS,
-    event.user,
-  );
+  const permissions = await getUserPermissions(env.SLACK_PERMISSIONS, event.user);
 
   // Create EdgeRouterClient
   const client = new EdgeRouterClient({
@@ -131,20 +125,10 @@ async function processSlackEvent(
   });
 
   // Handle the event
-  const response = await handleEvent(
-    event,
-    permissions,
-    client,
-    env.SLACK_BOT_TOKEN,
-  );
+  const response = await handleEvent(event, permissions, client, env.SLACK_BOT_TOKEN);
 
   // Post response to Slack
-  await postSlackMessage(
-    env.SLACK_BOT_TOKEN,
-    event.channel,
-    response,
-    event.thread_ts || event.ts,
-  );
+  await postSlackMessage(env.SLACK_BOT_TOKEN, event.channel, response, event.thread_ts || event.ts);
 
   console.info(
     JSON.stringify({

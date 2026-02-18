@@ -4,8 +4,7 @@
 /* Gilroy Font */
 @font-face {
   font-family: "Gilroy";
-  src: url("https://assets.fusang.co/fonts/gilroy/Gilroy-Regular.ttf")
-    format("truetype");
+  src: url("https://assets.fusang.co/fonts/gilroy/Gilroy-Regular.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -13,8 +12,7 @@
 
 @font-face {
   font-family: "Gilroy";
-  src: url("https://assets.fusang.co/fonts/gilroy/Gilroy-Medium.ttf")
-    format("truetype");
+  src: url("https://assets.fusang.co/fonts/gilroy/Gilroy-Medium.ttf") format("truetype");
   font-weight: 500;
   font-style: normal;
   font-display: swap;
@@ -22,8 +20,7 @@
 
 @font-face {
   font-family: "Gilroy";
-  src: url("https://assets.fusang.co/fonts/gilroy/Gilroy-SemiBold.ttf")
-    format("truetype");
+  src: url("https://assets.fusang.co/fonts/gilroy/Gilroy-SemiBold.ttf") format("truetype");
   font-weight: 600;
   font-style: normal;
   font-display: swap;
@@ -31,8 +28,7 @@
 
 @font-face {
   font-family: "Gilroy";
-  src: url("https://assets.fusang.co/fonts/gilroy/Gilroy-Bold.ttf")
-    format("truetype");
+  src: url("https://assets.fusang.co/fonts/gilroy/Gilroy-Bold.ttf") format("truetype");
   font-weight: 700;
   font-style: normal;
   font-display: swap;

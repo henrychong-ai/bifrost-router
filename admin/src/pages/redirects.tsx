@@ -1,13 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useClicks, useDebounce } from '@/hooks';
 import { useRedirectsFilters } from '@/context';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -45,14 +39,7 @@ export function RedirectsPage() {
       country: filters.country || undefined,
       slug: debouncedSearch || undefined,
     }),
-    [
-      limit,
-      offset,
-      filters.domain,
-      filters.days,
-      filters.country,
-      debouncedSearch,
-    ],
+    [limit, offset, filters.domain, filters.days, filters.country, debouncedSearch],
   );
 
   const { data, isLoading, error } = useClicks(queryParams);
@@ -79,9 +66,7 @@ export function RedirectsPage() {
   if (error) {
     return (
       <div className="space-y-6">
-        <h1 className="text-huge font-gilroy font-bold text-blue-950">
-          Redirects
-        </h1>
+        <h1 className="text-huge font-gilroy font-bold text-blue-950">Redirects</h1>
         <Card className="border-destructive">
           <CardContent className="pt-6">
             <p className="text-destructive font-gilroy">
@@ -99,9 +84,7 @@ export function RedirectsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <h1 className="text-huge font-gilroy font-bold text-blue-950">
-          Redirects
-        </h1>
+        <h1 className="text-huge font-gilroy font-bold text-blue-950">Redirects</h1>
         <div className="h-1 flex-1 rounded-full gradient-accent-bar opacity-30" />
       </div>
 
@@ -115,9 +98,7 @@ export function RedirectsPage() {
 
       <Card className="border-border/50">
         <CardHeader>
-          <CardTitle className="font-gilroy font-semibold text-blue-950">
-            Redirect Log
-          </CardTitle>
+          <CardTitle className="font-gilroy font-semibold text-blue-950">Redirect Log</CardTitle>
           <CardDescription className="font-gilroy">
             {isLoading
               ? 'Loading...'
@@ -183,10 +164,7 @@ export function RedirectsPage() {
                   </TableHeader>
                   <TableBody>
                     {data?.items.map(click => (
-                      <TableRow
-                        key={click.id}
-                        className="hover:bg-gold-50/50 transition-colors"
-                      >
+                      <TableRow key={click.id} className="hover:bg-gold-50/50 transition-colors">
                         <TableCell className="text-small font-gilroy whitespace-nowrap">
                           {formatDate(click.createdAt)}
                         </TableCell>
@@ -263,8 +241,7 @@ export function RedirectsPage() {
               {data && data.meta.total > limit && (
                 <div className="flex items-center justify-between pt-4 border-t border-border/30 mt-4">
                   <div className="text-small text-muted-foreground font-gilroy">
-                    Showing {offset + 1} -{' '}
-                    {Math.min(offset + limit, data.meta.total)} of{' '}
+                    Showing {offset + 1} - {Math.min(offset + limit, data.meta.total)} of{' '}
                     {data.meta.total}
                   </div>
                   <div className="flex gap-2">

@@ -1,13 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useProxyRequests, useDebounce } from '@/hooks';
 import { useProxyFilters } from '@/context';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -29,8 +23,7 @@ function formatContentLength(bytes: number | null): string {
   if (bytes === null) return '-';
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024)
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
@@ -63,14 +56,7 @@ export function ProxyPage() {
       country: filters.country || undefined,
       path: debouncedSearch || undefined,
     }),
-    [
-      limit,
-      offset,
-      filters.domain,
-      filters.days,
-      filters.country,
-      debouncedSearch,
-    ],
+    [limit, offset, filters.domain, filters.days, filters.country, debouncedSearch],
   );
 
   const { data, isLoading, error } = useProxyRequests(queryParams);
@@ -129,9 +115,7 @@ export function ProxyPage() {
 
       <Card className="border-border/50">
         <CardHeader>
-          <CardTitle className="font-gilroy font-semibold text-blue-950">
-            Proxy Log
-          </CardTitle>
+          <CardTitle className="font-gilroy font-semibold text-blue-950">Proxy Log</CardTitle>
           <CardDescription className="font-gilroy">
             {isLoading
               ? 'Loading...'
@@ -206,10 +190,7 @@ export function ProxyPage() {
                   </TableHeader>
                   <TableBody>
                     {data?.items.map(request => (
-                      <TableRow
-                        key={request.id}
-                        className="hover:bg-gold-50/50 transition-colors"
-                      >
+                      <TableRow key={request.id} className="hover:bg-gold-50/50 transition-colors">
                         <TableCell className="text-small font-gilroy whitespace-nowrap">
                           {formatDate(request.createdAt)}
                         </TableCell>
@@ -226,9 +207,7 @@ export function ProxyPage() {
                             rel="noopener noreferrer"
                             className="flex items-center gap-1 text-small text-blue-600 underline hover:text-blue-800 transition-colors"
                           >
-                            <span className="truncate">
-                              {request.targetUrl}
-                            </span>
+                            <span className="truncate">{request.targetUrl}</span>
                             <ExternalLink className="h-3 w-3 flex-shrink-0" />
                           </a>
                         </TableCell>
@@ -302,8 +281,7 @@ export function ProxyPage() {
               {data && data.meta.total > limit && (
                 <div className="flex items-center justify-between pt-4 border-t border-border/30 mt-4">
                   <div className="text-small text-muted-foreground font-gilroy">
-                    Showing {offset + 1} -{' '}
-                    {Math.min(offset + limit, data.meta.total)} of{' '}
+                    Showing {offset + 1} - {Math.min(offset + limit, data.meta.total)} of{' '}
                     {data.meta.total}
                   </div>
                   <div className="flex gap-2">

@@ -5,12 +5,7 @@ import { secureHeaders } from 'hono/secure-headers';
 import type { AppEnv, Bindings, KVRouteConfig } from './types';
 import { getServiceFallback, isValidDomain } from './types';
 import { matchRoute } from './kv/lookup';
-import {
-  handleRedirect,
-  handleProxy,
-  handleR2,
-  CACHE_STATUS_HEADER,
-} from './handlers';
+import { handleRedirect, handleProxy, handleR2, CACHE_STATUS_HEADER } from './handlers';
 import { adminRoutes } from './routes/admin';
 import {
   recordClick,
@@ -145,9 +140,7 @@ app.all('*', async c => {
       );
       // Forward the request to the service binding
       // Clone both request and response to avoid immutable headers issue from Hono middleware
-      const serviceResponse = await serviceFallback.fetch(
-        new Request(c.req.raw),
-      );
+      const serviceResponse = await serviceFallback.fetch(new Request(c.req.raw));
       const response = new Response(serviceResponse.body, serviceResponse);
 
       // Track page views for HTML responses only (not assets like JS, CSS, images)
@@ -216,10 +209,7 @@ app.all('*', async c => {
     const contentLength = response.headers.get('Content-Length');
     const fileSize = contentLength ? parseInt(contentLength, 10) : undefined;
     // Get cache status (HIT/MISS) from X-Cache-Status header
-    const cacheStatus = response.headers.get(CACHE_STATUS_HEADER) as
-      | 'HIT'
-      | 'MISS'
-      | null;
+    const cacheStatus = response.headers.get(CACHE_STATUS_HEADER) as 'HIT' | 'MISS' | null;
 
     c.executionCtx.waitUntil(
       recordFileDownload(c.env.DB, {
@@ -240,9 +230,7 @@ app.all('*', async c => {
     // Extract response metadata from headers
     const contentType = response.headers.get('Content-Type') || undefined;
     const contentLengthHeader = response.headers.get('Content-Length');
-    const contentLength = contentLengthHeader
-      ? parseInt(contentLengthHeader, 10)
-      : undefined;
+    const contentLength = contentLengthHeader ? parseInt(contentLengthHeader, 10) : undefined;
 
     c.executionCtx.waitUntil(
       recordProxyRequest(c.env.DB, {
@@ -335,11 +323,7 @@ export default {
    * Scheduled event handler for cron-triggered backups
    * Runs daily at 8 PM UTC (4 AM SGT)
    */
-  scheduled: async (
-    _event: ScheduledEvent,
-    env: Bindings,
-    ctx: ExecutionContext,
-  ) => {
+  scheduled: async (_event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) => {
     ctx.waitUntil(
       handleScheduled(env).then(result => {
         if (result.success) {

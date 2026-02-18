@@ -10,10 +10,7 @@ import { getWildcardRemainder } from '../kv/lookup';
  * - Path preservation for wildcard routes (optional, default: false)
  * - Query parameter preservation (optional, default: true)
  */
-export function handleRedirect(
-  c: Context<AppEnv>,
-  route: KVRouteConfig,
-): Response {
+export function handleRedirect(c: Context<AppEnv>, route: KVRouteConfig): Response {
   const targetUrlObj = new URL(route.target);
   const incomingUrl = new URL(c.req.url);
 

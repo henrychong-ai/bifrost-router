@@ -1,9 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import {
-  EdgeRouterClient,
-  EdgeRouterError,
-  createClientFromEnv,
-} from './client.js';
+import { EdgeRouterClient, EdgeRouterError, createClientFromEnv } from './client.js';
 
 describe('EdgeRouterClient', () => {
   const mockFetch = vi.fn();
@@ -77,9 +73,7 @@ describe('EdgeRouterClient', () => {
     });
 
     it('returns routes array', async () => {
-      const mockRoutes = [
-        { path: '/test', type: 'redirect', target: 'https://example.com' },
-      ];
+      const mockRoutes = [{ path: '/test', type: 'redirect', target: 'https://example.com' }];
       mockFetch.mockResolvedValueOnce({
         ok: true,
         // API returns { routes: [...], total: N }
@@ -320,9 +314,7 @@ describe('EdgeRouterClient', () => {
         expect.fail('Should have thrown');
       } catch (error) {
         expect(error).toBeInstanceOf(EdgeRouterError);
-        expect((error as EdgeRouterError).message).toContain(
-          'Failed to parse response',
-        );
+        expect((error as EdgeRouterError).message).toContain('Failed to parse response');
         expect((error as EdgeRouterError).status).toBe(500);
       }
     });

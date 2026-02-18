@@ -26,15 +26,9 @@ function App() {
               <Route element={<AppLayout />}>
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/routes" element={<RoutesPage />} />
-                <Route
-                  path="/analytics/redirects"
-                  element={<RedirectsPage />}
-                />
+                <Route path="/analytics/redirects" element={<RedirectsPage />} />
                 <Route path="/analytics/views" element={<ViewsPage />} />
-                <Route
-                  path="/analytics/downloads"
-                  element={<DownloadsPage />}
-                />
+                <Route path="/analytics/downloads" element={<DownloadsPage />} />
                 <Route path="/analytics/proxy" element={<ProxyPage />} />
                 <Route path="/audit" element={<AuditPage />} />
               </Route>

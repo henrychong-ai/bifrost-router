@@ -47,12 +47,8 @@ function createMockClient(): EdgeRouterClient {
       recentClicks: [],
       recentViews: [],
     }),
-    getClicks: vi
-      .fn()
-      .mockResolvedValue({ clicks: [], total: 0, limit: 100, offset: 0 }),
-    getViews: vi
-      .fn()
-      .mockResolvedValue({ views: [], total: 0, limit: 100, offset: 0 }),
+    getClicks: vi.fn().mockResolvedValue({ clicks: [], total: 0, limit: 100, offset: 0 }),
+    getViews: vi.fn().mockResolvedValue({ views: [], total: 0, limit: 100, offset: 0 }),
     getSlugStats: vi.fn().mockResolvedValue({
       slug: '/linkedin',
       totalClicks: 50,
@@ -151,12 +147,7 @@ describe('handleEvent', () => {
         updated_at: Date.now(),
       };
       const event = createEvent('list routes for link.henrychong.com');
-      const result = await handleEvent(
-        event,
-        noAccessUser,
-        mockClient,
-        botToken,
-      );
+      const result = await handleEvent(event, noAccessUser, mockClient, botToken);
 
       expect(result).toContain(':no_entry: *Permission Denied*');
     });
@@ -172,9 +163,7 @@ describe('handleEvent', () => {
     });
 
     it('should parse days parameter', async () => {
-      const event = createEvent(
-        'show analytics for link.henrychong.com last 7 days',
-      );
+      const event = createEvent('show analytics for link.henrychong.com last 7 days');
       await handleEvent(event, adminUser, mockClient, botToken);
 
       expect(mockClient.getAnalyticsSummary).toHaveBeenCalledWith(
@@ -197,10 +186,7 @@ describe('handleEvent', () => {
       const event = createEvent('stats for /linkedin');
       const result = await handleEvent(event, adminUser, mockClient, botToken);
 
-      expect(mockClient.getSlugStats).toHaveBeenCalledWith(
-        '/linkedin',
-        expect.any(Object),
-      );
+      expect(mockClient.getSlugStats).toHaveBeenCalledWith('/linkedin', expect.any(Object));
       expect(result).toContain('*Stats for `/linkedin`*');
       expect(result).toContain('Total Clicks');
     });
@@ -223,9 +209,7 @@ describe('handleEvent', () => {
 
   describe('create route command', () => {
     it('should create redirect route', async () => {
-      const event = createEvent(
-        'create redirect from /twitter to https://twitter.com/user',
-      );
+      const event = createEvent('create redirect from /twitter to https://twitter.com/user');
       const result = await handleEvent(event, adminUser, mockClient, botToken);
 
       expect(mockClient.createRoute).toHaveBeenCalledWith(
@@ -240,9 +224,7 @@ describe('handleEvent', () => {
     });
 
     it('should create proxy route', async () => {
-      const event = createEvent(
-        'add proxy from /api to https://api.example.com',
-      );
+      const event = createEvent('add proxy from /api to https://api.example.com');
       await handleEvent(event, adminUser, mockClient, botToken);
 
       expect(mockClient.createRoute).toHaveBeenCalledWith(
@@ -254,15 +236,8 @@ describe('handleEvent', () => {
     });
 
     it('should deny create for read-only user', async () => {
-      const event = createEvent(
-        'create redirect from /test to https://test.com',
-      );
-      const result = await handleEvent(
-        event,
-        readOnlyUser,
-        mockClient,
-        botToken,
-      );
+      const event = createEvent('create redirect from /test to https://test.com');
+      const result = await handleEvent(event, readOnlyUser, mockClient, botToken);
 
       expect(mockClient.createRoute).not.toHaveBeenCalled();
       expect(result).toContain(':no_entry: *Permission Denied*');
@@ -274,10 +249,7 @@ describe('handleEvent', () => {
       const event = createEvent('delete /old-route');
       const result = await handleEvent(event, adminUser, mockClient, botToken);
 
-      expect(mockClient.deleteRoute).toHaveBeenCalledWith(
-        '/old-route',
-        expect.any(String),
-      );
+      expect(mockClient.deleteRoute).toHaveBeenCalledWith('/old-route', expect.any(String));
       expect(result).toContain(':wastebasket:');
       expect(result).toContain('has been deleted');
     });
@@ -311,11 +283,7 @@ describe('handleEvent', () => {
       const event = createEvent('enable /test-route');
       const result = await handleEvent(event, adminUser, mockClient, botToken);
 
-      expect(mockClient.toggleRoute).toHaveBeenCalledWith(
-        '/test-route',
-        true,
-        expect.any(String),
-      );
+      expect(mockClient.toggleRoute).toHaveBeenCalledWith('/test-route', true, expect.any(String));
       expect(result).toContain('has been enabled');
     });
 
@@ -323,22 +291,13 @@ describe('handleEvent', () => {
       const event = createEvent('disable /test-route');
       const result = await handleEvent(event, adminUser, mockClient, botToken);
 
-      expect(mockClient.toggleRoute).toHaveBeenCalledWith(
-        '/test-route',
-        false,
-        expect.any(String),
-      );
+      expect(mockClient.toggleRoute).toHaveBeenCalledWith('/test-route', false, expect.any(String));
       expect(result).toContain('has been disabled');
     });
 
     it('should deny toggle for read-only user', async () => {
       const event = createEvent('enable /test');
-      const result = await handleEvent(
-        event,
-        readOnlyUser,
-        mockClient,
-        botToken,
-      );
+      const result = await handleEvent(event, readOnlyUser, mockClient, botToken);
 
       expect(mockClient.toggleRoute).not.toHaveBeenCalled();
       expect(result).toContain(':no_entry: *Permission Denied*');
@@ -367,9 +326,7 @@ describe('handleEvent', () => {
   describe('error handling', () => {
     it('should format API errors nicely', async () => {
       const errorClient = createMockClient();
-      vi.mocked(errorClient.listRoutes).mockRejectedValue(
-        new Error('API unavailable'),
-      );
+      vi.mocked(errorClient.listRoutes).mockRejectedValue(new Error('API unavailable'));
 
       const event = createEvent('list routes');
       const result = await handleEvent(event, adminUser, errorClient, botToken);

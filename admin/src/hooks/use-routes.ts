@@ -49,13 +49,8 @@ export function useCreateRoute() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({
-      data,
-      domain,
-    }: {
-      data: CreateRouteInput;
-      domain?: string;
-    }) => api.routes.create(data, domain),
+    mutationFn: ({ data, domain }: { data: CreateRouteInput; domain?: string }) =>
+      api.routes.create(data, domain),
     onSuccess: () => {
       // Invalidate routes list to refetch
       queryClient.invalidateQueries({ queryKey: routeKeys.all });
@@ -116,15 +111,8 @@ export function useToggleRoute() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({
-      path,
-      enabled,
-      domain,
-    }: {
-      path: string;
-      enabled: boolean;
-      domain?: string;
-    }) => api.routes.update(path, { enabled }, domain),
+    mutationFn: ({ path, enabled, domain }: { path: string; enabled: boolean; domain?: string }) =>
+      api.routes.update(path, { enabled }, domain),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: routeKeys.all });
       queryClient.invalidateQueries({

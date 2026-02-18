@@ -1,13 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useAuditLogs, useDebounce } from '@/hooks';
 import { useAuditFilters } from '@/context';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
@@ -87,9 +81,7 @@ function parseDetails(details: string | null): string {
     }
     // For other actions, show a summary
     if ('route' in parsed) {
-      return parsed.route?.target
-        ? `Target: ${parsed.route.target}`
-        : 'Route data';
+      return parsed.route?.target ? `Target: ${parsed.route.target}` : 'Route data';
     }
     if ('before' in parsed && 'after' in parsed) {
       return 'Modified route';
@@ -121,15 +113,7 @@ export function AuditPage() {
       actor: filters.actor || undefined,
       path: debouncedSearch || undefined,
     }),
-    [
-      limit,
-      offset,
-      filters.domain,
-      filters.days,
-      filters.action,
-      filters.actor,
-      debouncedSearch,
-    ],
+    [limit, offset, filters.domain, filters.days, filters.action, filters.actor, debouncedSearch],
   );
 
   const { data, isLoading, error } = useAuditLogs(queryParams);
@@ -169,9 +153,7 @@ export function AuditPage() {
   if (error) {
     return (
       <div className="space-y-6">
-        <h1 className="text-huge font-gilroy font-bold text-blue-950">
-          Audit Log
-        </h1>
+        <h1 className="text-huge font-gilroy font-bold text-blue-950">Audit Log</h1>
         <Card className="border-destructive">
           <CardContent className="pt-6">
             <p className="text-destructive font-gilroy">
@@ -189,9 +171,7 @@ export function AuditPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <h1 className="text-huge font-gilroy font-bold text-blue-950">
-          Audit Log
-        </h1>
+        <h1 className="text-huge font-gilroy font-bold text-blue-950">Audit Log</h1>
         <div className="h-1 flex-1 rounded-full gradient-accent-bar opacity-30" />
       </div>
 
@@ -206,13 +186,8 @@ export function AuditPage() {
 
         {/* Action filter */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-gilroy text-charcoal-600">
-            Action
-          </label>
-          <Select
-            value={filters.action || 'all'}
-            onValueChange={handleActionChange}
-          >
+          <label className="text-small font-gilroy text-charcoal-600">Action</label>
+          <Select value={filters.action || 'all'} onValueChange={handleActionChange}>
             <SelectTrigger className="w-[140px] font-gilroy">
               <SelectValue placeholder="Action" />
             </SelectTrigger>
@@ -292,10 +267,7 @@ export function AuditPage() {
                   </TableHeader>
                   <TableBody>
                     {data?.items.map((log: AuditLog) => (
-                      <TableRow
-                        key={log.id}
-                        className="hover:bg-gold-50/50 transition-colors"
-                      >
+                      <TableRow key={log.id} className="hover:bg-gold-50/50 transition-colors">
                         <TableCell
                           className="text-small font-gilroy whitespace-nowrap"
                           title={formatDate(log.createdAt)}
@@ -325,9 +297,7 @@ export function AuditPage() {
                             {log.actorName &&
                               log.actorLogin &&
                               log.actorLogin !== log.actorName && (
-                                <span className="text-charcoal-400 text-xs">
-                                  {log.actorLogin}
-                                </span>
+                                <span className="text-charcoal-400 text-xs">{log.actorLogin}</span>
                               )}
                           </div>
                         </TableCell>
@@ -360,8 +330,7 @@ export function AuditPage() {
               {data && data.meta.total > limit && (
                 <div className="flex items-center justify-between pt-4 border-t border-border/30 mt-4">
                   <div className="text-small text-muted-foreground font-gilroy">
-                    Showing {offset + 1} -{' '}
-                    {Math.min(offset + limit, data.meta.total)} of{' '}
+                    Showing {offset + 1} - {Math.min(offset + limit, data.meta.total)} of{' '}
                     {data.meta.total}
                   </div>
                   <div className="flex gap-2">

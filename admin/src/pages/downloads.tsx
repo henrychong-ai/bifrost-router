@@ -1,13 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useDownloads, useDebounce } from '@/hooks';
 import { useDownloadsFilters } from '@/context';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -30,8 +24,7 @@ function formatFileSize(bytes: number | null): string {
   if (bytes === null) return '-';
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024)
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
@@ -55,14 +48,7 @@ export function DownloadsPage() {
       country: filters.country || undefined,
       path: debouncedSearch || undefined,
     }),
-    [
-      limit,
-      offset,
-      filters.domain,
-      filters.days,
-      filters.country,
-      debouncedSearch,
-    ],
+    [limit, offset, filters.domain, filters.days, filters.country, debouncedSearch],
   );
 
   const { data, isLoading, error } = useDownloads(queryParams);
@@ -89,9 +75,7 @@ export function DownloadsPage() {
   if (error) {
     return (
       <div className="space-y-6">
-        <h1 className="text-huge font-gilroy font-bold text-blue-950">
-          Downloads
-        </h1>
+        <h1 className="text-huge font-gilroy font-bold text-blue-950">Downloads</h1>
         <Card className="border-destructive">
           <CardContent className="pt-6">
             <p className="text-destructive font-gilroy">
@@ -109,9 +93,7 @@ export function DownloadsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <h1 className="text-huge font-gilroy font-bold text-blue-950">
-          Downloads
-        </h1>
+        <h1 className="text-huge font-gilroy font-bold text-blue-950">Downloads</h1>
         <div className="h-1 flex-1 rounded-full gradient-accent-bar opacity-30" />
       </div>
 
@@ -125,9 +107,7 @@ export function DownloadsPage() {
 
       <Card className="border-border/50">
         <CardHeader>
-          <CardTitle className="font-gilroy font-semibold text-blue-950">
-            Download Log
-          </CardTitle>
+          <CardTitle className="font-gilroy font-semibold text-blue-950">Download Log</CardTitle>
           <CardDescription className="font-gilroy">
             {isLoading
               ? 'Loading...'
@@ -202,10 +182,7 @@ export function DownloadsPage() {
                   </TableHeader>
                   <TableBody>
                     {data?.items.map(download => (
-                      <TableRow
-                        key={download.id}
-                        className="hover:bg-gold-50/50 transition-colors"
-                      >
+                      <TableRow key={download.id} className="hover:bg-gold-50/50 transition-colors">
                         <TableCell className="text-small font-gilroy whitespace-nowrap">
                           {formatDate(download.createdAt)}
                         </TableCell>
@@ -302,8 +279,7 @@ export function DownloadsPage() {
               {data && data.meta.total > limit && (
                 <div className="flex items-center justify-between pt-4 border-t border-border/30 mt-4">
                   <div className="text-small text-muted-foreground font-gilroy">
-                    Showing {offset + 1} -{' '}
-                    {Math.min(offset + limit, data.meta.total)} of{' '}
+                    Showing {offset + 1} - {Math.min(offset + limit, data.meta.total)} of{' '}
                     {data.meta.total}
                   </div>
                   <div className="flex gap-2">

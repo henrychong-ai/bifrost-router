@@ -72,8 +72,7 @@ export const toolDefinitions: ToolDefinition[] = [
       properties: {
         path: {
           type: 'string',
-          description:
-            'Route path starting with / (e.g., "/linkedin", "/blog/*")',
+          description: 'Route path starting with / (e.g., "/linkedin", "/blog/*")',
         },
         domain: domainProperty,
       },
@@ -99,8 +98,7 @@ export const toolDefinitions: ToolDefinition[] = [
         },
         target: {
           type: 'string',
-          description:
-            'Target URL (for redirect/proxy) or R2 object key (for r2)',
+          description: 'Target URL (for redirect/proxy) or R2 object key (for r2)',
         },
         statusCode: {
           type: 'number',
@@ -287,8 +285,7 @@ export const toolDefinitions: ToolDefinition[] = [
         },
         country: {
           type: 'string',
-          description:
-            'Filter by country code (2-letter ISO, e.g., "US", "SG")',
+          description: 'Filter by country code (2-letter ISO, e.g., "US", "SG")',
         },
       },
     },
@@ -408,9 +405,7 @@ export const toolCategories: Record<string, 'route' | 'analytics'> = {
 /**
  * Get tools by category
  */
-export function getToolsByCategory(
-  category: 'route' | 'analytics',
-): ToolDefinition[] {
+export function getToolsByCategory(category: 'route' | 'analytics'): ToolDefinition[] {
   return toolDefinitions.filter(tool => toolCategories[tool.name] === category);
 }
 

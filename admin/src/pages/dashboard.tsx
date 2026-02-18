@@ -1,11 +1,5 @@
 import { useAnalyticsSummary } from '@/hooks';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MousePointerClick, Eye, Route, Globe } from 'lucide-react';
 import { BackupHealthWidget } from '@/components/backup-health-widget';
@@ -16,9 +10,7 @@ export function DashboardPage() {
   if (error) {
     return (
       <div className="space-y-6">
-        <h1 className="text-huge font-gilroy font-bold text-blue-950">
-          Dashboard
-        </h1>
+        <h1 className="text-huge font-gilroy font-bold text-blue-950">Dashboard</h1>
         <Card className="border-destructive">
           <CardContent className="pt-6">
             <p className="text-destructive font-gilroy">
@@ -33,9 +25,7 @@ export function DashboardPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <h1 className="text-huge font-gilroy font-bold text-blue-950">
-          Dashboard
-        </h1>
+        <h1 className="text-huge font-gilroy font-bold text-blue-950">Dashboard</h1>
         <div className="h-1 flex-1 rounded-full gradient-accent-bar opacity-30" />
       </div>
 
@@ -58,9 +48,7 @@ export function DashboardPage() {
                 {summary?.clicks.total.toLocaleString()}
               </div>
             )}
-            <p className="text-tiny text-muted-foreground font-gilroy mt-1">
-              Last 30 days
-            </p>
+            <p className="text-tiny text-muted-foreground font-gilroy mt-1">Last 30 days</p>
           </CardContent>
         </Card>
 
@@ -81,9 +69,7 @@ export function DashboardPage() {
                 {summary?.clicks.uniqueSlugs.toLocaleString()}
               </div>
             )}
-            <p className="text-tiny text-muted-foreground font-gilroy mt-1">
-              Active links
-            </p>
+            <p className="text-tiny text-muted-foreground font-gilroy mt-1">Active links</p>
           </CardContent>
         </Card>
 
@@ -104,9 +90,7 @@ export function DashboardPage() {
                 {summary?.views.total.toLocaleString()}
               </div>
             )}
-            <p className="text-tiny text-muted-foreground font-gilroy mt-1">
-              Last 30 days
-            </p>
+            <p className="text-tiny text-muted-foreground font-gilroy mt-1">Last 30 days</p>
           </CardContent>
         </Card>
 
@@ -127,9 +111,7 @@ export function DashboardPage() {
                 {summary?.views.uniquePaths.toLocaleString()}
               </div>
             )}
-            <p className="text-tiny text-muted-foreground font-gilroy mt-1">
-              Distinct paths
-            </p>
+            <p className="text-tiny text-muted-foreground font-gilroy mt-1">Distinct paths</p>
           </CardContent>
         </Card>
       </div>
@@ -138,12 +120,8 @@ export function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2">
         <Card className="hover:shadow-lg transition-all duration-300 border-border/50">
           <CardHeader>
-            <CardTitle className="font-gilroy font-semibold text-blue-950">
-              Top Clicks
-            </CardTitle>
-            <CardDescription className="font-gilroy">
-              Most clicked links
-            </CardDescription>
+            <CardTitle className="font-gilroy font-semibold text-blue-950">Top Clicks</CardTitle>
+            <CardDescription className="font-gilroy">Most clicked links</CardDescription>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -173,9 +151,7 @@ export function DashboardPage() {
                   </div>
                 ))}
                 {(!summary?.topClicks || summary.topClicks.length === 0) && (
-                  <p className="text-small text-muted-foreground font-gilroy">
-                    No clicks yet
-                  </p>
+                  <p className="text-small text-muted-foreground font-gilroy">No clicks yet</p>
                 )}
               </div>
             )}
@@ -184,12 +160,8 @@ export function DashboardPage() {
 
         <Card className="hover:shadow-lg transition-all duration-300 border-border/50">
           <CardHeader>
-            <CardTitle className="font-gilroy font-semibold text-blue-950">
-              Top Pages
-            </CardTitle>
-            <CardDescription className="font-gilroy">
-              Most viewed pages
-            </CardDescription>
+            <CardTitle className="font-gilroy font-semibold text-blue-950">Top Pages</CardTitle>
+            <CardDescription className="font-gilroy">Most viewed pages</CardDescription>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -219,9 +191,7 @@ export function DashboardPage() {
                   </div>
                 ))}
                 {(!summary?.topPages || summary.topPages.length === 0) && (
-                  <p className="text-small text-muted-foreground font-gilroy">
-                    No views yet
-                  </p>
+                  <p className="text-small text-muted-foreground font-gilroy">No views yet</p>
                 )}
               </div>
             )}
@@ -230,12 +200,8 @@ export function DashboardPage() {
 
         <Card className="hover:shadow-lg transition-all duration-300 border-border/50">
           <CardHeader>
-            <CardTitle className="font-gilroy font-semibold text-blue-950">
-              Top Countries
-            </CardTitle>
-            <CardDescription className="font-gilroy">
-              Visitors by country
-            </CardDescription>
+            <CardTitle className="font-gilroy font-semibold text-blue-950">Top Countries</CardTitle>
+            <CardDescription className="font-gilroy">Visitors by country</CardDescription>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -255,20 +221,15 @@ export function DashboardPage() {
                       <span className="flex h-6 w-6 items-center justify-center rounded-full bg-charcoal-100 text-tiny font-gilroy font-medium text-charcoal-700">
                         {index + 1}
                       </span>
-                      <span className="text-small font-gilroy">
-                        {item.name || 'Unknown'}
-                      </span>
+                      <span className="text-small font-gilroy">{item.name || 'Unknown'}</span>
                     </div>
                     <span className="text-small font-gilroy font-medium text-gold-600">
                       {item.count}
                     </span>
                   </div>
                 ))}
-                {(!summary?.topCountries ||
-                  summary.topCountries.length === 0) && (
-                  <p className="text-small text-muted-foreground font-gilroy">
-                    No data yet
-                  </p>
+                {(!summary?.topCountries || summary.topCountries.length === 0) && (
+                  <p className="text-small text-muted-foreground font-gilroy">No data yet</p>
                 )}
               </div>
             )}
@@ -277,12 +238,8 @@ export function DashboardPage() {
 
         <Card className="hover:shadow-lg transition-all duration-300 border-border/50">
           <CardHeader>
-            <CardTitle className="font-gilroy font-semibold text-blue-950">
-              Top Referrers
-            </CardTitle>
-            <CardDescription className="font-gilroy">
-              Traffic sources
-            </CardDescription>
+            <CardTitle className="font-gilroy font-semibold text-blue-950">Top Referrers</CardTitle>
+            <CardDescription className="font-gilroy">Traffic sources</CardDescription>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -311,11 +268,8 @@ export function DashboardPage() {
                     </span>
                   </div>
                 ))}
-                {(!summary?.topReferrers ||
-                  summary.topReferrers.length === 0) && (
-                  <p className="text-small text-muted-foreground font-gilroy">
-                    No data yet
-                  </p>
+                {(!summary?.topReferrers || summary.topReferrers.length === 0) && (
+                  <p className="text-small text-muted-foreground font-gilroy">No data yet</p>
                 )}
               </div>
             )}

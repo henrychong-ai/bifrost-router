@@ -157,9 +157,7 @@ describe('handleR2', () => {
         FILES_BUCKET: mockBucket as unknown as R2Bucket,
       });
 
-      expect(response.headers.get('Cache-Control')).toBe(
-        'public, max-age=3600',
-      );
+      expect(response.headers.get('Cache-Control')).toBe('public, max-age=3600');
     });
 
     it('uses custom cache control when specified', async () => {
@@ -185,9 +183,7 @@ describe('handleR2', () => {
         FILES_BUCKET: mockBucket as unknown as R2Bucket,
       });
 
-      expect(response.headers.get('Cache-Control')).toBe(
-        'public, max-age=86400',
-      );
+      expect(response.headers.get('Cache-Control')).toBe('public, max-age=86400');
     });
   });
 
@@ -209,17 +205,12 @@ describe('handleR2', () => {
 
       app.get('/download', c => handleR2(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/download'),
-        {
-          ENVIRONMENT: 'development',
-          FILES_BUCKET: mockBucket as unknown as R2Bucket,
-        },
-      );
+      const response = await app.fetch(new Request('http://localhost/download'), {
+        ENVIRONMENT: 'development',
+        FILES_BUCKET: mockBucket as unknown as R2Bucket,
+      });
 
-      expect(response.headers.get('Content-Disposition')).toBe(
-        'attachment; filename="report.pdf"',
-      );
+      expect(response.headers.get('Content-Disposition')).toBe('attachment; filename="report.pdf"');
     });
 
     it('forces download for ZIP files', async () => {
@@ -239,17 +230,12 @@ describe('handleR2', () => {
 
       app.get('/download', c => handleR2(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/download'),
-        {
-          ENVIRONMENT: 'development',
-          FILES_BUCKET: mockBucket as unknown as R2Bucket,
-        },
-      );
+      const response = await app.fetch(new Request('http://localhost/download'), {
+        ENVIRONMENT: 'development',
+        FILES_BUCKET: mockBucket as unknown as R2Bucket,
+      });
 
-      expect(response.headers.get('Content-Disposition')).toContain(
-        'attachment',
-      );
+      expect(response.headers.get('Content-Disposition')).toContain('attachment');
     });
 
     it('does not force download for images', async () => {
@@ -300,9 +286,7 @@ describe('handleR2', () => {
         FILES_BUCKET: mockBucket as unknown as R2Bucket,
       });
 
-      expect(response.headers.get('Content-Disposition')).toBe(
-        'attachment; filename="photo.jpg"',
-      );
+      expect(response.headers.get('Content-Disposition')).toBe('attachment; filename="photo.jpg"');
     });
 
     it('displays PDF inline when forceDownload=false', async () => {
@@ -323,13 +307,10 @@ describe('handleR2', () => {
 
       app.get('/document', c => handleR2(c, route));
 
-      const response = await app.fetch(
-        new Request('http://localhost/document'),
-        {
-          ENVIRONMENT: 'development',
-          FILES_BUCKET: mockBucket as unknown as R2Bucket,
-        },
-      );
+      const response = await app.fetch(new Request('http://localhost/document'), {
+        ENVIRONMENT: 'development',
+        FILES_BUCKET: mockBucket as unknown as R2Bucket,
+      });
 
       // forceDownload=false should override the default PDF download behavior
       expect(response.headers.get('Content-Disposition')).toBeNull();

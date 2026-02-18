@@ -13,10 +13,7 @@ import {
   Search,
 } from 'lucide-react';
 import { useCommandPalette } from '@/hooks/use-command-palette';
-import {
-  useKeyboardShortcut,
-  getModifierKey,
-} from '@/hooks/use-keyboard-shortcuts';
+import { useKeyboardShortcut, getModifierKey } from '@/hooks/use-keyboard-shortcuts';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Kbd } from '@/components/ui/kbd';
 
@@ -94,9 +91,7 @@ export function CommandPalette() {
         action: () => {
           navigate('/routes');
           setTimeout(() => {
-            const createButton = document.querySelector(
-              '[data-create-route-trigger]',
-            );
+            const createButton = document.querySelector('[data-create-route-trigger]');
             if (createButton instanceof HTMLElement) {
               createButton.click();
             }
@@ -167,11 +162,7 @@ export function CommandPalette() {
             {navigationCommands.length > 0 && (
               <Command.Group heading="Navigation" className="px-1 py-1.5">
                 {navigationCommands.map(command => (
-                  <CommandItem
-                    key={command.id}
-                    command={command}
-                    onSelect={handleSelect}
-                  />
+                  <CommandItem key={command.id} command={command} onSelect={handleSelect} />
                 ))}
               </Command.Group>
             )}
@@ -179,11 +170,7 @@ export function CommandPalette() {
             {analyticsCommands.length > 0 && (
               <Command.Group heading="Analytics" className="px-1 py-1.5">
                 {analyticsCommands.map(command => (
-                  <CommandItem
-                    key={command.id}
-                    command={command}
-                    onSelect={handleSelect}
-                  />
+                  <CommandItem key={command.id} command={command} onSelect={handleSelect} />
                 ))}
               </Command.Group>
             )}
@@ -191,11 +178,7 @@ export function CommandPalette() {
             {actionCommands.length > 0 && (
               <Command.Group heading="Actions" className="px-1 py-1.5">
                 {actionCommands.map(command => (
-                  <CommandItem
-                    key={command.id}
-                    command={command}
-                    onSelect={handleSelect}
-                  />
+                  <CommandItem key={command.id} command={command} onSelect={handleSelect} />
                 ))}
               </Command.Group>
             )}

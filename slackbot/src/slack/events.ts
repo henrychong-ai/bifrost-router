@@ -83,22 +83,14 @@ function parseCommand(text: string): ParsedCommand | null {
   }
 
   // Analytics summary
-  if (
-    text.includes('analytics') ||
-    text.includes('summary') ||
-    text.includes('overview')
-  ) {
+  if (text.includes('analytics') || text.includes('summary') || text.includes('overview')) {
     const domain = extractDomain(text);
     const days = extractDays(text);
     return { action: 'analytics', domain, days };
   }
 
   // Stats for specific link
-  if (
-    text.includes('stats') ||
-    text.includes('clicks') ||
-    text.includes('how many')
-  ) {
+  if (text.includes('stats') || text.includes('clicks') || text.includes('how many')) {
     const path = extractPath(text);
     const domain = extractDomain(text);
     const days = extractDays(text);
@@ -223,8 +215,7 @@ async function executeCommand(
 ): Promise<string> {
   // Determine default domain
   const accessibleDomains = getAccessibleDomains(permissions);
-  const domain =
-    command.domain || accessibleDomains[0] || 'link.henrychong.com';
+  const domain = command.domain || accessibleDomains[0] || 'link.henrychong.com';
 
   try {
     switch (command.action) {
@@ -239,11 +230,7 @@ async function executeCommand(
       }
 
       case 'analytics': {
-        const check = checkToolPermission(
-          permissions,
-          'get_analytics_summary',
-          domain,
-        );
+        const check = checkToolPermission(permissions, 'get_analytics_summary', domain);
         if (!check.allowed) {
           return formatPermissionDenied(check.message || 'Permission denied');
         }
@@ -257,16 +244,10 @@ async function executeCommand(
 
       case 'stats': {
         if (!command.path) {
-          return formatError(
-            'Please specify a path. Example: "stats for /linkedin"',
-          );
+          return formatError('Please specify a path. Example: "stats for /linkedin"');
         }
 
-        const check = checkToolPermission(
-          permissions,
-          'get_slug_stats',
-          domain,
-        );
+        const check = checkToolPermission(permissions, 'get_slug_stats', domain);
         if (!check.allowed) {
           return formatPermissionDenied(check.message || 'Permission denied');
         }
@@ -315,9 +296,7 @@ async function executeCommand(
 
       case 'delete': {
         if (!command.path) {
-          return formatError(
-            'Please specify a path to delete. Example: "delete /test"',
-          );
+          return formatError('Please specify a path to delete. Example: "delete /test"');
         }
 
         const check = checkToolPermission(permissions, 'delete_route', domain);
@@ -345,9 +324,7 @@ async function executeCommand(
       }
 
       default:
-        return formatError(
-          'Unknown command. Try "help" to see available commands.',
-        );
+        return formatError('Unknown command. Try "help" to see available commands.');
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

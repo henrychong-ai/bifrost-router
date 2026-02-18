@@ -53,12 +53,7 @@ export async function handleScheduled(env: Bindings): Promise<BackupResult> {
     console.log(`[Backup] D1 backup complete: ${d1Result.totalRows} rows`);
 
     // Step 3: Write manifest
-    const manifest = await writeManifest(
-      env.BACKUP_BUCKET,
-      date,
-      kvResult,
-      d1Result,
-    );
+    const manifest = await writeManifest(env.BACKUP_BUCKET, date, kvResult, d1Result);
     console.log(`[Backup] Manifest written: daily/${date}/manifest.json`);
 
     // Step 4: Cleanup old backups

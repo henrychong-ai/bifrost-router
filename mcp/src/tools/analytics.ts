@@ -78,9 +78,7 @@ function formatAnalyticsSummary(summary: AnalyticsSummary): string {
     lines.push('', '⏱️ Recent Clicks');
     summary.recentClicks.forEach(click => {
       const country = click.country ? ` (${click.country})` : '';
-      lines.push(
-        `• ${click.slug}${country} - ${formatRelativeTime(click.createdAt)}`,
-      );
+      lines.push(`• ${click.slug}${country} - ${formatRelativeTime(click.createdAt)}`);
     });
   }
 
@@ -112,10 +110,7 @@ function formatClickList(
   });
 
   if (meta.hasMore) {
-    lines.push(
-      '',
-      `... ${formatNumber(meta.total - meta.offset - items.length)} more clicks`,
-    );
+    lines.push('', `... ${formatNumber(meta.total - meta.offset - items.length)} more clicks`);
   }
 
   return lines.join('\n');
@@ -124,10 +119,7 @@ function formatClickList(
 /**
  * Format view list for display
  */
-function formatViewList(
-  response: PaginatedResponse<PageView>,
-  domain: string | undefined,
-): string {
+function formatViewList(response: PaginatedResponse<PageView>, domain: string | undefined): string {
   const { items, meta } = response;
 
   if (items.length === 0) {
@@ -146,10 +138,7 @@ function formatViewList(
   });
 
   if (meta.hasMore) {
-    lines.push(
-      '',
-      `... ${formatNumber(meta.total - meta.offset - items.length)} more views`,
-    );
+    lines.push('', `... ${formatNumber(meta.total - meta.offset - items.length)} more views`);
   }
 
   return lines.join('\n');

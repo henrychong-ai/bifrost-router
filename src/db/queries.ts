@@ -1,22 +1,6 @@
-import {
-  sql,
-  count,
-  countDistinct,
-  desc,
-  gte,
-  eq,
-  and,
-  isNotNull,
-  like,
-} from 'drizzle-orm';
+import { sql, count, countDistinct, desc, gte, eq, and, isNotNull, like } from 'drizzle-orm';
 import type { Database } from './index';
-import {
-  linkClicks,
-  pageViews,
-  fileDownloads,
-  proxyRequests,
-  auditLogs,
-} from './schema';
+import { linkClicks, pageViews, fileDownloads, proxyRequests, auditLogs } from './schema';
 
 /**
  * Query options for analytics endpoints
@@ -399,10 +383,7 @@ export async function getSlugStats(
   const { domain, days = 30 } = options;
   const startTime = getDaysAgoTimestamp(days);
 
-  const conditions = [
-    gte(linkClicks.createdAt, startTime),
-    eq(linkClicks.slug, targetSlug),
-  ];
+  const conditions = [gte(linkClicks.createdAt, startTime), eq(linkClicks.slug, targetSlug)];
   if (domain) conditions.push(eq(linkClicks.domain, domain));
 
   const [stats, clicksByDay, topCountries, topReferrers] = await Promise.all([
@@ -471,15 +452,7 @@ export async function getDownloads(
   db: Database,
   options: AnalyticsQueryOptions = {},
 ): Promise<PaginatedResponse<typeof fileDownloads.$inferSelect>> {
-  const {
-    domain,
-    days = 30,
-    limit = 100,
-    offset = 0,
-    path,
-    r2Key,
-    country,
-  } = options;
+  const { domain, days = 30, limit = 100, offset = 0, path, r2Key, country } = options;
   const startTime = getDaysAgoTimestamp(days);
 
   // Build where conditions
@@ -536,32 +509,28 @@ export async function getDownloadStats(
   const { domain, days = 30 } = options;
   const startTime = getDaysAgoTimestamp(days);
 
-  const conditions = [
-    gte(fileDownloads.createdAt, startTime),
-    eq(fileDownloads.path, targetPath),
-  ];
+  const conditions = [gte(fileDownloads.createdAt, startTime), eq(fileDownloads.path, targetPath)];
   if (domain) conditions.push(eq(fileDownloads.domain, domain));
 
-  const [stats, totalBytesResult, downloadsByDay, topCountries, topReferrers] =
-    await Promise.all([
-      db
-        .select({
-          total: count(),
-          r2Key: fileDownloads.r2Key,
-        })
-        .from(fileDownloads)
-        .where(and(...conditions))
-        .groupBy(fileDownloads.r2Key)
-        .limit(1),
+  const [stats, totalBytesResult, downloadsByDay, topCountries, topReferrers] = await Promise.all([
+    db
+      .select({
+        total: count(),
+        r2Key: fileDownloads.r2Key,
+      })
+      .from(fileDownloads)
+      .where(and(...conditions))
+      .groupBy(fileDownloads.r2Key)
+      .limit(1),
 
-      db.all<{ totalBytes: number }>(sql`
+    db.all<{ totalBytes: number }>(sql`
       SELECT COALESCE(SUM(file_size), 0) as totalBytes
       FROM file_downloads
       WHERE created_at >= ${startTime} AND path = ${targetPath}
       ${domain ? sql`AND domain = ${domain}` : sql``}
     `),
 
-      db.all<{ date: string; count: number }>(sql`
+    db.all<{ date: string; count: number }>(sql`
       SELECT DATE(created_at, 'unixepoch') as date, COUNT(*) as count
       FROM file_downloads
       WHERE created_at >= ${startTime} AND path = ${targetPath}
@@ -570,28 +539,28 @@ export async function getDownloadStats(
       ORDER BY date ASC
     `),
 
-      db
-        .select({
-          country: fileDownloads.country,
-          count: count(),
-        })
-        .from(fileDownloads)
-        .where(and(...conditions, isNotNull(fileDownloads.country)))
-        .groupBy(fileDownloads.country)
-        .orderBy(desc(count()))
-        .limit(10),
+    db
+      .select({
+        country: fileDownloads.country,
+        count: count(),
+      })
+      .from(fileDownloads)
+      .where(and(...conditions, isNotNull(fileDownloads.country)))
+      .groupBy(fileDownloads.country)
+      .orderBy(desc(count()))
+      .limit(10),
 
-      db
-        .select({
-          referrer: fileDownloads.referrer,
-          count: count(),
-        })
-        .from(fileDownloads)
-        .where(and(...conditions, isNotNull(fileDownloads.referrer)))
-        .groupBy(fileDownloads.referrer)
-        .orderBy(desc(count()))
-        .limit(10),
-    ]);
+    db
+      .select({
+        referrer: fileDownloads.referrer,
+        count: count(),
+      })
+      .from(fileDownloads)
+      .where(and(...conditions, isNotNull(fileDownloads.referrer)))
+      .groupBy(fileDownloads.referrer)
+      .orderBy(desc(count()))
+      .limit(10),
+  ]);
 
   return {
     path: targetPath,
@@ -617,15 +586,7 @@ export async function getProxyRequests(
   db: Database,
   options: AnalyticsQueryOptions = {},
 ): Promise<PaginatedResponse<typeof proxyRequests.$inferSelect>> {
-  const {
-    domain,
-    days = 30,
-    limit = 100,
-    offset = 0,
-    path,
-    targetUrl,
-    country,
-  } = options;
+  const { domain, days = 30, limit = 100, offset = 0, path, targetUrl, country } = options;
   const startTime = getDaysAgoTimestamp(days);
 
   // Build where conditions
@@ -682,25 +643,21 @@ export async function getProxyStats(
   const { domain, days = 30 } = options;
   const startTime = getDaysAgoTimestamp(days);
 
-  const conditions = [
-    gte(proxyRequests.createdAt, startTime),
-    eq(proxyRequests.path, targetPath),
-  ];
+  const conditions = [gte(proxyRequests.createdAt, startTime), eq(proxyRequests.path, targetPath)];
   if (domain) conditions.push(eq(proxyRequests.domain, domain));
 
-  const [stats, requestsByDay, topCountries, topReferrers, statusCodes] =
-    await Promise.all([
-      db
-        .select({
-          total: count(),
-          targetUrl: proxyRequests.targetUrl,
-        })
-        .from(proxyRequests)
-        .where(and(...conditions))
-        .groupBy(proxyRequests.targetUrl)
-        .limit(1),
+  const [stats, requestsByDay, topCountries, topReferrers, statusCodes] = await Promise.all([
+    db
+      .select({
+        total: count(),
+        targetUrl: proxyRequests.targetUrl,
+      })
+      .from(proxyRequests)
+      .where(and(...conditions))
+      .groupBy(proxyRequests.targetUrl)
+      .limit(1),
 
-      db.all<{ date: string; count: number }>(sql`
+    db.all<{ date: string; count: number }>(sql`
       SELECT DATE(created_at, 'unixepoch') as date, COUNT(*) as count
       FROM proxy_requests
       WHERE created_at >= ${startTime} AND path = ${targetPath}
@@ -709,39 +666,39 @@ export async function getProxyStats(
       ORDER BY date ASC
     `),
 
-      db
-        .select({
-          country: proxyRequests.country,
-          count: count(),
-        })
-        .from(proxyRequests)
-        .where(and(...conditions, isNotNull(proxyRequests.country)))
-        .groupBy(proxyRequests.country)
-        .orderBy(desc(count()))
-        .limit(10),
+    db
+      .select({
+        country: proxyRequests.country,
+        count: count(),
+      })
+      .from(proxyRequests)
+      .where(and(...conditions, isNotNull(proxyRequests.country)))
+      .groupBy(proxyRequests.country)
+      .orderBy(desc(count()))
+      .limit(10),
 
-      db
-        .select({
-          referrer: proxyRequests.referrer,
-          count: count(),
-        })
-        .from(proxyRequests)
-        .where(and(...conditions, isNotNull(proxyRequests.referrer)))
-        .groupBy(proxyRequests.referrer)
-        .orderBy(desc(count()))
-        .limit(10),
+    db
+      .select({
+        referrer: proxyRequests.referrer,
+        count: count(),
+      })
+      .from(proxyRequests)
+      .where(and(...conditions, isNotNull(proxyRequests.referrer)))
+      .groupBy(proxyRequests.referrer)
+      .orderBy(desc(count()))
+      .limit(10),
 
-      db
-        .select({
-          status: proxyRequests.responseStatus,
-          count: count(),
-        })
-        .from(proxyRequests)
-        .where(and(...conditions, isNotNull(proxyRequests.responseStatus)))
-        .groupBy(proxyRequests.responseStatus)
-        .orderBy(desc(count()))
-        .limit(10),
-    ]);
+    db
+      .select({
+        status: proxyRequests.responseStatus,
+        count: count(),
+      })
+      .from(proxyRequests)
+      .where(and(...conditions, isNotNull(proxyRequests.responseStatus)))
+      .groupBy(proxyRequests.responseStatus)
+      .orderBy(desc(count()))
+      .limit(10),
+  ]);
 
   return {
     path: targetPath,
@@ -790,15 +747,7 @@ export async function getAuditLogs(
   db: Database,
   options: AuditQueryOptions = {},
 ): Promise<PaginatedResponse<typeof auditLogs.$inferSelect>> {
-  const {
-    domain,
-    action,
-    actor,
-    path,
-    days = 30,
-    limit = 100,
-    offset = 0,
-  } = options;
+  const { domain, action, actor, path, days = 30, limit = 100, offset = 0 } = options;
   const startTime = getDaysAgoTimestamp(days);
 
   // Build where conditions

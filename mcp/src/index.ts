@@ -8,16 +8,9 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
-import {
-  createClientFromEnv,
-  toolDefinitions,
-  type EdgeRouterClient,
-} from '@bifrost/shared';
+import { createClientFromEnv, toolDefinitions, type EdgeRouterClient } from '@bifrost/shared';
 
 import {
   listRoutes,
@@ -29,12 +22,7 @@ import {
   migrateRoute,
 } from './tools/routes.js';
 
-import {
-  getAnalyticsSummary,
-  getClicks,
-  getViews,
-  getSlugStats,
-} from './tools/analytics.js';
+import { getAnalyticsSummary, getClicks, getViews, getSlugStats } from './tools/analytics.js';
 
 /**
  * Main entry point
@@ -46,9 +34,7 @@ async function main(): Promise<void> {
   // Create the Edge Router client
   let client: EdgeRouterClient;
   try {
-    client = createClientFromEnv(
-      process.env as Record<string, string | undefined>,
-    );
+    client = createClientFromEnv(process.env as Record<string, string | undefined>);
   } catch (error) {
     console.error(
       'Failed to initialize Edge Router client:',
@@ -59,9 +45,7 @@ async function main(): Promise<void> {
     console.error('  EDGE_ROUTER_API_KEY - Admin API key for authentication');
     console.error('');
     console.error('Optional environment variables:');
-    console.error(
-      '  EDGE_ROUTER_URL     - Base URL (default: https://henrychong.com)',
-    );
+    console.error('  EDGE_ROUTER_URL     - Base URL (default: https://henrychong.com)');
     console.error('  EDGE_ROUTER_DOMAIN  - Default domain for operations');
     process.exit(1);
   }
@@ -100,19 +84,11 @@ async function main(): Promise<void> {
       switch (name) {
         // Route management tools
         case 'list_routes':
-          result = await listRoutes(
-            client,
-            args as { domain?: string },
-            defaultDomain,
-          );
+          result = await listRoutes(client, args as { domain?: string }, defaultDomain);
           break;
 
         case 'get_route':
-          result = await getRoute(
-            client,
-            args as { path: string; domain?: string },
-            defaultDomain,
-          );
+          result = await getRoute(client, args as { path: string; domain?: string }, defaultDomain);
           break;
 
         case 'create_route':
@@ -247,8 +223,7 @@ async function main(): Promise<void> {
         ],
       };
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       return {
         content: [
           {

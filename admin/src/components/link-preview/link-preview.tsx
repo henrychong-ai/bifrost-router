@@ -50,19 +50,13 @@ export function LinkPreview({ url, enabled = true }: LinkPreviewProps) {
           </div>
         )}
         <div className="flex-1 p-2.5 min-w-0">
-          {data.title && (
-            <h4 className="font-medium text-sm truncate">{data.title}</h4>
-          )}
+          {data.title && <h4 className="font-medium text-sm truncate">{data.title}</h4>}
           {data.description && (
-            <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
-              {data.description}
-            </p>
+            <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{data.description}</p>
           )}
           <div className="flex items-center gap-1 mt-1.5 text-xs text-muted-foreground">
             <ExternalLink className="h-3 w-3" />
-            <span className="truncate font-mono">
-              {data.siteName || new URL(url).hostname}
-            </span>
+            <span className="truncate font-mono">{data.siteName || new URL(url).hostname}</span>
           </div>
         </div>
       </div>

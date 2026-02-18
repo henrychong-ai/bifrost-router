@@ -8,25 +8,10 @@ import {
   useMigrateRoute,
   useDebounce,
 } from '@/hooks';
-import {
-  useRoutesFilters,
-  SUPPORTED_DOMAINS,
-  type SupportedDomain,
-} from '@/context';
-import type {
-  Route,
-  CreateRouteInput,
-  UpdateRouteInput,
-  R2BucketName,
-} from '@/lib/schemas';
+import { useRoutesFilters, SUPPORTED_DOMAINS, type SupportedDomain } from '@/context';
+import type { Route, CreateRouteInput, UpdateRouteInput, R2BucketName } from '@/lib/schemas';
 import { R2_BUCKETS } from '@/lib/schemas';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { LinkPreview } from '@/components/link-preview';
@@ -85,11 +70,7 @@ import {
   X,
   Info,
 } from 'lucide-react';
-import {
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
-} from '@/components/ui/tooltip';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 
 function RouteTypeBadge({ type }: { type: Route['type'] }) {
@@ -118,11 +99,7 @@ type RouteFormProps =
   | {
       mode: 'edit';
       route: Route;
-      onSubmit: (
-        data: UpdateRouteInput,
-        pathChanged: boolean,
-        newPath?: string,
-      ) => void;
+      onSubmit: (data: UpdateRouteInput, pathChanged: boolean, newPath?: string) => void;
       onCancel: () => void;
       isSubmitting: boolean;
     };
@@ -151,34 +128,21 @@ function RouteForm(props: RouteFormProps) {
       type: formData.type as Route['type'],
       target: formData.target,
       statusCode:
-        formData.type === 'redirect'
-          ? (formData.statusCode as 301 | 302 | 307 | 308)
-          : undefined,
+        formData.type === 'redirect' ? (formData.statusCode as 301 | 302 | 307 | 308) : undefined,
       preserveQuery: formData.preserveQuery,
       preservePath: formData.preservePath,
       cacheControl: formData.cacheControl || undefined,
-      hostHeader:
-        formData.type === 'proxy'
-          ? formData.hostHeader || undefined
-          : undefined,
-      forceDownload:
-        formData.type === 'r2' ? formData.forceDownload : undefined,
+      hostHeader: formData.type === 'proxy' ? formData.hostHeader || undefined : undefined,
+      forceDownload: formData.type === 'r2' ? formData.forceDownload : undefined,
       bucket: formData.type === 'r2' ? formData.bucket : undefined,
       enabled: formData.enabled,
     };
 
     if (mode === 'create') {
-      onSubmit(
-        { ...baseData, path: formData.path } as CreateRouteInput,
-        formData.domain,
-      );
+      onSubmit({ ...baseData, path: formData.path } as CreateRouteInput, formData.domain);
     } else {
       const pathChanged = formData.path !== route.path;
-      onSubmit(
-        baseData as UpdateRouteInput,
-        pathChanged,
-        pathChanged ? formData.path : undefined,
-      );
+      onSubmit(baseData as UpdateRouteInput, pathChanged, pathChanged ? formData.path : undefined);
     }
   };
 
@@ -187,28 +151,19 @@ function RouteForm(props: RouteFormProps) {
       {/* Domain selector - only for create mode */}
       {!route && (
         <div className="space-y-2">
-          <Label
-            htmlFor="domain"
-            className="font-gilroy font-medium text-charcoal-700"
-          >
+          <Label htmlFor="domain" className="font-gilroy font-medium text-charcoal-700">
             Domain
           </Label>
           <Select
             value={formData.domain}
-            onValueChange={value =>
-              setFormData({ ...formData, domain: value as SupportedDomain })
-            }
+            onValueChange={value => setFormData({ ...formData, domain: value as SupportedDomain })}
           >
             <SelectTrigger className="font-mono">
               <SelectValue placeholder="Select domain" />
             </SelectTrigger>
             <SelectContent>
               {SUPPORTED_DOMAINS.map(domain => (
-                <SelectItem
-                  key={domain}
-                  value={domain}
-                  className="font-mono text-small"
-                >
+                <SelectItem key={domain} value={domain} className="font-mono text-small">
                   {domain}
                 </SelectItem>
               ))}
@@ -222,10 +177,7 @@ function RouteForm(props: RouteFormProps) {
 
       {/* Path field - shown in both create and edit modes */}
       <div className="space-y-2">
-        <Label
-          htmlFor="path"
-          className="font-gilroy font-medium text-charcoal-700"
-        >
+        <Label htmlFor="path" className="font-gilroy font-medium text-charcoal-700">
           Path
         </Label>
         <Input
@@ -237,9 +189,7 @@ function RouteForm(props: RouteFormProps) {
           className="font-mono"
         />
         {mode === 'create' && (
-          <p className="text-tiny text-muted-foreground font-gilroy">
-            Must start with /
-          </p>
+          <p className="text-tiny text-muted-foreground font-gilroy">Must start with /</p>
         )}
         {mode === 'edit' && formData.path !== route.path && (
           <p className="text-tiny text-amber-600 font-gilroy">
@@ -249,17 +199,12 @@ function RouteForm(props: RouteFormProps) {
       </div>
 
       <div className="space-y-2">
-        <Label
-          htmlFor="type"
-          className="font-gilroy font-medium text-charcoal-700"
-        >
+        <Label htmlFor="type" className="font-gilroy font-medium text-charcoal-700">
           Type
         </Label>
         <Select
           value={formData.type}
-          onValueChange={value =>
-            setFormData({ ...formData, type: value as Route['type'] })
-          }
+          onValueChange={value => setFormData({ ...formData, type: value as Route['type'] })}
         >
           <SelectTrigger className="font-gilroy">
             <SelectValue />
@@ -280,10 +225,7 @@ function RouteForm(props: RouteFormProps) {
 
       <div className="space-y-2">
         <div className="flex items-center gap-1">
-          <Label
-            htmlFor="target"
-            className="font-gilroy font-medium text-charcoal-700"
-          >
+          <Label htmlFor="target" className="font-gilroy font-medium text-charcoal-700">
             Target
           </Label>
           {formData.type === 'r2' && (
@@ -293,8 +235,8 @@ function RouteForm(props: RouteFormProps) {
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-xs">
                 <p>
-                  Enter the file path within the selected R2 bucket. This is the
-                  object key — just the filename or folder path, not a URL.
+                  Enter the file path within the selected R2 bucket. This is the object key — just
+                  the filename or folder path, not a URL.
                 </p>
                 <p className="mt-1 text-muted-foreground">
                   Examples:
@@ -309,27 +251,19 @@ function RouteForm(props: RouteFormProps) {
           id="target"
           value={formData.target}
           onChange={e => setFormData({ ...formData, target: e.target.value })}
-          placeholder={
-            formData.type === 'r2' ? 'bio.pdf' : 'https://example.com'
-          }
+          placeholder={formData.type === 'r2' ? 'bio.pdf' : 'https://example.com'}
           required
           className="font-mono"
         />
         {(formData.type === 'redirect' || formData.type === 'proxy') && (
-          <LinkPreview
-            url={formData.target}
-            enabled={formData.target.length > 0}
-          />
+          <LinkPreview url={formData.target} enabled={formData.target.length > 0} />
         )}
       </div>
 
       {formData.type === 'redirect' && (
         <>
           <div className="space-y-2">
-            <Label
-              htmlFor="statusCode"
-              className="font-gilroy font-medium text-charcoal-700"
-            >
+            <Label htmlFor="statusCode" className="font-gilroy font-medium text-charcoal-700">
               Status Code
             </Label>
             <Select
@@ -363,10 +297,7 @@ function RouteForm(props: RouteFormProps) {
 
           <div className="flex items-center justify-between rounded-lg border border-charcoal-200 p-3">
             <div className="space-y-0.5">
-              <Label
-                htmlFor="preserveQuery"
-                className="font-gilroy font-medium text-charcoal-700"
-              >
+              <Label htmlFor="preserveQuery" className="font-gilroy font-medium text-charcoal-700">
                 Preserve Query String
               </Label>
               <p className="text-tiny text-muted-foreground font-gilroy">
@@ -376,18 +307,13 @@ function RouteForm(props: RouteFormProps) {
             <Switch
               id="preserveQuery"
               checked={formData.preserveQuery}
-              onCheckedChange={checked =>
-                setFormData({ ...formData, preserveQuery: checked })
-              }
+              onCheckedChange={checked => setFormData({ ...formData, preserveQuery: checked })}
             />
           </div>
 
           <div className="flex items-center justify-between rounded-lg border border-charcoal-200 p-3">
             <div className="space-y-0.5">
-              <Label
-                htmlFor="preservePath"
-                className="font-gilroy font-medium text-charcoal-700"
-              >
+              <Label htmlFor="preservePath" className="font-gilroy font-medium text-charcoal-700">
                 Preserve Path
               </Label>
               <p className="text-tiny text-muted-foreground font-gilroy">
@@ -397,9 +323,7 @@ function RouteForm(props: RouteFormProps) {
             <Switch
               id="preservePath"
               checked={formData.preservePath}
-              onCheckedChange={checked =>
-                setFormData({ ...formData, preservePath: checked })
-              }
+              onCheckedChange={checked => setFormData({ ...formData, preservePath: checked })}
             />
           </div>
         </>
@@ -408,28 +332,19 @@ function RouteForm(props: RouteFormProps) {
       {formData.type === 'r2' && (
         <>
           <div className="space-y-2">
-            <Label
-              htmlFor="bucket"
-              className="font-gilroy font-medium text-charcoal-700"
-            >
+            <Label htmlFor="bucket" className="font-gilroy font-medium text-charcoal-700">
               R2 Bucket
             </Label>
             <Select
               value={formData.bucket}
-              onValueChange={value =>
-                setFormData({ ...formData, bucket: value as R2BucketName })
-              }
+              onValueChange={value => setFormData({ ...formData, bucket: value as R2BucketName })}
             >
               <SelectTrigger className="font-mono">
                 <SelectValue placeholder="Select bucket" />
               </SelectTrigger>
               <SelectContent>
                 {R2_BUCKETS.map(bucket => (
-                  <SelectItem
-                    key={bucket}
-                    value={bucket}
-                    className="font-mono text-small"
-                  >
+                  <SelectItem key={bucket} value={bucket} className="font-mono text-small">
                     {bucket}
                   </SelectItem>
                 ))}
@@ -442,10 +357,7 @@ function RouteForm(props: RouteFormProps) {
 
           <div className="flex items-center justify-between rounded-lg border border-charcoal-200 p-3">
             <div className="space-y-0.5">
-              <Label
-                htmlFor="forceDownload"
-                className="font-gilroy font-medium text-charcoal-700"
-              >
+              <Label htmlFor="forceDownload" className="font-gilroy font-medium text-charcoal-700">
                 Force Download
               </Label>
               <p className="text-tiny text-muted-foreground font-gilroy">
@@ -455,9 +367,7 @@ function RouteForm(props: RouteFormProps) {
             <Switch
               id="forceDownload"
               checked={formData.forceDownload}
-              onCheckedChange={checked =>
-                setFormData({ ...formData, forceDownload: checked })
-              }
+              onCheckedChange={checked => setFormData({ ...formData, forceDownload: checked })}
             />
           </div>
         </>
@@ -466,10 +376,7 @@ function RouteForm(props: RouteFormProps) {
       {formData.type === 'proxy' && (
         <div className="space-y-2">
           <div className="flex items-center gap-1">
-            <Label
-              htmlFor="hostHeader"
-              className="font-gilroy font-medium text-charcoal-700"
-            >
+            <Label htmlFor="hostHeader" className="font-gilroy font-medium text-charcoal-700">
               Host Header (optional)
             </Label>
             <Tooltip>
@@ -477,17 +384,15 @@ function RouteForm(props: RouteFormProps) {
                 <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-xs">
-                Override the Host header sent to the origin. Use when proxying
-                to CDNs like Webflow that use Host-based virtual hosting.
+                Override the Host header sent to the origin. Use when proxying to CDNs like Webflow
+                that use Host-based virtual hosting.
               </TooltipContent>
             </Tooltip>
           </div>
           <Input
             id="hostHeader"
             value={formData.hostHeader}
-            onChange={e =>
-              setFormData({ ...formData, hostHeader: e.target.value })
-            }
+            onChange={e => setFormData({ ...formData, hostHeader: e.target.value })}
             placeholder="example.com"
             className="font-mono"
           />
@@ -496,10 +401,7 @@ function RouteForm(props: RouteFormProps) {
 
       <div className="space-y-2">
         <div className="flex items-center gap-1">
-          <Label
-            htmlFor="cacheControl"
-            className="font-gilroy font-medium text-charcoal-700"
-          >
+          <Label htmlFor="cacheControl" className="font-gilroy font-medium text-charcoal-700">
             Cache-Control (optional)
           </Label>
           <Tooltip>
@@ -507,29 +409,22 @@ function RouteForm(props: RouteFormProps) {
               <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
             </TooltipTrigger>
             <TooltipContent side="top" className="max-w-xs">
-              Controls how long browsers remember this content. Leave blank
-              unless you have a specific reason to change it.
+              Controls how long browsers remember this content. Leave blank unless you have a
+              specific reason to change it.
             </TooltipContent>
           </Tooltip>
         </div>
         <Input
           id="cacheControl"
           value={formData.cacheControl}
-          onChange={e =>
-            setFormData({ ...formData, cacheControl: e.target.value })
-          }
+          onChange={e => setFormData({ ...formData, cacheControl: e.target.value })}
           placeholder="max-age=3600"
           className="font-mono"
         />
       </div>
 
       <DialogFooter>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onCancel}
-          className="font-gilroy"
-        >
+        <Button type="button" variant="outline" onClick={onCancel} className="font-gilroy">
           Cancel
         </Button>
         <Button
@@ -559,9 +454,7 @@ export function RoutesPage() {
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editRoute, setEditRoute] = useState<Route | null>(null);
-  const [deleteConfirmRoute, setDeleteConfirmRoute] = useState<Route | null>(
-    null,
-  );
+  const [deleteConfirmRoute, setDeleteConfirmRoute] = useState<Route | null>(null);
   const [migrationConfirm, setMigrationConfirm] = useState<{
     route: Route;
     newPath: string;
@@ -577,9 +470,7 @@ export function RoutesPage() {
     // Filter by search (path)
     if (debouncedSearch) {
       const searchLower = debouncedSearch.toLowerCase();
-      result = result.filter(route =>
-        route.path.toLowerCase().includes(searchLower),
-      );
+      result = result.filter(route => route.path.toLowerCase().includes(searchLower));
     }
 
     // Filter by type
@@ -589,9 +480,7 @@ export function RoutesPage() {
 
     // Filter by enabled status
     if (filters.enabled !== undefined) {
-      result = result.filter(
-        route => (route.enabled !== false) === filters.enabled,
-      );
+      result = result.filter(route => (route.enabled !== false) === filters.enabled);
     }
 
     // Sort by createdAt descending (newest first)
@@ -624,11 +513,7 @@ export function RoutesPage() {
     }
   };
 
-  const handleUpdate = async (
-    data: UpdateRouteInput,
-    pathChanged: boolean,
-    newPath?: string,
-  ) => {
+  const handleUpdate = async (data: UpdateRouteInput, pathChanged: boolean, newPath?: string) => {
     if (!editRoute) return;
 
     if (pathChanged && newPath) {
@@ -717,14 +602,10 @@ export function RoutesPage() {
   if (error) {
     return (
       <div className="space-y-6">
-        <h1 className="text-huge font-gilroy font-bold text-blue-950">
-          Routes
-        </h1>
+        <h1 className="text-huge font-gilroy font-bold text-blue-950">Routes</h1>
         <Card className="border-destructive">
           <CardContent className="pt-6">
-            <p className="text-destructive font-gilroy">
-              Failed to load routes: {error.message}
-            </p>
+            <p className="text-destructive font-gilroy">Failed to load routes: {error.message}</p>
           </CardContent>
         </Card>
       </div>
@@ -735,9 +616,7 @@ export function RoutesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4 flex-1">
-          <h1 className="text-huge font-gilroy font-bold text-blue-950">
-            Routes
-          </h1>
+          <h1 className="text-huge font-gilroy font-bold text-blue-950">Routes</h1>
           <div className="h-1 flex-1 rounded-full gradient-accent-bar opacity-30" />
         </div>
         <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
@@ -770,18 +649,13 @@ export function RoutesPage() {
       <div className="flex flex-wrap items-end gap-3">
         {/* Domain Filter */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-gilroy text-charcoal-600">
-            Domain
-          </label>
+          <label className="text-small font-gilroy text-charcoal-600">Domain</label>
           <Select
             value={filters.domain || 'all'}
             onValueChange={value =>
               setFilters({
                 ...filters,
-                domain:
-                  value === 'all'
-                    ? undefined
-                    : (value as typeof filters.domain),
+                domain: value === 'all' ? undefined : (value as typeof filters.domain),
               })
             }
           >
@@ -807,18 +681,14 @@ export function RoutesPage() {
 
         {/* Search Input */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-gilroy text-charcoal-600">
-            Path
-          </label>
+          <label className="text-small font-gilroy text-charcoal-600">Path</label>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-charcoal-400" />
             <Input
               type="text"
               placeholder="Search paths..."
               value={filters.search || ''}
-              onChange={e =>
-                setFilters({ ...filters, search: e.target.value || undefined })
-              }
+              onChange={e => setFilters({ ...filters, search: e.target.value || undefined })}
               className="pl-8 w-48 font-gilroy"
             />
           </div>
@@ -826,18 +696,13 @@ export function RoutesPage() {
 
         {/* Type Filter */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-gilroy text-charcoal-600">
-            Type
-          </label>
+          <label className="text-small font-gilroy text-charcoal-600">Type</label>
           <Select
             value={filters.type || 'all'}
             onValueChange={value =>
               setFilters({
                 ...filters,
-                type:
-                  value === 'all'
-                    ? undefined
-                    : (value as 'redirect' | 'proxy' | 'r2'),
+                type: value === 'all' ? undefined : (value as 'redirect' | 'proxy' | 'r2'),
               })
             }
           >
@@ -863,17 +728,9 @@ export function RoutesPage() {
 
         {/* Enabled Filter */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-gilroy text-charcoal-600">
-            Status
-          </label>
+          <label className="text-small font-gilroy text-charcoal-600">Status</label>
           <Select
-            value={
-              filters.enabled === undefined
-                ? 'all'
-                : filters.enabled
-                  ? 'active'
-                  : 'disabled'
-            }
+            value={filters.enabled === undefined ? 'all' : filters.enabled ? 'active' : 'disabled'}
             onValueChange={value =>
               setFilters({
                 ...filters,
@@ -914,9 +771,7 @@ export function RoutesPage() {
 
       <Card className="border-border/50">
         <CardHeader>
-          <CardTitle className="font-gilroy font-semibold text-blue-950">
-            All Routes
-          </CardTitle>
+          <CardTitle className="font-gilroy font-semibold text-blue-950">All Routes</CardTitle>
           <CardDescription className="font-gilroy">
             {isLoading
               ? 'Loading...'
@@ -957,11 +812,7 @@ export function RoutesPage() {
               <TableBody>
                 {filteredRoutes.map(route => (
                   <TableRow
-                    key={
-                      route.domain
-                        ? `${route.domain}:${route.path}`
-                        : route.path
-                    }
+                    key={route.domain ? `${route.domain}:${route.path}` : route.path}
                     className="hover:bg-gold-50/50 transition-colors cursor-pointer"
                     onClick={() => setEditRoute(route)}
                   >
@@ -993,22 +844,14 @@ export function RoutesPage() {
                     <TableCell onClick={e => e.stopPropagation()}>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="hover:bg-blue-50"
-                          >
+                          <Button variant="ghost" size="icon" className="hover:bg-blue-50">
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           {route.type === 'redirect' && (
                             <DropdownMenuItem asChild className="font-gilroy">
-                              <a
-                                href={route.target}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                              >
+                              <a href={route.target} target="_blank" rel="noopener noreferrer">
                                 <ExternalLink className="h-4 w-4 mr-2" />
                                 Open Target
                               </a>
@@ -1092,10 +935,7 @@ export function RoutesPage() {
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog
-        open={!!deleteConfirmRoute}
-        onOpenChange={() => setDeleteConfirmRoute(null)}
-      >
+      <Dialog open={!!deleteConfirmRoute} onOpenChange={() => setDeleteConfirmRoute(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="font-gilroy font-semibold text-blue-950">
@@ -1103,10 +943,8 @@ export function RoutesPage() {
             </DialogTitle>
             <DialogDescription className="font-gilroy">
               Are you sure you want to delete the route{' '}
-              <code className="font-mono text-blue-600">
-                {deleteConfirmRoute?.path}
-              </code>
-              ? This action cannot be undone.
+              <code className="font-mono text-blue-600">{deleteConfirmRoute?.path}</code>? This
+              action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -1130,15 +968,10 @@ export function RoutesPage() {
       </Dialog>
 
       {/* Migration Confirmation Dialog */}
-      <AlertDialog
-        open={!!migrationConfirm}
-        onOpenChange={() => setMigrationConfirm(null)}
-      >
+      <AlertDialog open={!!migrationConfirm} onOpenChange={() => setMigrationConfirm(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="font-gilroy">
-              Confirm Path Change
-            </AlertDialogTitle>
+            <AlertDialogTitle className="font-gilroy">Confirm Path Change</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3">
                 <p>
@@ -1155,22 +988,17 @@ export function RoutesPage() {
                   <p className="font-medium">⚠️ Important:</p>
                   <ul className="list-disc list-inside mt-1 text-sm space-y-1">
                     <li>
-                      The old path will{' '}
-                      <strong>stop working immediately</strong>
+                      The old path will <strong>stop working immediately</strong>
                     </li>
                     <li>Any existing bookmarks or links will break</li>
-                    <li>
-                      The route's creation date and settings will be preserved
-                    </li>
+                    <li>The route's creation date and settings will be preserved</li>
                   </ul>
                 </div>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="font-gilroy">
-              Cancel
-            </AlertDialogCancel>
+            <AlertDialogCancel className="font-gilroy">Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleConfirmMigration}
               className="bg-blue-600 hover:bg-blue-700 font-gilroy"

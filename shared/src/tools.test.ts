@@ -13,9 +13,7 @@ import {
 describe('tools', () => {
   describe('toolDefinitions', () => {
     it('contains all route and analytics tools', () => {
-      expect(toolDefinitions.length).toBe(
-        routeTools.length + analyticsTools.length,
-      );
+      expect(toolDefinitions.length).toBe(routeTools.length + analyticsTools.length);
     });
 
     it('has all expected route tools', () => {

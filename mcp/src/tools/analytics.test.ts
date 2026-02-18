@@ -7,12 +7,7 @@ import type {
   PageView,
   PaginatedResponse,
 } from '@bifrost/shared';
-import {
-  getAnalyticsSummary,
-  getClicks,
-  getViews,
-  getSlugStats,
-} from './analytics.js';
+import { getAnalyticsSummary, getClicks, getViews, getSlugStats } from './analytics.js';
 
 describe('Analytics tool handlers', () => {
   let mockClient: EdgeRouterClient;
@@ -149,11 +144,7 @@ describe('Analytics tool handlers', () => {
     it('returns formatted analytics summary', async () => {
       vi.mocked(mockClient.getAnalyticsSummary).mockResolvedValue(mockSummary);
 
-      const result = await getAnalyticsSummary(
-        mockClient,
-        {},
-        'link.henrychong.com',
-      );
+      const result = await getAnalyticsSummary(mockClient, {}, 'link.henrychong.com');
 
       expect(result).toContain('Analytics Summary');
       expect(result).toContain('30d');
@@ -165,11 +156,7 @@ describe('Analytics tool handlers', () => {
     it('shows top clicks', async () => {
       vi.mocked(mockClient.getAnalyticsSummary).mockResolvedValue(mockSummary);
 
-      const result = await getAnalyticsSummary(
-        mockClient,
-        {},
-        'link.henrychong.com',
-      );
+      const result = await getAnalyticsSummary(mockClient, {}, 'link.henrychong.com');
 
       expect(result).toContain('Top Links');
       expect(result).toContain('/linkedin');
@@ -179,11 +166,7 @@ describe('Analytics tool handlers', () => {
     it('shows top pages', async () => {
       vi.mocked(mockClient.getAnalyticsSummary).mockResolvedValue(mockSummary);
 
-      const result = await getAnalyticsSummary(
-        mockClient,
-        {},
-        'link.henrychong.com',
-      );
+      const result = await getAnalyticsSummary(mockClient, {}, 'link.henrychong.com');
 
       expect(result).toContain('Top Pages');
       expect(result).toContain('2,000 views');
@@ -192,11 +175,7 @@ describe('Analytics tool handlers', () => {
     it('shows top countries', async () => {
       vi.mocked(mockClient.getAnalyticsSummary).mockResolvedValue(mockSummary);
 
-      const result = await getAnalyticsSummary(
-        mockClient,
-        {},
-        'link.henrychong.com',
-      );
+      const result = await getAnalyticsSummary(mockClient, {}, 'link.henrychong.com');
 
       expect(result).toContain('Top Countries');
       expect(result).toContain('US');
@@ -205,11 +184,7 @@ describe('Analytics tool handlers', () => {
     it('shows top referrers', async () => {
       vi.mocked(mockClient.getAnalyticsSummary).mockResolvedValue(mockSummary);
 
-      const result = await getAnalyticsSummary(
-        mockClient,
-        {},
-        'link.henrychong.com',
-      );
+      const result = await getAnalyticsSummary(mockClient, {}, 'link.henrychong.com');
 
       expect(result).toContain('Top Referrers');
       expect(result).toContain('twitter.com');
@@ -218,26 +193,16 @@ describe('Analytics tool handlers', () => {
     it('shows recent clicks with relative time', async () => {
       vi.mocked(mockClient.getAnalyticsSummary).mockResolvedValue(mockSummary);
 
-      const result = await getAnalyticsSummary(
-        mockClient,
-        {},
-        'link.henrychong.com',
-      );
+      const result = await getAnalyticsSummary(mockClient, {}, 'link.henrychong.com');
 
       expect(result).toContain('Recent Clicks');
       expect(result).toContain('/linkedin');
     });
 
     it('handles errors gracefully', async () => {
-      vi.mocked(mockClient.getAnalyticsSummary).mockRejectedValue(
-        new Error('Database error'),
-      );
+      vi.mocked(mockClient.getAnalyticsSummary).mockRejectedValue(new Error('Database error'));
 
-      const result = await getAnalyticsSummary(
-        mockClient,
-        {},
-        'link.henrychong.com',
-      );
+      const result = await getAnalyticsSummary(mockClient, {}, 'link.henrychong.com');
 
       expect(result).toContain('Error getting analytics summary');
       expect(result).toContain('Database error');
@@ -285,9 +250,7 @@ describe('Analytics tool handlers', () => {
     });
 
     it('handles errors gracefully', async () => {
-      vi.mocked(mockClient.getClicks).mockRejectedValue(
-        new Error('Query failed'),
-      );
+      vi.mocked(mockClient.getClicks).mockRejectedValue(new Error('Query failed'));
 
       const result = await getClicks(mockClient, {}, 'link.henrychong.com');
 
@@ -329,9 +292,7 @@ describe('Analytics tool handlers', () => {
     });
 
     it('handles errors gracefully', async () => {
-      vi.mocked(mockClient.getViews).mockRejectedValue(
-        new Error('Query failed'),
-      );
+      vi.mocked(mockClient.getViews).mockRejectedValue(new Error('Query failed'));
 
       const result = await getViews(mockClient, {}, 'henrychong.com');
 
@@ -344,27 +305,17 @@ describe('Analytics tool handlers', () => {
     it('returns formatted slug statistics', async () => {
       vi.mocked(mockClient.getSlugStats).mockResolvedValue(mockSlugStats);
 
-      const result = await getSlugStats(
-        mockClient,
-        { slug: '/linkedin' },
-        'link.henrychong.com',
-      );
+      const result = await getSlugStats(mockClient, { slug: '/linkedin' }, 'link.henrychong.com');
 
       expect(result).toContain('Statistics for /linkedin');
       expect(result).toContain('Total Clicks: 200');
-      expect(result).toContain(
-        'Target URL: https://linkedin.com/in/henrychong',
-      );
+      expect(result).toContain('Target URL: https://linkedin.com/in/henrychong');
     });
 
     it('shows top countries for slug', async () => {
       vi.mocked(mockClient.getSlugStats).mockResolvedValue(mockSlugStats);
 
-      const result = await getSlugStats(
-        mockClient,
-        { slug: '/linkedin' },
-        'link.henrychong.com',
-      );
+      const result = await getSlugStats(mockClient, { slug: '/linkedin' }, 'link.henrychong.com');
 
       expect(result).toContain('Top Countries');
       expect(result).toContain('US');
@@ -374,11 +325,7 @@ describe('Analytics tool handlers', () => {
     it('shows top referrers for slug', async () => {
       vi.mocked(mockClient.getSlugStats).mockResolvedValue(mockSlugStats);
 
-      const result = await getSlugStats(
-        mockClient,
-        { slug: '/linkedin' },
-        'link.henrychong.com',
-      );
+      const result = await getSlugStats(mockClient, { slug: '/linkedin' }, 'link.henrychong.com');
 
       expect(result).toContain('Top Referrers');
       expect(result).toContain('twitter.com');
@@ -387,26 +334,16 @@ describe('Analytics tool handlers', () => {
     it('shows recent activity by day', async () => {
       vi.mocked(mockClient.getSlugStats).mockResolvedValue(mockSlugStats);
 
-      const result = await getSlugStats(
-        mockClient,
-        { slug: '/linkedin' },
-        'link.henrychong.com',
-      );
+      const result = await getSlugStats(mockClient, { slug: '/linkedin' }, 'link.henrychong.com');
 
       expect(result).toContain('Recent Activity');
       expect(result).toContain('2026-01-10');
     });
 
     it('handles errors gracefully', async () => {
-      vi.mocked(mockClient.getSlugStats).mockRejectedValue(
-        new Error('Slug not found'),
-      );
+      vi.mocked(mockClient.getSlugStats).mockRejectedValue(new Error('Slug not found'));
 
-      const result = await getSlugStats(
-        mockClient,
-        { slug: '/notfound' },
-        'link.henrychong.com',
-      );
+      const result = await getSlugStats(mockClient, { slug: '/notfound' }, 'link.henrychong.com');
 
       expect(result).toContain('Error getting slug statistics');
       expect(result).toContain('Slug not found');

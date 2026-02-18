@@ -18,14 +18,9 @@ import { SUPPORTED_DOMAINS, R2_BUCKETS } from './types.js';
 export const DomainSchema = z
   .string()
   .optional()
-  .refine(
-    val =>
-      !val ||
-      SUPPORTED_DOMAINS.includes(val as (typeof SUPPORTED_DOMAINS)[number]),
-    {
-      message: `Domain must be one of: ${SUPPORTED_DOMAINS.join(', ')}`,
-    },
-  );
+  .refine(val => !val || SUPPORTED_DOMAINS.includes(val as (typeof SUPPORTED_DOMAINS)[number]), {
+    message: `Domain must be one of: ${SUPPORTED_DOMAINS.join(', ')}`,
+  });
 
 // =============================================================================
 // Route Schemas
@@ -55,31 +50,14 @@ export const R2BucketSchema = z.enum(R2_BUCKETS);
  * Full route configuration schema (from API response)
  */
 export const RouteSchema = z.object({
-  path: z
-    .string()
-    .min(1)
-    .startsWith('/')
-    .describe('URL path pattern (e.g., "/github", "/blog/*")'),
+  path: z.string().min(1).startsWith('/').describe('URL path pattern (e.g., "/github", "/blog/*")'),
   type: RouteTypeSchema.describe('Route handler type'),
   target: z.string().min(1).describe('Target URL or R2 object key'),
-  statusCode: RedirectStatusCodeSchema.optional().describe(
-    'HTTP redirect status code',
-  ),
-  preserveQuery: z
-    .boolean()
-    .optional()
-    .default(true)
-    .describe('Preserve query params on redirect'),
-  preservePath: z
-    .boolean()
-    .optional()
-    .default(false)
-    .describe('Preserve path for wildcard routes'),
+  statusCode: RedirectStatusCodeSchema.optional().describe('HTTP redirect status code'),
+  preserveQuery: z.boolean().optional().default(true).describe('Preserve query params on redirect'),
+  preservePath: z.boolean().optional().default(false).describe('Preserve path for wildcard routes'),
   cacheControl: z.string().optional().describe('Cache-Control header value'),
-  hostHeader: z
-    .string()
-    .optional()
-    .describe('Override Host header for proxy requests'),
+  hostHeader: z.string().optional().describe('Override Host header for proxy requests'),
   forceDownload: z
     .boolean()
     .optional()
@@ -88,11 +66,7 @@ export const RouteSchema = z.object({
   bucket: R2BucketSchema.optional().describe(
     'R2 bucket for file serving (R2 only, default: "files")',
   ),
-  enabled: z
-    .boolean()
-    .optional()
-    .default(true)
-    .describe('Enable/disable route'),
+  enabled: z.boolean().optional().default(true).describe('Enable/disable route'),
   createdAt: z.number().describe('Creation timestamp (Unix seconds)'),
   updatedAt: z.number().describe('Last update timestamp (Unix seconds)'),
 });
@@ -101,31 +75,14 @@ export const RouteSchema = z.object({
  * Schema for creating a new route
  */
 export const CreateRouteInputSchema = z.object({
-  path: z
-    .string()
-    .min(1)
-    .startsWith('/')
-    .describe('URL path pattern starting with /'),
+  path: z.string().min(1).startsWith('/').describe('URL path pattern starting with /'),
   type: RouteTypeSchema.describe('Route type: redirect, proxy, or r2'),
   target: z.string().min(1).describe('Target URL or R2 object key'),
-  statusCode: RedirectStatusCodeSchema.optional().describe(
-    'HTTP status code (301, 302, 307, 308)',
-  ),
-  preserveQuery: z
-    .boolean()
-    .optional()
-    .default(true)
-    .describe('Preserve query params on redirect'),
-  preservePath: z
-    .boolean()
-    .optional()
-    .default(false)
-    .describe('Preserve path for wildcard routes'),
+  statusCode: RedirectStatusCodeSchema.optional().describe('HTTP status code (301, 302, 307, 308)'),
+  preserveQuery: z.boolean().optional().default(true).describe('Preserve query params on redirect'),
+  preservePath: z.boolean().optional().default(false).describe('Preserve path for wildcard routes'),
   cacheControl: z.string().optional().describe('Cache-Control header value'),
-  hostHeader: z
-    .string()
-    .optional()
-    .describe('Override Host header for proxy requests'),
+  hostHeader: z.string().optional().describe('Override Host header for proxy requests'),
   forceDownload: z
     .boolean()
     .optional()
@@ -134,44 +91,25 @@ export const CreateRouteInputSchema = z.object({
   bucket: R2BucketSchema.optional().describe(
     'R2 bucket for file serving (R2 only, default: "files")',
   ),
-  enabled: z
-    .boolean()
-    .optional()
-    .default(true)
-    .describe('Enable/disable route'),
+  enabled: z.boolean().optional().default(true).describe('Enable/disable route'),
 });
 
 /**
  * Schema for updating an existing route
  */
 export const UpdateRouteInputSchema = z.object({
-  type: RouteTypeSchema.optional().describe(
-    'Route type: redirect, proxy, or r2',
-  ),
+  type: RouteTypeSchema.optional().describe('Route type: redirect, proxy, or r2'),
   target: z.string().min(1).optional().describe('Target URL or R2 object key'),
-  statusCode: RedirectStatusCodeSchema.optional().describe(
-    'HTTP status code (301, 302, 307, 308)',
-  ),
-  preserveQuery: z
-    .boolean()
-    .optional()
-    .describe('Preserve query params on redirect'),
-  preservePath: z
-    .boolean()
-    .optional()
-    .describe('Preserve path for wildcard routes'),
+  statusCode: RedirectStatusCodeSchema.optional().describe('HTTP status code (301, 302, 307, 308)'),
+  preserveQuery: z.boolean().optional().describe('Preserve query params on redirect'),
+  preservePath: z.boolean().optional().describe('Preserve path for wildcard routes'),
   cacheControl: z.string().optional().describe('Cache-Control header value'),
-  hostHeader: z
-    .string()
-    .optional()
-    .describe('Override Host header for proxy requests'),
+  hostHeader: z.string().optional().describe('Override Host header for proxy requests'),
   forceDownload: z
     .boolean()
     .optional()
     .describe('Force browser to download instead of display inline (R2 only)'),
-  bucket: R2BucketSchema.optional().describe(
-    'R2 bucket for file serving (R2 only)',
-  ),
+  bucket: R2BucketSchema.optional().describe('R2 bucket for file serving (R2 only)'),
   enabled: z.boolean().optional().describe('Enable/disable route'),
 });
 
@@ -184,13 +122,7 @@ export const UpdateRouteInputSchema = z.object({
  */
 export const AnalyticsSummaryQuerySchema = z.object({
   domain: DomainSchema.describe('Filter by domain'),
-  days: z
-    .number()
-    .min(1)
-    .max(365)
-    .optional()
-    .default(30)
-    .describe('Time range in days'),
+  days: z.number().min(1).max(365).optional().default(30).describe('Time range in days'),
 });
 
 /**
@@ -198,20 +130,8 @@ export const AnalyticsSummaryQuerySchema = z.object({
  */
 export const AnalyticsListQuerySchema = z.object({
   domain: DomainSchema.describe('Filter by domain'),
-  days: z
-    .number()
-    .min(1)
-    .max(365)
-    .optional()
-    .default(30)
-    .describe('Time range in days'),
-  limit: z
-    .number()
-    .min(1)
-    .max(1000)
-    .optional()
-    .default(100)
-    .describe('Results per page'),
+  days: z.number().min(1).max(365).optional().default(30).describe('Time range in days'),
+  limit: z.number().min(1).max(1000).optional().default(100).describe('Results per page'),
   offset: z.number().min(0).optional().default(0).describe('Pagination offset'),
   slug: z.string().optional().describe('Filter clicks by slug'),
   path: z.string().optional().describe('Filter views by path'),
@@ -229,13 +149,7 @@ export const AnalyticsListQuerySchema = z.object({
 export const SlugStatsQuerySchema = z.object({
   slug: z.string().startsWith('/').describe('Link slug starting with /'),
   domain: DomainSchema.describe('Filter by domain'),
-  days: z
-    .number()
-    .min(1)
-    .max(365)
-    .optional()
-    .default(30)
-    .describe('Time range in days'),
+  days: z.number().min(1).max(365).optional().default(30).describe('Time range in days'),
 });
 
 // =============================================================================
@@ -266,25 +180,11 @@ export const CreateRouteToolInputSchema = z.object({
   path: z.string().startsWith('/').describe('Route path starting with /'),
   type: RouteTypeSchema.describe('Route type: redirect, proxy, or r2'),
   target: z.string().min(1).describe('Target URL or R2 key'),
-  statusCode: z
-    .number()
-    .optional()
-    .describe('HTTP status (301/302/307/308) for redirects'),
-  preserveQuery: z
-    .boolean()
-    .optional()
-    .default(true)
-    .describe('Preserve query params on redirect'),
-  preservePath: z
-    .boolean()
-    .optional()
-    .default(false)
-    .describe('Preserve path for wildcard routes'),
+  statusCode: z.number().optional().describe('HTTP status (301/302/307/308) for redirects'),
+  preserveQuery: z.boolean().optional().default(true).describe('Preserve query params on redirect'),
+  preservePath: z.boolean().optional().default(false).describe('Preserve path for wildcard routes'),
   cacheControl: z.string().optional().describe('Cache-Control header'),
-  hostHeader: z
-    .string()
-    .optional()
-    .describe('Override Host header for proxy requests'),
+  hostHeader: z.string().optional().describe('Override Host header for proxy requests'),
   forceDownload: z
     .boolean()
     .optional()
@@ -307,17 +207,9 @@ export const UpdateRouteToolInputSchema = z.object({
   preserveQuery: z.boolean().optional().describe('New preserve query setting'),
   preservePath: z.boolean().optional().describe('New preserve path setting'),
   cacheControl: z.string().optional().describe('New Cache-Control header'),
-  hostHeader: z
-    .string()
-    .optional()
-    .describe('New Host header override for proxy routes'),
-  forceDownload: z
-    .boolean()
-    .optional()
-    .describe('New force download setting (R2 only)'),
-  bucket: R2BucketSchema.optional().describe(
-    'R2 bucket for file serving (R2 only)',
-  ),
+  hostHeader: z.string().optional().describe('New Host header override for proxy routes'),
+  forceDownload: z.boolean().optional().describe('New force download setting (R2 only)'),
+  bucket: R2BucketSchema.optional().describe('R2 bucket for file serving (R2 only)'),
   domain: DomainSchema.describe('Target domain'),
 });
 
@@ -343,13 +235,7 @@ export const ToggleRouteInputSchema = z.object({
  */
 export const GetAnalyticsSummaryInputSchema = z.object({
   domain: DomainSchema.describe('Filter by domain'),
-  days: z
-    .number()
-    .min(1)
-    .max(365)
-    .optional()
-    .default(30)
-    .describe('Time range in days'),
+  days: z.number().min(1).max(365).optional().default(30).describe('Time range in days'),
 });
 
 /**
@@ -357,20 +243,8 @@ export const GetAnalyticsSummaryInputSchema = z.object({
  */
 export const GetClicksInputSchema = z.object({
   domain: DomainSchema.describe('Filter by domain'),
-  days: z
-    .number()
-    .min(1)
-    .max(365)
-    .optional()
-    .default(30)
-    .describe('Time range in days'),
-  limit: z
-    .number()
-    .min(1)
-    .max(100)
-    .optional()
-    .default(50)
-    .describe('Results per page'),
+  days: z.number().min(1).max(365).optional().default(30).describe('Time range in days'),
+  limit: z.number().min(1).max(100).optional().default(50).describe('Results per page'),
   offset: z.number().min(0).optional().default(0).describe('Pagination offset'),
   slug: z.string().optional().describe('Filter by specific slug'),
   country: z.string().length(2).optional().describe('Filter by country code'),
@@ -381,20 +255,8 @@ export const GetClicksInputSchema = z.object({
  */
 export const GetViewsInputSchema = z.object({
   domain: DomainSchema.describe('Filter by domain'),
-  days: z
-    .number()
-    .min(1)
-    .max(365)
-    .optional()
-    .default(30)
-    .describe('Time range in days'),
-  limit: z
-    .number()
-    .min(1)
-    .max(100)
-    .optional()
-    .default(50)
-    .describe('Results per page'),
+  days: z.number().min(1).max(365).optional().default(30).describe('Time range in days'),
+  limit: z.number().min(1).max(100).optional().default(50).describe('Results per page'),
   offset: z.number().min(0).optional().default(0).describe('Pagination offset'),
   path: z.string().optional().describe('Filter by specific path'),
   country: z.string().length(2).optional().describe('Filter by country code'),
@@ -406,13 +268,7 @@ export const GetViewsInputSchema = z.object({
 export const GetSlugStatsInputSchema = z.object({
   slug: z.string().startsWith('/').describe("Link slug (e.g., '/linkedin')"),
   domain: DomainSchema.describe('Filter by domain'),
-  days: z
-    .number()
-    .min(1)
-    .max(365)
-    .optional()
-    .default(30)
-    .describe('Time range in days'),
+  days: z.number().min(1).max(365).optional().default(30).describe('Time range in days'),
 });
 
 // =============================================================================
@@ -428,9 +284,7 @@ export type CreateRouteToolInput = z.infer<typeof CreateRouteToolInputSchema>;
 export type UpdateRouteToolInput = z.infer<typeof UpdateRouteToolInputSchema>;
 export type DeleteRouteInput = z.infer<typeof DeleteRouteInputSchema>;
 export type ToggleRouteInput = z.infer<typeof ToggleRouteInputSchema>;
-export type GetAnalyticsSummaryInput = z.infer<
-  typeof GetAnalyticsSummaryInputSchema
->;
+export type GetAnalyticsSummaryInput = z.infer<typeof GetAnalyticsSummaryInputSchema>;
 export type GetClicksInput = z.infer<typeof GetClicksInputSchema>;
 export type GetViewsInput = z.infer<typeof GetViewsInputSchema>;
 export type GetSlugStatsInput = z.infer<typeof GetSlugStatsInputSchema>;

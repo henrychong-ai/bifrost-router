@@ -129,8 +129,6 @@ export async function sendBackupAlert(
   });
 
   if (!response.ok) {
-    console.error(
-      `[Backup] Failed to send Slack alert: ${response.status} ${response.statusText}`,
-    );
+    console.error(`[Backup] Failed to send Slack alert: ${response.status} ${response.statusText}`);
   }
 }

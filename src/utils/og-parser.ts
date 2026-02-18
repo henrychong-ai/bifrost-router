@@ -131,22 +131,10 @@ export function validateUrlForSSRF(urlString: string): URL {
 
 function extractMetaContent(html: string, property: string): string | null {
   const patterns = [
-    new RegExp(
-      `<meta[^>]*property=["']${property}["'][^>]*content=["']([^"']+)["']`,
-      'i',
-    ),
-    new RegExp(
-      `<meta[^>]*content=["']([^"']+)["'][^>]*property=["']${property}["']`,
-      'i',
-    ),
-    new RegExp(
-      `<meta[^>]*name=["']${property}["'][^>]*content=["']([^"']+)["']`,
-      'i',
-    ),
-    new RegExp(
-      `<meta[^>]*content=["']([^"']+)["'][^>]*name=["']${property}["']`,
-      'i',
-    ),
+    new RegExp(`<meta[^>]*property=["']${property}["'][^>]*content=["']([^"']+)["']`, 'i'),
+    new RegExp(`<meta[^>]*content=["']([^"']+)["'][^>]*property=["']${property}["']`, 'i'),
+    new RegExp(`<meta[^>]*name=["']${property}["'][^>]*content=["']([^"']+)["']`, 'i'),
+    new RegExp(`<meta[^>]*content=["']([^"']+)["'][^>]*name=["']${property}["']`, 'i'),
   ];
 
   for (const pattern of patterns) {
@@ -173,9 +161,7 @@ function decodeHtmlEntities(text: string): string {
     .replace(/&#39;/g, "'")
     .replace(/&nbsp;/g, ' ')
     .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num, 10)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
-      String.fromCharCode(parseInt(hex, 16)),
-    );
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
 }
 
 function resolveUrl(base: string, relative: string | null): string | null {
@@ -193,19 +179,14 @@ function resolveUrl(base: string, relative: string | null): string | null {
 /**
  * Read response body with size limit to prevent memory exhaustion
  */
-async function readResponseWithSizeLimit(
-  response: Response,
-  maxSize: number,
-): Promise<string> {
+async function readResponseWithSizeLimit(response: Response, maxSize: number): Promise<string> {
   const contentLength = response.headers.get('content-length');
 
   // Check content-length header first if available
   if (contentLength) {
     const size = parseInt(contentLength, 10);
     if (!isNaN(size) && size > maxSize) {
-      throw new ResponseTooLargeError(
-        `Response too large: ${size} bytes (max: ${maxSize})`,
-      );
+      throw new ResponseTooLargeError(`Response too large: ${size} bytes (max: ${maxSize})`);
     }
   }
 
@@ -225,9 +206,7 @@ async function readResponseWithSizeLimit(
 
       totalSize += value.length;
       if (totalSize > maxSize) {
-        throw new ResponseTooLargeError(
-          `Response too large: exceeded ${maxSize} bytes`,
-        );
+        throw new ResponseTooLargeError(`Response too large: exceeded ${maxSize} bytes`);
       }
 
       chunks.push(value);
@@ -279,16 +258,11 @@ export async function parseOpenGraph(url: string): Promise<OpenGraphData> {
     });
 
     // Handle redirects manually to prevent SSRF via redirect
-    if (
-      response.status >= 300 &&
-      response.status < 400 &&
-      response.headers.get('location')
-    ) {
+    if (response.status >= 300 && response.status < 400 && response.headers.get('location')) {
       const redirectUrl = response.headers.get('location');
       if (redirectUrl) {
         // Resolve relative redirect URLs
-        const absoluteRedirectUrl = new URL(redirectUrl, validatedUrl.href)
-          .href;
+        const absoluteRedirectUrl = new URL(redirectUrl, validatedUrl.href).href;
         // Validate redirect target for SSRF
         validateUrlForSSRF(absoluteRedirectUrl);
         // Recursively fetch the redirect target (with max 1 redirect)
@@ -325,12 +299,10 @@ export async function parseOpenGraph(url: string): Promise<OpenGraphData> {
       extractMetaContent(html, 'description');
 
     const ogImage =
-      extractMetaContent(html, 'og:image') ??
-      extractMetaContent(html, 'twitter:image');
+      extractMetaContent(html, 'og:image') ?? extractMetaContent(html, 'twitter:image');
 
     const ogSiteName =
-      extractMetaContent(html, 'og:site_name') ??
-      extractMetaContent(html, 'application-name');
+      extractMetaContent(html, 'og:site_name') ?? extractMetaContent(html, 'application-name');
 
     const ogUrl = extractMetaContent(html, 'og:url');
 
