@@ -1,0 +1,40 @@
+# Docker build context: only admin/, shared/, and root workspace files needed
+# Everything else is excluded to minimise context size (~90% reduction)
+
+# Version control
+.git
+.gitignore
+
+# CI/CD and tooling
+.github
+.husky
+coverage
+
+# Worker source (not needed for dashboard build)
+src
+test
+drizzle
+openapi
+scripts
+
+# Other packages (not needed for dashboard build)
+mcp
+slackbot
+
+# Config files (not needed in build)
+biome.json
+oxlint.json
+tsconfig.json
+vitest.config.ts
+drizzle.config.ts
+wrangler.toml
+openapitools.json
+.nvmrc
+
+# Documentation
+*.md
+!admin/**/*.md
+!shared/**/*.md
+
+# OS files
+node_modules
