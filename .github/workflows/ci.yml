@@ -1,29 +1,36 @@
 # CI Pipeline for Bifrost
-# Runs build, lint, typecheck, and tests on pull requests
+# Runs build, lint, typecheck, and tests on all pushes and pull requests
 # For a full CI/CD pipeline with deployment, see ci-cd.yml.example
 
 name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   build-lint-test:
     name: Build, Lint & Test
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: '.nvmrc'
           cache: 'pnpm'
