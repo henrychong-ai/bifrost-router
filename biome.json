@@ -4,7 +4,7 @@
     "enabled": true,
     "indentStyle": "space",
     "indentWidth": 2,
-    "lineWidth": 100,
+    "lineWidth": 80,
     "lineEnding": "lf"
   },
   "javascript": {
@@ -25,6 +25,11 @@
       "cssModules": false,
       "tailwindDirectives": true
     }
+  },
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
   },
   "linter": {
     "enabled": false
