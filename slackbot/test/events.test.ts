@@ -11,16 +11,19 @@ import type { EdgeRouterClient } from '@bifrost/shared';
 // Mock EdgeRouterClient
 function createMockClient(): EdgeRouterClient {
   return {
-    listRoutes: vi.fn().mockResolvedValue([
-      {
-        path: '/github',
-        type: 'redirect',
-        target: 'https://github.com/user',
-        enabled: true,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-    ]),
+    listRoutes: vi.fn().mockResolvedValue({
+      routes: [
+        {
+          path: '/github',
+          type: 'redirect',
+          target: 'https://github.com/user',
+          enabled: true,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      ],
+      total: 1,
+    }),
     getRoute: vi.fn().mockResolvedValue({
       path: '/github',
       type: 'redirect',
