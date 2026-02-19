@@ -7,7 +7,7 @@
 > A free, self-hosted alternative to bit.ly and Rebrandly — built on Cloudflare Workers with zero server costs
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-450%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-623%20passing-brightgreen)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)](https://www.typescriptlang.org/)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-orange)](https://workers.cloudflare.com/)
 
@@ -365,7 +365,7 @@ All admin endpoints require `X-Admin-Key` header or `Authorization: Bearer <key>
 
 ```bash
 pnpm run dev          # Local dev server (localhost:8787)
-pnpm run test         # Run all tests (450 tests)
+pnpm run test         # Run all tests (623 tests)
 pnpm run typecheck    # TypeScript check
 pnpm run lint         # Lint all packages
 pnpm run deploy:dev   # Deploy to dev environment
@@ -385,7 +385,7 @@ pnpm run deploy:dev   # Deploy to dev environment
 | **Database** | Cloudflare D1 (analytics) | — |
 | **Object Storage** | Cloudflare R2 | — |
 | **Testing** | Vitest + @cloudflare/vitest-pool-workers | 3.1.0 / 0.8.0 |
-| **Linting** | ESLint 9 (flat config) + typescript-eslint | 9.39.2 / 8.54.0 |
+| **Linting** | Oxlint + Biome (formatter) | — |
 | **Package Manager** | pnpm (workspaces) | 10.20.0 |
 | **Admin Dashboard** | React 19 + Vite 7 + Tailwind CSS 4 + shadcn/ui | — |
 

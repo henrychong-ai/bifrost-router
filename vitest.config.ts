@@ -13,7 +13,7 @@ export default defineWorkersConfig({
             ADMIN_API_KEY: 'test-api-key-12345',
           },
           kvNamespaces: ['ROUTES'],
-          r2Buckets: ['FILES_BUCKET'],
+          r2Buckets: ['FILES_BUCKET', 'BACKUP_BUCKET'],
           d1Databases: ['DB'],
         },
       },

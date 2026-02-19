@@ -51,7 +51,8 @@
       "!**/coverage/**",
       "!**/pnpm-lock.yaml",
       "!**/*.min.js",
-      "!**/*.bundle.js"
+      "!**/*.bundle.js",
+      "!**/.pnpm-store/**"
     ]
   }
 }

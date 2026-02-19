@@ -1,6 +1,6 @@
 {
   "name": "bifrost",
-  "version": "1.11.8",
+  "version": "1.11.9",
   "description": "Bifrost - Edge router with Cloudflare Workers and Hono",
   "type": "module",
   "private": true,
@@ -13,7 +13,7 @@
     "lint:fix": "oxlint --ignore-pattern 'scripts/**' --fix --max-warnings=0",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "check": "pnpm lint && pnpm format:check && pnpm typecheck",
+    "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm run test",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

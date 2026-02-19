@@ -23,7 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 pnpm run dev           # Local dev server (localhost:8787)
-pnpm run test          # Run all tests (~455 across root, shared, mcp, slackbot)
+pnpm run test          # Run all tests (~623 across root, shared, mcp, slackbot)
 pnpm run typecheck     # TypeScript check
 pnpm run lint          # Lint (oxlint)
 pnpm run lint:fix      # Auto-fix lint issues
@@ -111,11 +111,13 @@ Tests use **Vitest** with `@cloudflare/vitest-pool-workers`, which runs tests in
 test/
 ├── fixtures.ts          # Shared test data
 ├── helpers.ts           # KV seeding utilities
+├── backup/              # R2 backup system tests (kv, d1, retention, manifest, scheduled)
+├── db/                  # D1 recording and query tests
 ├── handlers/            # redirect, proxy, r2 handler tests
-├── kv/                  # KV lookup and CRUD tests
-├── middleware/           # CORS, rate limiting tests
+├── kv/                  # KV schema, lookup, and CRUD tests
+├── middleware/           # CORS, rate limiting, secure headers tests
 ├── routes/              # Admin API and analytics API tests
-└── utils/               # Security utility tests
+└── utils/               # Security utility tests (crypto, path, URL, OG parser)
 ```
 
 ### Domain Configuration

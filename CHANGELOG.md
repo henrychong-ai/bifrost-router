@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## v1.11.9 (2026-02-20)
+- Comprehensive test coverage expansion: 455 → 623 tests (+168 new tests across 9 new test files)
+- New tests: KV schema validation (36), KV route CRUD (27), DB recording functions (16), DB analytics queries (60), backup KV (5), backup D1 (5), backup retention (7), backup manifest (5), backup scheduled handler (7)
+- Infrastructure: Added `.pnpm-store` exclusion to Biome, `BACKUP_BUCKET` to vitest R2 pool, `test` step in `check` script
+- Fixed: merge conflict in shared schemas test
+
 ## v1.11.8 (2026-02-13)
 - Tooling: Migrate from ESLint to Oxlint (primary linter) + Biome (formatter)
 - Added `oxlint.json` with native plugins (import, promise, node, vitest, react, jsx-a11y)
