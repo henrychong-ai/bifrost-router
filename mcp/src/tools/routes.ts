@@ -14,23 +14,6 @@ function formatRoute(route: Route): string {
 }
 
 /**
- * Format a list of routes for display
- */
-function formatRouteList(routes: Route[], domain: string): string {
-  if (routes.length === 0) {
-    return `No routes configured for ${domain}`;
-  }
-
-  const lines = [
-    `Routes for ${domain} (${routes.length} total):`,
-    '',
-    ...routes.map((r, i) => `${i + 1}. ${formatRoute(r)}`),
-  ];
-
-  return lines.join('\n');
-}
-
-/**
  * Format route details for display
  */
 function formatRouteDetails(route: Route, domain: string): string {
@@ -74,7 +57,7 @@ function formatRouteDetails(route: Route, domain: string): string {
  */
 export async function listRoutes(
   client: EdgeRouterClient,
-  args: { domain?: string },
+  args: { domain?: string; search?: string; limit?: number; offset?: number },
   defaultDomain?: string,
 ): Promise<string> {
   const domain = args.domain || defaultDomain;
@@ -83,8 +66,32 @@ export async function listRoutes(
   }
 
   try {
-    const routes = await client.listRoutes(domain);
-    return formatRouteList(routes, domain);
+    const { routes, total } = await client.listRoutes(domain, {
+      search: args.search,
+      limit: args.limit,
+      offset: args.offset,
+    });
+
+    if (routes.length === 0) {
+      if (args.search) {
+        return `No routes matching "${args.search}" for ${domain}`;
+      }
+      return `No routes configured for ${domain}`;
+    }
+
+    const lines = [`Routes for ${domain} (${routes.length} of ${total} total):`];
+    if (args.search) {
+      lines[0] = `Routes matching "${args.search}" for ${domain} (${routes.length} of ${total} total):`;
+    }
+    lines.push('');
+    lines.push(...routes.map((r, i) => `${(args.offset || 0) + i + 1}. ${formatRoute(r)}`));
+
+    if (args.limit && (args.offset || 0) + routes.length < total) {
+      lines.push('');
+      lines.push(`... ${total - (args.offset || 0) - routes.length} more routes available`);
+    }
+
+    return lines.join('\n');
   } catch (error) {
     return `Error listing routes: ${error instanceof Error ? error.message : String(error)}`;
   }

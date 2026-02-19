@@ -9,6 +9,7 @@ import { CommandPalette } from '@/components/command-palette';
 import {
   DashboardPage,
   RoutesPage,
+  StoragePage,
   RedirectsPage,
   ViewsPage,
   DownloadsPage,
@@ -26,6 +27,7 @@ function App() {
               <Route element={<AppLayout />}>
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/routes" element={<RoutesPage />} />
+                <Route path="/storage" element={<StoragePage />} />
                 <Route path="/analytics/redirects" element={<RedirectsPage />} />
                 <Route path="/analytics/views" element={<ViewsPage />} />
                 <Route path="/analytics/downloads" element={<DownloadsPage />} />

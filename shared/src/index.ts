@@ -17,6 +17,17 @@ export {
   RouteSchema,
   CreateRouteInputSchema,
   UpdateRouteInputSchema,
+  // Routes list query schema
+  RoutesListQuerySchema,
+  // R2 storage schemas
+  AllR2BucketSchema,
+  R2ListObjectsInputSchema,
+  R2UploadInputSchema,
+  R2RenameInputSchema,
+  R2UpdateMetadataInputSchema,
+  R2ObjectKeyInputSchema,
+  R2GetObjectInputSchema,
+  R2DeleteObjectInputSchema,
   // Analytics query schemas
   AnalyticsSummaryQuerySchema,
   AnalyticsListQuerySchema,
@@ -36,6 +47,7 @@ export {
   GetViewsInputSchema,
   GetSlugStatsInputSchema,
   // Inferred types from schemas (renamed to avoid conflicts)
+  type RoutesListQuery,
   type ListRoutesInput,
   type GetRouteInput,
   type CreateRouteToolInput,
@@ -46,6 +58,13 @@ export {
   type GetClicksInput,
   type GetViewsInput,
   type GetSlugStatsInput,
+  type R2ListObjectsInput,
+  type R2UploadInput,
+  type R2RenameInput,
+  type R2UpdateMetadataInput,
+  type R2ObjectKeyInput,
+  type R2GetObjectInput,
+  type R2DeleteObjectInput,
   type AuditAction,
 } from './schemas.js';
 
@@ -67,6 +86,7 @@ export {
   getToolsByCategory,
   routeTools,
   analyticsTools,
+  storageTools,
 } from './tools.js';
 export type {
   ToolDefinition,

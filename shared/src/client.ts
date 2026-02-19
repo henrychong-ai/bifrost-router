@@ -17,6 +17,11 @@ import type {
   ApiResponse,
   PaginatedApiResponse,
   AnalyticsQueryOptions,
+  R2ObjectInfo,
+  R2ListResponse,
+  R2BucketsResponse,
+  R2ListObjectsParams,
+  R2UpdateMetadataParams,
 } from './types.js';
 
 /**
@@ -141,15 +146,22 @@ export class EdgeRouterClient {
   // ===========================================================================
 
   /**
-   * List all routes for a domain
+   * List routes for a domain with optional search and pagination
    */
-  async listRoutes(domain?: string): Promise<Route[]> {
+  async listRoutes(
+    domain?: string,
+    options?: { search?: string; limit?: number; offset?: number },
+  ): Promise<{ routes: Route[]; total: number }> {
     const effectiveDomain = this.getDomain(domain);
-    // The API returns { routes: Route[], total: number }
     const response = await this.request<{ routes: Route[]; total: number }>('GET', '/api/routes', {
-      params: effectiveDomain ? { domain: effectiveDomain } : undefined,
+      params: {
+        ...(effectiveDomain && { domain: effectiveDomain }),
+        ...(options?.search && { search: options.search }),
+        ...(options?.limit !== undefined && { limit: options.limit }),
+        ...(options?.offset !== undefined && { offset: options.offset }),
+      },
     });
-    return response.routes;
+    return response;
   }
 
   /**
@@ -298,6 +310,157 @@ export class EdgeRouterClient {
         },
       },
     );
+  }
+
+  // ===========================================================================
+  // Storage Management
+  // ===========================================================================
+
+  /**
+   * Make a raw request (for binary downloads)
+   */
+  private async requestRaw(
+    method: string,
+    path: string,
+    params?: Record<string, string | number | undefined>,
+  ): Promise<Response> {
+    const url = new URL(`${this.baseUrl}${path}`);
+    if (params) {
+      for (const [key, value] of Object.entries(params)) {
+        if (value !== undefined) url.searchParams.set(key, String(value));
+      }
+    }
+    const response = await this.fetch(url.toString(), {
+      method,
+      headers: { 'X-Admin-Key': this.apiKey },
+    });
+    if (!response.ok) {
+      let errorMsg = response.statusText;
+      try {
+        const data = await response.json();
+        errorMsg = (data as ApiResponse).error ?? errorMsg;
+      } catch {
+        /* ignore parse errors */
+      }
+      throw new EdgeRouterError(errorMsg, response.status);
+    }
+    return response;
+  }
+
+  /**
+   * Make a multipart form data request (for uploads)
+   */
+  private async requestMultipart<T>(path: string, formData: FormData): Promise<T> {
+    const url = new URL(`${this.baseUrl}${path}`);
+    const response = await this.fetch(url.toString(), {
+      method: 'POST',
+      headers: { 'X-Admin-Key': this.apiKey },
+      body: formData,
+    });
+    let data: ApiResponse<T>;
+    try {
+      data = await response.json();
+    } catch {
+      throw new EdgeRouterError(
+        `Failed to parse response: ${response.statusText}`,
+        response.status,
+      );
+    }
+    if (!response.ok || !data.success) {
+      throw new EdgeRouterError(
+        data.error ?? `Request failed: ${response.statusText}`,
+        response.status,
+        data.details,
+      );
+    }
+    return data.data as T;
+  }
+
+  /**
+   * List all R2 buckets with access levels
+   */
+  async listBuckets(): Promise<R2BucketsResponse> {
+    return this.request<R2BucketsResponse>('GET', '/api/storage/buckets');
+  }
+
+  /**
+   * List objects in an R2 bucket
+   */
+  async listObjects(bucket: string, params?: R2ListObjectsParams): Promise<R2ListResponse> {
+    return this.request<R2ListResponse>('GET', `/api/storage/${bucket}/objects`, {
+      params: {
+        prefix: params?.prefix,
+        cursor: params?.cursor,
+        limit: params?.limit,
+        delimiter: params?.delimiter,
+      },
+    });
+  }
+
+  /**
+   * Get object metadata
+   */
+  async getObjectMeta(bucket: string, key: string): Promise<R2ObjectInfo> {
+    return this.request<R2ObjectInfo>('GET', `/api/storage/${bucket}/meta/${key}`);
+  }
+
+  /**
+   * Download an object (returns raw response)
+   */
+  async downloadObject(
+    bucket: string,
+    key: string,
+  ): Promise<{ meta: R2ObjectInfo; body: ArrayBuffer }> {
+    const meta = await this.getObjectMeta(bucket, key);
+    const response = await this.requestRaw('GET', `/api/storage/${bucket}/objects/${key}`);
+    const body = await response.arrayBuffer();
+    return { meta, body };
+  }
+
+  /**
+   * Upload an object via multipart form data
+   */
+  async uploadObject(
+    bucket: string,
+    key: string,
+    content: Blob | File,
+    contentType: string,
+    options?: { overwrite?: boolean },
+  ): Promise<R2ObjectInfo> {
+    const formData = new FormData();
+    formData.append('key', key);
+    formData.append('file', new Blob([content], { type: contentType }), key.split('/').pop());
+    if (options?.overwrite) formData.append('overwrite', 'true');
+    return this.requestMultipart<R2ObjectInfo>(`/api/storage/${bucket}/upload`, formData);
+  }
+
+  /**
+   * Delete an object
+   */
+  async deleteObject(bucket: string, key: string): Promise<void> {
+    await this.request<void>('DELETE', `/api/storage/${bucket}/objects/${key}`);
+  }
+
+  /**
+   * Rename/move an object within a bucket
+   */
+  async renameObject(bucket: string, oldKey: string, newKey: string): Promise<R2ObjectInfo> {
+    return this.request<R2ObjectInfo>('POST', `/api/storage/${bucket}/rename`, {
+      body: { oldKey, newKey },
+    });
+  }
+
+  /**
+   * Update object HTTP metadata
+   */
+  async updateObjectMetadata(
+    bucket: string,
+    key: string,
+    metadata: R2UpdateMetadataParams,
+  ): Promise<R2ObjectInfo> {
+    return this.request<R2ObjectInfo>('PUT', `/api/storage/${bucket}/metadata/${key}`, {
+      body: metadata,
+    });
   }
 }
 

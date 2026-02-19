@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   useRoutes,
   useCreateRoute,
@@ -11,6 +11,8 @@ import {
 import { useRoutesFilters, SUPPORTED_DOMAINS, type SupportedDomain } from '@/context';
 import type { Route, CreateRouteInput, UpdateRouteInput, R2BucketName } from '@/lib/schemas';
 import { R2_BUCKETS } from '@/lib/schemas';
+import { getPersistedPageSize } from '@/lib/constants';
+import { PaginationControls } from '@/components/pagination-controls';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -444,8 +446,26 @@ export function RoutesPage() {
   const { filters, setFilters } = useRoutesFilters();
   const debouncedSearch = useDebounce(filters.search || '', 300);
 
-  // Fetch routes for the selected domain (server-side filtering)
-  const { data: routes, isLoading, error } = useRoutes(filters.domain);
+  // Pagination state
+  const [offset, setOffset] = useState(0);
+  const [limit, setLimit] = useState(getPersistedPageSize);
+
+  // Reset offset when search or domain changes
+  useEffect(() => {
+    setOffset(0);
+  }, [debouncedSearch, filters.domain]);
+
+  // Fetch routes with server-side search and pagination
+  const { data, isLoading, error } = useRoutes({
+    domain: filters.domain,
+    search: debouncedSearch || undefined,
+    limit,
+    offset,
+  });
+
+  const routes = data?.routes;
+  const meta = data?.meta;
+
   const createRoute = useCreateRoute();
   const updateRoute = useUpdateRoute();
   const deleteRoute = useDeleteRoute();
@@ -461,17 +481,11 @@ export function RoutesPage() {
     updates: UpdateRouteInput;
   } | null>(null);
 
-  // Filter and sort routes (client-side)
+  // Apply client-side type/enabled filters on server-paginated results
   const filteredRoutes = useMemo(() => {
     if (!routes) return [];
 
     let result = [...routes];
-
-    // Filter by search (path)
-    if (debouncedSearch) {
-      const searchLower = debouncedSearch.toLowerCase();
-      result = result.filter(route => route.path.toLowerCase().includes(searchLower));
-    }
 
     // Filter by type
     if (filters.type) {
@@ -487,7 +501,7 @@ export function RoutesPage() {
     result.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
     return result;
-  }, [routes, debouncedSearch, filters.type, filters.enabled]);
+  }, [routes, filters.type, filters.enabled]);
 
   // Check if any filters are active
   const hasActiveFilters = !!(
@@ -499,6 +513,7 @@ export function RoutesPage() {
 
   const handleResetFilters = () => {
     setFilters({});
+    setOffset(0);
   };
 
   const handleCreate = async (data: CreateRouteInput, domain: string) => {
@@ -775,7 +790,7 @@ export function RoutesPage() {
           <CardDescription className="font-gilroy">
             {isLoading
               ? 'Loading...'
-              : `Showing ${filteredRoutes.length} of ${routes?.length || 0} routes${hasActiveFilters ? ' (filtered)' : ''}`}
+              : `${filteredRoutes.length} routes${meta ? ` of ${meta.total} total` : ''}${hasActiveFilters ? ' (filtered)' : ''}`}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -906,6 +921,20 @@ export function RoutesPage() {
                 )}
               </TableBody>
             </Table>
+          )}
+
+          {meta && (
+            <PaginationControls
+              offset={offset}
+              limit={limit}
+              total={meta.total}
+              hasMore={meta.hasMore}
+              onOffsetChange={setOffset}
+              onLimitChange={newLimit => {
+                setLimit(newLimit);
+                setOffset(0);
+              }}
+            />
           )}
         </CardContent>
       </Card>

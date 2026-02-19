@@ -6,7 +6,7 @@
  */
 
 import { z } from 'zod';
-import { SUPPORTED_DOMAINS, R2_BUCKETS } from './types.js';
+import { SUPPORTED_DOMAINS, R2_BUCKETS, ALL_R2_BUCKETS } from './types.js';
 
 // =============================================================================
 // Domain Schema
@@ -153,6 +153,81 @@ export const SlugStatsQuerySchema = z.object({
 });
 
 // =============================================================================
+// Routes List Query Schema
+// =============================================================================
+
+/**
+ * Query parameters for listing routes with search and pagination
+ */
+export const RoutesListQuerySchema = z.object({
+  limit: z.coerce.number().min(1).max(1000).optional(),
+  offset: z.coerce.number().min(0).default(0),
+  search: z.string().optional(),
+  type: z.enum(['redirect', 'proxy', 'r2']).optional(),
+  enabled: z.enum(['true', 'false']).optional(),
+});
+
+// =============================================================================
+// R2 Storage Schemas
+// =============================================================================
+
+export const AllR2BucketSchema = z.enum(ALL_R2_BUCKETS);
+
+export const R2ListObjectsInputSchema = z.object({
+  bucket: AllR2BucketSchema.describe('R2 bucket name'),
+  prefix: z.string().optional().describe('Filter objects by key prefix'),
+  cursor: z.string().optional().describe('Pagination cursor from a previous truncated response'),
+  limit: z
+    .number()
+    .min(1)
+    .max(1000)
+    .optional()
+    .describe('Maximum objects to return (default: 100, max: 1000)'),
+  delimiter: z.string().optional().describe('Delimiter for directory-like grouping (default: "/")'),
+});
+
+export const R2UploadInputSchema = z.object({
+  bucket: R2BucketSchema.describe('R2 bucket name (read-write only)'),
+  key: z.string().min(1).describe('Object key (path) within the bucket'),
+  content_base64: z.string().min(1).describe('Base64-encoded file content'),
+  content_type: z.string().min(1).describe('MIME type of the file'),
+  overwrite: z.boolean().optional().describe('Overwrite if object already exists (default: false)'),
+});
+
+export const R2RenameInputSchema = z.object({
+  bucket: R2BucketSchema.describe('R2 bucket name (read-write only)'),
+  old_key: z.string().min(1).describe('Current object key (path)'),
+  new_key: z.string().min(1).describe('New object key (path)'),
+});
+
+export const R2UpdateMetadataInputSchema = z.object({
+  bucket: R2BucketSchema.describe('R2 bucket name (read-write only)'),
+  key: z.string().min(1).describe('Object key (path) to update metadata for'),
+  content_type: z.string().optional().describe('New Content-Type'),
+  cache_control: z.string().optional().describe('New Cache-Control header'),
+  content_disposition: z.string().optional().describe('New Content-Disposition'),
+});
+
+export const R2ObjectKeyInputSchema = z.object({
+  bucket: AllR2BucketSchema.describe('R2 bucket name'),
+  key: z.string().min(1).describe('Object key (path) within the bucket'),
+});
+
+export const R2GetObjectInputSchema = z.object({
+  bucket: AllR2BucketSchema.describe('R2 bucket name'),
+  key: z.string().min(1).describe('Object key (path) within the bucket'),
+  metadata_only: z
+    .boolean()
+    .optional()
+    .describe('If true, return only metadata without downloading content (default: false)'),
+});
+
+export const R2DeleteObjectInputSchema = z.object({
+  bucket: R2BucketSchema.describe('R2 bucket name (read-write only)'),
+  key: z.string().min(1).describe('Object key (path) to delete'),
+});
+
+// =============================================================================
 // MCP Tool Input Schemas
 // =============================================================================
 
@@ -288,6 +363,14 @@ export type GetAnalyticsSummaryInput = z.infer<typeof GetAnalyticsSummaryInputSc
 export type GetClicksInput = z.infer<typeof GetClicksInputSchema>;
 export type GetViewsInput = z.infer<typeof GetViewsInputSchema>;
 export type GetSlugStatsInput = z.infer<typeof GetSlugStatsInputSchema>;
+export type RoutesListQuery = z.infer<typeof RoutesListQuerySchema>;
+export type R2ListObjectsInput = z.infer<typeof R2ListObjectsInputSchema>;
+export type R2UploadInput = z.infer<typeof R2UploadInputSchema>;
+export type R2RenameInput = z.infer<typeof R2RenameInputSchema>;
+export type R2UpdateMetadataInput = z.infer<typeof R2UpdateMetadataInputSchema>;
+export type R2ObjectKeyInput = z.infer<typeof R2ObjectKeyInputSchema>;
+export type R2GetObjectInput = z.infer<typeof R2GetObjectInputSchema>;
+export type R2DeleteObjectInput = z.infer<typeof R2DeleteObjectInputSchema>;
 
 // =============================================================================
 // Audit Log Schemas
@@ -303,6 +386,10 @@ export const AuditActionSchema = z.enum([
   'toggle',
   'seed',
   'migrate',
+  'r2_upload',
+  'r2_delete',
+  'r2_rename',
+  'r2_metadata_update',
 ]);
 export type AuditAction = z.infer<typeof AuditActionSchema>;
 

@@ -191,9 +191,20 @@ export const ApiResponseSchema = <T extends z.ZodTypeAny>(dataSchema: T) =>
     error: z.string().optional(),
   });
 
+export const RoutesListMetaSchema = z.object({
+  total: z.number(),
+  count: z.number(),
+  offset: z.number(),
+  hasMore: z.boolean(),
+  version: z.number().optional(),
+  updatedAt: z.number().optional(),
+});
+export type RoutesListMeta = z.infer<typeof RoutesListMetaSchema>;
+
 export const RoutesListResponseSchema = ApiResponseSchema(
   z.object({
     routes: z.array(RouteSchema),
+    meta: RoutesListMetaSchema.optional(),
   }),
 );
 export const RouteResponseSchema = ApiResponseSchema(RouteSchema);

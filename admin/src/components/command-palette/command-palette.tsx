@@ -9,6 +9,7 @@ import {
   Download,
   Globe,
   ClipboardList,
+  HardDrive,
   Plus,
   Search,
 } from 'lucide-react';
@@ -46,6 +47,13 @@ export function CommandPalette() {
         label: 'Routes',
         icon: Route,
         action: () => navigate('/routes'),
+        group: 'navigation',
+      },
+      {
+        id: 'storage',
+        label: 'Storage',
+        icon: HardDrive,
+        action: () => navigate('/storage'),
         group: 'navigation',
       },
       {

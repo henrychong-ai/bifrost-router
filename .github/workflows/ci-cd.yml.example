@@ -1,5 +1,5 @@
 # CI/CD Pipeline for Bifrost
-# CI runs on all pushes and PRs. Deployment only on version tags (v*) or manual dispatch.
+# CI runs on all pushes to all branches and PRs. Deployment only on version tags (v*) or manual dispatch.
 #
 # Required Repository Secrets (Settings > Secrets and variables > Actions):
 #   CLOUDFLARE_API_TOKEN    - Cloudflare API token with Workers Edit permission
@@ -12,7 +12,7 @@ name: CI/CD
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
     tags: ['v*']
   pull_request:
     branches: [main]

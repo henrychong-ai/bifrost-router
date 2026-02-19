@@ -153,6 +153,78 @@ export interface UpdateRouteInput {
 }
 
 // =============================================================================
+// R2 Storage Types
+// =============================================================================
+
+/**
+ * All R2 buckets including read-only backup bucket
+ */
+export const ALL_R2_BUCKETS = [...R2_BUCKETS, 'bifrost-backups'] as const;
+export type AllR2BucketName = (typeof ALL_R2_BUCKETS)[number];
+
+/**
+ * Read-only buckets (no write operations allowed)
+ */
+export const READ_ONLY_BUCKETS: readonly AllR2BucketName[] = ['bifrost-backups'];
+
+/**
+ * R2 object metadata
+ */
+export interface R2ObjectInfo {
+  key: string;
+  size: number;
+  etag: string;
+  uploaded: string;
+  httpMetadata?: {
+    contentType?: string;
+    cacheControl?: string;
+    contentDisposition?: string;
+    contentLanguage?: string;
+    contentEncoding?: string;
+  };
+  customMetadata?: Record<string, string>;
+}
+
+/**
+ * R2 list response
+ */
+export interface R2ListResponse {
+  objects: R2ObjectInfo[];
+  truncated: boolean;
+  cursor?: string;
+  delimitedPrefixes: string[];
+}
+
+/**
+ * R2 buckets response
+ */
+export interface R2BucketsResponse {
+  buckets: Array<{
+    name: AllR2BucketName;
+    access: 'read-write' | 'read-only';
+  }>;
+}
+
+/**
+ * R2 list objects query params
+ */
+export interface R2ListObjectsParams {
+  prefix?: string;
+  cursor?: string;
+  limit?: number;
+  delimiter?: string;
+}
+
+/**
+ * R2 update metadata params
+ */
+export interface R2UpdateMetadataParams {
+  contentType?: string;
+  cacheControl?: string;
+  contentDisposition?: string;
+}
+
+// =============================================================================
 // Analytics Types
 // =============================================================================
 
@@ -370,6 +442,16 @@ export const TOOL_PERMISSIONS: Record<string, PermissionLevel> = {
 
   // Admin operations
   delete_route: 'admin',
+
+  // Storage operations
+  list_buckets: 'read',
+  list_objects: 'read',
+  get_object_meta: 'read',
+  get_object: 'read',
+  upload_object: 'edit',
+  rename_object: 'edit',
+  update_object_metadata: 'edit',
+  delete_object: 'admin',
 };
 
 /**

@@ -12,8 +12,8 @@ import {
 
 describe('tools', () => {
   describe('toolDefinitions', () => {
-    it('contains all route and analytics tools', () => {
-      expect(toolDefinitions.length).toBe(routeTools.length + analyticsTools.length);
+    it('contains all route, analytics, and storage tools', () => {
+      expect(toolDefinitions.length).toBe(19);
     });
 
     it('has all expected route tools', () => {

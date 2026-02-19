@@ -17,6 +17,7 @@ import {
   type AnalyticsQueryParams,
   type PaginationQueryParams,
   type AuditQueryParams,
+  type RoutesListMeta,
   RoutesListResponseSchema,
   RouteResponseSchema,
   AnalyticsSummaryResponseSchema,
@@ -88,18 +89,24 @@ function buildQueryString(params: Record<string, string | number | undefined>): 
 // Routes API
 // =============================================================================
 
+export interface RoutesListParams {
+  domain?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
 export const routesApi = {
   /**
-   * List all routes for a domain
-   * @param domain - Optional domain to filter routes (defaults to henrychong.com)
+   * List routes with optional search, filtering, and pagination
    */
-  async list(domain?: string): Promise<Route[]> {
-    const query = domain ? buildQueryString({ domain }) : '';
+  async list(params: RoutesListParams = {}): Promise<{ routes: Route[]; meta?: RoutesListMeta }> {
+    const query = buildQueryString(params as Record<string, string | number | undefined>);
     const response = await fetchApi(`/api/routes${query}`, RoutesListResponseSchema);
     if (!response.success || !response.data) {
       throw new ApiError(500, response.error || 'Failed to fetch routes');
     }
-    return response.data.routes;
+    return { routes: response.data.routes, meta: response.data.meta };
   },
 
   /**
@@ -471,6 +478,215 @@ export const metadataApi = {
 };
 
 // =============================================================================
+// Storage API
+// =============================================================================
+
+export interface StorageBucket {
+  name: string;
+  access: 'read-write' | 'read-only';
+}
+
+export interface StorageObject {
+  key: string;
+  size: number;
+  etag: string;
+  uploaded: string;
+  httpMetadata?: {
+    contentType?: string;
+    cacheControl?: string;
+    contentDisposition?: string;
+    contentLanguage?: string;
+    contentEncoding?: string;
+  };
+  customMetadata?: Record<string, string>;
+}
+
+export interface StorageListResponse {
+  objects: StorageObject[];
+  truncated: boolean;
+  cursor?: string;
+  delimitedPrefixes: string[];
+}
+
+export interface StorageListParams {
+  prefix?: string;
+  cursor?: string;
+  limit?: number;
+  delimiter?: string;
+}
+
+const StorageBucketsResponseSchema = z.object({
+  success: z.boolean(),
+  data: z
+    .object({
+      buckets: z.array(
+        z.object({
+          name: z.string(),
+          access: z.enum(['read-write', 'read-only']),
+        }),
+      ),
+    })
+    .optional(),
+  error: z.string().optional(),
+});
+
+const StorageListResponseSchema = z.object({
+  success: z.boolean(),
+  data: z
+    .object({
+      objects: z.array(
+        z.object({
+          key: z.string(),
+          size: z.number(),
+          etag: z.string(),
+          uploaded: z.string(),
+          httpMetadata: z
+            .object({
+              contentType: z.string().optional(),
+              cacheControl: z.string().optional(),
+              contentDisposition: z.string().optional(),
+              contentLanguage: z.string().optional(),
+              contentEncoding: z.string().optional(),
+            })
+            .optional(),
+          customMetadata: z.record(z.string()).optional(),
+        }),
+      ),
+      truncated: z.boolean(),
+      cursor: z.string().optional(),
+      delimitedPrefixes: z.array(z.string()),
+    })
+    .optional(),
+  error: z.string().optional(),
+});
+
+const StorageObjectResponseSchema = z.object({
+  success: z.boolean(),
+  data: z
+    .object({
+      key: z.string(),
+      size: z.number().optional(),
+      etag: z.string().optional(),
+      uploaded: z.string().optional(),
+      httpMetadata: z
+        .object({
+          contentType: z.string().optional(),
+          cacheControl: z.string().optional(),
+          contentDisposition: z.string().optional(),
+          contentLanguage: z.string().optional(),
+          contentEncoding: z.string().optional(),
+        })
+        .optional(),
+      customMetadata: z.record(z.string()).optional(),
+    })
+    .optional(),
+  error: z.string().optional(),
+});
+
+const StorageDeleteResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string().optional(),
+  error: z.string().optional(),
+});
+
+export const storageApi = {
+  async listBuckets(): Promise<StorageBucket[]> {
+    const response = await fetchApi('/api/storage/buckets', StorageBucketsResponseSchema);
+    if (!response.success || !response.data) {
+      throw new ApiError(500, response.error || 'Failed to fetch buckets');
+    }
+    return response.data.buckets;
+  },
+
+  async listObjects(bucket: string, params: StorageListParams = {}): Promise<StorageListResponse> {
+    const query = buildQueryString(params as Record<string, string | number | undefined>);
+    const response = await fetchApi(
+      `/api/storage/${encodeURIComponent(bucket)}/objects${query}`,
+      StorageListResponseSchema,
+    );
+    if (!response.success || !response.data) {
+      throw new ApiError(500, response.error || 'Failed to list objects');
+    }
+    return response.data;
+  },
+
+  async uploadObject(
+    bucket: string,
+    key: string,
+    file: File,
+    overwrite = false,
+  ): Promise<StorageObject> {
+    const url = new URL(`/api/storage/${encodeURIComponent(bucket)}/upload`, API_BASE);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('key', key);
+    formData.append('overwrite', String(overwrite));
+
+    const response = await fetch(url.toString(), {
+      method: 'POST',
+      headers: { 'X-Admin-Key': API_KEY },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new ApiError(
+        response.status,
+        (error as { error?: string }).error || `HTTP ${response.status}`,
+      );
+    }
+
+    const data = StorageObjectResponseSchema.parse(await response.json());
+    if (!data.success || !data.data) {
+      throw new ApiError(400, data.error || 'Failed to upload object');
+    }
+    return data.data as StorageObject;
+  },
+
+  async deleteObject(bucket: string, key: string): Promise<void> {
+    await fetchApi(
+      `/api/storage/${encodeURIComponent(bucket)}/objects/${key}`,
+      StorageDeleteResponseSchema,
+      { method: 'DELETE' },
+    );
+  },
+
+  async renameObject(bucket: string, oldKey: string, newKey: string): Promise<StorageObject> {
+    const response = await fetchApi(
+      `/api/storage/${encodeURIComponent(bucket)}/rename`,
+      StorageObjectResponseSchema,
+      {
+        method: 'POST',
+        body: JSON.stringify({ oldKey, newKey }),
+      },
+    );
+    if (!response.success || !response.data) {
+      throw new ApiError(400, response.error || 'Failed to rename object');
+    }
+    return response.data as StorageObject;
+  },
+
+  async updateMetadata(
+    bucket: string,
+    key: string,
+    metadata: { contentType?: string; cacheControl?: string; contentDisposition?: string },
+  ): Promise<StorageObject> {
+    const response = await fetchApi(
+      `/api/storage/${encodeURIComponent(bucket)}/metadata/${key}`,
+      StorageObjectResponseSchema,
+      {
+        method: 'PUT',
+        body: JSON.stringify(metadata),
+      },
+    );
+    if (!response.success || !response.data) {
+      throw new ApiError(400, response.error || 'Failed to update metadata');
+    }
+    return response.data as StorageObject;
+  },
+};
+
+// =============================================================================
 // Combined API Export
 // =============================================================================
 
@@ -479,6 +695,7 @@ export const api = {
   analytics: analyticsApi,
   backup: backupApi,
   metadata: metadataApi,
+  storage: storageApi,
 };
 
 export { ApiError };

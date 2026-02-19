@@ -5,7 +5,7 @@
  * They provide a unified interface for tool discovery and validation.
  */
 
-import { SUPPORTED_DOMAINS, R2_BUCKETS } from './types.js';
+import { SUPPORTED_DOMAINS, R2_BUCKETS, ALL_R2_BUCKETS } from './types.js';
 
 /**
  * JSON Schema property definition
@@ -56,11 +56,27 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: 'list_routes',
     description:
-      'List all routes configured for a domain. Returns route paths, types, targets, and enabled status.',
+      'List all routes configured for a domain. Supports search, filtering, and pagination. Returns route paths, types, targets, and enabled status.',
     inputSchema: {
       type: 'object',
       properties: {
         domain: domainProperty,
+        search: {
+          type: 'string',
+          description: 'Search routes by path, target, type, or bucket (case-insensitive)',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum routes to return (default: all, max: 1000)',
+          minimum: 1,
+          maximum: 1000,
+        },
+        offset: {
+          type: 'number',
+          description: 'Pagination offset (default: 0)',
+          minimum: 0,
+          default: 0,
+        },
       },
     },
   },
@@ -351,6 +367,207 @@ export const toolDefinitions: ToolDefinition[] = [
       required: ['slug'],
     },
   },
+
+  // ===========================================================================
+  // R2 Storage Tools
+  // ===========================================================================
+  {
+    name: 'list_buckets',
+    description: 'List R2 storage buckets with read-write or read-only access level for each.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: 'list_objects',
+    description:
+      'List objects in an R2 storage bucket. Supports prefix filtering for directory-like browsing, pagination via cursor, and configurable result limits.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        bucket: {
+          type: 'string',
+          description: `R2 bucket name. Available: ${ALL_R2_BUCKETS.join(', ')}`,
+          enum: [...ALL_R2_BUCKETS],
+        },
+        prefix: {
+          type: 'string',
+          description: 'Filter objects by key prefix (e.g., "images/" to list only images folder)',
+        },
+        cursor: {
+          type: 'string',
+          description: 'Pagination cursor from a previous truncated response',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum objects to return (default: 100, max: 1000)',
+          minimum: 1,
+          maximum: 1000,
+          default: 100,
+        },
+        delimiter: {
+          type: 'string',
+          description: 'Delimiter for directory-like grouping (default: "/")',
+          default: '/',
+        },
+      },
+      required: ['bucket'],
+    },
+  },
+  {
+    name: 'get_object_meta',
+    description:
+      'Get metadata for an R2 object including size, content type, ETag, upload date, and custom metadata.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        bucket: {
+          type: 'string',
+          description: `R2 bucket name. Available: ${ALL_R2_BUCKETS.join(', ')}`,
+          enum: [...ALL_R2_BUCKETS],
+        },
+        key: {
+          type: 'string',
+          description: 'Object key (path) within the bucket (e.g., "documents/report.pdf")',
+        },
+      },
+      required: ['bucket', 'key'],
+    },
+  },
+  {
+    name: 'get_object',
+    description:
+      'Download an R2 object. Returns text preview for text files under 5MB, or metadata summary for binary/large files. Use metadata_only=true to skip content download.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        bucket: {
+          type: 'string',
+          description: `R2 bucket name. Available: ${ALL_R2_BUCKETS.join(', ')}`,
+          enum: [...ALL_R2_BUCKETS],
+        },
+        key: {
+          type: 'string',
+          description: 'Object key (path) within the bucket',
+        },
+        metadata_only: {
+          type: 'boolean',
+          description: 'If true, return only metadata without downloading content (default: false)',
+          default: false,
+        },
+      },
+      required: ['bucket', 'key'],
+    },
+  },
+  {
+    name: 'upload_object',
+    description:
+      'Upload a file to an R2 bucket. Content must be base64-encoded. Maximum upload size is 25MB (before encoding). Set overwrite=true to replace existing objects.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        bucket: {
+          type: 'string',
+          description: `R2 bucket name. Available: ${R2_BUCKETS.join(', ')}`,
+          enum: [...R2_BUCKETS],
+        },
+        key: {
+          type: 'string',
+          description: 'Object key (path) for the uploaded file (e.g., "documents/report.pdf")',
+        },
+        content_base64: {
+          type: 'string',
+          description: 'Base64-encoded file content',
+        },
+        content_type: {
+          type: 'string',
+          description: 'MIME type of the file (e.g., "application/pdf", "image/png")',
+        },
+        overwrite: {
+          type: 'boolean',
+          description: 'Overwrite if object already exists (default: false)',
+          default: false,
+        },
+      },
+      required: ['bucket', 'key', 'content_base64', 'content_type'],
+    },
+  },
+  {
+    name: 'delete_object',
+    description: 'Permanently delete an object from an R2 bucket. This action cannot be undone.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        bucket: {
+          type: 'string',
+          description: `R2 bucket name. Available: ${R2_BUCKETS.join(', ')}`,
+          enum: [...R2_BUCKETS],
+        },
+        key: {
+          type: 'string',
+          description: 'Object key (path) to delete',
+        },
+      },
+      required: ['bucket', 'key'],
+    },
+  },
+  {
+    name: 'rename_object',
+    description:
+      'Rename or move an object within an R2 bucket. Copies to the new key and deletes the original. Preserves all metadata.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        bucket: {
+          type: 'string',
+          description: `R2 bucket name. Available: ${R2_BUCKETS.join(', ')}`,
+          enum: [...R2_BUCKETS],
+        },
+        old_key: {
+          type: 'string',
+          description: 'Current object key (path)',
+        },
+        new_key: {
+          type: 'string',
+          description: 'New object key (path)',
+        },
+      },
+      required: ['bucket', 'old_key', 'new_key'],
+    },
+  },
+  {
+    name: 'update_object_metadata',
+    description:
+      'Update HTTP metadata on an existing R2 object. Only specified fields are changed. Uses copy-with-metadata internally.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        bucket: {
+          type: 'string',
+          description: `R2 bucket name. Available: ${R2_BUCKETS.join(', ')}`,
+          enum: [...R2_BUCKETS],
+        },
+        key: {
+          type: 'string',
+          description: 'Object key (path) to update metadata for',
+        },
+        content_type: {
+          type: 'string',
+          description: 'New Content-Type (e.g., "application/pdf")',
+        },
+        cache_control: {
+          type: 'string',
+          description: 'New Cache-Control header (e.g., "max-age=3600")',
+        },
+        content_disposition: {
+          type: 'string',
+          description: 'New Content-Disposition (e.g., "attachment; filename=report.pdf")',
+        },
+      },
+      required: ['bucket', 'key'],
+    },
+  },
 ];
 
 /**
@@ -388,7 +605,7 @@ export function toClaudeTools(): Array<{
 /**
  * Map of tool names to their categories
  */
-export const toolCategories: Record<string, 'route' | 'analytics'> = {
+export const toolCategories: Record<string, 'route' | 'analytics' | 'storage'> = {
   list_routes: 'route',
   get_route: 'route',
   create_route: 'route',
@@ -400,12 +617,20 @@ export const toolCategories: Record<string, 'route' | 'analytics'> = {
   get_clicks: 'analytics',
   get_views: 'analytics',
   get_slug_stats: 'analytics',
+  list_buckets: 'storage',
+  list_objects: 'storage',
+  get_object_meta: 'storage',
+  get_object: 'storage',
+  upload_object: 'storage',
+  delete_object: 'storage',
+  rename_object: 'storage',
+  update_object_metadata: 'storage',
 };
 
 /**
  * Get tools by category
  */
-export function getToolsByCategory(category: 'route' | 'analytics'): ToolDefinition[] {
+export function getToolsByCategory(category: 'route' | 'analytics' | 'storage'): ToolDefinition[] {
   return toolDefinitions.filter(tool => toolCategories[tool.name] === category);
 }
 
@@ -418,3 +643,8 @@ export const routeTools = getToolsByCategory('route');
  * Analytics tools
  */
 export const analyticsTools = getToolsByCategory('analytics');
+
+/**
+ * Storage tools
+ */
+export const storageTools = getToolsByCategory('storage');

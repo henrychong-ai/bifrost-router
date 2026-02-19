@@ -17,10 +17,12 @@ import {
 import { validateApiKey } from '../utils/crypto';
 import { cors } from '../middleware/cors';
 import { analyticsRoutes } from './analytics';
+import { storageRoutes } from './storage';
 import { recordAuditLog } from '../db/analytics';
 import type { AuditAction } from '../db/analytics';
 import { checkBackupHealth } from '../backup/health';
 import { parseOpenGraph, SSRFBlockedError, ResponseTooLargeError } from '../utils/og-parser';
+import { RoutesListQuerySchema } from '@bifrost/shared';
 
 /**
  * Result of parsing domain from request
@@ -238,35 +240,90 @@ adminRoutes.get('/routes', async c => {
 
   const domain = domainResult.domain;
 
-  if (domain) {
-    // Single domain query — include domain on each route for client consistency
-    const routes = await getAllRoutes(c.env.ROUTES, domain);
-    const meta = await getMetadata(c.env.ROUTES, domain);
+  // Parse search/filter/pagination query params
+  const queryResult = RoutesListQuerySchema.safeParse({
+    limit: c.req.query('limit'),
+    offset: c.req.query('offset'),
+    search: c.req.query('search'),
+    type: c.req.query('type'),
+    enabled: c.req.query('enabled'),
+  });
 
-    return c.json({
-      success: true,
-      data: {
-        routes: routes.map(r => ({ ...r, domain })),
-        meta,
-        targetDomain: domain,
-        supportedDomains: SUPPORTED_DOMAINS,
+  if (!queryResult.success) {
+    return c.json(
+      {
+        success: false,
+        error: 'Invalid query parameters',
+        details: queryResult.error.issues,
       },
+      400,
+    );
+  }
+
+  const { limit, offset, search, type, enabled } = queryResult.data;
+
+  // Get all routes for domain(s)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let routes: any[];
+  if (domain) {
+    const domainRoutes = await getAllRoutes(c.env.ROUTES, domain);
+    routes = domainRoutes.map(r => ({ ...r, domain }));
+  } else {
+    routes = await getAllRoutesAllDomains(c.env.ROUTES);
+  }
+
+  // Apply search filter (case-insensitive substring across multiple fields)
+  let filtered = routes;
+  if (search) {
+    const searchLower = search.toLowerCase();
+    filtered = filtered.filter(r => {
+      const searchFields = [
+        String(r.path || ''),
+        String(r.target || ''),
+        String(r.type || ''),
+        String(r.statusCode || ''),
+        String(r.bucket || ''),
+        String(r.hostHeader || ''),
+        String(r.domain || ''),
+      ];
+      return searchFields.some(f => f.toLowerCase().includes(searchLower));
     });
   }
 
-  // All domains query
-  const routes = await getAllRoutesAllDomains(c.env.ROUTES);
+  // Apply type filter
+  if (type) {
+    filtered = filtered.filter(r => r.type === type);
+  }
+
+  // Apply enabled filter
+  if (enabled !== undefined) {
+    const isEnabled = enabled === 'true';
+    filtered = filtered.filter(r => (r.enabled !== false) === isEnabled);
+  }
+
+  const total = filtered.length;
+
+  // Apply pagination (only if limit is provided)
+  if (limit) {
+    filtered = filtered.slice(offset, offset + limit);
+  }
+
+  const meta = domain
+    ? await getMetadata(c.env.ROUTES, domain)
+    : { version: SCHEMA_VERSION, updatedAt: Date.now(), count: total };
 
   return c.json({
     success: true,
     data: {
-      routes,
+      routes: filtered,
       meta: {
-        version: SCHEMA_VERSION,
-        updatedAt: Date.now(),
-        count: routes.length,
+        ...meta,
+        total,
+        count: filtered.length,
+        offset,
+        hasMore: limit ? offset + limit < total : false,
       },
-      targetDomain: 'all',
+      targetDomain: domain ?? 'all',
       supportedDomains: SUPPORTED_DOMAINS,
     },
   });
@@ -766,3 +823,10 @@ adminRoutes.get('/metadata/og', async c => {
  * Inherits domain restriction, CORS, and auth from parent middleware
  */
 adminRoutes.route('/analytics', analyticsRoutes);
+
+/**
+ * R2 Storage management routes
+ * Mounted at /api/storage/*
+ * Inherits domain restriction, CORS, and auth from parent middleware
+ */
+adminRoutes.route('/storage', storageRoutes);

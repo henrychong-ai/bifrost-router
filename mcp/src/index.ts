@@ -24,6 +24,17 @@ import {
 
 import { getAnalyticsSummary, getClicks, getViews, getSlugStats } from './tools/analytics.js';
 
+import {
+  listBuckets,
+  listObjects,
+  getObjectMeta,
+  getObject,
+  uploadObject,
+  deleteObject,
+  renameObject,
+  updateObjectMetadata,
+} from './tools/storage.js';
+
 /**
  * Main entry point
  */
@@ -84,7 +95,11 @@ async function main(): Promise<void> {
       switch (name) {
         // Route management tools
         case 'list_routes':
-          result = await listRoutes(client, args as { domain?: string }, defaultDomain);
+          result = await listRoutes(
+            client,
+            args as { domain?: string; search?: string; limit?: number; offset?: number },
+            defaultDomain,
+          );
           break;
 
         case 'get_route':
@@ -199,6 +214,72 @@ async function main(): Promise<void> {
             client,
             args as { slug: string; domain?: string; days?: number },
             defaultDomain,
+          );
+          break;
+
+        // Storage tools
+        case 'list_buckets':
+          result = await listBuckets(client);
+          break;
+
+        case 'list_objects':
+          result = await listObjects(
+            client,
+            args as {
+              bucket: string;
+              prefix?: string;
+              cursor?: string;
+              limit?: number;
+              delimiter?: string;
+            },
+          );
+          break;
+
+        case 'get_object_meta':
+          result = await getObjectMeta(client, args as { bucket: string; key: string });
+          break;
+
+        case 'get_object':
+          result = await getObject(
+            client,
+            args as { bucket: string; key: string; metadata_only?: boolean },
+          );
+          break;
+
+        case 'upload_object':
+          result = await uploadObject(
+            client,
+            args as {
+              bucket: string;
+              key: string;
+              content_base64: string;
+              content_type: string;
+              overwrite?: boolean;
+            },
+          );
+          break;
+
+        case 'delete_object':
+          result = await deleteObject(client, args as { bucket: string; key: string });
+          break;
+
+        case 'rename_object':
+          result = await renameObject(
+            client,
+            args as { bucket: string; old_key: string; new_key: string },
+          );
+          break;
+
+        case 'update_object_metadata':
+          result = await updateObjectMetadata(
+            client,
+            args as {
+              bucket: string;
+              key: string;
+              content_type?: string;
+              cache_control?: string;
+              content_disposition?: string;
+            },
           );
           break;
 

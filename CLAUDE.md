@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |---------|------|-------------|
 | Root Worker | `src/`, `test/` | Main edge router (Hono + Cloudflare Workers) |
 | `@bifrost/shared` | `shared/` | Types, Zod schemas, EdgeRouterClient HTTP client |
-| `@bifrost/mcp` | `mcp/` | MCP server for AI-powered route management (11 tools) |
+| `@bifrost/mcp` | `mcp/` | MCP server for AI-powered route and storage management (19 tools) |
 | Admin Dashboard | `admin/` | React 19 SPA (Vite, Tailwind CSS, shadcn/ui, TanStack Query) |
 | `@bifrost/slackbot` | `slackbot/` | Slack bot Worker for route management |
 
@@ -23,7 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 pnpm run dev           # Local dev server (localhost:8787)
-pnpm run test          # Run all tests (~623 across root, shared, mcp, slackbot)
+pnpm run test          # Run all tests (~728 across root, shared, mcp, slackbot)
 pnpm run typecheck     # TypeScript check
 pnpm run lint          # Lint (oxlint)
 pnpm run lint:fix      # Auto-fix lint issues
@@ -201,10 +201,10 @@ bifrost/                        # pnpm monorepo
 │   ├── handlers/               # redirect.ts, proxy.ts, r2.ts
 │   ├── middleware/              # CORS, rate limiting
 │   ├── utils/                  # crypto, url-validation, path-validation, kv-errors
-│   └── routes/                 # admin.ts (CRUD API), analytics.ts (D1 queries)
+│   └── routes/                 # admin.ts (CRUD + search/pagination + storage mount), analytics.ts, storage.ts
 ├── test/                       # Mirrors src/ structure (see Testing section)
 ├── shared/src/                 # Types, schemas, EdgeRouterClient
-├── mcp/src/                    # MCP server (tools/routes.ts, tools/analytics.ts)
+├── mcp/src/                    # MCP server (tools/routes.ts, tools/analytics.ts, tools/storage.ts)
 ├── admin/src/                  # React SPA (components, hooks, pages)
 ├── slackbot/src/               # Slack bot (events, auth, formatting)
 ├── drizzle/                    # 8 D1 migration SQL files (0000-0007)

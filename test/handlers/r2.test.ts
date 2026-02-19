@@ -339,10 +339,8 @@ describe('handleR2', () => {
         FILES_BUCKET: mockBucket as unknown as R2Bucket,
       });
 
-      // Should either return 400 for blocked, or sanitize and attempt get
-      // Based on our implementation, it sanitizes and uses the sanitized key
-      // The mock will return null (file not found) for sanitized key
-      expect(mockBucket.get).toHaveBeenCalledWith('etc/passwd');
+      // Strict reject: path traversal is blocked with 400, bucket.get is never called
+      expect(mockBucket.get).not.toHaveBeenCalled();
     });
   });
 });

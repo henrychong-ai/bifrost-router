@@ -41,6 +41,16 @@ export {
 // Link preview hooks
 export { useLinkPreview } from './use-link-preview';
 
+// Storage hooks
+export {
+  storageKeys,
+  useStorageBuckets,
+  useStorageObjects,
+  useUploadObject,
+  useDeleteObject,
+  useRenameObject,
+} from './use-storage';
+
 // Utility hooks
 export { useDebounce } from './use-debounce';
 export { useKeyboardShortcut, getModifierKey } from './use-keyboard-shortcuts';

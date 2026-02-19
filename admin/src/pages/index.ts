@@ -1,5 +1,6 @@
 export { DashboardPage } from './dashboard';
 export { RoutesPage } from './routes';
+export { StoragePage } from './storage';
 export { RedirectsPage } from './redirects';
 export { ViewsPage } from './views';
 export { DownloadsPage } from './downloads';

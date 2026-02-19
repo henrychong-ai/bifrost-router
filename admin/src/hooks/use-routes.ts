@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 import type { CreateRouteInput, UpdateRouteInput } from '@/lib/schemas';
 
@@ -8,7 +8,8 @@ import type { CreateRouteInput, UpdateRouteInput } from '@/lib/schemas';
 
 export const routeKeys = {
   all: ['routes'] as const,
-  list: (domain?: string) => ['routes', { domain }] as const,
+  list: (params: { domain?: string; search?: string; limit?: number; offset?: number }) =>
+    ['routes', params] as const,
   detail: (path: string) => ['routes', path] as const,
 };
 
@@ -17,13 +18,15 @@ export const routeKeys = {
 // =============================================================================
 
 /**
- * Fetch all routes for a domain
- * @param domain - Optional domain to filter routes
+ * Fetch routes with optional search, filtering, and pagination
  */
-export function useRoutes(domain?: string) {
+export function useRoutes(
+  params: { domain?: string; search?: string; limit?: number; offset?: number } = {},
+) {
   return useQuery({
-    queryKey: routeKeys.list(domain),
-    queryFn: () => api.routes.list(domain),
+    queryKey: routeKeys.list(params),
+    queryFn: () => api.routes.list(params),
+    placeholderData: keepPreviousData,
   });
 }
 

@@ -2,6 +2,36 @@
 
 All notable changes to this project are documented in this file.
 
+## v1.12.0 (2026-02-20)
+
+### Added
+- **Route search**: Full-text search across path, target, type, statusCode, bucket, hostHeader (`?search=` on GET /api/routes)
+- **Route pagination**: Server-side limit/offset pagination for route listing with `meta` envelope (`total`, `count`, `offset`, `hasMore`)
+- **R2 Storage API**: 8 endpoints for bucket/object management at `/api/storage/*`
+- **R2 path validation**: Strict reject approach blocking path traversal, null bytes, hidden components, Windows illegal chars
+- **R2 copy size guard**: Rejects rename/metadata ops on objects exceeding `R2_COPY_SIZE_LIMIT_MB` (default 100MB) with 413
+- **R2 Storage MCP tools**: 8 new tools for AI-driven R2 management (11 → 19 total): `list_buckets`, `list_objects`, `get_object_meta`, `get_object`, `upload_object`, `delete_object`, `rename_object`, `update_object_metadata`
+- **R2 Storage dashboard**: New Storage page for browsing buckets, navigating prefixes, uploading, renaming, and deleting objects
+- **PaginationControls**: Shared pagination component with localStorage page size persistence
+- **Page size constants**: `DEFAULT_PAGE_SIZE`, `PAGE_SIZE_OPTIONS`, `getPersistedPageSize`, `persistPageSize` in `admin/src/lib/constants.ts`
+- **`RoutesListQuerySchema`**: Zod schema for route listing query params in `@bifrost/shared`
+- **`formatBytes()`**: Utility for human-readable file sizes in admin dashboard
+
+### Changed
+- `GET /api/routes` (list mode): response now returns `{ success, data: { routes, meta } }` envelope with pagination metadata
+- `EdgeRouterClient.listRoutes()`: return type changed to `Promise<{ routes: Route[]; total: number }>` (breaking change for direct SDK users)
+- MCP `list_routes` tool: now accepts `search`, `limit`, `offset` parameters
+- Admin sidebar: Storage nav item added (HardDrive icon)
+- Command Palette: Storage navigation command added
+
+### Tests
+- 623 → 728 tests (+105 new tests across 2 new test files)
+- New: `test/routes/admin.search-pagination.test.ts` (16 tests: search by path/target, type/enabled filters, pagination, combined filters, multi-domain)
+- New: `test/routes/storage.test.ts` (27 tests: auth, bucket listing, object CRUD, copy size guard, path validation, read-only enforcement)
+- New: `test/utils/path-validation.test.ts` (62 tests)
+
+---
+
 ## v1.11.9 (2026-02-20)
 - Comprehensive test coverage expansion: 455 → 623 tests (+168 new tests across 9 new test files)
 - New tests: KV schema validation (36), KV route CRUD (27), DB recording functions (16), DB analytics queries (60), backup KV (5), backup D1 (5), backup retention (7), backup manifest (5), backup scheduled handler (7)

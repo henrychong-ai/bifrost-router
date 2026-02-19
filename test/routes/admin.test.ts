@@ -1356,4 +1356,308 @@ describe('admin routes', () => {
       );
     });
   });
+
+  describe('GET /routes - search and pagination', () => {
+    // Helper to create the app and seed multiple routes for search/pagination tests
+    async function setupSearchRoutes() {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+
+      const routes = [
+        { path: '/github', type: 'redirect', target: 'https://github.com/test' },
+        { path: '/gitlab', type: 'redirect', target: 'https://gitlab.com/test' },
+        { path: '/blog', type: 'proxy', target: 'https://blog.example.com' },
+        { path: '/blog/archive', type: 'proxy', target: 'https://blog.example.com/archive' },
+        { path: '/media-kit', type: 'r2', target: 'media-kit/files.zip' },
+        { path: '/linkedin', type: 'redirect', target: 'https://linkedin.com/in/test' },
+        { path: '/twitter', type: 'redirect', target: 'https://x.com/test' },
+        { path: '/resume', type: 'r2', target: 'docs/resume.pdf' },
+        { path: '/api-docs', type: 'proxy', target: 'https://docs.example.com/api' },
+        { path: '/calendar', type: 'redirect', target: 'https://calendar.example.com' },
+        { path: '/photos', type: 'r2', target: 'photos/gallery.html' },
+        { path: '/contact', type: 'redirect', target: 'https://forms.example.com/contact' },
+      ];
+
+      for (const route of routes) {
+        await app.fetch(
+          new Request('http://henrychong.com/api/routes', {
+            method: 'POST',
+            headers: {
+              'X-Admin-Key': validApiKey,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(route),
+          }),
+          testEnv,
+        );
+      }
+
+      return { app, routeCount: routes.length };
+    }
+
+    describe('search', () => {
+      it('searches by path substring', async () => {
+        const { app } = await setupSearchRoutes();
+
+        const response = await app.fetch(
+          new Request('http://henrychong.com/api/routes?search=github', {
+            headers: { 'X-Admin-Key': validApiKey },
+          }),
+          testEnv,
+        );
+
+        expect(response.status).toBe(200);
+        const data = await response.json();
+        expect(data.data.routes.length).toBeGreaterThanOrEqual(1);
+        expect(data.data.routes.some((r: { path: string }) => r.path === '/github')).toBe(true);
+      });
+
+      it('searches by target URL substring', async () => {
+        const { app } = await setupSearchRoutes();
+
+        const response = await app.fetch(
+          new Request('http://henrychong.com/api/routes?search=linkedin.com', {
+            headers: { 'X-Admin-Key': validApiKey },
+          }),
+          testEnv,
+        );
+
+        expect(response.status).toBe(200);
+        const data = await response.json();
+        expect(data.data.routes.length).toBeGreaterThanOrEqual(1);
+        expect(data.data.routes.some((r: { path: string }) => r.path === '/linkedin')).toBe(true);
+      });
+
+      it('searches by route type', async () => {
+        const { app } = await setupSearchRoutes();
+
+        const response = await app.fetch(
+          new Request('http://henrychong.com/api/routes?search=proxy', {
+            headers: { 'X-Admin-Key': validApiKey },
+          }),
+          testEnv,
+        );
+
+        expect(response.status).toBe(200);
+        const data = await response.json();
+        // All matched routes should have "proxy" somewhere in their type field
+        expect(data.data.routes.length).toBeGreaterThanOrEqual(1);
+        expect(data.data.routes.some((r: { type: string }) => r.type === 'proxy')).toBe(true);
+      });
+
+      it('search is case-insensitive', async () => {
+        const { app } = await setupSearchRoutes();
+
+        const response = await app.fetch(
+          new Request('http://henrychong.com/api/routes?search=GITHUB', {
+            headers: { 'X-Admin-Key': validApiKey },
+          }),
+          testEnv,
+        );
+
+        expect(response.status).toBe(200);
+        const data = await response.json();
+        expect(data.data.routes.some((r: { path: string }) => r.path === '/github')).toBe(true);
+      });
+
+      it('returns empty array when search has no matches', async () => {
+        const { app } = await setupSearchRoutes();
+
+        const response = await app.fetch(
+          new Request('http://henrychong.com/api/routes?search=zzz-nonexistent-zzz', {
+            headers: { 'X-Admin-Key': validApiKey },
+          }),
+          testEnv,
+        );
+
+        expect(response.status).toBe(200);
+        const data = await response.json();
+        expect(data.data.routes).toEqual([]);
+        expect(data.data.meta.total).toBe(0);
+      });
+
+      it('empty search string returns all routes', async () => {
+        const { app, routeCount } = await setupSearchRoutes();
+
+        const response = await app.fetch(
+          new Request('http://henrychong.com/api/routes?search=', {
+            headers: { 'X-Admin-Key': validApiKey },
+          }),
+          testEnv,
+        );
+
+        expect(response.status).toBe(200);
+        const data = await response.json();
+        expect(data.data.routes.length).toBeGreaterThanOrEqual(routeCount);
+      });
+    });
+
+    describe('pagination', () => {
+      it('limit returns at most N routes', async () => {
+        const { app } = await setupSearchRoutes();
+
+        const response = await app.fetch(
+          new Request('http://henrychong.com/api/routes?limit=3', {
+            headers: { 'X-Admin-Key': validApiKey },
+          }),
+          testEnv,
+        );
+
+        expect(response.status).toBe(200);
+        const data = await response.json();
+        expect(data.data.routes.length).toBeLessThanOrEqual(3);
+        expect(data.data.meta.count).toBeLessThanOrEqual(3);
+      });
+
+      it('offset skips first N routes', async () => {
+        const { app } = await setupSearchRoutes();
+
+        // Get all routes first
+        const allResponse = await app.fetch(
+          new Request('http://henrychong.com/api/routes', {
+            headers: { 'X-Admin-Key': validApiKey },
+          }),
+          testEnv,
+        );
+        const allData = await allResponse.json();
+        const allRoutes = allData.data.routes;
+
+        // Get with offset=5
+        const offsetResponse = await app.fetch(
+          new Request('http://henrychong.com/api/routes?limit=100&offset=5', {
+            headers: { 'X-Admin-Key': validApiKey },
+          }),
+          testEnv,
+        );
+
+        expect(offsetResponse.status).toBe(200);
+        const offsetData = await offsetResponse.json();
+
+        // Should have fewer routes than full list
+        expect(offsetData.data.routes.length).toBe(allRoutes.length - 5);
+      });
+
+      it('limit + offset returns correct slice', async () => {
+        const { app } = await setupSearchRoutes();
+
+        // Get first page
+        const page1Response = await app.fetch(
+          new Request('http://henrychong.com/api/routes?limit=4&offset=0', {
+            headers: { 'X-Admin-Key': validApiKey },
+          }),
+          testEnv,
+        );
+        const page1Data = await page1Response.json();
+
+        // Get second page
+        const page2Response = await app.fetch(
+          new Request('http://henrychong.com/api/routes?limit=4&offset=4', {
+            headers: { 'X-Admin-Key': validApiKey },
+          }),
+          testEnv,
+        );
+        const page2Data = await page2Response.json();
+
+        // Pages should not overlap
+        const page1Paths = page1Data.data.routes.map((r: { path: string }) => r.path);
+        const page2Paths = page2Data.data.routes.map((r: { path: string }) => r.path);
+        const overlap = page1Paths.filter((p: string) => page2Paths.includes(p));
+        expect(overlap).toEqual([]);
+      });
+
+      it('hasMore is true when more results exist', async () => {
+        const { app } = await setupSearchRoutes();
+
+        const response = await app.fetch(
+          new Request('http://henrychong.com/api/routes?limit=3&offset=0', {
+            headers: { 'X-Admin-Key': validApiKey },
+          }),
+          testEnv,
+        );
+
+        expect(response.status).toBe(200);
+        const data = await response.json();
+        // We seeded 12 routes, limit=3, so hasMore should be true
+        expect(data.data.meta.hasMore).toBe(true);
+      });
+
+      it('hasMore is false when at end', async () => {
+        const { app, routeCount } = await setupSearchRoutes();
+
+        const response = await app.fetch(
+          new Request(`http://henrychong.com/api/routes?limit=100&offset=0`, {
+            headers: { 'X-Admin-Key': validApiKey },
+          }),
+          testEnv,
+        );
+
+        expect(response.status).toBe(200);
+        const data = await response.json();
+        // limit=100 > routeCount, so hasMore should be false
+        expect(data.data.meta.hasMore).toBe(false);
+        expect(data.data.meta.total).toBeGreaterThanOrEqual(routeCount);
+      });
+
+      it('total reflects full count before pagination', async () => {
+        const { app, routeCount } = await setupSearchRoutes();
+
+        const response = await app.fetch(
+          new Request('http://henrychong.com/api/routes?limit=2&offset=0', {
+            headers: { 'X-Admin-Key': validApiKey },
+          }),
+          testEnv,
+        );
+
+        expect(response.status).toBe(200);
+        const data = await response.json();
+        // Total should reflect all routes, not just the paginated subset
+        expect(data.data.meta.total).toBeGreaterThanOrEqual(routeCount);
+        expect(data.data.meta.count).toBe(2); // Only 2 returned
+      });
+    });
+
+    describe('combined filters', () => {
+      it('search + pagination combined', async () => {
+        const { app } = await setupSearchRoutes();
+
+        // Search for "redirect" type routes, paginated
+        const response = await app.fetch(
+          new Request('http://henrychong.com/api/routes?search=redirect&limit=2&offset=0', {
+            headers: { 'X-Admin-Key': validApiKey },
+          }),
+          testEnv,
+        );
+
+        expect(response.status).toBe(200);
+        const data = await response.json();
+        expect(data.data.routes.length).toBeLessThanOrEqual(2);
+        // Total should reflect count of matched routes, not just the page
+        expect(data.data.meta.total).toBeGreaterThanOrEqual(data.data.meta.count);
+      });
+
+      it('type filter + pagination combined', async () => {
+        const { app } = await setupSearchRoutes();
+
+        // Filter by type=proxy with pagination
+        const response = await app.fetch(
+          new Request('http://henrychong.com/api/routes?type=proxy&limit=1&offset=0', {
+            headers: { 'X-Admin-Key': validApiKey },
+          }),
+          testEnv,
+        );
+
+        expect(response.status).toBe(200);
+        const data = await response.json();
+        expect(data.data.routes.length).toBeLessThanOrEqual(1);
+        // All returned routes should be proxy type
+        for (const route of data.data.routes) {
+          expect(route.type).toBe('proxy');
+        }
+        // Total should include all proxy routes
+        expect(data.data.meta.total).toBeGreaterThanOrEqual(1);
+        if (data.data.meta.total > 1) {
+          expect(data.data.meta.hasMore).toBe(true);
+        }
+      });
+    });
+  });
 });

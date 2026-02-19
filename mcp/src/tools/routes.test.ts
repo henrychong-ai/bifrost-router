@@ -36,22 +36,30 @@ describe('Route tool handlers', () => {
 
   describe('listRoutes', () => {
     it('returns formatted route list', async () => {
-      vi.mocked(mockClient.listRoutes).mockResolvedValue([mockRoute]);
+      vi.mocked(mockClient.listRoutes).mockResolvedValue({ routes: [mockRoute], total: 1 });
 
       const result = await listRoutes(mockClient, {}, 'link.henrychong.com');
 
       expect(result).toContain('Routes for link.henrychong.com');
       expect(result).toContain('/github');
       expect(result).toContain('redirect');
-      expect(mockClient.listRoutes).toHaveBeenCalledWith('link.henrychong.com');
+      expect(mockClient.listRoutes).toHaveBeenCalledWith('link.henrychong.com', {
+        search: undefined,
+        limit: undefined,
+        offset: undefined,
+      });
     });
 
     it('uses provided domain over default', async () => {
-      vi.mocked(mockClient.listRoutes).mockResolvedValue([]);
+      vi.mocked(mockClient.listRoutes).mockResolvedValue({ routes: [], total: 0 });
 
       await listRoutes(mockClient, { domain: 'henrychong.com' }, 'link.henrychong.com');
 
-      expect(mockClient.listRoutes).toHaveBeenCalledWith('henrychong.com');
+      expect(mockClient.listRoutes).toHaveBeenCalledWith('henrychong.com', {
+        search: undefined,
+        limit: undefined,
+        offset: undefined,
+      });
     });
 
     it('returns error message when no domain specified', async () => {
@@ -61,7 +69,7 @@ describe('Route tool handlers', () => {
     });
 
     it('returns message for empty route list', async () => {
-      vi.mocked(mockClient.listRoutes).mockResolvedValue([]);
+      vi.mocked(mockClient.listRoutes).mockResolvedValue({ routes: [], total: 0 });
 
       const result = await listRoutes(mockClient, {}, 'link.henrychong.com');
 

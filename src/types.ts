@@ -42,6 +42,14 @@ export const BUCKET_BINDINGS = {
 
 export type BucketBindingName = (typeof BUCKET_BINDINGS)[R2BucketName];
 
+/**
+ * All bucket bindings including backup bucket (for storage API)
+ */
+export const ALL_BUCKET_BINDINGS: Record<string, string> = {
+  ...BUCKET_BINDINGS,
+  'bifrost-backups': 'BACKUP_BUCKET',
+};
+
 // =============================================================================
 // Supported Domains
 // =============================================================================
@@ -104,6 +112,9 @@ export type Bindings = {
 
   // R2 bucket for automated backups (KV + D1)
   BACKUP_BUCKET?: R2Bucket;
+
+  // R2 copy size limit in MB (for rename/metadata operations, default: 100)
+  R2_COPY_SIZE_LIMIT_MB?: string;
 
   // Slack webhook URL for backup health alerts (optional)
   SLACK_BACKUP_WEBHOOK?: string;

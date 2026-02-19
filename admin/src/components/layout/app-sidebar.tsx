@@ -7,6 +7,7 @@ import {
   Route,
   LayoutDashboard,
   ClipboardList,
+  HardDrive,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -31,6 +32,11 @@ const navigationItems = [
     title: 'Routes',
     href: '/routes',
     icon: Route,
+  },
+  {
+    title: 'Storage',
+    href: '/storage',
+    icon: HardDrive,
   },
   {
     title: 'Audit',

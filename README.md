@@ -7,7 +7,7 @@
 > A free, self-hosted alternative to bit.ly and Rebrandly — built on Cloudflare Workers with zero server costs
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-623%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-728%20passing-brightgreen)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)](https://www.typescriptlang.org/)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-orange)](https://workers.cloudflare.com/)
 
@@ -37,11 +37,12 @@ A lightweight, high-performance edge router and URL shortener built on Cloudflar
   - `proxy` — Reverse proxy to external URLs
   - `r2` — Serve content from R2 buckets
 - **KV-Powered** — Route changes propagate globally in seconds
-- **Admin API** — Full CRUD operations with API key authentication
-- **Admin Dashboard** — React SPA with Command Palette (Cmd+K), filters, analytics
-- **MCP Server** — AI-powered route management via Claude Code/Desktop
+- **Admin API** — Full CRUD operations with API key authentication, search, and pagination
+- **Admin Dashboard** — React SPA with Command Palette (Cmd+K), filters, analytics, R2 Storage browser
+- **MCP Server** — AI-powered route and R2 storage management via Claude Code/Desktop (19 tools)
 - **Analytics** — D1-powered click and page view tracking
 - **Wildcard Patterns** — Support for path patterns like `/blog/*`
+- **R2 Storage Management** — Browse, upload, download, rename, and delete R2 objects via API and dashboard
 - **R2 Backup System** — Automated daily backups with health monitoring
 - **API Shield** — OpenAPI schema validation at the Cloudflare edge
 - **Built on Hono** — Fast, lightweight, TypeScript-first
@@ -331,7 +332,7 @@ All admin endpoints require `X-Admin-Key` header or `Authorization: Bearer <key>
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/routes` | List all routes (`?domain=` filter) |
+| `GET` | `/api/routes` | List routes (`?search=`, `?type=`, `?enabled=`, `?limit=`, `?offset=`, `?domain=`) |
 | `GET` | `/api/routes?path=` | Get single route |
 | `POST` | `/api/routes` | Create route |
 | `PUT` | `/api/routes?path=` | Update route |
@@ -342,6 +343,14 @@ All admin endpoints require `X-Admin-Key` header or `Authorization: Bearer <key>
 | `GET` | `/api/analytics/clicks` | Click records (paginated) |
 | `GET` | `/api/analytics/views` | View records (paginated) |
 | `GET` | `/api/analytics/clicks/:slug` | Stats for specific link |
+| `GET` | `/api/storage/buckets` | List all R2 buckets |
+| `GET` | `/api/storage/:bucket/objects` | List objects (`?prefix=`, `?cursor=`, `?limit=`, `?delimiter=`) |
+| `GET` | `/api/storage/:bucket/meta/:key` | Get object metadata |
+| `GET` | `/api/storage/:bucket/objects/:key` | Download object |
+| `POST` | `/api/storage/:bucket/upload` | Upload object (multipart, 100MB max) |
+| `DELETE` | `/api/storage/:bucket/objects/:key` | Delete object |
+| `POST` | `/api/storage/:bucket/rename` | Rename/move object |
+| `PUT` | `/api/storage/:bucket/metadata/:key` | Update object HTTP metadata |
 
 ### Route Configuration
 
@@ -365,7 +374,7 @@ All admin endpoints require `X-Admin-Key` header or `Authorization: Bearer <key>
 
 ```bash
 pnpm run dev          # Local dev server (localhost:8787)
-pnpm run test         # Run all tests (623 tests)
+pnpm run test         # Run all tests (728 tests)
 pnpm run typecheck    # TypeScript check
 pnpm run lint         # Lint all packages
 pnpm run deploy:dev   # Deploy to dev environment

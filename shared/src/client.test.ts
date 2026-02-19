@@ -72,7 +72,7 @@ describe('EdgeRouterClient', () => {
       );
     });
 
-    it('returns routes array', async () => {
+    it('returns routes and total', async () => {
       const mockRoutes = [{ path: '/test', type: 'redirect', target: 'https://example.com' }];
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -83,9 +83,9 @@ describe('EdgeRouterClient', () => {
         }),
       });
 
-      const routes = await client.listRoutes();
+      const result = await client.listRoutes();
 
-      expect(routes).toEqual(mockRoutes);
+      expect(result).toEqual({ routes: mockRoutes, total: 1 });
     });
   });
 
