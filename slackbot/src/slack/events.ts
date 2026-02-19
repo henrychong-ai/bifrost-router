@@ -225,7 +225,7 @@ async function executeCommand(
           return formatPermissionDenied(check.message || 'Permission denied');
         }
 
-        const routes = await client.listRoutes(domain);
+        const { routes } = await client.listRoutes(domain);
         return formatRouteList(routes, domain);
       }
 
