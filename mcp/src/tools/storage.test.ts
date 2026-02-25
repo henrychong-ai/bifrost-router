@@ -13,6 +13,7 @@ import {
   uploadObject,
   deleteObject,
   renameObject,
+  moveObject,
   updateObjectMetadata,
 } from './storage.js';
 
@@ -39,6 +40,7 @@ describe('Storage tool handlers', () => {
       uploadObject: vi.fn(),
       deleteObject: vi.fn(),
       renameObject: vi.fn(),
+      moveObject: vi.fn(),
       updateObjectMetadata: vi.fn(),
     } as unknown as EdgeRouterClient;
   });
@@ -308,6 +310,55 @@ describe('Storage tool handlers', () => {
 
       expect(result).toContain('Error renaming object');
       expect(result).toContain('Destination already exists');
+    });
+  });
+
+  describe('moveObject', () => {
+    it('returns success message with source and destination', async () => {
+      vi.mocked(mockClient.moveObject).mockResolvedValue({
+        ...mockObjectInfo,
+        key: 'test-file.txt',
+      });
+
+      const result = await moveObject(mockClient, {
+        bucket: 'files',
+        key: 'test-file.txt',
+        destination_bucket: 'assets',
+      });
+
+      expect(result).toContain('Object moved successfully');
+      expect(result).toContain('From: files/test-file.txt');
+      expect(result).toContain('To: assets/test-file.txt');
+    });
+
+    it('shows custom destination key when provided', async () => {
+      vi.mocked(mockClient.moveObject).mockResolvedValue({
+        ...mockObjectInfo,
+        key: 'new-name.txt',
+      });
+
+      const result = await moveObject(mockClient, {
+        bucket: 'files',
+        key: 'test-file.txt',
+        destination_bucket: 'assets',
+        destination_key: 'new-name.txt',
+      });
+
+      expect(result).toContain('Object moved successfully');
+      expect(result).toContain('To: assets/new-name.txt');
+    });
+
+    it('handles errors gracefully', async () => {
+      vi.mocked(mockClient.moveObject).mockRejectedValue(new Error('Destination bucket not found'));
+
+      const result = await moveObject(mockClient, {
+        bucket: 'files',
+        key: 'test.txt',
+        destination_bucket: 'invalid',
+      });
+
+      expect(result).toContain('Error moving object');
+      expect(result).toContain('Destination bucket not found');
     });
   });
 

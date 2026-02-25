@@ -450,6 +450,7 @@ export const TOOL_PERMISSIONS: Record<string, PermissionLevel> = {
   get_object: 'read',
   upload_object: 'edit',
   rename_object: 'edit',
+  move_object: 'edit',
   update_object_metadata: 'edit',
   delete_object: 'admin',
 };

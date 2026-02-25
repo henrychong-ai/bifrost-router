@@ -7,7 +7,7 @@
 > A free, self-hosted alternative to bit.ly and Rebrandly — built on Cloudflare Workers with zero server costs
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-728%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-743%20passing-brightgreen)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)](https://www.typescriptlang.org/)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-orange)](https://workers.cloudflare.com/)
 
@@ -39,10 +39,10 @@ A lightweight, high-performance edge router and URL shortener built on Cloudflar
 - **KV-Powered** — Route changes propagate globally in seconds
 - **Admin API** — Full CRUD operations with API key authentication, search, and pagination
 - **Admin Dashboard** — React SPA with Command Palette (Cmd+K), filters, analytics, R2 Storage browser
-- **MCP Server** — AI-powered route and R2 storage management via Claude Code/Desktop (19 tools)
+- **MCP Server** — AI-powered route and R2 storage management via Claude Code/Desktop (20 tools)
 - **Analytics** — D1-powered click and page view tracking
 - **Wildcard Patterns** — Support for path patterns like `/blog/*`
-- **R2 Storage Management** — Browse, upload, download, rename, and delete R2 objects via API and dashboard
+- **R2 Storage Management** — Browse, upload, download, rename, move, and delete R2 objects via API and dashboard
 - **R2 Backup System** — Automated daily backups with health monitoring
 - **API Shield** — OpenAPI schema validation at the Cloudflare edge
 - **Built on Hono** — Fast, lightweight, TypeScript-first
@@ -349,7 +349,8 @@ All admin endpoints require `X-Admin-Key` header or `Authorization: Bearer <key>
 | `GET` | `/api/storage/:bucket/objects/:key` | Download object |
 | `POST` | `/api/storage/:bucket/upload` | Upload object (multipart, 100MB max) |
 | `DELETE` | `/api/storage/:bucket/objects/:key` | Delete object |
-| `POST` | `/api/storage/:bucket/rename` | Rename/move object |
+| `POST` | `/api/storage/:bucket/rename` | Rename object within bucket |
+| `POST` | `/api/storage/:bucket/move` | Move object to different bucket |
 | `PUT` | `/api/storage/:bucket/metadata/:key` | Update object HTTP metadata |
 
 ### Route Configuration
@@ -374,7 +375,7 @@ All admin endpoints require `X-Admin-Key` header or `Authorization: Bearer <key>
 
 ```bash
 pnpm run dev          # Local dev server (localhost:8787)
-pnpm run test         # Run all tests (728 tests)
+pnpm run test         # Run all tests (743 tests)
 pnpm run typecheck    # TypeScript check
 pnpm run lint         # Lint all packages
 pnpm run deploy:dev   # Deploy to dev environment
@@ -385,7 +386,7 @@ pnpm run deploy:dev   # Deploy to dev environment
 | Layer | Technology | Version |
 |-------|------------|---------|
 | **Language** | TypeScript | 5.9.3 |
-| **Framework** | [Hono](https://hono.dev/) | 4.11.8 |
+| **Framework** | [Hono](https://hono.dev/) | 4.12.0 |
 | **Runtime** | Cloudflare Workers | — |
 | **CLI** | Wrangler | 4.63.0 |
 | **Validation** | Zod | 4.3.6 |

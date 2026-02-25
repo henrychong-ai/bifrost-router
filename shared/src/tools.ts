@@ -537,6 +537,35 @@ export const toolDefinitions: ToolDefinition[] = [
     },
   },
   {
+    name: 'move_object',
+    description:
+      'Move an object from one R2 bucket to another. Copies to destination and deletes from source. Preserves all metadata. Use rename_object for within-bucket moves.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        bucket: {
+          type: 'string',
+          description: `Source R2 bucket. Available: ${R2_BUCKETS.join(', ')}`,
+          enum: [...R2_BUCKETS],
+        },
+        key: {
+          type: 'string',
+          description: 'Object key to move',
+        },
+        destination_bucket: {
+          type: 'string',
+          description: `Destination R2 bucket. Available: ${R2_BUCKETS.join(', ')}`,
+          enum: [...R2_BUCKETS],
+        },
+        destination_key: {
+          type: 'string',
+          description: 'New key in destination bucket (optional, defaults to same key)',
+        },
+      },
+      required: ['bucket', 'key', 'destination_bucket'],
+    },
+  },
+  {
     name: 'update_object_metadata',
     description:
       'Update HTTP metadata on an existing R2 object. Only specified fields are changed. Uses copy-with-metadata internally.',
@@ -624,6 +653,7 @@ export const toolCategories: Record<string, 'route' | 'analytics' | 'storage'> =
   upload_object: 'storage',
   delete_object: 'storage',
   rename_object: 'storage',
+  move_object: 'storage',
   update_object_metadata: 'storage',
 };
 

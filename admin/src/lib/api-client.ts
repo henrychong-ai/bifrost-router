@@ -666,6 +666,29 @@ export const storageApi = {
     return response.data as StorageObject;
   },
 
+  /**
+   * Move an object to a different bucket
+   */
+  async moveObject(
+    bucket: string,
+    key: string,
+    destinationBucket: string,
+    destinationKey?: string,
+  ): Promise<StorageObject> {
+    const response = await fetchApi(
+      `/api/storage/${encodeURIComponent(bucket)}/move`,
+      StorageObjectResponseSchema,
+      {
+        method: 'POST',
+        body: JSON.stringify({ key, destinationBucket, destinationKey }),
+      },
+    );
+    if (!response.success || !response.data) {
+      throw new ApiError(400, response.error || 'Failed to move object');
+    }
+    return response.data as StorageObject;
+  },
+
   async updateMetadata(
     bucket: string,
     key: string,

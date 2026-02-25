@@ -186,26 +186,26 @@ storageRoutes.post('/:bucket/upload', async c => {
     throw new HTTPException(400, { message: validation.error ?? 'Invalid R2 key' });
   }
 
-  if (!overwrite) {
-    const existing = await bucket.head(validation.sanitizedKey);
-    if (existing) {
-      return c.json(
-        { success: false, error: `Object already exists: ${validation.sanitizedKey}` },
-        409,
-      );
-    }
+  const existing = await bucket.head(validation.sanitizedKey);
+  if (existing && !overwrite) {
+    return c.json(
+      { success: false, error: `Object already exists: ${validation.sanitizedKey}` },
+      409,
+    );
   }
 
   const uploaded = await bucket.put(validation.sanitizedKey, file.stream(), {
     httpMetadata: { contentType: file.type },
   });
 
+  const auditAction: AuditAction = existing ? 'r2_replace' : 'r2_upload';
+
   try {
     const actor = getActorInfo(c);
     c.executionCtx.waitUntil(
       recordAuditLog(c.env.DB, {
         domain: 'storage',
-        action: 'r2_upload' as AuditAction,
+        action: auditAction,
         actorLogin: actor.login,
         actorName: actor.name,
         path: `${bucketName}/${validation.sanitizedKey}`,
@@ -215,6 +215,7 @@ storageRoutes.post('/:bucket/upload', async c => {
           size: uploaded?.size,
           contentType: file.type,
           overwrite,
+          ...(existing && { replaced: { size: existing.size, etag: existing.etag } }),
         }),
         ipAddress: c.req.header('CF-Connecting-IP') || null,
       }),
@@ -371,6 +372,132 @@ storageRoutes.post('/:bucket/rename', async c => {
   return c.json({
     success: true,
     data: copied ? toR2ObjectInfo(copied) : { key: newValidation.sanitizedKey },
+  });
+});
+
+// POST /:bucket/move - Move object to a different bucket
+storageRoutes.post('/:bucket/move', async c => {
+  const sourceBucketName = c.req.param('bucket');
+  if (isReadOnlyBucket(sourceBucketName)) {
+    return c.json(
+      { success: false, error: `Source bucket is read-only: ${sourceBucketName}` },
+      403,
+    );
+  }
+
+  const sourceBucket = getBucket(c.env, sourceBucketName);
+  if (!sourceBucket) {
+    throw new HTTPException(404, { message: `Source bucket not found: ${sourceBucketName}` });
+  }
+
+  const {
+    key,
+    destinationBucket: destBucketName,
+    destinationKey,
+  } = await c.req.json<{
+    key: string;
+    destinationBucket: string;
+    destinationKey?: string;
+  }>();
+
+  if (!key) {
+    throw new HTTPException(400, { message: 'key is required' });
+  }
+  if (!destBucketName) {
+    throw new HTTPException(400, { message: 'destinationBucket is required' });
+  }
+
+  if (isReadOnlyBucket(destBucketName)) {
+    return c.json(
+      { success: false, error: `Destination bucket is read-only: ${destBucketName}` },
+      403,
+    );
+  }
+
+  const destBucket = getBucket(c.env, destBucketName);
+  if (!destBucket) {
+    throw new HTTPException(404, { message: `Destination bucket not found: ${destBucketName}` });
+  }
+
+  const keyValidation = validateR2Key(key);
+  if (!keyValidation.valid) {
+    throw new HTTPException(400, { message: `Invalid key: ${keyValidation.error}` });
+  }
+
+  const finalDestKey = destinationKey ?? keyValidation.sanitizedKey;
+  const destKeyValidation = destinationKey
+    ? validateR2Key(destinationKey)
+    : { valid: true as const, sanitizedKey: finalDestKey };
+  if (!destKeyValidation.valid) {
+    throw new HTTPException(400, { message: `Invalid destinationKey: ${destKeyValidation.error}` });
+  }
+
+  const copySizeLimit = getR2CopySizeLimit(c.env as Record<string, unknown>);
+  const headResult = await sourceBucket.head(keyValidation.sanitizedKey);
+  if (!headResult) {
+    throw new HTTPException(404, {
+      message: `Object not found: ${keyValidation.sanitizedKey}`,
+    });
+  }
+  if (headResult.size > copySizeLimit) {
+    const sizeMB = (headResult.size / (1024 * 1024)).toFixed(1);
+    const limitMB = (copySizeLimit / (1024 * 1024)).toFixed(0);
+    throw new HTTPException(413, {
+      message: `Object too large for move (${sizeMB} MB). Copy operations are limited to ${limitMB} MB to avoid Worker CPU timeout.`,
+    });
+  }
+
+  const destExisting = await destBucket.head(destKeyValidation.sanitizedKey);
+  if (destExisting) {
+    return c.json(
+      {
+        success: false,
+        error: `Destination already exists: ${destBucketName}/${destKeyValidation.sanitizedKey}`,
+      },
+      409,
+    );
+  }
+
+  const original = await sourceBucket.get(keyValidation.sanitizedKey);
+  if (!original) {
+    throw new HTTPException(404, {
+      message: `Object not found: ${keyValidation.sanitizedKey}`,
+    });
+  }
+
+  const copied = await destBucket.put(destKeyValidation.sanitizedKey, original.body, {
+    httpMetadata: original.httpMetadata,
+    customMetadata: original.customMetadata,
+  });
+
+  await sourceBucket.delete(keyValidation.sanitizedKey);
+
+  try {
+    const actor = getActorInfo(c);
+    c.executionCtx.waitUntil(
+      recordAuditLog(c.env.DB, {
+        domain: 'storage',
+        action: 'r2_move' as AuditAction,
+        actorLogin: actor.login,
+        actorName: actor.name,
+        path: `${destBucketName}/${destKeyValidation.sanitizedKey}`,
+        details: JSON.stringify({
+          sourceBucket: sourceBucketName,
+          destinationBucket: destBucketName,
+          key: keyValidation.sanitizedKey,
+          destinationKey: destKeyValidation.sanitizedKey,
+          size: headResult.size,
+        }),
+        ipAddress: c.req.header('CF-Connecting-IP') || null,
+      }),
+    );
+  } catch {
+    // executionCtx not available in tests
+  }
+
+  return c.json({
+    success: true,
+    data: copied ? toR2ObjectInfo(copied) : { key: destKeyValidation.sanitizedKey },
   });
 });
 

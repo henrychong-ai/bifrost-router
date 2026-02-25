@@ -69,3 +69,23 @@ export function useRenameObject() {
     },
   });
 }
+
+export function useMoveObject() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      bucket,
+      key,
+      destinationBucket,
+      destinationKey,
+    }: {
+      bucket: string;
+      key: string;
+      destinationBucket: string;
+      destinationKey?: string;
+    }) => api.storage.moveObject(bucket, key, destinationBucket, destinationKey),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: storageKeys.all });
+    },
+  });
+}

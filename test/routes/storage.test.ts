@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import { env } from 'cloudflare:test';
 import { adminRoutes } from '../../src/routes/admin';
+import { getR2CopySizeLimit } from '../../src/routes/storage';
 import type { AppEnv } from '../../src/types';
 import { ALL_R2_BUCKETS, READ_ONLY_BUCKETS } from '@bifrost/shared';
 
@@ -37,20 +38,25 @@ describe('storage routes', () => {
     key: string,
     content: string | ArrayBuffer,
     contentType = 'application/octet-stream',
+    bucket: R2Bucket = env.FILES_BUCKET,
   ): Promise<void> {
-    const bucket = env.FILES_BUCKET;
     await bucket.put(key, content, {
       httpMetadata: { contentType },
     });
   }
 
-  // Clear all R2 objects
-  async function clearR2(): Promise<void> {
-    const bucket = env.FILES_BUCKET;
+  // Clear all R2 objects from a bucket
+  async function clearBucket(bucket: R2Bucket): Promise<void> {
     const objects = await bucket.list();
     for (const obj of objects.objects) {
       await bucket.delete(obj.key);
     }
+  }
+
+  // Clear all R2 objects across test buckets
+  async function clearR2(): Promise<void> {
+    await clearBucket(env.FILES_BUCKET);
+    await clearBucket(env.ASSETS_BUCKET);
   }
 
   beforeEach(async () => {
@@ -455,6 +461,123 @@ describe('storage routes', () => {
       });
 
       expect(response.status).toBe(400);
+    });
+  });
+
+  describe('POST /storage/:bucket/move', () => {
+    it('moves an object to a different bucket with default destination key', async () => {
+      await seedR2Object('move-test.txt', 'move me', 'text/plain');
+
+      const response = await storageRequest('/files/move', {
+        method: 'POST',
+        body: JSON.stringify({ key: 'move-test.txt', destinationBucket: 'assets' }),
+      });
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.success).toBe(true);
+
+      // Verify source is gone
+      const sourceMeta = await storageRequest('/files/meta/move-test.txt');
+      expect(sourceMeta.status).toBe(404);
+
+      // Verify destination exists with same content
+      const destMeta = await storageRequest('/assets/meta/move-test.txt');
+      expect(destMeta.status).toBe(200);
+
+      const destDownload = await storageRequest('/assets/objects/move-test.txt');
+      expect(destDownload.status).toBe(200);
+      const content = await destDownload.text();
+      expect(content).toBe('move me');
+    });
+
+    it('moves an object with a custom destination key', async () => {
+      await seedR2Object('move-rename.txt', 'move and rename', 'text/plain');
+
+      const response = await storageRequest('/files/move', {
+        method: 'POST',
+        body: JSON.stringify({
+          key: 'move-rename.txt',
+          destinationBucket: 'assets',
+          destinationKey: 'renamed-in-assets.txt',
+        }),
+      });
+
+      expect(response.status).toBe(200);
+
+      // Verify source is gone
+      const sourceMeta = await storageRequest('/files/meta/move-rename.txt');
+      expect(sourceMeta.status).toBe(404);
+
+      // Verify destination has the new key
+      const destMeta = await storageRequest('/assets/meta/renamed-in-assets.txt');
+      expect(destMeta.status).toBe(200);
+    });
+
+    it('returns 404 when source object does not exist', async () => {
+      const response = await storageRequest('/files/move', {
+        method: 'POST',
+        body: JSON.stringify({ key: 'nonexistent.txt', destinationBucket: 'assets' }),
+      });
+
+      expect(response.status).toBe(404);
+    });
+
+    it('returns 409 when destination key already exists', async () => {
+      await seedR2Object('move-conflict-src.txt', 'source', 'text/plain');
+      await seedR2Object('move-conflict-src.txt', 'existing dest', 'text/plain', env.ASSETS_BUCKET);
+
+      const response = await storageRequest('/files/move', {
+        method: 'POST',
+        body: JSON.stringify({ key: 'move-conflict-src.txt', destinationBucket: 'assets' }),
+      });
+
+      expect(response.status).toBe(409);
+    });
+
+    it('rejects move from read-only bucket', async () => {
+      const response = await storageRequest('/bifrost-backups/move', {
+        method: 'POST',
+        body: JSON.stringify({ key: 'test.txt', destinationBucket: 'files' }),
+      });
+
+      expect(response.status).toBe(403);
+    });
+
+    it('rejects move to read-only bucket', async () => {
+      await seedR2Object('move-to-readonly.txt', 'should fail', 'text/plain');
+
+      const response = await storageRequest('/files/move', {
+        method: 'POST',
+        body: JSON.stringify({
+          key: 'move-to-readonly.txt',
+          destinationBucket: 'bifrost-backups',
+        }),
+      });
+
+      expect(response.status).toBe(403);
+    });
+
+    it('rejects move with invalid key (path traversal)', async () => {
+      const response = await storageRequest('/files/move', {
+        method: 'POST',
+        body: JSON.stringify({ key: '../etc/passwd', destinationBucket: 'assets' }),
+      });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('returns 413 when moving object above size limit', async () => {
+      const testLimitBytes = getR2CopySizeLimit({ R2_COPY_SIZE_LIMIT_MB: '0.001' });
+
+      await env.FILES_BUCKET.put('large/move-oversized.bin', new ArrayBuffer(testLimitBytes + 1));
+
+      const response = await storageRequest('/files/move', {
+        method: 'POST',
+        body: JSON.stringify({ key: 'large/move-oversized.bin', destinationBucket: 'assets' }),
+      });
+
+      expect(response.status).toBe(413);
     });
   });
 });

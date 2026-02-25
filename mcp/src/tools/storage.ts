@@ -258,6 +258,32 @@ export async function renameObject(
 }
 
 /**
+ * Move object to a different bucket
+ */
+export async function moveObject(
+  client: EdgeRouterClient,
+  args: { bucket: string; key: string; destination_bucket: string; destination_key?: string },
+): Promise<string> {
+  try {
+    const result = await client.moveObject(
+      args.bucket,
+      args.key,
+      args.destination_bucket,
+      args.destination_key,
+    );
+    return [
+      'Object moved successfully!',
+      '',
+      `From: ${args.bucket}/${args.key}`,
+      `To: ${args.destination_bucket}/${result.key}`,
+      `Size: ${formatSize(result.size)}`,
+    ].join('\n');
+  } catch (error) {
+    return `Error moving object: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+/**
  * Update object metadata
  */
 export async function updateObjectMetadata(

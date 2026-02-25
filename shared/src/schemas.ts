@@ -200,6 +200,16 @@ export const R2RenameInputSchema = z.object({
   new_key: z.string().min(1).describe('New object key (path)'),
 });
 
+export const R2MoveInputSchema = z.object({
+  bucket: R2BucketSchema.describe('Source R2 bucket name (read-write only)'),
+  key: z.string().min(1).describe('Object key to move'),
+  destination_bucket: R2BucketSchema.describe('Destination R2 bucket name (read-write only)'),
+  destination_key: z
+    .string()
+    .optional()
+    .describe('New key in destination bucket (defaults to original key)'),
+});
+
 export const R2UpdateMetadataInputSchema = z.object({
   bucket: R2BucketSchema.describe('R2 bucket name (read-write only)'),
   key: z.string().min(1).describe('Object key (path) to update metadata for'),
@@ -367,6 +377,7 @@ export type RoutesListQuery = z.infer<typeof RoutesListQuerySchema>;
 export type R2ListObjectsInput = z.infer<typeof R2ListObjectsInputSchema>;
 export type R2UploadInput = z.infer<typeof R2UploadInputSchema>;
 export type R2RenameInput = z.infer<typeof R2RenameInputSchema>;
+export type R2MoveInput = z.infer<typeof R2MoveInputSchema>;
 export type R2UpdateMetadataInput = z.infer<typeof R2UpdateMetadataInputSchema>;
 export type R2ObjectKeyInput = z.infer<typeof R2ObjectKeyInputSchema>;
 export type R2GetObjectInput = z.infer<typeof R2GetObjectInputSchema>;
@@ -390,6 +401,8 @@ export const AuditActionSchema = z.enum([
   'r2_delete',
   'r2_rename',
   'r2_metadata_update',
+  'r2_move',
+  'r2_replace',
 ]);
 export type AuditAction = z.infer<typeof AuditActionSchema>;
 

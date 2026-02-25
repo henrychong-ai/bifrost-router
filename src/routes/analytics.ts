@@ -82,7 +82,22 @@ const ProxyListQuerySchema = z.object({
  */
 const AuditListQuerySchema = z.object({
   domain: z.string().optional(),
-  action: z.enum(['create', 'update', 'delete', 'toggle', 'seed']).optional(),
+  action: z
+    .enum([
+      'create',
+      'update',
+      'delete',
+      'toggle',
+      'seed',
+      'migrate',
+      'r2_upload',
+      'r2_delete',
+      'r2_rename',
+      'r2_metadata_update',
+      'r2_move',
+      'r2_replace',
+    ])
+    .optional(),
   actor: z.string().optional(),
   path: z.string().optional(),
   days: z.coerce.number().min(1).max(365).default(30),

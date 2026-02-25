@@ -29,6 +29,10 @@ import {
   ToggleLeft,
   Layers,
   ArrowRightLeft,
+  Upload,
+  FileEdit,
+  FolderEdit,
+  Replace,
 } from 'lucide-react';
 import { FilterToolbar, type FilterState } from '@/components/filters';
 import type { AuditFilterState } from '@/context';
@@ -56,6 +60,12 @@ const ACTION_COLORS: Record<AuditAction, string> = {
   toggle: 'bg-yellow-100 text-yellow-800 border-yellow-200',
   seed: 'bg-purple-100 text-purple-800 border-purple-200',
   migrate: 'bg-cyan-100 text-cyan-800 border-cyan-200',
+  r2_upload: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  r2_delete: 'bg-red-100 text-red-800 border-red-200',
+  r2_rename: 'bg-cyan-100 text-cyan-800 border-cyan-200',
+  r2_move: 'bg-sky-100 text-sky-800 border-sky-200',
+  r2_replace: 'bg-amber-100 text-amber-800 border-amber-200',
+  r2_metadata_update: 'bg-blue-100 text-blue-800 border-blue-200',
 };
 
 const ACTION_ICONS: Record<AuditAction, React.ReactNode> = {
@@ -65,6 +75,12 @@ const ACTION_ICONS: Record<AuditAction, React.ReactNode> = {
   toggle: <ToggleLeft className="h-3 w-3" />,
   seed: <Layers className="h-3 w-3" />,
   migrate: <ArrowRightLeft className="h-3 w-3" />,
+  r2_upload: <Upload className="h-3 w-3" />,
+  r2_delete: <Trash2 className="h-3 w-3" />,
+  r2_rename: <FolderEdit className="h-3 w-3" />,
+  r2_move: <ArrowRightLeft className="h-3 w-3" />,
+  r2_replace: <Replace className="h-3 w-3" />,
+  r2_metadata_update: <FileEdit className="h-3 w-3" />,
 };
 
 function parseDetails(details: string | null): string {
@@ -78,6 +94,29 @@ function parseDetails(details: string | null): string {
     // For seed actions, show count
     if ('count' in parsed) {
       return `${parsed.count} routes`;
+    }
+    // For migrate actions, show old -> new path
+    if ('oldPath' in parsed && 'newPath' in parsed) {
+      return `${parsed.oldPath} -> ${parsed.newPath}`;
+    }
+    // For R2 move actions, show source -> destination
+    if ('sourceBucket' in parsed && 'destinationBucket' in parsed) {
+      const destKey = parsed.destinationKey || parsed.key;
+      return `${parsed.sourceBucket}/${parsed.key} → ${parsed.destinationBucket}/${destKey}`;
+    }
+    // For R2 replace, show old and new size
+    if ('replaced' in parsed && parsed.replaced) {
+      const oldSize = parsed.replaced.size;
+      const newSize = parsed.size;
+      return `${parsed.bucket}/${parsed.key} (${oldSize} → ${newSize} bytes)`;
+    }
+    // For R2 rename, show old -> new key
+    if ('bucket' in parsed && 'oldKey' in parsed && 'newKey' in parsed) {
+      return `${parsed.oldKey} -> ${parsed.newKey}`;
+    }
+    // For R2 actions, show bucket/key info
+    if ('bucket' in parsed && 'key' in parsed) {
+      return `${parsed.bucket}/${parsed.key}`;
     }
     // For other actions, show a summary
     if ('route' in parsed) {
@@ -212,6 +251,24 @@ export function AuditPage() {
               </SelectItem>
               <SelectItem value="migrate" className="font-gilroy">
                 Migrate
+              </SelectItem>
+              <SelectItem value="r2_upload" className="font-gilroy">
+                R2 Upload
+              </SelectItem>
+              <SelectItem value="r2_delete" className="font-gilroy">
+                R2 Delete
+              </SelectItem>
+              <SelectItem value="r2_rename" className="font-gilroy">
+                R2 Rename
+              </SelectItem>
+              <SelectItem value="r2_move" className="font-gilroy">
+                R2 Move
+              </SelectItem>
+              <SelectItem value="r2_replace" className="font-gilroy">
+                R2 Replace
+              </SelectItem>
+              <SelectItem value="r2_metadata_update" className="font-gilroy">
+                R2 Metadata
               </SelectItem>
             </SelectContent>
           </Select>

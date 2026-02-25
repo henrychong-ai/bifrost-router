@@ -5,6 +5,7 @@ import {
   useUploadObject,
   useDeleteObject,
   useRenameObject,
+  useMoveObject,
 } from '@/hooks';
 import { formatBytes } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -51,6 +52,7 @@ import {
   ChevronRight,
   Pencil,
   Loader2,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -66,10 +68,12 @@ export function StoragePage() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [renameDialog, setRenameDialog] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [moveTarget, setMoveTarget] = useState<{ key: string } | null>(null);
 
   // Auto-select first bucket when loaded
   const activeBucket = selectedBucket || buckets?.[0]?.name || '';
   const isReadOnly = READ_ONLY_BUCKETS.includes(activeBucket);
+  const writableBuckets = (buckets || []).filter(b => b.access !== 'read-only').map(b => b.name);
 
   const {
     data: objectsData,
@@ -311,6 +315,15 @@ export function StoragePage() {
                                 <Pencil className="h-4 w-4 mr-2" />
                                 Rename
                               </DropdownMenuItem>
+                              {writableBuckets.filter(b => b !== activeBucket).length > 0 && (
+                                <DropdownMenuItem
+                                  onClick={() => setMoveTarget({ key: obj.key })}
+                                  className="font-gilroy"
+                                >
+                                  <ArrowRightLeft className="h-4 w-4 mr-2" />
+                                  Move to Bucket
+                                </DropdownMenuItem>
+                              )}
                               <DropdownMenuItem
                                 onClick={() => setDeleteConfirm(obj.key)}
                                 className="text-destructive font-gilroy"
@@ -446,7 +459,122 @@ export function StoragePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Move Dialog */}
+      {moveTarget && (
+        <MoveDialog
+          open={!!moveTarget}
+          onOpenChange={() => setMoveTarget(null)}
+          bucket={activeBucket}
+          objectKey={moveTarget.key}
+          allowedBuckets={writableBuckets}
+        />
+      )}
     </div>
+  );
+}
+
+function MoveDialog({
+  open,
+  onOpenChange,
+  bucket,
+  objectKey,
+  allowedBuckets,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  bucket: string;
+  objectKey: string;
+  allowedBuckets: string[];
+}) {
+  const move = useMoveObject();
+  const targetBuckets = allowedBuckets.filter(b => b !== bucket);
+  const [destinationBucket, setDestinationBucket] = useState(targetBuckets[0] || '');
+  const [destinationKey, setDestinationKey] = useState(objectKey);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!destinationBucket) return;
+
+    try {
+      await move.mutateAsync({
+        bucket,
+        key: objectKey,
+        destinationBucket,
+        destinationKey: destinationKey !== objectKey ? destinationKey : undefined,
+      });
+      toast.success(`Moved to ${destinationBucket}`);
+      onOpenChange(false);
+    } catch (err) {
+      toast.error(`Move failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="font-gilroy font-semibold text-blue-950">
+            Move to Bucket
+          </DialogTitle>
+          <DialogDescription className="font-gilroy">
+            Move <code className="font-mono text-blue-600">{objectKey}</code> from{' '}
+            <code className="font-mono text-blue-600">{bucket}</code> to another bucket.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="dest-bucket" className="font-gilroy font-medium text-charcoal-700">
+              Destination Bucket
+            </Label>
+            <Select value={destinationBucket} onValueChange={setDestinationBucket}>
+              <SelectTrigger id="dest-bucket" className="font-mono">
+                <SelectValue placeholder="Select bucket" />
+              </SelectTrigger>
+              <SelectContent>
+                {targetBuckets.map(b => (
+                  <SelectItem key={b} value={b} className="font-mono">
+                    {b}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="dest-key" className="font-gilroy font-medium text-charcoal-700">
+              Destination Key
+            </Label>
+            <Input
+              id="dest-key"
+              value={destinationKey}
+              onChange={e => setDestinationKey(e.target.value)}
+              required
+              className="font-mono"
+            />
+            <p className="font-gilroy text-tiny text-muted-foreground">
+              Optionally change the key in the destination bucket.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              className="font-gilroy"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={!destinationBucket || move.isPending}
+              className="bg-blue-950 font-gilroy hover:bg-blue-900"
+            >
+              {move.isPending ? 'Moving...' : 'Move'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

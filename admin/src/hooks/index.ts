@@ -49,6 +49,7 @@ export {
   useUploadObject,
   useDeleteObject,
   useRenameObject,
+  useMoveObject,
 } from './use-storage';
 
 // Utility hooks

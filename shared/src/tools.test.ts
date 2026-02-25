@@ -8,12 +8,15 @@ import {
   getToolsByCategory,
   routeTools,
   analyticsTools,
+  storageTools,
 } from './tools.js';
 
 describe('tools', () => {
   describe('toolDefinitions', () => {
     it('contains all route, analytics, and storage tools', () => {
-      expect(toolDefinitions.length).toBe(19);
+      expect(toolDefinitions.length).toBe(
+        routeTools.length + analyticsTools.length + storageTools.length,
+      );
     });
 
     it('has all expected route tools', () => {
@@ -100,6 +103,18 @@ describe('tools', () => {
       expect(toolCategories.get_views).toBe('analytics');
       expect(toolCategories.get_slug_stats).toBe('analytics');
     });
+
+    it('maps storage tools correctly', () => {
+      expect(toolCategories.list_buckets).toBe('storage');
+      expect(toolCategories.list_objects).toBe('storage');
+      expect(toolCategories.get_object_meta).toBe('storage');
+      expect(toolCategories.get_object).toBe('storage');
+      expect(toolCategories.upload_object).toBe('storage');
+      expect(toolCategories.delete_object).toBe('storage');
+      expect(toolCategories.rename_object).toBe('storage');
+      expect(toolCategories.move_object).toBe('storage');
+      expect(toolCategories.update_object_metadata).toBe('storage');
+    });
   });
 
   describe('getToolsByCategory', () => {
@@ -116,6 +131,14 @@ describe('tools', () => {
       expect(tools.length).toBe(analyticsTools.length);
       for (const tool of tools) {
         expect(toolCategories[tool.name]).toBe('analytics');
+      }
+    });
+
+    it('returns storage tools', () => {
+      const tools = getToolsByCategory('storage');
+      expect(tools.length).toBe(storageTools.length);
+      for (const tool of tools) {
+        expect(toolCategories[tool.name]).toBe('storage');
       }
     });
   });
@@ -135,6 +158,28 @@ describe('tools', () => {
       for (const tool of analyticsTools) {
         expect(toolCategories[tool.name]).toBe('analytics');
       }
+    });
+  });
+
+  describe('storageTools', () => {
+    it('contains all storage tools', () => {
+      expect(storageTools.length).toBe(9);
+      for (const tool of storageTools) {
+        expect(toolCategories[tool.name]).toBe('storage');
+      }
+    });
+
+    it('has all expected storage tools', () => {
+      const names = storageTools.map(t => t.name);
+      expect(names).toContain('list_buckets');
+      expect(names).toContain('list_objects');
+      expect(names).toContain('get_object_meta');
+      expect(names).toContain('get_object');
+      expect(names).toContain('upload_object');
+      expect(names).toContain('delete_object');
+      expect(names).toContain('rename_object');
+      expect(names).toContain('move_object');
+      expect(names).toContain('update_object_metadata');
     });
   });
 });

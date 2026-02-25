@@ -2,6 +2,30 @@
 
 All notable changes to this project are documented in this file.
 
+## v1.13.0 (2026-02-25)
+
+### Added
+- **R2 cross-bucket move**: New `POST /api/storage/:bucket/move` endpoint for moving objects between R2 buckets with full validation (size guard, conflict detection, key validation)
+- **R2 move MCP tool**: `move_object` tool (20th tool, 9th storage) for AI-driven cross-bucket moves
+- **R2 move dashboard**: "Move to Bucket" action in storage page dropdown with destination bucket selector
+- **Upload audit distinction**: `r2_replace` audit action when overwriting existing objects (vs `r2_upload` for new)
+
+### Changed
+- **Audit page R2 support**: Added colours, icons, filter items, and detail parsing for all R2 audit actions (`r2_upload`, `r2_delete`, `r2_rename`, `r2_move`, `r2_replace`, `r2_metadata_update`)
+- **Audit query**: Expanded `AuditListQuerySchema.action` from 5 to 12 values (added `migrate` + 6 R2 actions)
+- **Dialog UX**: Added viewport height constraint, scroll overflow, and CSS Grid `min-width` fix to `DialogContent`
+- **Route dialogs**: Responsive sizing (`sm:max-w-xl lg:max-w-2xl`) for Create/Edit Route dialogs
+- **Link preview**: URL row now clickable (changed from `<div>` to `<a>` with hover styling)
+
+### Security
+- Patched ajv ReDoS vulnerability (CVE-2025-69873) via scoped pnpm override `"ajv@^6": "^6.14.0"`
+- Bumped hono to ^4.12.0 for timing comparison hardening in basicAuth/bearerAuth
+
+### Tests
+- 728 → 743 tests (+15): 8 R2 move integration, 3 MCP moveObject handler, 4 shared tools updates
+
+---
+
 ## v1.12.0 (2026-02-20)
 
 ### Added

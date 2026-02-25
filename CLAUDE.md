@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |---------|------|-------------|
 | Root Worker | `src/`, `test/` | Main edge router (Hono + Cloudflare Workers) |
 | `@bifrost/shared` | `shared/` | Types, Zod schemas, EdgeRouterClient HTTP client |
-| `@bifrost/mcp` | `mcp/` | MCP server for AI-powered route and storage management (19 tools) |
+| `@bifrost/mcp` | `mcp/` | MCP server for AI-powered route and storage management (20 tools: 7 route + 4 analytics + 9 storage) |
 | Admin Dashboard | `admin/` | React 19 SPA (Vite, Tailwind CSS, shadcn/ui, TanStack Query) |
 | `@bifrost/slackbot` | `slackbot/` | Slack bot Worker for route management |
 
@@ -23,7 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 pnpm run dev           # Local dev server (localhost:8787)
-pnpm run test          # Run all tests (~728 across root, shared, mcp, slackbot)
+pnpm run test          # Run all tests (~743 across root, shared, mcp, slackbot)
 pnpm run typecheck     # TypeScript check
 pnpm run lint          # Lint (oxlint)
 pnpm run lint:fix      # Auto-fix lint issues

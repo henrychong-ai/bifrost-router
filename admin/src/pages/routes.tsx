@@ -641,7 +641,7 @@ export function RoutesPage() {
               New Route
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="sm:max-w-xl lg:max-w-2xl">
             <DialogHeader>
               <DialogTitle className="font-gilroy font-semibold text-blue-950">
                 Create Route
@@ -941,7 +941,7 @@ export function RoutesPage() {
 
       {/* Edit Dialog */}
       <Dialog open={!!editRoute} onOpenChange={() => setEditRoute(null)}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-xl lg:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="font-gilroy font-semibold text-blue-950">
               Edit Route

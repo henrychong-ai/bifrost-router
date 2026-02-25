@@ -32,6 +32,7 @@ import {
   uploadObject,
   deleteObject,
   renameObject,
+  moveObject,
   updateObjectMetadata,
 } from './tools/storage.js';
 
@@ -267,6 +268,18 @@ async function main(): Promise<void> {
           result = await renameObject(
             client,
             args as { bucket: string; old_key: string; new_key: string },
+          );
+          break;
+
+        case 'move_object':
+          result = await moveObject(
+            client,
+            args as {
+              bucket: string;
+              key: string;
+              destination_bucket: string;
+              destination_key?: string;
+            },
           );
           break;
 

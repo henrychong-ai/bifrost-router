@@ -451,6 +451,20 @@ export class EdgeRouterClient {
   }
 
   /**
+   * Move an object to a different R2 bucket
+   */
+  async moveObject(
+    bucket: string,
+    key: string,
+    destinationBucket: string,
+    destinationKey?: string,
+  ): Promise<R2ObjectInfo> {
+    return this.request<R2ObjectInfo>('POST', `/api/storage/${bucket}/move`, {
+      body: { key, destinationBucket, destinationKey },
+    });
+  }
+
+  /**
    * Update object HTTP metadata
    */
   async updateObjectMetadata(

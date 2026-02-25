@@ -11,9 +11,10 @@ export default defineWorkersConfig({
           bindings: {
             ENVIRONMENT: 'development',
             ADMIN_API_KEY: 'test-api-key-12345',
+            R2_COPY_SIZE_LIMIT_MB: '0.001',
           },
           kvNamespaces: ['ROUTES'],
-          r2Buckets: ['FILES_BUCKET', 'BACKUP_BUCKET'],
+          r2Buckets: ['FILES_BUCKET', 'ASSETS_BUCKET', 'BACKUP_BUCKET'],
           d1Databases: ['DB'],
         },
       },

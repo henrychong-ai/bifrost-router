@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Bifrost Admin API
   description: Edge router management API for route configuration and analytics
-  version: 1.10.1
+  version: 1.13.0
   contact:
     name: Bifrost
     url: https://github.com/your-username/bifrost-router
@@ -265,6 +265,192 @@ paths:
         '200':
           description: Success
 
+  # Storage endpoints
+  /api/storage/buckets:
+    get:
+      summary: List R2 buckets
+      tags: [Storage]
+      responses:
+        '200':
+          description: List of buckets with access levels
+
+  /api/storage/{bucket}/objects:
+    get:
+      summary: List objects in bucket
+      tags: [Storage]
+      parameters:
+        - $ref: '#/components/parameters/BucketPath'
+        - name: prefix
+          in: query
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+        - name: delimiter
+          in: query
+          schema:
+            type: string
+            default: /
+      responses:
+        '200':
+          description: Object listing
+
+  /api/storage/{bucket}/meta/{key}:
+    get:
+      summary: Get object metadata
+      tags: [Storage]
+      parameters:
+        - $ref: '#/components/parameters/BucketPath'
+        - $ref: '#/components/parameters/R2KeyPath'
+      responses:
+        '200':
+          description: Object metadata
+        '404':
+          description: Object not found
+
+  /api/storage/{bucket}/objects/{key}:
+    get:
+      summary: Download object
+      tags: [Storage]
+      parameters:
+        - $ref: '#/components/parameters/BucketPath'
+        - $ref: '#/components/parameters/R2KeyPath'
+      responses:
+        '200':
+          description: Object body
+        '404':
+          description: Object not found
+    delete:
+      summary: Delete object
+      tags: [Storage]
+      parameters:
+        - $ref: '#/components/parameters/BucketPath'
+        - $ref: '#/components/parameters/R2KeyPath'
+      responses:
+        '200':
+          description: Deleted
+        '403':
+          description: Read-only bucket
+
+  /api/storage/{bucket}/upload:
+    post:
+      summary: Upload object
+      tags: [Storage]
+      parameters:
+        - $ref: '#/components/parameters/BucketPath'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, key]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                key:
+                  type: string
+      responses:
+        '200':
+          description: Upload successful
+        '403':
+          description: Read-only bucket
+        '400':
+          description: Invalid R2 key
+
+  /api/storage/{bucket}/rename:
+    post:
+      summary: Rename/move object
+      tags: [Storage]
+      parameters:
+        - $ref: '#/components/parameters/BucketPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [oldKey, newKey]
+              properties:
+                oldKey:
+                  type: string
+                newKey:
+                  type: string
+      responses:
+        '200':
+          description: Renamed
+        '413':
+          description: Object too large for copy operation
+
+  /api/storage/{bucket}/move:
+    post:
+      summary: Move object to different bucket
+      tags: [Storage]
+      parameters:
+        - $ref: '#/components/parameters/BucketPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key, destinationBucket]
+              properties:
+                key:
+                  type: string
+                destinationBucket:
+                  type: string
+                destinationKey:
+                  type: string
+      responses:
+        '200':
+          description: Moved
+        '400':
+          description: Invalid key
+        '403':
+          description: Read-only bucket (source or destination)
+        '404':
+          description: Source object not found
+        '409':
+          description: Destination already exists
+        '413':
+          description: Object too large for copy operation
+
+  /api/storage/{bucket}/metadata/{key}:
+    put:
+      summary: Update object metadata
+      tags: [Storage]
+      parameters:
+        - $ref: '#/components/parameters/BucketPath'
+        - $ref: '#/components/parameters/R2KeyPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                contentType:
+                  type: string
+                cacheControl:
+                  type: string
+                contentDisposition:
+                  type: string
+      responses:
+        '200':
+          description: Metadata updated
+        '413':
+          description: Object too large for copy operation
+
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -386,11 +572,34 @@ components:
           - toggle
           - seed
           - migrate
+          - r2_upload
+          - r2_delete
+          - r2_rename
+          - r2_move
+          - r2_replace
+          - r2_metadata_update
 
     ActorQuery:
       name: actor
       in: query
       description: Filter by actor login
+      schema:
+        type: string
+
+    BucketPath:
+      name: bucket
+      in: path
+      required: true
+      description: R2 bucket name
+      schema:
+        type: string
+        enum: [files, assets, files-user1, files-user2, files-user3, files-user4, files-user5, files-user6, bifrost-backups]
+
+    R2KeyPath:
+      name: key
+      in: path
+      required: true
+      description: R2 object key
       schema:
         type: string
 
