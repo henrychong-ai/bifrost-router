@@ -396,7 +396,7 @@ pnpm run deploy:dev   # Deploy to dev environment
 | **Object Storage** | Cloudflare R2 | — |
 | **Testing** | Vitest + @cloudflare/vitest-pool-workers | 3.1.0 / 0.8.0 |
 | **Linting** | Oxlint + Biome (formatter) | — |
-| **Package Manager** | pnpm (workspaces) | 10.20.0 |
+| **Package Manager** | pnpm (workspaces) | 10.30.3 |
 | **Admin Dashboard** | React 19 + Vite 7 + Tailwind CSS 4 + shadcn/ui | — |
 
 ## License

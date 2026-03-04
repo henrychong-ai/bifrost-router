@@ -200,7 +200,7 @@ bifrost/                        # pnpm monorepo
 │   ├── kv/                     # KV: route CRUD, lookup (exact + wildcard), Zod schemas
 │   ├── handlers/               # redirect.ts, proxy.ts, r2.ts
 │   ├── middleware/              # CORS, rate limiting
-│   ├── utils/                  # crypto, url-validation, path-validation, kv-errors
+│   ├── utils/                  # crypto, url-validation, path-validation, kv-errors, og-parser
 │   └── routes/                 # admin.ts (CRUD + search/pagination + storage mount), analytics.ts, storage.ts
 ├── test/                       # Mirrors src/ structure (see Testing section)
 ├── shared/src/                 # Types, schemas, EdgeRouterClient
