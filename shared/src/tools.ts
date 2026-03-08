@@ -463,7 +463,7 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: 'upload_object',
     description:
-      'Upload a file to an R2 bucket. Content must be base64-encoded. Maximum upload size is 25MB (before encoding). Set overwrite=true to replace existing objects.',
+      'Upload a file to an R2 bucket. Provide either file_path (reads file from disk) or content_base64 (base64-encoded content), not both. Maximum upload size is 25MB. Set overwrite=true to replace existing objects.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -476,13 +476,20 @@ export const toolDefinitions: ToolDefinition[] = [
           type: 'string',
           description: 'Object key (path) for the uploaded file (e.g., "documents/report.pdf")',
         },
+        file_path: {
+          type: 'string',
+          description:
+            'Absolute path to a local file to upload. Content type is auto-detected from extension (or use content_type to override). Mutually exclusive with content_base64.',
+        },
         content_base64: {
           type: 'string',
-          description: 'Base64-encoded file content',
+          description:
+            'Base64-encoded file content. Requires content_type. Mutually exclusive with file_path.',
         },
         content_type: {
           type: 'string',
-          description: 'MIME type of the file (e.g., "application/pdf", "image/png")',
+          description:
+            'MIME type of the file (e.g., "application/pdf", "image/png"). Required with content_base64, optional with file_path (auto-detected from extension).',
         },
         overwrite: {
           type: 'boolean',
@@ -490,7 +497,7 @@ export const toolDefinitions: ToolDefinition[] = [
           default: false,
         },
       },
-      required: ['bucket', 'key', 'content_base64', 'content_type'],
+      required: ['bucket', 'key'],
     },
   },
   {

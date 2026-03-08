@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented in this file.
 
+## v1.13.2 (2026-03-08)
+
+### Added
+- **MCP file_path upload**: `upload_object` tool accepts `file_path` to read files directly from disk, bypassing base64 encoding (~33% size reduction, faster uploads)
+- **MIME auto-detection**: Content type auto-detected from file extension (25 common types) when using `file_path` mode; `content_type` optional override
+- **Pre-read size guard**: File size checked via `stat` before reading into memory, preventing unnecessary I/O for oversized files
+- **Zod schema update**: `R2UploadInputSchema` updated with `file_path`, optional fields, and `.refine()` validators for mutual exclusivity
+
+### Changed
+- `upload_object` schema `required` reduced from `['bucket', 'key', 'content_base64', 'content_type']` to `['bucket', 'key']` — validation moved to runtime
+- Success output shows `Source: {file_path}` line when uploading from disk
+
+### Tests
+- 743 → 753 tests (+10): 10 new MCP upload tests (file_path success, auto-detect, explicit override, pre-read size guard, file not found, directory, unknown extension, both params, neither, missing content_type)
+- Added `vi.clearAllMocks()` in test `beforeEach` for proper mock isolation
+
+---
+
 ## v1.13.0 (2026-02-25)
 
 ### Added

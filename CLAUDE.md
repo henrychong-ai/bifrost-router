@@ -23,7 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 pnpm run dev           # Local dev server (localhost:8787)
-pnpm run test          # Run all tests (~743 across root, shared, mcp, slackbot)
+pnpm run test          # Run all tests (~753 across root, shared, mcp, slackbot)
 pnpm run typecheck     # TypeScript check
 pnpm run lint          # Lint (oxlint)
 pnpm run lint:fix      # Auto-fix lint issues

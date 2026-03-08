@@ -2,7 +2,42 @@
  * R2 Storage tool handlers for MCP server
  */
 
+import { readFileSync, statSync } from 'node:fs';
+import { extname } from 'node:path';
 import type { EdgeRouterClient, R2ObjectInfo } from '@bifrost/shared';
+
+const EXTENSION_MIME_MAP: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.pdf': 'application/pdf',
+  '.json': 'application/json',
+  '.xml': 'application/xml',
+  '.html': 'text/html',
+  '.css': 'text/css',
+  '.js': 'application/javascript',
+  '.txt': 'text/plain',
+  '.csv': 'text/csv',
+  '.md': 'text/markdown',
+  '.zip': 'application/zip',
+  '.gz': 'application/gzip',
+  '.tar': 'application/x-tar',
+  '.mp4': 'video/mp4',
+  '.mp3': 'audio/mpeg',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+};
+
+function getContentTypeFromExtension(filePath: string): string | undefined {
+  const ext = extname(filePath).toLowerCase();
+  return EXTENSION_MIME_MAP[ext];
+}
 
 /**
  * Format file size for display
@@ -182,39 +217,92 @@ export async function getObject(
 }
 
 /**
- * Upload object from base64 content
+ * Upload object from file_path or base64 content
  */
 export async function uploadObject(
   client: EdgeRouterClient,
   args: {
     bucket: string;
     key: string;
-    content_base64: string;
-    content_type: string;
+    file_path?: string;
+    content_base64?: string;
+    content_type?: string;
     overwrite?: boolean;
   },
 ): Promise<string> {
   try {
-    // Decode base64 to buffer
-    const buffer = Buffer.from(args.content_base64, 'base64');
+    // Validate: exactly one source must be provided
+    if (args.file_path && args.content_base64) {
+      return 'Error: Provide either file_path or content_base64, not both.';
+    }
+    if (!args.file_path && !args.content_base64) {
+      return 'Error: Provide either file_path or content_base64.';
+    }
 
-    // Check size limit
+    let buffer: Buffer;
+    let contentType: string;
+    let source: string | undefined;
+
+    if (args.file_path) {
+      // File path mode: read from disk
+      let stat: ReturnType<typeof statSync>;
+      try {
+        stat = statSync(args.file_path);
+      } catch {
+        return `Error: File not found: ${args.file_path}`;
+      }
+      if (!stat.isFile()) {
+        return `Error: Path is not a file: ${args.file_path}`;
+      }
+
+      if (stat.size > MAX_UPLOAD_SIZE) {
+        return `Error: File size (${formatSize(stat.size)}) exceeds maximum upload size of ${formatSize(MAX_UPLOAD_SIZE)}.`;
+      }
+
+      buffer = readFileSync(args.file_path);
+
+      if (args.content_type) {
+        contentType = args.content_type;
+      } else {
+        const detected = getContentTypeFromExtension(args.file_path);
+        if (!detected) {
+          return `Error: Cannot detect content type for extension "${extname(args.file_path)}". Provide content_type explicitly.`;
+        }
+        contentType = detected;
+      }
+      source = args.file_path;
+    } else {
+      // Base64 mode: decode content
+      if (!args.content_type) {
+        return 'Error: content_type is required when using content_base64.';
+      }
+      buffer = Buffer.from(args.content_base64!, 'base64');
+      contentType = args.content_type;
+    }
+
+    // Check size limit (for base64 mode; file_path mode checked above via stat.size)
     if (buffer.length > MAX_UPLOAD_SIZE) {
       return `Error: File size (${formatSize(buffer.length)}) exceeds maximum upload size of ${formatSize(MAX_UPLOAD_SIZE)}.`;
     }
 
-    const blob = new Blob([buffer], { type: args.content_type });
-    const result = await client.uploadObject(args.bucket, args.key, blob, args.content_type, {
+    const blob = new Blob([buffer], { type: contentType });
+    const result = await client.uploadObject(args.bucket, args.key, blob, contentType, {
       overwrite: args.overwrite,
     });
 
-    return [
+    const lines = [
       `File uploaded successfully!`,
       '',
       `Key: ${result.key}`,
       `Bucket: ${args.bucket}`,
       `Size: ${formatSize(result.size)}`,
-    ].join('\n');
+    ];
+
+    if (source) {
+      lines.push(`Source: ${source}`);
+    }
+
+    return lines.join('\n');
   } catch (error) {
     return `Error uploading object: ${error instanceof Error ? error.message : String(error)}`;
   }

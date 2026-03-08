@@ -186,13 +186,35 @@ export const R2ListObjectsInputSchema = z.object({
   delimiter: z.string().optional().describe('Delimiter for directory-like grouping (default: "/")'),
 });
 
-export const R2UploadInputSchema = z.object({
-  bucket: R2BucketSchema.describe('R2 bucket name (read-write only)'),
-  key: z.string().min(1).describe('Object key (path) within the bucket'),
-  content_base64: z.string().min(1).describe('Base64-encoded file content'),
-  content_type: z.string().min(1).describe('MIME type of the file'),
-  overwrite: z.boolean().optional().describe('Overwrite if object already exists (default: false)'),
-});
+export const R2UploadInputSchema = z
+  .object({
+    bucket: R2BucketSchema.describe('R2 bucket name (read-write only)'),
+    key: z.string().min(1).describe('Object key (path) within the bucket'),
+    file_path: z.string().min(1).optional().describe('Absolute path to a local file to upload'),
+    content_base64: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('Base64-encoded file content (mutually exclusive with file_path)'),
+    content_type: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('MIME type (required with content_base64, optional with file_path)'),
+    overwrite: z
+      .boolean()
+      .optional()
+      .describe('Overwrite if object already exists (default: false)'),
+  })
+  .refine(data => data.file_path || data.content_base64, {
+    message: 'Provide either file_path or content_base64',
+  })
+  .refine(data => !(data.file_path && data.content_base64), {
+    message: 'Provide either file_path or content_base64, not both',
+  })
+  .refine(data => !data.content_base64 || data.content_type, {
+    message: 'content_type is required when using content_base64',
+  });
 
 export const R2RenameInputSchema = z.object({
   bucket: R2BucketSchema.describe('R2 bucket name (read-write only)'),

@@ -253,8 +253,9 @@ async function main(): Promise<void> {
             args as {
               bucket: string;
               key: string;
-              content_base64: string;
-              content_type: string;
+              file_path?: string;
+              content_base64?: string;
+              content_type?: string;
               overwrite?: boolean;
             },
           );

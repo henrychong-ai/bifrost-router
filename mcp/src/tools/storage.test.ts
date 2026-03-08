@@ -1,3 +1,4 @@
+import { readFileSync, statSync } from 'node:fs';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type {
   EdgeRouterClient,
@@ -5,6 +6,11 @@ import type {
   R2BucketsResponse,
   R2ListResponse,
 } from '@bifrost/shared';
+
+vi.mock('node:fs', () => ({
+  readFileSync: vi.fn(),
+  statSync: vi.fn(),
+}));
 import {
   listBuckets,
   listObjects,
@@ -32,6 +38,7 @@ describe('Storage tool handlers', () => {
   };
 
   beforeEach(() => {
+    vi.clearAllMocks();
     mockClient = {
       listBuckets: vi.fn(),
       listObjects: vi.fn(),
@@ -256,6 +263,188 @@ describe('Storage tool handlers', () => {
 
       expect(result).toContain('Error uploading object');
       expect(result).toContain('Bucket is read-only');
+    });
+
+    it('uploads from file_path', async () => {
+      const fileContent = Buffer.from('file content here');
+      vi.mocked(statSync).mockReturnValue({
+        isFile: () => true,
+        size: fileContent.length,
+      } as ReturnType<typeof statSync>);
+      vi.mocked(readFileSync).mockReturnValue(fileContent);
+      vi.mocked(mockClient.uploadObject).mockResolvedValue({
+        ...mockObjectInfo,
+        key: 'images/photo.png',
+        size: fileContent.length,
+      });
+
+      const result = await uploadObject(mockClient, {
+        bucket: 'files',
+        key: 'images/photo.png',
+        file_path: '/tmp/photo.png',
+      });
+
+      expect(result).toContain('File uploaded successfully');
+      expect(result).toContain('Source: /tmp/photo.png');
+      expect(mockClient.uploadObject).toHaveBeenCalledWith(
+        'files',
+        'images/photo.png',
+        expect.any(Blob),
+        'image/png',
+        { overwrite: undefined },
+      );
+    });
+
+    it('auto-detects content type from extension', async () => {
+      vi.mocked(statSync).mockReturnValue({
+        isFile: () => true,
+        size: 2,
+      } as ReturnType<typeof statSync>);
+      vi.mocked(readFileSync).mockReturnValue(Buffer.from('{}'));
+      vi.mocked(mockClient.uploadObject).mockResolvedValue({
+        ...mockObjectInfo,
+        key: 'data.json',
+        size: 2,
+      });
+
+      await uploadObject(mockClient, {
+        bucket: 'files',
+        key: 'data.json',
+        file_path: '/tmp/data.json',
+      });
+
+      expect(mockClient.uploadObject).toHaveBeenCalledWith(
+        'files',
+        'data.json',
+        expect.any(Blob),
+        'application/json',
+        { overwrite: undefined },
+      );
+    });
+
+    it('uses explicit content_type over auto-detection', async () => {
+      vi.mocked(statSync).mockReturnValue({
+        isFile: () => true,
+        size: 4,
+      } as ReturnType<typeof statSync>);
+      vi.mocked(readFileSync).mockReturnValue(Buffer.from('data'));
+      vi.mocked(mockClient.uploadObject).mockResolvedValue({
+        ...mockObjectInfo,
+        key: 'file.bin',
+        size: 4,
+      });
+
+      await uploadObject(mockClient, {
+        bucket: 'files',
+        key: 'file.bin',
+        file_path: '/tmp/file.png',
+        content_type: 'application/octet-stream',
+      });
+
+      expect(mockClient.uploadObject).toHaveBeenCalledWith(
+        'files',
+        'file.bin',
+        expect.any(Blob),
+        'application/octet-stream',
+        { overwrite: undefined },
+      );
+    });
+
+    it('rejects files exceeding 25MB via file_path before reading', async () => {
+      vi.mocked(statSync).mockReturnValue({
+        isFile: () => true,
+        size: 26 * 1024 * 1024,
+      } as ReturnType<typeof statSync>);
+
+      const result = await uploadObject(mockClient, {
+        bucket: 'files',
+        key: 'huge.bin',
+        file_path: '/tmp/huge.bin',
+        content_type: 'application/octet-stream',
+      });
+
+      expect(result).toContain('exceeds maximum upload size');
+      expect(readFileSync).not.toHaveBeenCalled();
+      expect(mockClient.uploadObject).not.toHaveBeenCalled();
+    });
+
+    it('errors when file not found', async () => {
+      vi.mocked(statSync).mockImplementation(() => {
+        throw new Error('ENOENT');
+      });
+
+      const result = await uploadObject(mockClient, {
+        bucket: 'files',
+        key: 'missing.png',
+        file_path: '/tmp/missing.png',
+      });
+
+      expect(result).toContain('Error: File not found');
+      expect(mockClient.uploadObject).not.toHaveBeenCalled();
+    });
+
+    it('errors when path is a directory', async () => {
+      vi.mocked(statSync).mockReturnValue({ isFile: () => false } as ReturnType<typeof statSync>);
+
+      const result = await uploadObject(mockClient, {
+        bucket: 'files',
+        key: 'dir',
+        file_path: '/tmp/somedir',
+      });
+
+      expect(result).toContain('Error: Path is not a file');
+      expect(mockClient.uploadObject).not.toHaveBeenCalled();
+    });
+
+    it('errors on unknown extension without explicit content_type', async () => {
+      vi.mocked(statSync).mockReturnValue({
+        isFile: () => true,
+        size: 4,
+      } as ReturnType<typeof statSync>);
+      vi.mocked(readFileSync).mockReturnValue(Buffer.from('data'));
+
+      const result = await uploadObject(mockClient, {
+        bucket: 'files',
+        key: 'file.xyz',
+        file_path: '/tmp/file.xyz',
+      });
+
+      expect(result).toContain('Cannot detect content type');
+      expect(result).toContain('.xyz');
+      expect(mockClient.uploadObject).not.toHaveBeenCalled();
+    });
+
+    it('errors when both file_path and content_base64 provided', async () => {
+      const result = await uploadObject(mockClient, {
+        bucket: 'files',
+        key: 'file.png',
+        file_path: '/tmp/file.png',
+        content_base64: 'abc123',
+      });
+
+      expect(result).toContain('not both');
+      expect(mockClient.uploadObject).not.toHaveBeenCalled();
+    });
+
+    it('errors when neither file_path nor content_base64 provided', async () => {
+      const result = await uploadObject(mockClient, {
+        bucket: 'files',
+        key: 'file.png',
+      });
+
+      expect(result).toContain('Provide either file_path or content_base64');
+      expect(mockClient.uploadObject).not.toHaveBeenCalled();
+    });
+
+    it('errors when content_base64 used without content_type', async () => {
+      const result = await uploadObject(mockClient, {
+        bucket: 'files',
+        key: 'file.png',
+        content_base64: Buffer.from('test').toString('base64'),
+      });
+
+      expect(result).toContain('content_type is required');
+      expect(mockClient.uploadObject).not.toHaveBeenCalled();
     });
   });
 
