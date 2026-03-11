@@ -1,4 +1,5 @@
 import type { Context } from 'hono';
+import { getContentTypeFromKey } from '@bifrost/shared';
 import type { AppEnv, Bindings, KVRouteConfig, R2BucketName } from '../types';
 import { BUCKET_BINDINGS, isValidR2Bucket } from '../types';
 import { validateR2Key } from '../utils/path-validation';
@@ -167,43 +168,7 @@ export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promis
   return response;
 }
 
-/**
- * Infer content type from file extension
- */
-function getContentTypeFromKey(key: string): string | null {
-  const ext = key.split('.').pop()?.toLowerCase();
-
-  const mimeTypes: Record<string, string> = {
-    // Documents
-    pdf: 'application/pdf',
-    zip: 'application/zip',
-    json: 'application/json',
-
-    // Images
-    jpg: 'image/jpeg',
-    jpeg: 'image/jpeg',
-    png: 'image/png',
-    gif: 'image/gif',
-    webp: 'image/webp',
-    svg: 'image/svg+xml',
-
-    // Video
-    mp4: 'video/mp4',
-    webm: 'video/webm',
-
-    // Audio
-    mp3: 'audio/mpeg',
-    wav: 'audio/wav',
-
-    // Text
-    txt: 'text/plain',
-    html: 'text/html',
-    css: 'text/css',
-    js: 'text/javascript',
-  };
-
-  return ext ? mimeTypes[ext] || null : null;
-}
+// getContentTypeFromKey imported from @bifrost/shared
 
 /**
  * Determine if content should trigger download

@@ -200,7 +200,7 @@ export const R2UploadInputSchema = z
       .string()
       .min(1)
       .optional()
-      .describe('MIME type (required with content_base64, optional with file_path)'),
+      .describe('MIME type (auto-detected from key extension if omitted)'),
     overwrite: z
       .boolean()
       .optional()
@@ -211,9 +211,6 @@ export const R2UploadInputSchema = z
   })
   .refine(data => !(data.file_path && data.content_base64), {
     message: 'Provide either file_path or content_base64, not both',
-  })
-  .refine(data => !data.content_base64 || data.content_type, {
-    message: 'content_type is required when using content_base64',
   });
 
 export const R2RenameInputSchema = z.object({

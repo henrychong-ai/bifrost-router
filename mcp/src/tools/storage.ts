@@ -3,41 +3,7 @@
  */
 
 import { readFileSync, statSync } from 'node:fs';
-import { extname } from 'node:path';
-import type { EdgeRouterClient, R2ObjectInfo } from '@bifrost/shared';
-
-const EXTENSION_MIME_MAP: Record<string, string> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
-  '.pdf': 'application/pdf',
-  '.json': 'application/json',
-  '.xml': 'application/xml',
-  '.html': 'text/html',
-  '.css': 'text/css',
-  '.js': 'application/javascript',
-  '.txt': 'text/plain',
-  '.csv': 'text/csv',
-  '.md': 'text/markdown',
-  '.zip': 'application/zip',
-  '.gz': 'application/gzip',
-  '.tar': 'application/x-tar',
-  '.mp4': 'video/mp4',
-  '.mp3': 'audio/mpeg',
-  '.woff2': 'font/woff2',
-  '.woff': 'font/woff',
-  '.ttf': 'font/ttf',
-  '.otf': 'font/otf',
-};
-
-function getContentTypeFromExtension(filePath: string): string | undefined {
-  const ext = extname(filePath).toLowerCase();
-  return EXTENSION_MIME_MAP[ext];
-}
+import { getContentTypeFromKey, type EdgeRouterClient, type R2ObjectInfo } from '@bifrost/shared';
 
 /**
  * Format file size for display
@@ -261,23 +227,20 @@ export async function uploadObject(
 
       buffer = readFileSync(args.file_path);
 
-      if (args.content_type) {
-        contentType = args.content_type;
-      } else {
-        const detected = getContentTypeFromExtension(args.file_path);
-        if (!detected) {
-          return `Error: Cannot detect content type for extension "${extname(args.file_path)}". Provide content_type explicitly.`;
-        }
-        contentType = detected;
+      const detected = args.content_type ?? getContentTypeFromKey(args.file_path);
+      if (!detected) {
+        return `Error: Cannot detect content type from file extension. Provide content_type explicitly.`;
       }
+      contentType = detected;
       source = args.file_path;
     } else {
       // Base64 mode: decode content
-      if (!args.content_type) {
-        return 'Error: content_type is required when using content_base64.';
-      }
       buffer = Buffer.from(args.content_base64!, 'base64');
-      contentType = args.content_type;
+      const detected = args.content_type ?? getContentTypeFromKey(args.key);
+      if (!detected) {
+        return 'Error: Cannot detect content type from key extension. Provide content_type explicitly.';
+      }
+      contentType = detected;
     }
 
     // Check size limit (for base64 mode; file_path mode checked above via stat.size)

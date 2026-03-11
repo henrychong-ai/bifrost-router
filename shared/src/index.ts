@@ -4,6 +4,9 @@
  * Shared code for Bifrost MCP server and Slackbot
  */
 
+// MIME detection
+export { EXTENSION_MIME_MAP, getContentTypeFromKey } from './mime.js';
+
 // Types
 export * from './types.js';
 

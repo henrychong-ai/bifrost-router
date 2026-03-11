@@ -410,7 +410,6 @@ describe('Storage tool handlers', () => {
       });
 
       expect(result).toContain('Cannot detect content type');
-      expect(result).toContain('.xyz');
       expect(mockClient.uploadObject).not.toHaveBeenCalled();
     });
 
@@ -436,14 +435,32 @@ describe('Storage tool handlers', () => {
       expect(mockClient.uploadObject).not.toHaveBeenCalled();
     });
 
-    it('errors when content_base64 used without content_type', async () => {
+    it('auto-detects content_type from key when content_base64 used without content_type', async () => {
+      vi.mocked(mockClient.uploadObject).mockResolvedValue({
+        key: 'file.png',
+        size: 4,
+        etag: '"abc"',
+        uploaded: new Date().toISOString(),
+      });
+
       const result = await uploadObject(mockClient, {
         bucket: 'files',
         key: 'file.png',
         content_base64: Buffer.from('test').toString('base64'),
       });
 
-      expect(result).toContain('content_type is required');
+      expect(result).toContain('uploaded successfully');
+      expect(mockClient.uploadObject).toHaveBeenCalled();
+    });
+
+    it('errors when content_base64 used without content_type and unknown extension', async () => {
+      const result = await uploadObject(mockClient, {
+        bucket: 'files',
+        key: 'file.xyz',
+        content_base64: Buffer.from('test').toString('base64'),
+      });
+
+      expect(result).toContain('Cannot detect content type');
       expect(mockClient.uploadObject).not.toHaveBeenCalled();
     });
   });
