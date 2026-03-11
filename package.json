@@ -1,6 +1,6 @@
 {
   "name": "bifrost",
-  "version": "1.13.3",
+  "version": "1.13.4",
   "description": "Bifrost - Edge router with Cloudflare Workers and Hono",
   "type": "module",
   "private": true,
@@ -47,7 +47,7 @@
   "dependencies": {
     "@bifrost/shared": "workspace:*",
     "drizzle-orm": "^0.45.1",
-    "hono": "^4.12.0",
+    "hono": "^4.12.7",
     "zod": "^4.3.6"
   },
   "devDependencies": {
