@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { env } from '@/env';
 import {
   type Route,
+  type RouteWithDomain,
+  RouteWithDomainSchema,
   type CreateRouteInput,
   type UpdateRouteInput,
   type AnalyticsSummary,
@@ -18,6 +20,7 @@ import {
   type PaginationQueryParams,
   type AuditQueryParams,
   type RoutesListMeta,
+  ApiResponseSchema,
   RoutesListResponseSchema,
   RouteResponseSchema,
   AnalyticsSummaryResponseSchema,
@@ -187,6 +190,40 @@ export const routesApi = {
       throw new ApiError(400, response.error || 'Failed to migrate route');
     }
     return response.data;
+  },
+
+  /**
+   * Transfer a route to a different domain
+   * @param path - Route path
+   * @param fromDomain - Current domain
+   * @param toDomain - Target domain
+   */
+  async transfer(path: string, fromDomain: string, toDomain: string): Promise<Route> {
+    const response = await fetchApi(`/api/routes/transfer`, RouteResponseSchema, {
+      method: 'POST',
+      body: JSON.stringify({ path, fromDomain, toDomain }),
+    });
+    if (!response.success || !response.data) {
+      throw new ApiError(400, response.error || 'Failed to transfer route');
+    }
+    return response.data;
+  },
+
+  /**
+   * Find routes by R2 target (bucket + key)
+   * @param bucket - R2 bucket name
+   * @param target - R2 object key
+   */
+  async byTarget(bucket: string, target: string): Promise<RouteWithDomain[]> {
+    const query = buildQueryString({ bucket, target });
+    const response = await fetchApi(
+      `/api/routes/by-target${query}`,
+      ApiResponseSchema(z.object({ routes: z.array(RouteWithDomainSchema) })),
+    );
+    if (!response.success || !response.data) {
+      throw new ApiError(500, response.error || 'Failed to fetch routes by target');
+    }
+    return response.data.routes;
   },
 };
 
@@ -549,7 +586,7 @@ const StorageListResponseSchema = z.object({
               contentEncoding: z.string().optional(),
             })
             .optional(),
-          customMetadata: z.record(z.string()).optional(),
+          customMetadata: z.record(z.string(), z.string()).optional(),
         }),
       ),
       truncated: z.boolean(),
@@ -577,7 +614,7 @@ const StorageObjectResponseSchema = z.object({
           contentEncoding: z.string().optional(),
         })
         .optional(),
-      customMetadata: z.record(z.string()).optional(),
+      customMetadata: z.record(z.string(), z.string()).optional(),
     })
     .optional(),
   error: z.string().optional(),
@@ -689,6 +726,37 @@ export const storageApi = {
     return response.data as StorageObject;
   },
 
+  async downloadObject(bucket: string, key: string): Promise<Blob> {
+    const url = new URL(`/api/storage/${encodeURIComponent(bucket)}/objects/${key}`, API_BASE);
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        'X-Admin-Key': API_KEY,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new ApiError(
+        response.status,
+        (error as { error?: string }).error || `HTTP ${response.status}`,
+      );
+    }
+
+    return response.blob();
+  },
+
+  async getObjectMeta(bucket: string, key: string): Promise<StorageObject> {
+    const response = await fetchApi(
+      `/api/storage/${encodeURIComponent(bucket)}/meta/${key}`,
+      StorageObjectResponseSchema,
+    );
+    if (!response.success || !response.data) {
+      throw new ApiError(404, response.error || 'Object not found');
+    }
+    return response.data as StorageObject;
+  },
+
   async updateMetadata(
     bucket: string,
     key: string,
@@ -706,6 +774,31 @@ export const storageApi = {
       throw new ApiError(400, response.error || 'Failed to update metadata');
     }
     return response.data as StorageObject;
+  },
+
+  /**
+   * Purge CDN cache for an R2 object
+   */
+  async purgeCache(
+    bucket: string,
+    key: string,
+  ): Promise<{ purged: number; failed: number; urls: string[] }> {
+    const response = await fetchApi(
+      `/api/storage/${encodeURIComponent(bucket)}/purge-cache/${encodeURIComponent(key)}`,
+      z.object({
+        success: z.boolean(),
+        data: z
+          .object({
+            purged: z.number(),
+            failed: z.number(),
+            urls: z.array(z.string()),
+          })
+          .optional(),
+        error: z.string().optional(),
+      }),
+      { method: 'POST' },
+    );
+    return response.data as { purged: number; failed: number; urls: string[] };
   },
 };
 

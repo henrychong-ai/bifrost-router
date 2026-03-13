@@ -149,3 +149,26 @@ export function useMigrateRoute() {
     },
   });
 }
+
+/**
+ * Transfer a route to a different domain
+ * Preserves path, configuration, and createdAt timestamp
+ */
+export function useTransferRoute() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      path,
+      fromDomain,
+      toDomain,
+    }: {
+      path: string;
+      fromDomain: string;
+      toDomain: string;
+    }) => api.routes.transfer(path, fromDomain, toDomain),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: routeKeys.all });
+    },
+  });
+}

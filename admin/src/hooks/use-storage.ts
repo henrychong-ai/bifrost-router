@@ -7,6 +7,7 @@ export const storageKeys = {
   buckets: () => ['storage', 'buckets'] as const,
   objects: (bucket: string, params: StorageListParams) =>
     ['storage', 'objects', bucket, params] as const,
+  meta: (bucket: string, key: string) => ['storage', bucket, 'meta', key] as const,
 };
 
 export function useStorageBuckets() {
@@ -22,6 +23,14 @@ export function useStorageObjects(bucket: string, params: StorageListParams = {}
     queryFn: () => api.storage.listObjects(bucket, params),
     enabled: !!bucket,
     placeholderData: keepPreviousData,
+  });
+}
+
+export function useObjectMeta(bucket: string, key: string) {
+  return useQuery({
+    queryKey: storageKeys.meta(bucket, key),
+    queryFn: () => api.storage.getObjectMeta(bucket, key),
+    enabled: !!bucket && !!key,
   });
 }
 
@@ -87,5 +96,38 @@ export function useMoveObject() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: storageKeys.all });
     },
+  });
+}
+
+export function useUpdateObjectMetadata() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      bucket,
+      key,
+      metadata,
+    }: {
+      bucket: string;
+      key: string;
+      metadata: { contentType?: string; cacheControl?: string; contentDisposition?: string };
+    }) => api.storage.updateMetadata(bucket, key, metadata),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: storageKeys.all });
+    },
+  });
+}
+
+export function useRoutesByTarget(bucket: string, target: string) {
+  return useQuery({
+    queryKey: ['routes', 'by-target', bucket, target],
+    queryFn: () => api.routes.byTarget(bucket, target),
+    enabled: !!bucket && !!target,
+  });
+}
+
+export function usePurgeCache() {
+  return useMutation({
+    mutationFn: ({ bucket, key }: { bucket: string; key: string }) =>
+      api.storage.purgeCache(bucket, key),
   });
 }

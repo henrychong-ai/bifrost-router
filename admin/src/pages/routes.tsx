@@ -6,6 +6,7 @@ import {
   useDeleteRoute,
   useToggleRoute,
   useMigrateRoute,
+  useTransferRoute,
   useDebounce,
 } from '@/hooks';
 import { useRoutesFilters, SUPPORTED_DOMAINS, type SupportedDomain } from '@/context';
@@ -104,10 +105,14 @@ type RouteFormProps =
       onSubmit: (data: UpdateRouteInput, pathChanged: boolean, newPath?: string) => void;
       onCancel: () => void;
       isSubmitting: boolean;
+      allowedDomains?: string[];
+      onTransfer?: (toDomain: string) => void;
     };
 
 function RouteForm(props: RouteFormProps) {
   const { mode, route, onSubmit, onCancel, isSubmitting } = props;
+  const onTransfer = mode === 'edit' ? props.onTransfer : undefined;
+  const allowedDomains = mode === 'edit' ? (props.allowedDomains ?? []) : [];
 
   const [formData, setFormData] = useState({
     path: route?.path || '',
@@ -173,6 +178,42 @@ function RouteForm(props: RouteFormProps) {
           </Select>
           <p className="text-tiny text-muted-foreground font-gilroy">
             Domain where this route will be created
+          </p>
+        </div>
+      )}
+
+      {/* Domain display in edit mode */}
+      {mode === 'edit' && route?.domain && (
+        <div className="space-y-2">
+          <Label className="font-gilroy font-medium text-charcoal-700">Domain</Label>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center rounded-full border border-charcoal-200 bg-charcoal-50 px-2.5 py-0.5 font-mono text-tiny font-medium text-charcoal-700">
+              {route.domain}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Transfer to domain dropdown - edit mode only */}
+      {mode === 'edit' && route?.domain && allowedDomains.length > 1 && onTransfer && (
+        <div className="space-y-2">
+          <Label className="font-gilroy font-medium text-charcoal-700">Transfer to Domain</Label>
+          <Select value="" onValueChange={value => onTransfer(value)}>
+            <SelectTrigger className="font-mono">
+              <SelectValue placeholder="Select domain to transfer..." />
+            </SelectTrigger>
+            <SelectContent>
+              {allowedDomains
+                .filter(d => d !== route.domain)
+                .map(d => (
+                  <SelectItem key={d} value={d} className="font-mono text-small">
+                    {d}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+          <p className="text-tiny text-muted-foreground font-gilroy">
+            Move this route to a different domain (path stays the same)
           </p>
         </div>
       )}
@@ -471,10 +512,16 @@ export function RoutesPage() {
   const deleteRoute = useDeleteRoute();
   const toggleRoute = useToggleRoute();
   const migrateRoute = useMigrateRoute();
+  const transferRoute = useTransferRoute();
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editRoute, setEditRoute] = useState<Route | null>(null);
   const [deleteConfirmRoute, setDeleteConfirmRoute] = useState<Route | null>(null);
+  const [transferTarget, setTransferTarget] = useState<{
+    path: string;
+    fromDomain: string;
+    toDomain: string;
+  } | null>(null);
   const [migrationConfirm, setMigrationConfirm] = useState<{
     route: Route;
     newPath: string;
@@ -611,6 +658,18 @@ export function RoutesPage() {
       toast.error(
         `Failed to migrate route: ${err instanceof Error ? err.message : 'Unknown error'}`,
       );
+    }
+  };
+
+  const handleTransferConfirm = async () => {
+    if (!transferTarget) return;
+    try {
+      await transferRoute.mutateAsync(transferTarget);
+      toast.success(`Route transferred to ${transferTarget.toDomain}`);
+      setTransferTarget(null);
+      setEditRoute(null);
+    } catch (err) {
+      toast.error(`Transfer failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
 
@@ -958,6 +1017,17 @@ export function RoutesPage() {
               onSubmit={handleUpdate}
               onCancel={() => setEditRoute(null)}
               isSubmitting={updateRoute.isPending}
+              allowedDomains={[...SUPPORTED_DOMAINS]}
+              onTransfer={
+                editRoute.domain
+                  ? toDomain =>
+                      setTransferTarget({
+                        path: editRoute.path,
+                        fromDomain: editRoute.domain!,
+                        toDomain,
+                      })
+                  : undefined
+              }
             />
           )}
         </DialogContent>
@@ -1034,6 +1104,36 @@ export function RoutesPage() {
               disabled={migrateRoute.isPending || updateRoute.isPending}
             >
               {migrateRoute.isPending ? 'Migrating...' : 'Migrate Route'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Transfer Confirmation Dialog */}
+      <AlertDialog open={!!transferTarget} onOpenChange={() => setTransferTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-gilroy font-semibold text-blue-950">
+              Transfer Route
+            </AlertDialogTitle>
+            <AlertDialogDescription className="font-gilroy">
+              Transfer route <code className="font-mono text-blue-600">{transferTarget?.path}</code>{' '}
+              from <code className="font-mono text-blue-600">{transferTarget?.fromDomain}</code> to{' '}
+              <code className="font-mono text-blue-600">{transferTarget?.toDomain}</code>?
+              <br />
+              <span className="text-amber-600">
+                The path will remain the same on the new domain.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="font-gilroy">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleTransferConfirm}
+              disabled={transferRoute.isPending}
+              className="bg-blue-950 font-gilroy hover:bg-blue-900"
+            >
+              {transferRoute.isPending ? 'Transferring...' : 'Transfer'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

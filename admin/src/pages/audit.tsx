@@ -33,6 +33,8 @@ import {
   FileEdit,
   FolderEdit,
   Replace,
+  RotateCcw,
+  ArrowUpRight,
 } from 'lucide-react';
 import { FilterToolbar, type FilterState } from '@/components/filters';
 import type { AuditFilterState } from '@/context';
@@ -60,12 +62,14 @@ const ACTION_COLORS: Record<AuditAction, string> = {
   toggle: 'bg-yellow-100 text-yellow-800 border-yellow-200',
   seed: 'bg-purple-100 text-purple-800 border-purple-200',
   migrate: 'bg-cyan-100 text-cyan-800 border-cyan-200',
+  transfer: 'bg-indigo-100 text-indigo-800 border-indigo-200',
   r2_upload: 'bg-emerald-100 text-emerald-800 border-emerald-200',
   r2_delete: 'bg-red-100 text-red-800 border-red-200',
   r2_rename: 'bg-cyan-100 text-cyan-800 border-cyan-200',
   r2_move: 'bg-sky-100 text-sky-800 border-sky-200',
   r2_replace: 'bg-amber-100 text-amber-800 border-amber-200',
   r2_metadata_update: 'bg-blue-100 text-blue-800 border-blue-200',
+  r2_cache_purge: 'bg-orange-100 text-orange-800 border-orange-200',
 };
 
 const ACTION_ICONS: Record<AuditAction, React.ReactNode> = {
@@ -75,12 +79,14 @@ const ACTION_ICONS: Record<AuditAction, React.ReactNode> = {
   toggle: <ToggleLeft className="h-3 w-3" />,
   seed: <Layers className="h-3 w-3" />,
   migrate: <ArrowRightLeft className="h-3 w-3" />,
+  transfer: <ArrowUpRight className="h-3 w-3" />,
   r2_upload: <Upload className="h-3 w-3" />,
   r2_delete: <Trash2 className="h-3 w-3" />,
   r2_rename: <FolderEdit className="h-3 w-3" />,
   r2_move: <ArrowRightLeft className="h-3 w-3" />,
   r2_replace: <Replace className="h-3 w-3" />,
   r2_metadata_update: <FileEdit className="h-3 w-3" />,
+  r2_cache_purge: <RotateCcw className="h-3 w-3" />,
 };
 
 function parseDetails(details: string | null): string {

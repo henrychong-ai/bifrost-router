@@ -8,6 +8,7 @@ export {
   useDeleteRoute,
   useToggleRoute,
   useMigrateRoute,
+  useTransferRoute,
 } from './use-routes';
 
 // Analytics hooks
@@ -46,10 +47,14 @@ export {
   storageKeys,
   useStorageBuckets,
   useStorageObjects,
+  useObjectMeta,
   useUploadObject,
   useDeleteObject,
   useRenameObject,
   useMoveObject,
+  useUpdateObjectMetadata,
+  useRoutesByTarget,
+  usePurgeCache,
 } from './use-storage';
 
 // Utility hooks

@@ -53,6 +53,15 @@ export const RouteSchema = z.object({
 });
 export type Route = z.infer<typeof RouteSchema>;
 
+/**
+ * Route with required domain field — used for by-target responses
+ * where routes always include their domain
+ */
+export const RouteWithDomainSchema = RouteSchema.extend({
+  domain: z.string(),
+});
+export type RouteWithDomain = z.infer<typeof RouteWithDomainSchema>;
+
 export const CreateRouteSchema = z.object({
   path: z.string().min(1).regex(/^\//, 'Path must start with /'),
   type: RouteTypeSchema,
