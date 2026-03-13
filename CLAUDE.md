@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |---------|------|-------------|
 | Root Worker | `src/`, `test/` | Main edge router (Hono + Cloudflare Workers) |
 | `@bifrost/shared` | `shared/` | Types, Zod schemas, EdgeRouterClient HTTP client |
-| `@bifrost/mcp` | `mcp/` | MCP server for AI-powered route and storage management (20 tools: 7 route + 4 analytics + 9 storage) |
+| `@bifrost/mcp` | `mcp/` | MCP server for AI-powered route and storage management (22 tools: 8 route + 4 analytics + 10 storage) |
 | Admin Dashboard | `admin/` | React 19 SPA (Vite, Tailwind CSS, shadcn/ui, TanStack Query) |
 | `@bifrost/slackbot` | `slackbot/` | Slack bot Worker for route management |
 
@@ -23,7 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 pnpm run dev           # Local dev server (localhost:8787)
-pnpm run test          # Run all tests (~753 across root, shared, mcp, slackbot)
+pnpm run test          # Run all tests (~754 across root, shared, mcp, slackbot)
 pnpm run typecheck     # TypeScript check
 pnpm run lint          # Lint (oxlint)
 pnpm run lint:fix      # Auto-fix lint issues
@@ -126,6 +126,8 @@ Domains are configured in `src/types.ts`:
 - `SUPPORTED_DOMAINS` array — all domains the worker handles
 - `R2_BUCKETS` array + `BUCKET_BINDINGS` map — R2 bucket configuration
 - `DOMAIN_SERVICE_FALLBACK` — Worker-to-Worker fallback mapping
+- `CLOUDFLARE_ZONE_IDS` — Zone IDs per domain (for CDN cache purge)
+- `R2_BUCKET_CUSTOM_DOMAINS` — R2 custom domain URLs per bucket (for cache purge)
 - `Bindings` type — must match `wrangler.toml` bindings
 
 ### Minimum Required Bindings
@@ -137,6 +139,7 @@ Domains are configured in `src/types.ts`:
 | `ADMIN_API_KEY` | Secret | Yes | Admin auth |
 | R2 buckets | R2 | No | File serving |
 | `BACKUP_BUCKET` | R2 | No | Daily backups |
+| `CLOUDFLARE_API_TOKEN` | Secret | No | CDN cache purge |
 | Service bindings | Service | No | Worker-to-Worker fallback |
 
 ## Rate Limiting
@@ -200,7 +203,7 @@ bifrost/                        # pnpm monorepo
 │   ├── kv/                     # KV: route CRUD, lookup (exact + wildcard), Zod schemas
 │   ├── handlers/               # redirect.ts, proxy.ts, r2.ts
 │   ├── middleware/              # CORS, rate limiting
-│   ├── utils/                  # crypto, url-validation, path-validation, kv-errors, og-parser
+│   ├── utils/                  # crypto, url-validation, path-validation, kv-errors, og-parser, cache
 │   └── routes/                 # admin.ts (CRUD + search/pagination + storage mount), analytics.ts, storage.ts
 ├── test/                       # Mirrors src/ structure (see Testing section)
 ├── shared/src/                 # Types, schemas, EdgeRouterClient

@@ -2,6 +2,35 @@
 
 All notable changes to this project are documented in this file.
 
+## v1.14.0 (2026-03-13)
+**CDN Cache Purge, Route Transfer, Storage Edit Dialog, D1 Backup Pagination**
+
+### Added
+- **Zone Cache Purge**: `POST /api/storage/:bucket/purge-cache/:key` — purge Cloudflare CDN cache globally via Zone Cache Purge API. Collects URLs from KV routes + R2 custom domains, groups by zone, batches of 30. New `src/utils/cache.ts` module. Requires optional `CLOUDFLARE_API_TOKEN` secret with Cache Purge permission
+- **Route Domain Transfer**: `POST /api/routes/transfer` — move routes between domains preserving config and createdAt timestamp. New `transferRoute()` in `src/kv/routes.ts`
+- **Routes by R2 Target**: `GET /api/routes/by-target?bucket=&target=` — find all routes serving a specific R2 object. New `findRoutesByR2Target()` function
+- **Storage Edit Dialog**: Click file rows to open unified edit popup with rename, metadata editing, file replacement, associated routes view, and purge cache button
+- **Route Transfer UI**: Domain dropdown in routes edit dialog to transfer routes between domains with confirmation
+- **Configurable Zone IDs**: `CLOUDFLARE_ZONE_IDS` and `R2_BUCKET_CUSTOM_DOMAINS` in `src/types.ts` for self-hosted cache purge configuration
+- **MCP tools**: `purge_cache` (storage) and `transfer_route` (route) — 20 → 22 tools (8 route + 4 analytics + 10 storage)
+- **Audit actions**: `transfer` and `r2_cache_purge` added to audit action enum and dashboard audit page
+
+### Changed
+- **D1 Backup Pagination**: Paginated queries (5,000 rows/page) via ReadableStream + native CompressionStream('gzip'). Replaces loading all rows into memory
+- **D1 Error Isolation**: Per-table try/catch — single table failure no longer crashes entire backup. `failedTables` tracked in backup manifest
+- **OpenAPI schema**: 3 new endpoints, 2 new audit actions, 2 new schema definitions
+
+### Dependencies
+- oxlint 1.0 → 1.55, wrangler 4.63 → 4.73, biome 2.3.15 → 2.4.6
+- @cloudflare/vitest-pool-workers 0.8 → 0.12.21, workers-types to latest
+- eslint-plugin-oxlint 1.0 → 1.55
+- admin/vite.config.ts: `__dirname` → `import.meta.dirname` (ESM compat)
+
+### Tests
+- 753 → 754 tests (root: 504, shared: 68, MCP: 80, slackbot: 104)
+
+---
+
 ## v1.13.2 (2026-03-08)
 
 ### Added

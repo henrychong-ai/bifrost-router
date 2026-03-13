@@ -7,7 +7,7 @@
 > A free, self-hosted alternative to bit.ly and Rebrandly — built on Cloudflare Workers with zero server costs
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-743%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-754%20passing-brightgreen)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)](https://www.typescriptlang.org/)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-orange)](https://workers.cloudflare.com/)
 
@@ -38,12 +38,14 @@ A lightweight, high-performance edge router and URL shortener built on Cloudflar
   - `r2` — Serve content from R2 buckets
 - **KV-Powered** — Route changes propagate globally in seconds
 - **Admin API** — Full CRUD operations with API key authentication, search, and pagination
-- **Admin Dashboard** — React SPA with Command Palette (Cmd+K), filters, analytics, R2 Storage browser
-- **MCP Server** — AI-powered route and R2 storage management via Claude Code/Desktop (20 tools)
+- **Admin Dashboard** — React SPA with Command Palette (Cmd+K), filters, analytics, R2 Storage browser with unified edit dialog
+- **MCP Server** — AI-powered route and R2 storage management via Claude Code/Desktop (22 tools)
 - **Analytics** — D1-powered click and page view tracking
 - **Wildcard Patterns** — Support for path patterns like `/blog/*`
 - **R2 Storage Management** — Browse, upload, download, rename, move, and delete R2 objects via API and dashboard
-- **R2 Backup System** — Automated daily backups with health monitoring
+- **CDN Cache Purge** — Purge Cloudflare edge cache globally for R2 objects via Zone Cache Purge API
+- **Route Domain Transfer** — Move routes between domains preserving configuration and audit trail
+- **R2 Backup System** — Automated daily backups with health monitoring and per-table error isolation
 - **API Shield** — OpenAPI schema validation at the Cloudflare edge
 - **Built on Hono** — Fast, lightweight, TypeScript-first
 
@@ -162,6 +164,18 @@ export const SUPPORTED_DOMAINS = [
 
 Also update the R2 bucket arrays and `BUCKET_BINDINGS` map if you changed the bucket configuration.
 
+**Optional: CDN Cache Purge** — To enable global cache purge for R2 objects, configure zone IDs and R2 custom domains in `src/types.ts`:
+
+```typescript
+export const CLOUDFLARE_ZONE_IDS: Record<string, string> = {
+  'yourdomain.com': 'your-zone-id-from-cloudflare-dashboard',
+};
+
+export const R2_BUCKET_CUSTOM_DOMAINS: Record<string, string[]> = {
+  files: ['files.yourdomain.com'],  // If you have R2 custom domains
+};
+```
+
 Then set up [Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/) in the Cloudflare Dashboard to route traffic from your domains to the worker.
 
 ### Step 5: Run Database Migrations
@@ -185,6 +199,10 @@ wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0007_add_cache_s
 ```bash
 # Set your admin API key (you'll be prompted to enter it)
 wrangler secret put ADMIN_API_KEY
+
+# Optional: Set Cloudflare API token for CDN cache purge
+# (requires Zone > Cache Purge permission)
+wrangler secret put CLOUDFLARE_API_TOKEN
 
 # Deploy
 pnpm run deploy
@@ -338,6 +356,8 @@ All admin endpoints require `X-Admin-Key` header or `Authorization: Bearer <key>
 | `PUT` | `/api/routes?path=` | Update route |
 | `DELETE` | `/api/routes?path=` | Delete route |
 | `POST` | `/api/routes/migrate` | Migrate route to new path |
+| `POST` | `/api/routes/transfer` | Transfer route between domains |
+| `GET` | `/api/routes/by-target` | Find routes serving an R2 object (`?bucket=&target=`) |
 | `POST` | `/api/routes/seed` | Bulk import routes |
 | `GET` | `/api/analytics/summary` | Analytics overview |
 | `GET` | `/api/analytics/clicks` | Click records (paginated) |
@@ -352,6 +372,7 @@ All admin endpoints require `X-Admin-Key` header or `Authorization: Bearer <key>
 | `POST` | `/api/storage/:bucket/rename` | Rename object within bucket |
 | `POST` | `/api/storage/:bucket/move` | Move object to different bucket |
 | `PUT` | `/api/storage/:bucket/metadata/:key` | Update object HTTP metadata |
+| `POST` | `/api/storage/:bucket/purge-cache/:key` | Purge CDN cache for R2 object |
 
 ### Route Configuration
 
@@ -375,7 +396,7 @@ All admin endpoints require `X-Admin-Key` header or `Authorization: Bearer <key>
 
 ```bash
 pnpm run dev          # Local dev server (localhost:8787)
-pnpm run test         # Run all tests (743 tests)
+pnpm run test         # Run all tests (754 tests)
 pnpm run typecheck    # TypeScript check
 pnpm run lint         # Lint all packages
 pnpm run deploy:dev   # Deploy to dev environment
@@ -388,13 +409,13 @@ pnpm run deploy:dev   # Deploy to dev environment
 | **Language** | TypeScript | 5.9.3 |
 | **Framework** | [Hono](https://hono.dev/) | 4.12.0 |
 | **Runtime** | Cloudflare Workers | — |
-| **CLI** | Wrangler | 4.63.0 |
+| **CLI** | Wrangler | 4.73.0 |
 | **Validation** | Zod | 4.3.6 |
 | **ORM** | Drizzle ORM | 0.45.1 |
 | **Storage** | Cloudflare KV | — |
 | **Database** | Cloudflare D1 (analytics) | — |
 | **Object Storage** | Cloudflare R2 | — |
-| **Testing** | Vitest + @cloudflare/vitest-pool-workers | 3.1.0 / 0.8.0 |
+| **Testing** | Vitest + @cloudflare/vitest-pool-workers | 3.2.4 / 0.12.21 |
 | **Linting** | Oxlint + Biome (formatter) | — |
 | **Package Manager** | pnpm (workspaces) | 10.30.3 |
 | **Admin Dashboard** | React 19 + Vite 7 + Tailwind CSS 4 + shadcn/ui | — |
