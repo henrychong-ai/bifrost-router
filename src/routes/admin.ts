@@ -13,6 +13,8 @@ import {
   seedRoutes,
   getMetadata,
   migrateRoute,
+  transferRoute,
+  findRoutesByR2Target,
 } from '../kv/routes';
 import { validateApiKey } from '../utils/crypto';
 import { cors } from '../middleware/cors';
@@ -815,6 +817,120 @@ adminRoutes.get('/metadata/og', async c => {
       502,
     );
   }
+});
+
+/**
+ * POST /api/routes/transfer - Transfer a route to a different domain
+ *
+ * Moves a route from one domain to another while preserving:
+ * - All route configuration (type, target, options)
+ * - Original createdAt timestamp
+ *
+ * Body parameters:
+ * - path: Route path (required)
+ * - fromDomain: Source domain (required)
+ * - toDomain: Destination domain (required)
+ */
+adminRoutes.post('/routes/transfer', async c => {
+  const body = await c.req.json<{
+    path?: string;
+    fromDomain?: string;
+    toDomain?: string;
+  }>();
+
+  const { path, fromDomain, toDomain } = body;
+
+  if (!path) {
+    return c.json({ success: false, error: 'path is required' }, 400);
+  }
+  if (!fromDomain) {
+    return c.json({ success: false, error: 'fromDomain is required' }, 400);
+  }
+  if (!toDomain) {
+    return c.json({ success: false, error: 'toDomain is required' }, 400);
+  }
+  if (!path.startsWith('/')) {
+    return c.json({ success: false, error: 'path must start with /' }, 400);
+  }
+  if (!isValidDomain(fromDomain)) {
+    return c.json(
+      {
+        success: false,
+        error: `Unsupported domain: ${fromDomain}. Supported: ${SUPPORTED_DOMAINS.join(', ')}`,
+      },
+      400,
+    );
+  }
+  if (!isValidDomain(toDomain)) {
+    return c.json(
+      {
+        success: false,
+        error: `Unsupported domain: ${toDomain}. Supported: ${SUPPORTED_DOMAINS.join(', ')}`,
+      },
+      400,
+    );
+  }
+
+  try {
+    const route = await transferRoute(c.env.ROUTES, fromDomain, toDomain, path);
+
+    if (!route) {
+      throw new HTTPException(404, { message: `Route not found: ${path} on ${fromDomain}` });
+    }
+
+    // Record audit log
+    try {
+      const actor = getActorInfo(c);
+      c.executionCtx.waitUntil(
+        recordAuditLog(c.env.DB, {
+          action: 'transfer' as AuditAction,
+          domain: toDomain,
+          path,
+          actorLogin: actor.login,
+          actorName: actor.name,
+          details: JSON.stringify({ fromDomain, toDomain, path }),
+          ipAddress: c.req.header('CF-Connecting-IP') || null,
+        }),
+      );
+    } catch {
+      // executionCtx not available in tests
+    }
+
+    return c.json({ success: true, data: route });
+  } catch (error) {
+    if (error instanceof HTTPException) throw error;
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    const status = message.includes('already exists') ? 409 : 400;
+    return c.json({ success: false, error: message }, status);
+  }
+});
+
+/**
+ * GET /api/routes/by-target - Find routes by R2 target
+ *
+ * Returns all R2-type routes pointing to a specific object.
+ *
+ * Query parameters:
+ * - bucket: R2 bucket name (required)
+ * - target: R2 object key (required)
+ */
+adminRoutes.get('/routes/by-target', async c => {
+  const bucket = c.req.query('bucket');
+  const target = c.req.query('target');
+
+  if (!bucket) {
+    return c.json({ success: false, error: 'bucket query parameter is required' }, 400);
+  }
+  if (!target) {
+    return c.json({ success: false, error: 'target query parameter is required' }, 400);
+  }
+
+  const routes = await findRoutesByR2Target(c.env.ROUTES, bucket, target);
+
+  return c.json({
+    success: true,
+    data: { routes },
+  });
 });
 
 /**

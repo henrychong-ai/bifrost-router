@@ -79,6 +79,83 @@ export function isValidDomain(domain: string): domain is SupportedDomain {
   return SUPPORTED_DOMAINS.includes(domain as SupportedDomain);
 }
 
+// =============================================================================
+// Cloudflare Zone Configuration (for Zone Cache Purge API)
+// =============================================================================
+
+/**
+ * Cloudflare zone IDs for domains managed in your account.
+ * Used by Zone Cache Purge API to invalidate CDN cache globally.
+ *
+ * To configure, add your domain zone IDs here. You can find zone IDs
+ * in the Cloudflare dashboard under each domain's Overview page.
+ *
+ * Example:
+ *   'example.com': 'your-zone-id-here',
+ *   'other-domain.com': 'another-zone-id',
+ */
+export const CLOUDFLARE_ZONE_IDS: Record<string, string> = {};
+
+/**
+ * Get the Cloudflare zone ID for a given domain.
+ * Walks up from subdomain to parent domain (e.g., link.example.com -> example.com).
+ * Returns undefined for domains not in the CF account.
+ */
+export function getZoneIdForDomain(domain: string): string | undefined {
+  if (CLOUDFLARE_ZONE_IDS[domain]) return CLOUDFLARE_ZONE_IDS[domain];
+  const parts = domain.split('.');
+  for (let i = 1; i < parts.length - 1; i++) {
+    const parent = parts.slice(i).join('.');
+    if (CLOUDFLARE_ZONE_IDS[parent]) return CLOUDFLARE_ZONE_IDS[parent];
+  }
+  return undefined;
+}
+
+/**
+ * R2 bucket custom domain mapping.
+ * Maps bucket names to their Cloudflare custom domain(s).
+ * Used for Zone Cache Purge API calls on R2 custom domain URLs.
+ *
+ * To configure, add your R2 bucket custom domains here. These are the
+ * custom domains you've configured in Cloudflare R2 bucket settings.
+ *
+ * Example:
+ *   'files': ['files.example.com'],
+ *   'assets': ['assets.example.com'],
+ */
+export const R2_BUCKET_CUSTOM_DOMAINS: Record<string, string[]> = {};
+
+/**
+ * Get all custom domain URLs + zone IDs that need cache purging for an R2 object.
+ * Returns URLs like https://files.example.com/path/to/file.png with their zone IDs.
+ * Skips domains without a known zone ID.
+ */
+export function getR2CustomDomainUrls(
+  bucket: string,
+  key: string,
+): { url: string; zoneId: string }[] {
+  const domains = R2_BUCKET_CUSTOM_DOMAINS[bucket];
+  if (!domains) return [];
+  const encodedPath = encodeR2KeyAsPath(key);
+  const results: { url: string; zoneId: string }[] = [];
+  for (const domain of domains) {
+    const zoneId = getZoneIdForDomain(domain);
+    if (zoneId) {
+      results.push({ url: `https://${domain}/${encodedPath}`, zoneId });
+    }
+  }
+  return results;
+}
+
+/**
+ * Encode an R2 key as a URL path, applying encodeURIComponent to each segment.
+ * Preserves `/` as path separators while encoding special characters in each segment.
+ * e.g., "docs/Q1 Report (2025).pdf" -> "docs/Q1%20Report%20(2025).pdf"
+ */
+export function encodeR2KeyAsPath(key: string): string {
+  return key.split('/').map(encodeURIComponent).join('/');
+}
+
 /**
  * Cloudflare Worker bindings for the edge router
  */
@@ -115,6 +192,9 @@ export type Bindings = {
 
   // R2 copy size limit in MB (for rename/metadata operations, default: 100)
   R2_COPY_SIZE_LIMIT_MB?: string;
+
+  // Cloudflare API token for Zone Cache Purge (optional, graceful degradation without it)
+  CLOUDFLARE_API_TOKEN?: string;
 
   // Slack webhook URL for backup health alerts (optional)
   SLACK_BACKUP_WEBHOOK?: string;

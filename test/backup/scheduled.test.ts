@@ -244,8 +244,8 @@ describe('handleScheduled', () => {
     expect(result.error).toBe('BACKUP_BUCKET not configured');
   });
 
-  it('returns error with duration when a sub-step throws', async () => {
-    // Create an env with a broken DB to trigger an error
+  it('succeeds with partial D1 failures when individual tables throw', async () => {
+    // Create an env with a broken DB — per-table isolation means backup still succeeds
     const brokenEnv = {
       ...env,
       DB: {
@@ -257,8 +257,12 @@ describe('handleScheduled', () => {
 
     const result = await handleScheduled(brokenEnv);
 
-    expect(result.success).toBe(false);
-    expect(result.error).toBe('DB connection failed');
+    // Backup succeeds overall (KV still works), but D1 tables all fail
+    expect(result.success).toBe(true);
+    expect(result.manifest).toBeDefined();
+    expect(result.manifest!.d1.failedTables).toHaveLength(5);
+    expect(result.manifest!.d1.tables).toHaveLength(0);
+    expect(result.manifest!.d1.totalRows).toBe(0);
     expect(result.duration).toBeGreaterThanOrEqual(0);
   });
 

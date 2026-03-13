@@ -47,10 +47,17 @@ export async function handleScheduled(env: Bindings): Promise<BackupResult> {
     const kvResult = await backupKV(env.ROUTES, env.BACKUP_BUCKET, date);
     console.log(`[Backup] KV backup complete: ${kvResult.totalRoutes} routes`);
 
-    // Step 2: Backup D1 tables
+    // Step 2: Backup D1 tables (per-table isolation — partial failures don't stop others)
     console.log(`[Backup] Starting D1 backup for ${date}`);
     const d1Result = await backupD1(env.DB, env.BACKUP_BUCKET, date);
-    console.log(`[Backup] D1 backup complete: ${d1Result.totalRows} rows`);
+    if (d1Result.failedTables?.length) {
+      console.error(
+        `[Backup] D1 backup had ${d1Result.failedTables.length} failed table(s): ${d1Result.failedTables.join(', ')}`,
+      );
+    }
+    console.log(
+      `[Backup] D1 backup complete: ${d1Result.totalRows} rows across ${d1Result.tables.length} tables`,
+    );
 
     // Step 3: Write manifest
     const manifest = await writeManifest(env.BACKUP_BUCKET, date, kvResult, d1Result);

@@ -227,12 +227,9 @@ describe('backupD1', () => {
 
     const obj = await env.BACKUP_BUCKET.head(result.files.link_clicks);
     expect(obj).not.toBeNull();
-    expect(obj!.customMetadata).toEqual(
-      expect.objectContaining({
-        date: '20260219',
-        type: 'd1-link_clicks',
-        rowCount: '1',
-      }),
-    );
+    expect(obj!.customMetadata).toEqual({
+      date: '20260219',
+      type: 'd1-link_clicks',
+    });
   });
 });

@@ -320,5 +320,72 @@ export async function migrateRoute(
   }
 }
 
+/**
+ * Transfer a route from one domain to another
+ *
+ * Preserves all route configuration and original createdAt timestamp.
+ * Non-atomic: writes to new domain first, then deletes from old domain.
+ */
+export async function transferRoute(
+  kv: KVNamespace,
+  fromDomain: string,
+  toDomain: string,
+  path: string,
+): Promise<KVRouteConfig | null> {
+  const normalizedPath = normalizePath(path);
+
+  if (fromDomain === toDomain) {
+    throw new Error('Source and destination domains cannot be the same');
+  }
+
+  const existing = await getRoute(kv, fromDomain, normalizedPath);
+  if (!existing) {
+    return null;
+  }
+
+  const existingAtTarget = await getRoute(kv, toDomain, normalizedPath);
+  if (existingAtTarget) {
+    throw new Error(`Route already exists at ${toDomain}:${normalizedPath}`);
+  }
+
+  const oldKey = routeKey(fromDomain, normalizedPath);
+  const newKey = routeKey(toDomain, normalizedPath);
+
+  const transferredRoute: KVRouteConfig = {
+    ...existing,
+    path: normalizedPath,
+    createdAt: existing.createdAt,
+    updatedAt: Date.now(),
+  };
+
+  try {
+    await kv.put(newKey, JSON.stringify(transferredRoute));
+    await kv.delete(oldKey);
+    return transferredRoute;
+  } catch (error) {
+    throw new KVWriteError(newKey, error instanceof Error ? error : new Error(String(error)));
+  }
+}
+
+/**
+ * Find all R2-type routes that serve a specific R2 object.
+ * Used by storage edit dialog (associated routes) and cache purge.
+ * Returns routes with domain field included
+ *
+ * Performance: O(n) full KV scan via getAllRoutesAllDomains(). Acceptable for
+ * admin-frequency operations (edit popup, cache purge). If route count grows to
+ * thousands, consider a D1 reverse index or KV metadata-based filtering.
+ */
+export async function findRoutesByR2Target(
+  kv: KVNamespace,
+  bucket: string,
+  target: string,
+): Promise<KVRouteConfigWithDomain[]> {
+  const allRoutes = await getAllRoutesAllDomains(kv);
+  return allRoutes.filter(
+    route => route.type === 'r2' && route.target === target && (route.bucket || 'files') === bucket,
+  );
+}
+
 // Re-export parseRouteKey for use by migration scripts
 export { parseRouteKey };

@@ -7,6 +7,7 @@ import { recordAuditLog } from '../db/analytics';
 import type { AuditAction } from '@bifrost/shared';
 import type { R2ObjectInfo, AllR2BucketName } from '@bifrost/shared';
 import { ALL_R2_BUCKETS, READ_ONLY_BUCKETS } from '@bifrost/shared';
+import { purgeR2CacheForObject } from '../utils/cache';
 
 const DEFAULT_R2_COPY_SIZE_LIMIT_MB = 100;
 
@@ -582,4 +583,55 @@ storageRoutes.put('/:bucket/metadata/:key{.+}', async c => {
     success: true,
     data: updated ? toR2ObjectInfo(updated) : { key: validation.sanitizedKey },
   });
+});
+
+/**
+ * POST /:bucket/purge-cache/:key - Purge CDN cache for an R2 object
+ *
+ * Uses the Cloudflare Zone Cache Purge API to globally invalidate cache
+ * across all edge PoPs for all routes serving this R2 object.
+ *
+ * Requires CLOUDFLARE_API_TOKEN with Zone > Cache Purge permission.
+ * Gracefully degrades without it (returns URLs but purged=0).
+ */
+storageRoutes.post('/:bucket/purge-cache/:key{.+}', async c => {
+  const bucketName = c.req.param('bucket') as AllR2BucketName;
+  const key = c.req.param('key');
+
+  if (!ALL_R2_BUCKETS.includes(bucketName)) {
+    return c.json({ success: false, error: `Unknown bucket: ${bucketName}` }, 400);
+  }
+
+  const result = await purgeR2CacheForObject(
+    c.env.ROUTES,
+    bucketName,
+    key,
+    c.env.CLOUDFLARE_API_TOKEN,
+  );
+
+  // Record audit log
+  try {
+    const actor = getActorInfo(c);
+    c.executionCtx.waitUntil(
+      recordAuditLog(c.env.DB, {
+        action: 'r2_cache_purge' as AuditAction,
+        domain: 'storage',
+        path: `/${bucketName}/${key}`,
+        actorLogin: actor.login,
+        actorName: actor.name,
+        details: JSON.stringify({
+          bucket: bucketName,
+          key,
+          purged: result.purged,
+          failed: result.failed,
+          urls: result.urls,
+        }),
+        ipAddress: c.req.header('CF-Connecting-IP') || null,
+      }),
+    );
+  } catch {
+    // executionCtx not available in tests
+  }
+
+  return c.json({ success: true, data: result });
 });

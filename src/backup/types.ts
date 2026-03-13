@@ -23,12 +23,14 @@ export interface BackupManifest {
 
   /** D1 database backup information */
   d1: {
-    /** Tables included in backup */
+    /** Tables successfully backed up */
     tables: string[];
     /** Total number of rows backed up */
     totalRows: number;
     /** R2 object keys for each table backup */
     files: Record<string, string>;
+    /** Tables that failed to backup (undefined if all succeeded) */
+    failedTables?: string[];
   };
 
   /** Retention policy applied */
@@ -73,12 +75,14 @@ export interface KVBackupResult {
  * Result of D1 backup operation
  */
 export interface D1BackupResult {
-  /** Tables backed up */
+  /** Tables successfully backed up */
   tables: string[];
   /** Total rows backed up */
   totalRows: number;
   /** R2 object keys per table */
   files: Record<string, string>;
+  /** Tables that failed to backup (undefined if all succeeded) */
+  failedTables?: string[];
 }
 
 /**
