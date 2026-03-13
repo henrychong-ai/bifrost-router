@@ -116,6 +116,21 @@ describe('storage routes', () => {
       expect(obj.size).toBe(11); // "hello world" length
     });
 
+    it('includes httpMetadata and customMetadata in list response', async () => {
+      await seedR2Object('meta-list-test/image.png', 'fake-png', 'image/png');
+
+      const response = await storageRequest('/files/objects?prefix=meta-list-test/&delimiter=');
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      const obj = data.data.objects.find(
+        (o: { key: string }) => o.key === 'meta-list-test/image.png',
+      );
+      expect(obj).toBeDefined();
+      expect(obj.httpMetadata).toBeDefined();
+      expect(obj.httpMetadata.contentType).toBe('image/png');
+    });
+
     it('filters objects by prefix', async () => {
       await seedR2Object('images/photo.jpg', 'jpg-data', 'image/jpeg');
       await seedR2Object('docs/readme.md', 'markdown', 'text/markdown');

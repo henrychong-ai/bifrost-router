@@ -12,6 +12,7 @@ import {
 } from '@/hooks';
 import { storageApi } from '@/lib/api-client';
 import type { StorageObject, StorageListParams } from '@/lib/api-client';
+import { getR2ObjectUrl } from '@/lib/constants';
 import { formatBytes } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -76,6 +77,7 @@ import {
   Globe,
   RefreshCw,
   RotateCcw,
+  ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -127,9 +129,15 @@ function validateObjectKey(key: string): string | null {
   return null;
 }
 
-function showPurgeCacheToast(result: { purged: number; failed: number }) {
+function showPurgeCacheToast(result: { purged: number; failed: number; urls: string[] }) {
   if (result.purged === 0 && result.failed === 0) {
-    toast.info('No cache entries to purge');
+    if (result.urls.length > 0) {
+      toast.warning(
+        `Found ${result.urls.length} cache ${result.urls.length === 1 ? 'URL' : 'URLs'} but purge not configured — set CLOUDFLARE_API_TOKEN Worker secret`,
+      );
+    } else {
+      toast.info('No cache entries to purge');
+    }
   } else if (result.failed > 0) {
     toast.warning(
       `Purged ${result.purged}, failed ${result.failed} cache ${result.failed === 1 ? 'entry' : 'entries'}`,
@@ -339,6 +347,12 @@ function StorageEditDialog({
   const upload = useUploadObject();
   const purgeCacheMutation = usePurgeCache();
 
+  // File preview
+  const fileUrl = getR2ObjectUrl(bucket, object.key);
+  const objectContentType = object.httpMetadata?.contentType;
+  const isImage = objectContentType?.startsWith('image/');
+  const isPdf = objectContentType === 'application/pdf';
+
   // Rename state
   const [newKey, setNewKey] = useState(object.key);
   const keyChanged = newKey !== object.key;
@@ -451,6 +465,29 @@ function StorageEditDialog({
           </DialogHeader>
 
           <div className="space-y-6">
+            {/* File Preview */}
+            {isImage && fileUrl && (
+              <div className="rounded-lg border border-charcoal-100 overflow-hidden bg-muted/30">
+                <img
+                  src={fileUrl}
+                  alt={getBasename(object.key)}
+                  className="max-h-[200px] w-full object-contain"
+                  onError={e => {
+                    e.currentTarget.parentElement!.style.display = 'none';
+                  }}
+                />
+              </div>
+            )}
+            {isPdf && fileUrl && (
+              <div className="rounded-lg border border-charcoal-100 overflow-hidden bg-muted/30">
+                <iframe
+                  src={fileUrl}
+                  title={getBasename(object.key)}
+                  className="h-[250px] w-full"
+                />
+              </div>
+            )}
+
             {/* Object Info */}
             <div className="space-y-2">
               <h4 className="font-gilroy text-small font-semibold text-charcoal-700">
@@ -474,6 +511,17 @@ function StorageEditDialog({
                   <dd className="truncate font-mono text-charcoal-700">{object.etag}</dd>
                 </dl>
               </div>
+              {fileUrl && (
+                <a
+                  href={fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 mt-2 text-xs text-muted-foreground transition-colors hover:text-blue-600"
+                >
+                  <ExternalLink className="h-3 w-3 shrink-0" />
+                  <span className="truncate font-mono">{fileUrl.replace('https://', '')}</span>
+                </a>
+              )}
             </div>
 
             <div className="border-t border-charcoal-100" />
@@ -1125,6 +1173,18 @@ export function StoragePage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          {getR2ObjectUrl(selectedBucket, obj.key) && (
+                            <DropdownMenuItem asChild className="font-gilroy">
+                              <a
+                                href={getR2ObjectUrl(selectedBucket, obj.key)!}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <ExternalLink className="mr-2 h-4 w-4" />
+                                Open in Browser
+                              </a>
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem
                             className="font-gilroy"
                             onClick={async () => {

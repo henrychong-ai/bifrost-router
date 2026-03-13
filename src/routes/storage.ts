@@ -92,7 +92,8 @@ storageRoutes.get('/:bucket/objects', async c => {
     cursor,
     limit,
     delimiter: delimiter || undefined,
-  });
+    include: ['httpMetadata', 'customMetadata'],
+  } as R2ListOptions & { include: string[] });
 
   const objects: R2ObjectInfo[] = listed.objects.map(toR2ObjectInfo);
 

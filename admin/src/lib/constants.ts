@@ -22,3 +22,18 @@ export function persistPageSize(size: number): void {
     /* ignore */
   }
 }
+
+/**
+ * Maps R2 bucket names to their Cloudflare custom domain.
+ * Configure with your R2 custom domain URLs.
+ * Example: { files: 'files.example.com', assets: 'assets.example.com' }
+ */
+export const R2_BUCKET_CUSTOM_DOMAINS: Record<string, string> = {};
+
+/** Build public URL for an R2 object. Returns null if bucket has no custom domain. */
+export function getR2ObjectUrl(bucket: string, key: string): string | null {
+  const domain = R2_BUCKET_CUSTOM_DOMAINS[bucket];
+  if (!domain) return null;
+  const encodedPath = key.split('/').map(encodeURIComponent).join('/');
+  return `https://${domain}/${encodedPath}`;
+}

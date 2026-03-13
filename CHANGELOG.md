@@ -2,6 +2,42 @@
 
 All notable changes to this project are documented in this file.
 
+## v1.15.2 (2026-03-13)
+**Fix storage file preview: include httpMetadata in R2 list responses**
+
+### Fixed
+- **R2 list endpoint missing `include` option**: `bucket.list()` in `src/routes/storage.ts` was not passing `include: ['httpMetadata', 'customMetadata']`, so `httpMetadata.contentType` was always undefined in list responses — causing image and PDF previews in the storage edit dialog to never render
+
+### Added
+- **Regression test**: `includes httpMetadata and customMetadata in list response` test verifies contentType is returned when listing objects
+
+---
+
+## v1.15.1 (2026-03-13)
+**Add test infrastructure for admin dashboard**
+
+### Added
+- **Admin test suite**: Set up Vitest 4.1 with `vitest.config.ts`, test scripts, and `@/` path alias resolution
+- **constants.test.ts**: Tests covering `getR2ObjectUrl()` (URL encoding, null cases), `getPersistedPageSize()` / `persistPageSize()` (localStorage mocking, fallbacks), `R2_BUCKET_CUSTOM_DOMAINS` structure
+- **utils.test.ts**: Tests covering `formatBytes()` (edge cases, unit boundaries) and `cn()` (Tailwind conflict resolution, falsy values)
+
+---
+
+## v1.15.0 (2026-03-13)
+**Storage dashboard: file preview and "Open in Browser"**
+
+### Added
+- **File preview in storage edit dialog**: Image files (`image/*`) show inline thumbnail preview at top of dialog; PDF files (`application/pdf`) show scrollable iframe preview using browser's built-in PDF renderer
+- **"Open in Browser" link**: Below Object Info section, shows the public R2 custom domain URL with ExternalLink icon — clickable to open in new tab
+- **"Open in Browser" context menu item**: Added as first item in file row dropdown menu
+- **R2 bucket domain mapping in frontend**: `R2_BUCKET_CUSTOM_DOMAINS` and `getR2ObjectUrl()` in `admin/src/lib/constants.ts` — configure with your R2 custom domain URLs to enable previews
+
+### Notes
+- Previews require configuring `R2_BUCKET_CUSTOM_DOMAINS` in `admin/src/lib/constants.ts` with your R2 custom domain URLs
+- Without configured domains, the preview and link features gracefully degrade (not shown)
+
+---
+
 ## v1.14.0 (2026-03-13)
 **CDN Cache Purge, Route Transfer, Storage Edit Dialog, D1 Backup Pagination**
 
