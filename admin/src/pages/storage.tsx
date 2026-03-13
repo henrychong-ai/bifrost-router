@@ -453,7 +453,7 @@ function StorageEditDialog({
   return (
     <>
       <Dialog open={open && !moveOpen} onOpenChange={onOpenChange}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl lg:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="font-gilroy font-semibold text-blue-950">
               Edit Object

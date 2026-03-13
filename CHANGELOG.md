@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## v1.16.1
+
+### Fixed
+- **Storage dialog** — Aligned popup width to match routes dialog (`sm:max-w-xl lg:max-w-2xl`)
+
+---
+
 ## v1.16.0
 
 **Route preview + standalone target links**
