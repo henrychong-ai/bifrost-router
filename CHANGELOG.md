@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+## v1.16.0
+
+**Route preview + standalone target links**
+
+### Added
+- **Route dialog** — R2 file preview (image thumbnail, PDF inline) at top of form
+- **Route dialog** — Standalone "open target" link for all route types (redirect, proxy, R2)
+
+### Changed
+- **Route dialog** — Moved LinkPreview from inline in Target field to top of form
+- **Storage dialog** — Fixed PDF preview (`<iframe>` → `<object>` with fallback)
+- **Storage dialog** — Moved "open in browser" link from Object Info section to directly below preview
+- **LinkPreview component** — Removed embedded link (replaced by standalone target link)
+
+---
+
 ## v1.15.2 (2026-03-13)
 **Fix storage file preview: include httpMetadata in R2 list responses**
 

@@ -1,4 +1,4 @@
-import { ExternalLink, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useLinkPreview } from '@/hooks/use-link-preview';
 
 interface LinkPreviewProps {
@@ -54,15 +54,6 @@ export function LinkPreview({ url, enabled = true }: LinkPreviewProps) {
           {data.description && (
             <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{data.description}</p>
           )}
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 mt-1.5 text-xs text-muted-foreground transition-colors hover:text-blue-600"
-          >
-            <ExternalLink className="h-3 w-3 shrink-0" />
-            <span className="truncate font-mono">{data.siteName || new URL(url).hostname}</span>
-          </a>
         </div>
       </div>
     </div>

@@ -480,12 +480,37 @@ function StorageEditDialog({
             )}
             {isPdf && fileUrl && (
               <div className="rounded-lg border border-charcoal-100 overflow-hidden bg-muted/30">
-                <iframe
-                  src={fileUrl}
+                <object
+                  data={fileUrl}
+                  type="application/pdf"
                   title={getBasename(object.key)}
                   className="h-[250px] w-full"
-                />
+                >
+                  <p className="p-4 text-center text-sm text-muted-foreground">
+                    Unable to preview PDF.{' '}
+                    <a
+                      href={fileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 underline"
+                    >
+                      Open in browser
+                    </a>
+                  </p>
+                </object>
               </div>
+            )}
+
+            {fileUrl && (
+              <a
+                href={fileUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-blue-600"
+              >
+                <ExternalLink className="h-3 w-3 shrink-0" />
+                <span className="truncate font-mono">{fileUrl.replace('https://', '')}</span>
+              </a>
             )}
 
             {/* Object Info */}
@@ -511,17 +536,6 @@ function StorageEditDialog({
                   <dd className="truncate font-mono text-charcoal-700">{object.etag}</dd>
                 </dl>
               </div>
-              {fileUrl && (
-                <a
-                  href={fileUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 mt-2 text-xs text-muted-foreground transition-colors hover:text-blue-600"
-                >
-                  <ExternalLink className="h-3 w-3 shrink-0" />
-                  <span className="truncate font-mono">{fileUrl.replace('https://', '')}</span>
-                </a>
-              )}
             </div>
 
             <div className="border-t border-charcoal-100" />

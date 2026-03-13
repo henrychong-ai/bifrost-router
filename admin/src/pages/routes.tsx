@@ -12,7 +12,8 @@ import {
 import { useRoutesFilters, SUPPORTED_DOMAINS, type SupportedDomain } from '@/context';
 import type { Route, CreateRouteInput, UpdateRouteInput, R2BucketName } from '@/lib/schemas';
 import { R2_BUCKETS } from '@/lib/schemas';
-import { getPersistedPageSize } from '@/lib/constants';
+import { getPersistedPageSize, getR2ObjectUrl } from '@/lib/constants';
+import { getContentTypeFromKey } from '@bifrost/shared';
 import { PaginationControls } from '@/components/pagination-controls';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -129,6 +130,16 @@ function RouteForm(props: RouteFormProps) {
     domain: 'henrychong.com' as SupportedDomain, // Default to henrychong.com
   });
 
+  // R2 file preview
+  const r2PreviewUrl =
+    formData.type === 'r2' && formData.target
+      ? getR2ObjectUrl(formData.bucket, formData.target)
+      : null;
+  const r2ContentType =
+    formData.type === 'r2' && formData.target ? getContentTypeFromKey(formData.target) : null;
+  const isR2Image = r2ContentType?.startsWith('image/') ?? false;
+  const isR2Pdf = r2ContentType === 'application/pdf';
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const baseData = {
@@ -155,6 +166,68 @@ function RouteForm(props: RouteFormProps) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Route Preview */}
+      {(formData.type === 'redirect' || formData.type === 'proxy') && (
+        <LinkPreview url={formData.target} enabled={formData.target.length > 0} />
+      )}
+      {isR2Image && r2PreviewUrl && (
+        <div className="overflow-hidden rounded-lg border border-charcoal-100 bg-muted/30">
+          <img
+            src={r2PreviewUrl}
+            alt={formData.target}
+            className="max-h-[200px] w-full object-contain"
+            onError={e => {
+              e.currentTarget.parentElement!.style.display = 'none';
+            }}
+          />
+        </div>
+      )}
+      {isR2Pdf && r2PreviewUrl && (
+        <div className="overflow-hidden rounded-lg border border-charcoal-100 bg-muted/30">
+          <object
+            data={r2PreviewUrl}
+            type="application/pdf"
+            title={formData.target}
+            className="h-[250px] w-full"
+          >
+            <p className="p-4 text-center text-sm text-muted-foreground">
+              Unable to preview PDF.{' '}
+              <a
+                href={r2PreviewUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 underline"
+              >
+                Open in browser
+              </a>
+            </p>
+          </object>
+        </div>
+      )}
+      {/* Target link */}
+      {formData.type === 'r2' && r2PreviewUrl && (
+        <a
+          href={r2PreviewUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-blue-600"
+        >
+          <ExternalLink className="h-3 w-3 shrink-0" />
+          <span className="truncate font-mono">{r2PreviewUrl.replace('https://', '')}</span>
+        </a>
+      )}
+      {(formData.type === 'redirect' || formData.type === 'proxy') && formData.target && (
+        <a
+          href={formData.target}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-blue-600"
+        >
+          <ExternalLink className="h-3 w-3 shrink-0" />
+          <span className="truncate font-mono">{formData.target.replace(/^https?:\/\//, '')}</span>
+        </a>
+      )}
+
       {/* Domain selector - only for create mode */}
       {!route && (
         <div className="space-y-2">
@@ -298,9 +371,6 @@ function RouteForm(props: RouteFormProps) {
           required
           className="font-mono"
         />
-        {(formData.type === 'redirect' || formData.type === 'proxy') && (
-          <LinkPreview url={formData.target} enabled={formData.target.length > 0} />
-        )}
       </div>
 
       {formData.type === 'redirect' && (

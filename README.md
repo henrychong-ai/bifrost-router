@@ -7,7 +7,7 @@
 > A free, self-hosted alternative to bit.ly and Rebrandly — built on Cloudflare Workers with zero server costs
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-754%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1055%20passing-brightgreen)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)](https://www.typescriptlang.org/)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-orange)](https://workers.cloudflare.com/)
 
@@ -38,7 +38,7 @@ A lightweight, high-performance edge router and URL shortener built on Cloudflar
   - `r2` — Serve content from R2 buckets
 - **KV-Powered** — Route changes propagate globally in seconds
 - **Admin API** — Full CRUD operations with API key authentication, search, and pagination
-- **Admin Dashboard** — React SPA with Command Palette (Cmd+K), filters, analytics, R2 Storage browser with unified edit dialog
+- **Admin Dashboard** — React SPA with Command Palette (Cmd+K), filters, analytics, R2 Storage browser with file preview (images, PDFs) and standalone target links
 - **MCP Server** — AI-powered route and R2 storage management via Claude Code/Desktop (22 tools)
 - **Analytics** — D1-powered click and page view tracking
 - **Wildcard Patterns** — Support for path patterns like `/blog/*`
@@ -396,7 +396,7 @@ All admin endpoints require `X-Admin-Key` header or `Authorization: Bearer <key>
 
 ```bash
 pnpm run dev          # Local dev server (localhost:8787)
-pnpm run test         # Run all tests (754 tests)
+pnpm run test         # Run all tests (1055 tests)
 pnpm run typecheck    # TypeScript check
 pnpm run lint         # Lint all packages
 pnpm run deploy:dev   # Deploy to dev environment
