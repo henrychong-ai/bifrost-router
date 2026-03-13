@@ -359,3 +359,40 @@ export async function updateObjectMetadata(
     return `Error updating metadata: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
+
+/**
+ * Purge CDN cache for an R2 object
+ */
+export async function handlePurgeCache(
+  client: EdgeRouterClient,
+  args: {
+    bucket: string;
+    key: string;
+  },
+): Promise<string> {
+  try {
+    const result = await client.purgeCache(args.bucket, args.key);
+
+    const lines = [
+      `Cache purge complete!`,
+      '',
+      `Purged: ${result.purged}`,
+      `Failed: ${result.failed}`,
+    ];
+
+    if (result.urls.length > 0) {
+      lines.push('', 'URLs targeted:');
+      for (const url of result.urls) {
+        lines.push(`  ${url}`);
+      }
+    }
+
+    if (result.purged === 0 && result.failed === 0) {
+      lines.push('', 'Note: No CLOUDFLARE_API_TOKEN configured — URLs collected but not purged.');
+    }
+
+    return lines.join('\n');
+  } catch (error) {
+    return `Error purging cache: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}

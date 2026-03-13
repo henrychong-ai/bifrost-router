@@ -28,6 +28,7 @@ describe('tools', () => {
       expect(names).toContain('delete_route');
       expect(names).toContain('toggle_route');
       expect(names).toContain('migrate_route');
+      expect(names).toContain('transfer_route');
     });
 
     it('has all expected analytics tools', () => {
@@ -95,6 +96,7 @@ describe('tools', () => {
       expect(toolCategories.delete_route).toBe('route');
       expect(toolCategories.toggle_route).toBe('route');
       expect(toolCategories.migrate_route).toBe('route');
+      expect(toolCategories.transfer_route).toBe('route');
     });
 
     it('maps analytics tools correctly', () => {
@@ -114,6 +116,7 @@ describe('tools', () => {
       expect(toolCategories.rename_object).toBe('storage');
       expect(toolCategories.move_object).toBe('storage');
       expect(toolCategories.update_object_metadata).toBe('storage');
+      expect(toolCategories.purge_cache).toBe('storage');
     });
   });
 
@@ -163,7 +166,7 @@ describe('tools', () => {
 
   describe('storageTools', () => {
     it('contains all storage tools', () => {
-      expect(storageTools.length).toBe(9);
+      expect(storageTools.length).toBe(10);
       for (const tool of storageTools) {
         expect(toolCategories[tool.name]).toBe('storage');
       }
@@ -180,6 +183,7 @@ describe('tools', () => {
       expect(names).toContain('rename_object');
       expect(names).toContain('move_object');
       expect(names).toContain('update_object_metadata');
+      expect(names).toContain('purge_cache');
     });
   });
 });

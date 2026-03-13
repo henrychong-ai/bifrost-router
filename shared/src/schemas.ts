@@ -416,12 +416,14 @@ export const AuditActionSchema = z.enum([
   'toggle',
   'seed',
   'migrate',
+  'transfer',
   'r2_upload',
   'r2_delete',
   'r2_rename',
   'r2_metadata_update',
   'r2_move',
   'r2_replace',
+  'r2_cache_purge',
 ]);
 export type AuditAction = z.infer<typeof AuditActionSchema>;
 

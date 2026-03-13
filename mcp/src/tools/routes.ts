@@ -295,3 +295,26 @@ export async function migrateRoute(
     return `Error migrating route: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
+
+/**
+ * Transfer a route to a different domain
+ */
+export async function handleTransferRoute(
+  client: EdgeRouterClient,
+  args: { path: string; from_domain: string; to_domain: string },
+): Promise<string> {
+  try {
+    const route = await client.transferRoute(args.path, args.from_domain, args.to_domain);
+    return [
+      'Route transferred successfully!',
+      '',
+      `Path: ${args.path}`,
+      `From: ${args.from_domain}`,
+      `To: ${args.to_domain}`,
+      '',
+      formatRouteDetails(route, args.to_domain),
+    ].join('\n');
+  } catch (error) {
+    return `Error transferring route: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}

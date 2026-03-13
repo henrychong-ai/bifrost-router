@@ -246,6 +246,29 @@ export const toolDefinitions: ToolDefinition[] = [
       required: ['oldPath', 'newPath'],
     },
   },
+  {
+    name: 'transfer_route',
+    description:
+      'Transfer a route to a different domain. Preserves configuration and original creation timestamp.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Route path to transfer (e.g., "/github")',
+        },
+        from_domain: {
+          type: 'string',
+          description: 'Source domain to transfer from',
+        },
+        to_domain: {
+          type: 'string',
+          description: 'Destination domain to transfer to',
+        },
+      },
+      required: ['path', 'from_domain', 'to_domain'],
+    },
+  },
 
   // ===========================================================================
   // Analytics Tools
@@ -603,6 +626,26 @@ export const toolDefinitions: ToolDefinition[] = [
       required: ['bucket', 'key'],
     },
   },
+  {
+    name: 'purge_cache',
+    description:
+      'Purge CDN cache globally for an R2 object. Invalidates all Cloudflare edge PoPs for both Bifrost route URLs and R2 custom domain URLs serving this file.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        bucket: {
+          type: 'string',
+          description: `R2 bucket name. Available: ${R2_BUCKETS.join(', ')}`,
+          enum: [...R2_BUCKETS],
+        },
+        key: {
+          type: 'string',
+          description: 'Object key (path) to purge cache for',
+        },
+      },
+      required: ['bucket', 'key'],
+    },
+  },
 ];
 
 /**
@@ -648,6 +691,7 @@ export const toolCategories: Record<string, 'route' | 'analytics' | 'storage'> =
   delete_route: 'route',
   toggle_route: 'route',
   migrate_route: 'route',
+  transfer_route: 'route',
   get_analytics_summary: 'analytics',
   get_clicks: 'analytics',
   get_views: 'analytics',
@@ -661,6 +705,7 @@ export const toolCategories: Record<string, 'route' | 'analytics' | 'storage'> =
   rename_object: 'storage',
   move_object: 'storage',
   update_object_metadata: 'storage',
+  purge_cache: 'storage',
 };
 
 /**

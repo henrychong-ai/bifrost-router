@@ -20,6 +20,7 @@ import {
   deleteRoute,
   toggleRoute,
   migrateRoute,
+  handleTransferRoute,
 } from './tools/routes.js';
 
 import { getAnalyticsSummary, getClicks, getViews, getSlugStats } from './tools/analytics.js';
@@ -34,6 +35,7 @@ import {
   renameObject,
   moveObject,
   updateObjectMetadata,
+  handlePurgeCache,
 } from './tools/storage.js';
 
 /**
@@ -171,6 +173,13 @@ async function main(): Promise<void> {
           );
           break;
 
+        case 'transfer_route':
+          result = await handleTransferRoute(
+            client,
+            args as { path: string; from_domain: string; to_domain: string },
+          );
+          break;
+
         // Analytics tools
         case 'get_analytics_summary':
           result = await getAnalyticsSummary(
@@ -293,6 +302,16 @@ async function main(): Promise<void> {
               content_type?: string;
               cache_control?: string;
               content_disposition?: string;
+            },
+          );
+          break;
+
+        case 'purge_cache':
+          result = await handlePurgeCache(
+            client,
+            args as {
+              bucket: string;
+              key: string;
             },
           );
           break;

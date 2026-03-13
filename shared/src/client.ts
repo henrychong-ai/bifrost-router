@@ -242,6 +242,24 @@ export class EdgeRouterClient {
     });
   }
 
+  /**
+   * Transfer a route to a different domain
+   */
+  async transferRoute(path: string, fromDomain: string, toDomain: string): Promise<Route> {
+    return this.request<Route>('POST', '/api/routes/transfer', {
+      body: { path, fromDomain, toDomain },
+    });
+  }
+
+  /**
+   * Find all R2-type routes serving a specific R2 object
+   */
+  async getRoutesByTarget(bucket: string, target: string): Promise<{ routes: Route[] }> {
+    return this.request<{ routes: Route[] }>('GET', '/api/routes/by-target', {
+      params: { bucket, target },
+    });
+  }
+
   // ===========================================================================
   // Analytics
   // ===========================================================================
@@ -475,6 +493,21 @@ export class EdgeRouterClient {
     return this.request<R2ObjectInfo>('PUT', `/api/storage/${bucket}/metadata/${key}`, {
       body: metadata,
     });
+  }
+
+  /**
+   * Purge CDN cache for an R2 object across all associated routes and custom domains
+   */
+  async purgeCache(
+    bucket: string,
+    key: string,
+  ): Promise<{ purged: number; failed: number; urls: string[] }> {
+    // Encode each path segment individually to preserve / as path separators
+    const encodedKey = key.split('/').map(encodeURIComponent).join('/');
+    return this.request<{ purged: number; failed: number; urls: string[] }>(
+      'POST',
+      `/api/storage/${encodeURIComponent(bucket)}/purge-cache/${encodedKey}`,
+    );
   }
 }
 
