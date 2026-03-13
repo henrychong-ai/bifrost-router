@@ -123,6 +123,86 @@ paths:
         '200':
           description: Seeded
 
+  /api/routes/transfer:
+    post:
+      summary: Transfer route between domains
+      description: Moves a route from one domain to another, preserving all configuration and original createdAt timestamp.
+      tags: [Routes]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, fromDomain, toDomain]
+              properties:
+                path:
+                  type: string
+                  pattern: ^/.*
+                  description: Route path to transfer
+                fromDomain:
+                  type: string
+                  description: Source domain
+                toDomain:
+                  type: string
+                  description: Destination domain
+      responses:
+        '200':
+          description: Route transferred successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/RouteConfig'
+        '400':
+          description: Invalid parameters (missing fields, invalid domain, same source/destination)
+        '404':
+          description: Route not found on source domain
+        '409':
+          description: Route already exists on destination domain
+
+  /api/routes/by-target:
+    get:
+      summary: Find routes by R2 target
+      description: Returns all R2-type routes pointing to a specific bucket/key combination. Routes include a domain field.
+      tags: [Routes]
+      parameters:
+        - name: bucket
+          in: query
+          required: true
+          description: R2 bucket name
+          schema:
+            type: string
+        - name: target
+          in: query
+          required: true
+          description: R2 object key
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Matching routes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      routes:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/RouteConfigWithDomain'
+        '400':
+          description: Missing required query parameters
+
   /api/backups/health:
     get:
       summary: Check backup system health
@@ -451,6 +531,44 @@ paths:
         '413':
           description: Object too large for copy operation
 
+  /api/storage/{bucket}/purge-cache/{key}:
+    post:
+      summary: Purge CDN cache for R2 object
+      description: >-
+        Purges Cloudflare edge cache for all routes serving a specific R2 object.
+        Uses the Cloudflare Zone Cache Purge API. Gracefully degrades without
+        CLOUDFLARE_API_TOKEN (returns URLs but purged=0).
+      tags: [Storage]
+      parameters:
+        - $ref: '#/components/parameters/BucketPath'
+        - $ref: '#/components/parameters/R2KeyPath'
+      responses:
+        '200':
+          description: Cache purge result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      purged:
+                        type: integer
+                        description: Number of cache entries successfully purged
+                      failed:
+                        type: integer
+                        description: Number of cache entries that failed to purge
+                      urls:
+                        type: array
+                        items:
+                          type: string
+                        description: URLs that were targeted for purging
+        '400':
+          description: Unknown bucket
+
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -572,12 +690,14 @@ components:
           - toggle
           - seed
           - migrate
+          - transfer
           - r2_upload
           - r2_delete
           - r2_rename
           - r2_move
           - r2_replace
           - r2_metadata_update
+          - r2_cache_purge
 
     ActorQuery:
       name: actor
@@ -792,6 +912,49 @@ components:
               type: boolean
             routeCountOk:
               type: boolean
+
+    RouteConfig:
+      type: object
+      properties:
+        path:
+          type: string
+        type:
+          type: string
+          enum: [redirect, proxy, r2]
+        target:
+          type: string
+        statusCode:
+          type: integer
+          enum: [301, 302, 307, 308]
+        preserveQuery:
+          type: boolean
+        preservePath:
+          type: boolean
+        cacheControl:
+          type: string
+        hostHeader:
+          type: string
+        forceDownload:
+          type: boolean
+        bucket:
+          type: string
+        enabled:
+          type: boolean
+        createdAt:
+          type: integer
+          description: Unix epoch milliseconds
+        updatedAt:
+          type: integer
+          description: Unix epoch milliseconds
+
+    RouteConfigWithDomain:
+      allOf:
+        - $ref: '#/components/schemas/RouteConfig'
+        - type: object
+          properties:
+            domain:
+              type: string
+              description: Domain the route belongs to
 
     RoutesResponse:
       type: object
