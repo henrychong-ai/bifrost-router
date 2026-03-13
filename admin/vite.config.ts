@@ -7,7 +7,7 @@ import { readFileSync } from 'fs';
 
 // Read version from root package.json at build time
 const rootPackageJson = JSON.parse(
-  readFileSync(path.resolve(__dirname, '../package.json'), 'utf-8'),
+  readFileSync(path.resolve(import.meta.dirname, '../package.json'), 'utf-8'),
 );
 const APP_VERSION = rootPackageJson.version;
 
@@ -63,7 +63,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      '@': path.resolve(import.meta.dirname, './src'),
     },
   },
   server: {
