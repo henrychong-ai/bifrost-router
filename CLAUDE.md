@@ -142,6 +142,28 @@ Domains are configured in `src/types.ts`:
 | `CLOUDFLARE_API_TOKEN` | Secret | No | CDN cache purge |
 | Service bindings | Service | No | Worker-to-Worker fallback |
 
+## Dashboard Implementation Notes
+
+### Cross-Page Navigation (v1.16.2–v1.16.3)
+
+Routes and storage dialogs link to each other for R2-type routes:
+
+**Routes → Storage** (URL params): "View in Storage" pill button navigates to `/storage?bucket={bucket}&open={key}`. Storage page reads params, selects bucket, sets prefix for nested keys, and auto-opens the file's edit dialog. Params cleared with `replace: true` after consuming.
+
+**Storage → Routes** (navigate state): Clicking an associated route row navigates to `/routes` with `{ state: { editRoute: routeObj } }`. Routes page reads `location.state.editRoute`, opens edit dialog, and clears state via `window.history.replaceState`.
+
+### Domain Parameter Handling (v1.8.2)
+
+When mutating routes, the dashboard passes the correct domain using a fallback pattern:
+```typescript
+domain: route.domain ?? filters.domain  // Fallback to active filter
+```
+Single-domain API responses include `domain` on each route, but the fallback ensures correct behaviour if the field is missing.
+
+### API Client Query Parameters
+
+All single-route operations use query parameters (not path parameters) to avoid URL encoding issues with special characters (`/`, `*`, etc.) in route paths.
+
 ## Rate Limiting
 
 Rate limiting is handled by **Cloudflare WAF**, not in Worker code. Worker-level middleware is available at `src/middleware/rate-limit.ts` but inactive. To reactivate:

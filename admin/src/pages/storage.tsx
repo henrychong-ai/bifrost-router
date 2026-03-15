@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   useStorageBuckets,
   useStorageObjects,
@@ -11,9 +12,9 @@ import {
   usePurgeCache,
 } from '@/hooks';
 import { storageApi } from '@/lib/api-client';
-import type { StorageObject, StorageListParams } from '@/lib/api-client';
-import { getR2ObjectUrl } from '@/lib/constants';
+import type { R2ObjectInfo, R2MetadataUpdate, StorageListParams } from '@/lib/api-client';
 import { formatBytes } from '@/lib/utils';
+import { getR2ObjectUrl } from '@/lib/constants';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -74,6 +75,7 @@ import {
   ShieldAlert,
   Info,
   ArrowRightLeft,
+  ArrowUpRight,
   Globe,
   RefreshCw,
   RotateCcw,
@@ -204,7 +206,7 @@ function UploadDialog({
         bucket,
         file,
         key,
-        overwrite,
+        options: { overwrite },
       });
       toast.success(`Uploaded ${getBasename(key)}`);
       onOpenChange(false);
@@ -338,10 +340,11 @@ function StorageEditDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   bucket: string;
-  object: StorageObject;
+  object: R2ObjectInfo;
   readOnly: boolean;
   allowedBuckets: string[];
 }) {
+  const navigate = useNavigate();
   const rename = useRenameObject();
   const updateMeta = useUpdateObjectMetadata();
   const upload = useUploadObject();
@@ -399,7 +402,7 @@ function StorageEditDialog({
   };
 
   const handleMetadataSave = async () => {
-    const metadata = {
+    const metadata: R2MetadataUpdate = {
       contentType,
       cacheControl,
       contentDisposition,
@@ -420,7 +423,7 @@ function StorageEditDialog({
         bucket,
         file: replaceFile,
         key: object.key,
-        overwrite: true,
+        options: { overwrite: true },
       });
       toast.success(`Replaced ${getBasename(object.key)}`);
       setReplaceFile(null);
@@ -550,9 +553,14 @@ function StorageEditDialog({
               ) : associatedRoutes && associatedRoutes.length > 0 ? (
                 <div className="space-y-1.5">
                   {associatedRoutes.map(route => (
-                    <div
+                    <button
+                      type="button"
                       key={`${route.domain}:${route.path}`}
-                      className="flex items-center gap-2 rounded-md border border-charcoal-100 bg-charcoal-50/50 px-3 py-2"
+                      onClick={() => {
+                        onOpenChange(false);
+                        navigate('/routes', { state: { editRoute: route } });
+                      }}
+                      className="flex w-full items-center gap-2 rounded-md border border-charcoal-100 bg-charcoal-50/50 px-3 py-2 transition-colors hover:border-blue-200 hover:bg-blue-50/50"
                     >
                       <Globe className="h-3.5 w-3.5 text-charcoal-400" />
                       <Badge variant="outline" className="font-mono text-tiny">
@@ -562,7 +570,8 @@ function StorageEditDialog({
                       <Badge variant="secondary" className="ml-auto font-gilroy text-tiny">
                         {route.type}
                       </Badge>
-                    </div>
+                      <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-blue-700" />
+                    </button>
                   ))}
                 </div>
               ) : (
@@ -867,12 +876,20 @@ export function StoragePage() {
   const [selectedBucket, setSelectedBucket] = useState('');
   const [prefix, setPrefix] = useState('');
 
-  // Set default bucket once loaded
+  // URL search params for cross-page navigation (e.g., routes "View in Storage")
+  const [searchParams, setSearchParams] = useSearchParams();
+  const openBucket = searchParams.get('bucket');
+  const openKey = searchParams.get('open');
+  const openConsumed = useRef(false);
+
+  // Set default bucket once loaded (URL param takes priority)
   useEffect(() => {
-    if (buckets && buckets.length > 0 && !selectedBucket) {
+    if (openBucket && buckets?.some(b => b.name === openBucket)) {
+      setSelectedBucket(openBucket);
+    } else if (buckets && buckets.length > 0 && !selectedBucket) {
       setSelectedBucket(buckets[0].name);
     }
-  }, [buckets, selectedBucket]);
+  }, [buckets, selectedBucket, openBucket]);
 
   const readOnly = buckets?.find(b => b.name === selectedBucket)?.access === 'read-only';
   const writableBuckets = (buckets || []).filter(b => b.access !== 'read-only').map(b => b.name);
@@ -887,8 +904,8 @@ export function StoragePage() {
   const deleteObject = useDeleteObject();
 
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<StorageObject | null>(null);
-  const [editTarget, setEditTarget] = useState<StorageObject | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<R2ObjectInfo | null>(null);
+  const [editTarget, setEditTarget] = useState<R2ObjectInfo | null>(null);
   const [prefixSearch, setPrefixSearch] = useState('');
   const prefixInputRef = useRef<HTMLInputElement>(null);
 
@@ -927,6 +944,31 @@ export function StoragePage() {
     setPrefix(newPrefix);
     setPrefixSearch(newPrefix);
   };
+
+  // Set prefix from URL param so the correct directory is listed
+  useEffect(() => {
+    if (!openKey || openConsumed.current) return;
+    const keyPrefix = openKey.includes('/')
+      ? openKey.substring(0, openKey.lastIndexOf('/') + 1)
+      : '';
+    setPrefix(keyPrefix);
+    setPrefixSearch(keyPrefix);
+  }, [openKey]);
+
+  // Auto-open object edit dialog from URL search params
+  useEffect(() => {
+    if (!openKey || openConsumed.current || !data?.objects) return;
+    const target = data.objects.find(obj => obj.key === openKey);
+    if (target) {
+      setEditTarget(target);
+      openConsumed.current = true;
+      setSearchParams({}, { replace: true });
+    } else if (!isLoading) {
+      toast.error(`Object "${openKey}" not found in storage`);
+      openConsumed.current = true;
+      setSearchParams({}, { replace: true });
+    }
+  }, [openKey, data?.objects, isLoading, setSearchParams]);
 
   const handleDelete = async () => {
     if (!deleteTarget) return;

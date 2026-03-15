@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   useRoutes,
   useCreateRoute,
@@ -12,9 +13,9 @@ import {
 import { useRoutesFilters, SUPPORTED_DOMAINS, type SupportedDomain } from '@/context';
 import type { Route, CreateRouteInput, UpdateRouteInput, R2BucketName } from '@/lib/schemas';
 import { R2_BUCKETS } from '@/lib/schemas';
-import { getPersistedPageSize, getR2ObjectUrl } from '@/lib/constants';
-import { getContentTypeFromKey } from '@bifrost/shared';
 import { PaginationControls } from '@/components/pagination-controls';
+import { getPersistedPageSize, persistPageSize, getR2ObjectUrl } from '@/lib/constants';
+import { getContentTypeFromKey } from '@bifrost/shared';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -70,6 +71,7 @@ import {
   Power,
   PowerOff,
   ExternalLink,
+  HardDrive,
   Search,
   X,
   Info,
@@ -114,6 +116,7 @@ function RouteForm(props: RouteFormProps) {
   const { mode, route, onSubmit, onCancel, isSubmitting } = props;
   const onTransfer = mode === 'edit' ? props.onTransfer : undefined;
   const allowedDomains = mode === 'edit' ? (props.allowedDomains ?? []) : [];
+  const navigate = useNavigate();
 
   const [formData, setFormData] = useState({
     path: route?.path || '',
@@ -206,15 +209,30 @@ function RouteForm(props: RouteFormProps) {
       )}
       {/* Target link */}
       {formData.type === 'r2' && r2PreviewUrl && (
-        <a
-          href={r2PreviewUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-blue-600"
-        >
-          <ExternalLink className="h-3 w-3 shrink-0" />
-          <span className="truncate font-mono">{r2PreviewUrl.replace('https://', '')}</span>
-        </a>
+        <div className="flex items-center gap-4">
+          <a
+            href={r2PreviewUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-blue-600"
+          >
+            <ExternalLink className="h-3 w-3 shrink-0" />
+            <span className="truncate font-mono">{r2PreviewUrl.replace('https://', '')}</span>
+          </a>
+          <button
+            type="button"
+            onClick={() => {
+              onCancel();
+              navigate(
+                `/storage?bucket=${encodeURIComponent(formData.bucket)}&open=${encodeURIComponent(formData.target)}`,
+              );
+            }}
+            className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-gilroy font-medium text-blue-700 transition-colors hover:bg-blue-100 hover:text-blue-950 whitespace-nowrap"
+          >
+            <HardDrive className="h-3 w-3 shrink-0" />
+            View in Storage
+          </button>
+        </div>
       )}
       {(formData.type === 'redirect' || formData.type === 'proxy') && formData.target && (
         <a
@@ -309,7 +327,7 @@ function RouteForm(props: RouteFormProps) {
         )}
         {mode === 'edit' && formData.path !== route.path && (
           <p className="text-tiny text-amber-600 font-gilroy">
-            ⚠️ Changing the path will migrate this route
+            Changing the path will migrate this route
           </p>
         )}
       </div>
@@ -555,27 +573,32 @@ function RouteForm(props: RouteFormProps) {
 export function RoutesPage() {
   // Filter state from context (persists during navigation)
   const { filters, setFilters } = useRoutesFilters();
+  const location = useLocation();
   const debouncedSearch = useDebounce(filters.search || '', 300);
 
   // Pagination state
+  const [pageSize, setPageSize] = useState(getPersistedPageSize);
   const [offset, setOffset] = useState(0);
-  const [limit, setLimit] = useState(getPersistedPageSize);
 
-  // Reset offset when search or domain changes
-  useEffect(() => {
-    setOffset(0);
-  }, [debouncedSearch, filters.domain]);
+  // Reset offset when search or filters change
+  const handleFilterChange = useCallback(
+    (newFilters: typeof filters) => {
+      setFilters(newFilters);
+      setOffset(0);
+    },
+    [setFilters],
+  );
 
   // Fetch routes with server-side search and pagination
-  const { data, isLoading, error } = useRoutes({
-    domain: filters.domain,
+  const { data, isLoading, error } = useRoutes(filters.domain, {
     search: debouncedSearch || undefined,
-    limit,
+    limit: pageSize,
     offset,
   });
 
   const routes = data?.routes;
-  const meta = data?.meta;
+  const total = data?.total ?? 0;
+  const hasMore = data?.hasMore ?? false;
 
   const createRoute = useCreateRoute();
   const updateRoute = useUpdateRoute();
@@ -598,18 +621,27 @@ export function RoutesPage() {
     updates: UpdateRouteInput;
   } | null>(null);
 
-  // Apply client-side type/enabled filters on server-paginated results
+  // Auto-open edit dialog from navigate state (e.g., storage "View in Routes")
+  useEffect(() => {
+    const state = location.state as { editRoute?: Route } | null;
+    if (state?.editRoute) {
+      setEditRoute(state.editRoute);
+      window.history.replaceState({}, '');
+    }
+  }, [location.state]);
+
+  // Filter and sort routes (client-side for type/enabled, server handles search)
   const filteredRoutes = useMemo(() => {
     if (!routes) return [];
 
     let result = [...routes];
 
-    // Filter by type
+    // Filter by type (client-side supplement to server)
     if (filters.type) {
       result = result.filter(route => route.type === filters.type);
     }
 
-    // Filter by enabled status
+    // Filter by enabled status (client-side supplement to server)
     if (filters.enabled !== undefined) {
       result = result.filter(route => (route.enabled !== false) === filters.enabled);
     }
@@ -629,7 +661,12 @@ export function RoutesPage() {
   );
 
   const handleResetFilters = () => {
-    setFilters({});
+    handleFilterChange({});
+  };
+
+  const handlePageSizeChange = (size: number) => {
+    setPageSize(size);
+    persistPageSize(size);
     setOffset(0);
   };
 
@@ -797,7 +834,7 @@ export function RoutesPage() {
           <Select
             value={filters.domain || 'all'}
             onValueChange={value =>
-              setFilters({
+              handleFilterChange({
                 ...filters,
                 domain: value === 'all' ? undefined : (value as typeof filters.domain),
               })
@@ -825,14 +862,16 @@ export function RoutesPage() {
 
         {/* Search Input */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-gilroy text-charcoal-600">Path</label>
+          <label className="text-small font-gilroy text-charcoal-600">Search</label>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-charcoal-400" />
             <Input
               type="text"
-              placeholder="Search paths..."
+              placeholder="Search routes..."
               value={filters.search || ''}
-              onChange={e => setFilters({ ...filters, search: e.target.value || undefined })}
+              onChange={e =>
+                handleFilterChange({ ...filters, search: e.target.value || undefined })
+              }
               className="pl-8 w-48 font-gilroy"
             />
           </div>
@@ -844,7 +883,7 @@ export function RoutesPage() {
           <Select
             value={filters.type || 'all'}
             onValueChange={value =>
-              setFilters({
+              handleFilterChange({
                 ...filters,
                 type: value === 'all' ? undefined : (value as 'redirect' | 'proxy' | 'r2'),
               })
@@ -876,7 +915,7 @@ export function RoutesPage() {
           <Select
             value={filters.enabled === undefined ? 'all' : filters.enabled ? 'active' : 'disabled'}
             onValueChange={value =>
-              setFilters({
+              handleFilterChange({
                 ...filters,
                 enabled: value === 'all' ? undefined : value === 'active',
               })
@@ -919,7 +958,7 @@ export function RoutesPage() {
           <CardDescription className="font-gilroy">
             {isLoading
               ? 'Loading...'
-              : `${filteredRoutes.length} routes${meta ? ` of ${meta.total} total` : ''}${hasActiveFilters ? ' (filtered)' : ''}`}
+              : `Showing ${filteredRoutes.length} of ${total} routes${hasActiveFilters ? ' (filtered)' : ''}`}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -1051,20 +1090,14 @@ export function RoutesPage() {
               </TableBody>
             </Table>
           )}
-
-          {meta && (
-            <PaginationControls
-              offset={offset}
-              limit={limit}
-              total={meta.total}
-              hasMore={meta.hasMore}
-              onOffsetChange={setOffset}
-              onLimitChange={newLimit => {
-                setLimit(newLimit);
-                setOffset(0);
-              }}
-            />
-          )}
+          <PaginationControls
+            offset={offset}
+            limit={pageSize}
+            total={total}
+            hasMore={hasMore}
+            onOffsetChange={setOffset}
+            onLimitChange={handlePageSizeChange}
+          />
         </CardContent>
       </Card>
 

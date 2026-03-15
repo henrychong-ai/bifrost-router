@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## v1.16.3
+
+### Added
+- **Storage dialog** — "View in Routes" clickable rows for associated routes, navigates to routes tab and auto-opens route's edit dialog
+- **Cross-navigation** — Branded pill buttons for "View in Storage" and "View in Routes" actions
+
+---
+
+## v1.16.2
+
+### Added
+- **Routes dialog** — "View in Storage" button for R2 routes, navigates to storage tab and auto-opens the file's edit dialog
+
+---
+
 ## v1.16.1
 
 ### Fixed
