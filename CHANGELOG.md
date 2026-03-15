@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## v1.16.4
+
+### Fixed
+- **Storage cross-nav** — Fix race condition where auto-open fired against cached data from wrong bucket before bucket selection completed
+
+---
+
 ## v1.16.3
 
 ### Added

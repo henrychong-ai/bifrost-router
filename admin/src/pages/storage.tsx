@@ -958,6 +958,8 @@ export function StoragePage() {
   // Auto-open object edit dialog from URL search params
   useEffect(() => {
     if (!openKey || openConsumed.current || !data?.objects) return;
+    // Wait for correct bucket to be selected before searching
+    if (openBucket && selectedBucket !== openBucket) return;
     const target = data.objects.find(obj => obj.key === openKey);
     if (target) {
       setEditTarget(target);
@@ -968,7 +970,7 @@ export function StoragePage() {
       openConsumed.current = true;
       setSearchParams({}, { replace: true });
     }
-  }, [openKey, data?.objects, isLoading, setSearchParams]);
+  }, [openKey, openBucket, selectedBucket, data?.objects, isLoading, setSearchParams]);
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
