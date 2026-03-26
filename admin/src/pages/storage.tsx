@@ -80,8 +80,10 @@ import {
   RefreshCw,
   RotateCcw,
   ExternalLink,
+  Copy,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { copyToClipboard } from '@/lib/utils';
 
 const MAX_UPLOAD_SIZE = 100 * 1024 * 1024; // 100MB
 
@@ -505,15 +507,25 @@ function StorageEditDialog({
             )}
 
             {fileUrl && (
-              <a
-                href={fileUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-blue-600"
-              >
-                <ExternalLink className="h-3 w-3 shrink-0" />
-                <span className="truncate font-mono">{fileUrl.replace('https://', '')}</span>
-              </a>
+              <div className="flex items-center gap-1.5">
+                <a
+                  href={fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-blue-600"
+                >
+                  <ExternalLink className="size-3 shrink-0" />
+                  <span className="truncate font-mono">{fileUrl.replace('https://', '')}</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(fileUrl)}
+                  className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-blue-50 hover:text-blue-600"
+                  title="Copy link"
+                >
+                  <Copy className="size-3" />
+                </button>
+              </div>
             )}
 
             {/* Object Info */}
@@ -1231,6 +1243,17 @@ export function StoragePage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          {getR2ObjectUrl(selectedBucket, obj.key) && (
+                            <DropdownMenuItem
+                              onClick={() =>
+                                copyToClipboard(getR2ObjectUrl(selectedBucket, obj.key)!)
+                              }
+                              className="font-gilroy"
+                            >
+                              <Copy className="mr-2 size-4" />
+                              Copy Link
+                            </DropdownMenuItem>
+                          )}
                           {getR2ObjectUrl(selectedBucket, obj.key) && (
                             <DropdownMenuItem asChild className="font-gilroy">
                               <a

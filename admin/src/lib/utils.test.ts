@@ -1,5 +1,10 @@
-import { describe, test, expect } from 'vitest';
-import { formatBytes, cn } from './utils';
+import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { formatBytes, cn, copyToClipboard } from './utils';
+
+// Mock sonner toast
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
 
 // =============================================================================
 // formatBytes
@@ -67,5 +72,40 @@ describe('cn', () => {
 
   test('handles undefined and null values', () => {
     expect(cn('foo', undefined, null, 'bar')).toBe('foo bar');
+  });
+});
+
+// =============================================================================
+// copyToClipboard
+// =============================================================================
+
+describe('copyToClipboard', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test('copies text and shows success toast', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    await copyToClipboard('https://example.com/test');
+    expect(writeText).toHaveBeenCalledWith('https://example.com/test');
+    const { toast } = await import('sonner');
+    expect(toast.success).toHaveBeenCalledWith('Link copied to clipboard');
+  });
+
+  test('uses custom label in toast', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    await copyToClipboard('https://example.com', 'URL');
+    const { toast } = await import('sonner');
+    expect(toast.success).toHaveBeenCalledWith('URL copied to clipboard');
+  });
+
+  test('shows error toast when clipboard fails', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('Denied'));
+    Object.assign(navigator, { clipboard: { writeText } });
+    await copyToClipboard('https://example.com');
+    const { toast } = await import('sonner');
+    expect(toast.error).toHaveBeenCalledWith('Failed to copy to clipboard');
   });
 });

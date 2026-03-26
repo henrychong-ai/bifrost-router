@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
+## v1.18.0
+
+**Copy Link — one-click URL sharing for routes and files**
+
+### Added
+- **Copy Link (Routes)** — "Copy Link" in route three-dot menu copies the public URL to clipboard. Route URL with copy icon shown in edit dialog header.
+- **Copy Link (Storage)** — "Copy Link" in file three-dot menu copies the R2 custom domain URL to clipboard. Copy icon added next to file URL in edit dialog.
+- **`copyToClipboard` utility** — Shared clipboard helper with toast feedback
+
+### Tests
+- 3 new `copyToClipboard` unit tests
+
+---
+
 ## v1.17.1
 
 ### Dependencies

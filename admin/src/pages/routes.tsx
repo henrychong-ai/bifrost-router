@@ -75,9 +75,11 @@ import {
   Search,
   X,
   Info,
+  Copy,
 } from 'lucide-react';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
+import { copyToClipboard } from '@/lib/utils';
 
 function RouteTypeBadge({ type }: { type: Route['type'] }) {
   const styles: Record<Route['type'], string> = {
@@ -1032,6 +1034,17 @@ export function RoutesPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() =>
+                              copyToClipboard(
+                                `https://${route.domain ?? filters.domain}${route.path}`,
+                              )
+                            }
+                            className="font-gilroy"
+                          >
+                            <Copy className="mr-2 size-4" />
+                            Copy Link
+                          </DropdownMenuItem>
                           {route.type === 'redirect' && (
                             <DropdownMenuItem asChild className="font-gilroy">
                               <a href={route.target} target="_blank" rel="noopener noreferrer">
@@ -1112,6 +1125,34 @@ export function RoutesPage() {
               Update route configuration for{' '}
               <code className="font-mono text-blue-600">{editRoute?.path}</code>
             </DialogDescription>
+            {editRoute && (
+              <div className="flex items-center gap-1.5">
+                <a
+                  href={`https://${editRoute.domain ?? filters.domain}${editRoute.path}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-blue-600"
+                >
+                  <ExternalLink className="size-3 shrink-0" />
+                  <span className="truncate font-mono">
+                    {editRoute.domain ?? filters.domain}
+                    {editRoute.path}
+                  </span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() =>
+                    copyToClipboard(
+                      `https://${editRoute.domain ?? filters.domain}${editRoute.path}`,
+                    )
+                  }
+                  className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-blue-50 hover:text-blue-600"
+                  title="Copy link"
+                >
+                  <Copy className="size-3" />
+                </button>
+              </div>
+            )}
           </DialogHeader>
           {editRoute && (
             <RouteForm
