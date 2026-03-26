@@ -45,7 +45,7 @@ A lightweight, high-performance edge router and URL shortener built on Cloudflar
 - **R2 Storage Management** — Browse, upload, download, rename, move, and delete R2 objects via API and dashboard
 - **CDN Cache Purge** — Purge Cloudflare edge cache globally for R2 objects via Zone Cache Purge API
 - **Route Domain Transfer** — Move routes between domains preserving configuration and audit trail
-- **R2 Backup System** — Automated daily backups with health monitoring and per-table error isolation
+- **R2 Backup System** — Automated daily KV route backups with health monitoring (D1 covered by Time Travel)
 - **API Shield** — OpenAPI schema validation at the Cloudflare edge
 - **Built on Hono** — Fast, lightweight, TypeScript-first
 
