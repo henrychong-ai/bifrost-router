@@ -51,7 +51,7 @@ describe('rateLimit middleware', () => {
 
     const body = (await response.json()) as { error: string };
     expect(body.error).toBe('Too Many Requests');
-    expect(response.headers.get('Retry-After')).toBeTruthy();
+    expect(response.headers.get('Retry-After')).not.toBeNull();
   });
 
   it('tracks rate limits per IP', async () => {
