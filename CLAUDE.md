@@ -130,6 +130,8 @@ Domains are configured in `src/types.ts`:
 - `R2_BUCKET_CUSTOM_DOMAINS` — R2 custom domain URLs per bucket (for cache purge)
 - `Bindings` type — must match `wrangler.toml` bindings
 
+**When adding a new domain**, update `SUPPORTED_DOMAINS` in `src/types.ts`, add as a Custom Domain in the Cloudflare Dashboard, and if using API Shield, add the domain to the `DomainQuery` enum in `openapi/bifrost-api.yaml` (API Shield block mode returns 403 for unknown domain values).
+
 ### Minimum Required Bindings
 
 | Binding | Type | Required | Purpose |
