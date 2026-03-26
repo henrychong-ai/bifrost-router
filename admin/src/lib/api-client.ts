@@ -427,20 +427,11 @@ export interface BackupFileStatus {
   exists: boolean;
 }
 
-export interface D1TableInfo {
-  name: string;
-  rows: number;
-}
-
 export interface ManifestSummary {
   version: string;
   kv: {
     totalRoutes: number;
     domains: string[];
-  };
-  d1: {
-    totalRows: number;
-    tables: D1TableInfo[];
   };
 }
 

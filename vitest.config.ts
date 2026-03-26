@@ -19,6 +19,7 @@ export default defineWorkersConfig({
         },
       },
     },
+    exclude: ['node_modules', 'admin', 'shared', 'mcp', 'slackbot'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

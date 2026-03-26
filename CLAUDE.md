@@ -111,7 +111,7 @@ Tests use **Vitest** with `@cloudflare/vitest-pool-workers`, which runs tests in
 test/
 ├── fixtures.ts          # Shared test data
 ├── helpers.ts           # KV seeding utilities
-├── backup/              # R2 backup system tests (kv, d1, retention, manifest, scheduled)
+├── backup/              # R2 backup system tests (kv, manifest, scheduled, health)
 ├── db/                  # D1 recording and query tests
 ├── handlers/            # redirect, proxy, r2 handler tests
 ├── kv/                  # KV schema, lookup, and CRUD tests
@@ -177,14 +177,13 @@ adminRoutes.use('*', async (c, next) => {
 });
 ```
 
-## R2 Backup System
+## Backup System
 
-Automated daily backups via cron trigger at 20:00 UTC.
+### KV Routes (R2)
+Automated daily backups via cron trigger at 20:00 UTC. KV routes backed up as compressed NDJSON to R2 bucket `bifrost-backups`. Retention: indefinite (~8KB/day).
 
-| Data | Format | Retention |
-|------|--------|-----------|
-| KV Routes | NDJSON + Gzip | 30 days (daily), 90 days (weekly/Sunday) |
-| D1 Analytics | NDJSON + Gzip | 30 days (daily), 90 days (weekly/Sunday) |
+### D1 Analytics (Time Travel)
+D1 analytics are not backed up to R2. Cloudflare D1 Time Travel provides automatic 30-day point-in-time recovery. Restore via `wrangler d1 time-travel restore <db> --timestamp=<RFC3339>`.
 
 ## System Routes
 

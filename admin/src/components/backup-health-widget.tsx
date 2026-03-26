@@ -2,15 +2,7 @@ import { useBackupHealth } from '../hooks/use-backup-health';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { Skeleton } from './ui/skeleton';
-import {
-  CheckCircle,
-  AlertTriangle,
-  XCircle,
-  Clock,
-  Database,
-  HardDrive,
-  RefreshCw,
-} from 'lucide-react';
+import { CheckCircle, AlertTriangle, XCircle, Clock, HardDrive, RefreshCw } from 'lucide-react';
 
 /**
  * Loading skeleton for the backup health widget
@@ -80,7 +72,7 @@ function BackupHealthError({
  * - Overall status (healthy/warning/critical)
  * - Last backup age
  * - Route count
- * - D1 row count
+ * - File completeness
  * - Any issues detected
  */
 export function BackupHealthWidget() {
@@ -152,15 +144,6 @@ export function BackupHealthWidget() {
                     {health.lastBackup.manifest?.kv.totalRoutes ?? 0}
                   </span>{' '}
                   routes
-                </span>
-              </div>
-              <div className="flex items-center text-sm">
-                <Database className="h-4 w-4 mr-2 text-muted-foreground" />
-                <span>
-                  <span className="font-medium">
-                    {health.lastBackup.manifest?.d1.totalRows?.toLocaleString() ?? 0}
-                  </span>{' '}
-                  analytics rows
                 </span>
               </div>
             </>

@@ -6,3 +6,4 @@ export { ViewsPage } from './views';
 export { DownloadsPage } from './downloads';
 export { ProxyPage } from './proxy';
 export { AuditPage } from './audit';
+export { ChangelogPage } from './changelog';

@@ -329,7 +329,7 @@ export default {
         if (result.success) {
           console.log(
             `[Scheduled] Backup completed in ${result.duration}ms - ` +
-              `${result.manifest?.kv.totalRoutes} routes, ${result.manifest?.d1.totalRows} rows`,
+              `${result.manifest?.kv.totalRoutes} routes`,
           );
         } else {
           console.error(`[Scheduled] Backup failed: ${result.error}`);

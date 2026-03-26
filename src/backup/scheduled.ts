@@ -1,9 +1,7 @@
 import type { Bindings } from '../types';
 import type { BackupResult } from './types';
 import { backupKV } from './kv';
-import { backupD1 } from './d1';
 import { writeManifest } from './manifest';
-import { cleanupOldBackups } from './retention';
 
 /**
  * Get current date in YYYYMMDD format (UTC)
@@ -19,11 +17,11 @@ function getDateString(): string {
 /**
  * Handle scheduled backup event
  *
- * Orchestrates the full backup process:
+ * Orchestrates the backup process:
  * 1. Backup KV routes (all domains)
- * 2. Backup D1 analytics tables (last 30 days)
- * 3. Write manifest file
- * 4. Cleanup old backups per retention policy
+ * 2. Write manifest file
+ *
+ * D1 analytics are covered by Cloudflare D1 Time Travel (30-day point-in-time recovery).
  *
  * @param env - Worker environment bindings
  * @returns Backup result with manifest or error
@@ -47,27 +45,9 @@ export async function handleScheduled(env: Bindings): Promise<BackupResult> {
     const kvResult = await backupKV(env.ROUTES, env.BACKUP_BUCKET, date);
     console.log(`[Backup] KV backup complete: ${kvResult.totalRoutes} routes`);
 
-    // Step 2: Backup D1 tables (per-table isolation — partial failures don't stop others)
-    console.log(`[Backup] Starting D1 backup for ${date}`);
-    const d1Result = await backupD1(env.DB, env.BACKUP_BUCKET, date);
-    if (d1Result.failedTables?.length) {
-      console.error(
-        `[Backup] D1 backup had ${d1Result.failedTables.length} failed table(s): ${d1Result.failedTables.join(', ')}`,
-      );
-    }
-    console.log(
-      `[Backup] D1 backup complete: ${d1Result.totalRows} rows across ${d1Result.tables.length} tables`,
-    );
-
-    // Step 3: Write manifest
-    const manifest = await writeManifest(env.BACKUP_BUCKET, date, kvResult, d1Result);
+    // Step 2: Write manifest
+    const manifest = await writeManifest(env.BACKUP_BUCKET, date, kvResult);
     console.log(`[Backup] Manifest written: daily/${date}/manifest.json`);
-
-    // Step 4: Cleanup old backups
-    const cleanup = await cleanupOldBackups(env.BACKUP_BUCKET);
-    if (cleanup.deleted.length > 0) {
-      console.log(`[Backup] Cleaned up ${cleanup.deleted.length} old files`);
-    }
 
     return {
       success: true,

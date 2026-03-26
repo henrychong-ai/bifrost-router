@@ -15,6 +15,7 @@ import {
   DownloadsPage,
   ProxyPage,
   AuditPage,
+  ChangelogPage,
 } from '@/pages';
 
 function App() {
@@ -33,6 +34,7 @@ function App() {
                 <Route path="/analytics/downloads" element={<DownloadsPage />} />
                 <Route path="/analytics/proxy" element={<ProxyPage />} />
                 <Route path="/audit" element={<AuditPage />} />
+                <Route path="/changelog" element={<ChangelogPage />} />
               </Route>
             </Routes>
             <CommandPalette />

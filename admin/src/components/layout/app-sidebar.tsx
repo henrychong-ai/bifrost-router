@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   ClipboardList,
   HardDrive,
+  ScrollText,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -142,14 +143,36 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        {/* Changelog — pinned to bottom of sidebar content */}
+        <SidebarGroup className="mt-auto">
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isActive('/changelog')}
+                  className="font-gilroy transition-all duration-200 hover:translate-x-1"
+                >
+                  <Link to="/changelog" className="group/link">
+                    <ScrollText className="size-4 transition-transform duration-200 group-hover/link:scale-110" />
+                    <span>Changelog</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border px-6 py-4">
         {/* Gold accent bar */}
         <div className="h-1 w-full rounded-full gradient-accent-bar mb-3" />
-        <div className="text-tiny text-sidebar-foreground/50 font-gilroy">
+        <Link
+          to="/changelog"
+          className="font-gilroy text-tiny text-sidebar-foreground/50 transition-colors hover:text-sidebar-foreground/80"
+        >
           Bifrost v{__APP_VERSION__}
-        </div>
+        </Link>
       </SidebarFooter>
     </Sidebar>
   );

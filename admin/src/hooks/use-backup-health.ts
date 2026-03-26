@@ -33,7 +33,6 @@ export function useBackupHealth() {
 export type { BackupHealthResponse };
 export type {
   BackupFileStatus,
-  D1TableInfo,
   ManifestSummary,
   LastBackupInfo,
   HealthIssue,

@@ -14,15 +14,7 @@ import { DEFAULT_HEALTH_CONFIG } from './health-schemas';
 /**
  * Expected backup files for a given date
  */
-const EXPECTED_FILES = [
-  'manifest.json',
-  'kv-routes.ndjson.gz',
-  'd1-link_clicks.ndjson.gz',
-  'd1-page_views.ndjson.gz',
-  'd1-file_downloads.ndjson.gz',
-  'd1-proxy_requests.ndjson.gz',
-  'd1-audit_logs.ndjson.gz',
-] as const;
+const EXPECTED_FILES = ['manifest.json', 'kv-routes.ndjson.gz'] as const;
 
 /**
  * Find the most recent backup in the R2 bucket
@@ -73,23 +65,11 @@ async function fetchManifest(bucket: R2Bucket, date: string): Promise<BackupMani
  * Convert BackupManifest to ManifestSummary for API response
  */
 function manifestToSummary(manifest: BackupManifest): ManifestSummary {
-  // Convert the tables from string[] to D1TableInfo[]
-  // We don't have per-table row counts in the current manifest, so estimate
-  const tables = manifest.d1.tables.map(name => ({
-    name,
-    // Estimate: distribute total rows evenly across tables
-    rows: Math.floor(manifest.d1.totalRows / manifest.d1.tables.length),
-  }));
-
   return {
     version: manifest.version,
     kv: {
       totalRoutes: manifest.kv.totalRoutes,
       domains: manifest.kv.domains,
-    },
-    d1: {
-      totalRows: manifest.d1.totalRows,
-      tables,
     },
   };
 }

@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented in this file.
 
+## v1.17.0
+
+### Added
+- **Changelog dashboard** — New `/changelog` page with searchable version history, section badges, current version highlighting, and inline code rendering
+- **Sidebar changelog link** — Changelog nav item pinned at bottom of sidebar, clickable version in footer
+
+### Changed
+- **Backup system** — Removed D1 analytics backup; D1 is now covered by Cloudflare Time Travel (automatic 30-day PITR). Backup system now backs up KV routes only.
+- **Backup retention** — Changed from 30-day daily / 90-day weekly to indefinite retention
+- **Manifest version** — Bumped to 2.0.0 (removed `d1` and `retention` fields)
+- **Dashboard** — Removed D1 analytics row count from backup health widget
+- **Vitest config** — Root vitest now excludes workspace packages to prevent Workers pool from picking up Node.js-only tests
+
+### Fixed
+- **Security** — Added dependency overrides for picomatch (→2.3.2/4.0.4), yaml (→2.8.3); bumped flatted (→3.4.2)
+
+### Removed
+- `src/backup/d1.ts` — D1 table export (redundant with Time Travel)
+- `src/backup/retention.ts` — Backup cleanup (no longer needed with indefinite retention)
+
+---
+
 ## v1.16.4
 
 ### Fixed

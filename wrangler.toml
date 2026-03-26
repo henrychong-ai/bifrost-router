@@ -54,7 +54,7 @@ bucket_name = "files-user5"
 binding = "FILES_USER6_BUCKET"
 bucket_name = "files-user6"
 
-# R2 bucket for automated backups (KV routes + D1 analytics)
+# R2 bucket for automated backups (KV routes)
 [[r2_buckets]]
 binding = "BACKUP_BUCKET"
 bucket_name = "bifrost-backups"
@@ -90,7 +90,7 @@ persist = true
 
 [vars]
 ENVIRONMENT = "production"
-VERSION = "1.16.5"  # IMPORTANT: Keep in sync with package.json version
+VERSION = "1.17.0"  # IMPORTANT: Keep in sync with package.json version
 ADMIN_API_DOMAIN = "bifrost.example.com"   # Domain that serves admin API at /api/*
 R2_COPY_SIZE_LIMIT_MB = "100"              # Max object size (MB) for rename/metadata copy ops
 

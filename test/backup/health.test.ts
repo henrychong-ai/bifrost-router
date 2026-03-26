@@ -39,28 +39,13 @@ function createMockBucket(options: {
  */
 function createTestManifest(overrides: Partial<BackupManifest> = {}): BackupManifest {
   return {
-    version: '1.0.0',
+    version: '2.0.0',
     timestamp: Date.now() - 4 * 60 * 60 * 1000, // 4 hours ago
     date: '20260123',
     kv: {
       domains: ['henrychong.com', 'link.henrychong.com'],
       totalRoutes: 320,
       file: 'daily/20260123/kv-routes.ndjson.gz',
-    },
-    d1: {
-      tables: ['link_clicks', 'page_views', 'file_downloads', 'proxy_requests', 'audit_logs'],
-      totalRows: 18046,
-      files: {
-        link_clicks: 'daily/20260123/d1-link_clicks.ndjson.gz',
-        page_views: 'daily/20260123/d1-page_views.ndjson.gz',
-        file_downloads: 'daily/20260123/d1-file_downloads.ndjson.gz',
-        proxy_requests: 'daily/20260123/d1-proxy_requests.ndjson.gz',
-        audit_logs: 'daily/20260123/d1-audit_logs.ndjson.gz',
-      },
-    },
-    retention: {
-      daily: 30,
-      weekly: 90,
     },
     ...overrides,
   };
@@ -73,11 +58,6 @@ function createCompleteFilesMap(date: string): Map<string, { size: number }> {
   const files = new Map<string, { size: number }>();
   files.set(`daily/${date}/manifest.json`, { size: 1234 });
   files.set(`daily/${date}/kv-routes.ndjson.gz`, { size: 45678 });
-  files.set(`daily/${date}/d1-link_clicks.ndjson.gz`, { size: 123456 });
-  files.set(`daily/${date}/d1-page_views.ndjson.gz`, { size: 45678 });
-  files.set(`daily/${date}/d1-file_downloads.ndjson.gz`, { size: 12345 });
-  files.set(`daily/${date}/d1-proxy_requests.ndjson.gz`, { size: 6789 });
-  files.set(`daily/${date}/d1-audit_logs.ndjson.gz`, { size: 3456 });
   return files;
 }
 
@@ -244,8 +224,7 @@ describe('checkBackupHealth', () => {
     it('returns critical when backup files are missing', async () => {
       const date = '20260123';
       const incompleteFiles = createCompleteFilesMap(date);
-      incompleteFiles.delete(`daily/${date}/d1-link_clicks.ndjson.gz`);
-      incompleteFiles.delete(`daily/${date}/d1-page_views.ndjson.gz`);
+      incompleteFiles.delete(`daily/${date}/kv-routes.ndjson.gz`);
 
       const bucket = createMockBucket({
         delimitedPrefixes: [`daily/${date}/`],
@@ -319,7 +298,7 @@ describe('checkBackupHealth', () => {
 
       const health = await checkBackupHealth(bucket);
 
-      expect(health.lastBackup?.files).toHaveLength(7);
+      expect(health.lastBackup?.files).toHaveLength(2);
       expect(health.lastBackup?.files).toContainEqual({
         key: `daily/${date}/manifest.json`,
         size: 1234,
@@ -363,11 +342,9 @@ describe('checkBackupHealth', () => {
       const health = await checkBackupHealth(bucket);
 
       expect(health.lastBackup?.manifest).not.toBeNull();
-      expect(health.lastBackup?.manifest?.version).toBe('1.0.0');
+      expect(health.lastBackup?.manifest?.version).toBe('2.0.0');
       expect(health.lastBackup?.manifest?.kv.totalRoutes).toBe(320);
       expect(health.lastBackup?.manifest?.kv.domains).toContain('henrychong.com');
-      expect(health.lastBackup?.manifest?.d1.totalRows).toBe(18046);
-      expect(health.lastBackup?.manifest?.d1.tables).toHaveLength(5);
     });
   });
 

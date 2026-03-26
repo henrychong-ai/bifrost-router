@@ -1,6 +1,6 @@
 {
   "name": "bifrost",
-  "version": "1.16.5",
+  "version": "1.17.0",
   "description": "Bifrost - Edge router with Cloudflare Workers and Hono",
   "type": "module",
   "private": true,
@@ -66,11 +66,14 @@
   "pnpm": {
     "overrides": {
       "undici": ">=7.24.0",
-      "flatted": ">=3.4.0",
+      "flatted": ">=3.4.2",
+      "picomatch": ">=4.0.4",
+      "micromatch>picomatch": "^2.3.2",
+      "yaml": ">=2.8.3",
       "devalue": ">=5.6.4",
+      "qs": ">=6.14.2",
       "minimatch": ">=10.2.3",
       "rollup": ">=4.59.0",
-      "qs": ">=6.14.2",
       "ajv@^6": "^6.14.0"
     }
   },

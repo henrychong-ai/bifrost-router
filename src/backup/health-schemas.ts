@@ -48,18 +48,6 @@ export const HealthIssueSchema = z.object({
 export type HealthIssue = z.infer<typeof HealthIssueSchema>;
 
 /**
- * D1 table info in manifest
- */
-export const D1TableInfoSchema = z.object({
-  /** Table name */
-  name: z.string(),
-  /** Number of rows in backup */
-  rows: z.number(),
-});
-
-export type D1TableInfo = z.infer<typeof D1TableInfoSchema>;
-
-/**
  * Manifest summary for health response
  */
 export const ManifestSummarySchema = z.object({
@@ -71,13 +59,6 @@ export const ManifestSummarySchema = z.object({
     totalRoutes: z.number(),
     /** Domains included in backup */
     domains: z.array(z.string()),
-  }),
-  /** D1 backup summary */
-  d1: z.object({
-    /** Total rows across all tables */
-    totalRows: z.number(),
-    /** Per-table row counts */
-    tables: z.array(D1TableInfoSchema),
   }),
 });
 
