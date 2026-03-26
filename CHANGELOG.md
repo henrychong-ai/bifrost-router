@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## v1.17.1
+
+### Dependencies
+- wrangler 4.73.0 → 4.77.0, hono 4.12.7 → 4.12.9, @biomejs/biome 2.4.6 → 2.4.9
+- @cloudflare/workers-types → 20260317.1, lint-staged → 16.4.0, oxlint 1.55.0 → 1.57.0
+- pnpm 10.32.1 → 10.33.0
+
+### Fixed
+- **Changelog tests** — Adapted parser regression tests for router's CHANGELOG format (version threshold, semver regex, subtitle requirements)
+
+### Documentation
+- **Domain checklist** — Added domain addition guidance with API Shield DomainQuery enum requirement
+
+---
+
 ## v1.17.0
 
 ### Added
