@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 import type { CreateRouteInput, UpdateRouteInput } from '@/lib/schemas';
@@ -28,6 +29,24 @@ export function useRoutes(
     queryFn: () => api.routes.list(params),
     placeholderData: keepPreviousData,
   });
+}
+
+/**
+ * Prefetch routes for all accessible domains (background, non-blocking).
+ * Used for cross-domain duplicate target detection in RouteForm.
+ */
+export function usePrefetchAllDomainRoutes(domains: readonly string[], currentDomain?: string) {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    for (const domain of domains) {
+      if (domain === currentDomain) continue;
+      queryClient.prefetchQuery({
+        queryKey: routeKeys.list({ domain, limit: 1000 }),
+        queryFn: () => api.routes.list({ domain, limit: 1000 }),
+        staleTime: 60_000,
+      });
+    }
+  }, [domains, currentDomain, queryClient]);
 }
 
 /**

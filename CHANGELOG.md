@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## v1.19.0
+
+**Duplicate target detection — real-time cross-domain route conflict awareness**
+
+### Added
+- **Duplicate target warning** — When creating or editing a route, an inline callout appears below the Target field if another route (same domain or any accessible domain) already points to the same URL. Non-blocking — routes can still be created intentionally.
+- **Cross-domain prefetch** — Routes for all accessible domains are prefetched on dialog open for instant cross-domain duplicate detection.
+
+---
+
 ## v1.18.0
 
 **Copy Link — one-click URL sharing for routes and files**

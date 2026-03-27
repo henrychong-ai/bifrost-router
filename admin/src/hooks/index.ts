@@ -2,6 +2,7 @@
 export {
   routeKeys,
   useRoutes,
+  usePrefetchAllDomainRoutes,
   useRoute,
   useCreateRoute,
   useUpdateRoute,

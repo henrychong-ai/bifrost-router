@@ -2,6 +2,8 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   useRoutes,
+  usePrefetchAllDomainRoutes,
+  routeKeys,
   useCreateRoute,
   useUpdateRoute,
   useDeleteRoute,
@@ -10,6 +12,7 @@ import {
   useTransferRoute,
   useDebounce,
 } from '@/hooks';
+import { useQueryClient } from '@tanstack/react-query';
 import { useRoutesFilters, SUPPORTED_DOMAINS, type SupportedDomain } from '@/context';
 import type { Route, CreateRouteInput, UpdateRouteInput, R2BucketName } from '@/lib/schemas';
 import { R2_BUCKETS } from '@/lib/schemas';
@@ -103,6 +106,7 @@ type RouteFormProps =
       onSubmit: (data: CreateRouteInput, domain: string) => void;
       onCancel: () => void;
       isSubmitting: boolean;
+      allDomainRoutes?: Map<string, Route[]>;
     }
   | {
       mode: 'edit';
@@ -112,10 +116,12 @@ type RouteFormProps =
       isSubmitting: boolean;
       allowedDomains?: string[];
       onTransfer?: (toDomain: string) => void;
+      allDomainRoutes?: Map<string, Route[]>;
     };
 
 function RouteForm(props: RouteFormProps) {
   const { mode, route, onSubmit, onCancel, isSubmitting } = props;
+  const allDomainRoutes = props.allDomainRoutes;
   const onTransfer = mode === 'edit' ? props.onTransfer : undefined;
   const allowedDomains = mode === 'edit' ? (props.allowedDomains ?? []) : [];
   const navigate = useNavigate();
@@ -134,6 +140,21 @@ function RouteForm(props: RouteFormProps) {
     enabled: route?.enabled ?? true,
     domain: 'henrychong.com' as SupportedDomain, // Default to henrychong.com
   });
+
+  // Duplicate target detection across all accessible domains
+  const duplicateTargets = useMemo(() => {
+    if (!formData.target || !allDomainRoutes) return [];
+    const matches: { domain: string; path: string }[] = [];
+    for (const [domain, domainRoutes] of allDomainRoutes) {
+      for (const r of domainRoutes) {
+        if (r.target === formData.target) {
+          if (mode === 'edit' && r.path === route?.path && domain === formData.domain) continue;
+          matches.push({ domain, path: r.path });
+        }
+      }
+    }
+    return matches;
+  }, [formData.target, formData.domain, allDomainRoutes, mode, route]);
 
   // R2 file preview
   const r2PreviewUrl =
@@ -391,6 +412,28 @@ function RouteForm(props: RouteFormProps) {
           required
           className="font-mono"
         />
+        {duplicateTargets.length > 0 && (
+          <div className="flex items-start gap-2 rounded-sm bg-blue-50 px-3 py-2">
+            <Info className="mt-0.5 size-3.5 shrink-0 text-blue-600" />
+            <p className="font-gilroy text-xs text-charcoal-700">
+              Also targets:{' '}
+              {duplicateTargets.slice(0, 3).map((m, i) => (
+                <span key={`${m.domain}:${m.path}`}>
+                  {i > 0 && ', '}
+                  <code className="rounded-sm bg-muted px-1 py-0.5 font-mono text-tiny">
+                    {m.path}
+                  </code>
+                  {m.domain !== formData.domain && (
+                    <span className="text-charcoal-500"> on {m.domain}</span>
+                  )}
+                </span>
+              ))}
+              {duplicateTargets.length > 3 && (
+                <span className="text-charcoal-500">, +{duplicateTargets.length - 3} more</span>
+              )}
+            </p>
+          </div>
+        )}
       </div>
 
       {formData.type === 'redirect' && (
@@ -601,6 +644,26 @@ export function RoutesPage() {
   const routes = data?.routes;
   const total = data?.total ?? 0;
   const hasMore = data?.hasMore ?? false;
+
+  // Prefetch routes for all domains (for duplicate target detection)
+  usePrefetchAllDomainRoutes(SUPPORTED_DOMAINS, filters.domain);
+
+  // Build cross-domain routes map from TanStack Query cache
+  const queryClient = useQueryClient();
+  const allDomainRoutes = useMemo(() => {
+    const map = new Map<string, Route[]>();
+    for (const domain of SUPPORTED_DOMAINS) {
+      const cached = queryClient.getQueryData<{ routes: Route[] }>(
+        routeKeys.list({ domain, limit: 1000 }),
+      );
+      if (cached) map.set(domain, cached.routes);
+    }
+    const currentRoutes = data?.routes;
+    if (filters.domain && currentRoutes && currentRoutes.length > 0 && !map.has(filters.domain)) {
+      map.set(filters.domain, currentRoutes);
+    }
+    return map;
+  }, [queryClient, filters.domain, data]);
 
   const createRoute = useCreateRoute();
   const updateRoute = useUpdateRoute();
@@ -823,6 +886,7 @@ export function RoutesPage() {
               onSubmit={handleCreate}
               onCancel={() => setCreateDialogOpen(false)}
               isSubmitting={createRoute.isPending}
+              allDomainRoutes={allDomainRoutes}
             />
           </DialogContent>
         </Dialog>
@@ -1172,6 +1236,7 @@ export function RoutesPage() {
                       })
                   : undefined
               }
+              allDomainRoutes={allDomainRoutes}
             />
           )}
         </DialogContent>
