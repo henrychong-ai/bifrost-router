@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## v1.20.0
+
+### Added
+- **Copy target URL** — Copy icon next to destination URL in route edit dialog
+- **Path case conflict blocking** — Red error + disabled submit when case-insensitive path duplicate exists
+
+### Fixed
+- **Duplicate target self-match** — Route no longer flags itself as duplicate when editing
+- **Case-insensitive target detection** — Duplicate target check now case-insensitive
+- **Server-side path enforcement** — 409 for case-insensitive path conflicts on create, migrate, transfer
+
+---
+
 ## v1.19.0
 
 **Duplicate target detection — real-time cross-domain route conflict awareness**

@@ -144,17 +144,34 @@ function RouteForm(props: RouteFormProps) {
   // Duplicate target detection across all accessible domains
   const duplicateTargets = useMemo(() => {
     if (!formData.target || !allDomainRoutes) return [];
+    const targetLower = formData.target.toLowerCase();
     const matches: { domain: string; path: string }[] = [];
     for (const [domain, domainRoutes] of allDomainRoutes) {
       for (const r of domainRoutes) {
-        if (r.target === formData.target) {
-          if (mode === 'edit' && r.path === route?.path && domain === formData.domain) continue;
+        if (r.target.toLowerCase() === targetLower) {
+          if (mode === 'edit' && r.path === route?.path && domain === route?.domain) continue;
           matches.push({ domain, path: r.path });
         }
       }
     }
     return matches;
-  }, [formData.target, formData.domain, allDomainRoutes, mode, route]);
+  }, [formData.target, allDomainRoutes, mode, route]);
+
+  // Case-insensitive path conflict detection
+  const pathCaseConflicts = useMemo(() => {
+    if (!formData.path || !allDomainRoutes) return [];
+    const pathLower = formData.path.toLowerCase();
+    const activeDomain = mode === 'edit' ? (route?.domain ?? formData.domain) : formData.domain;
+    const domainRoutes = allDomainRoutes.get(activeDomain) ?? [];
+    const matches: string[] = [];
+    for (const r of domainRoutes) {
+      if (r.path.toLowerCase() === pathLower && r.path !== formData.path) {
+        if (mode === 'edit' && r.path === route?.path) continue;
+        matches.push(r.path);
+      }
+    }
+    return matches;
+  }, [formData.path, formData.domain, allDomainRoutes, mode, route]);
 
   // R2 file preview
   const r2PreviewUrl =
@@ -244,6 +261,14 @@ function RouteForm(props: RouteFormProps) {
           </a>
           <button
             type="button"
+            onClick={() => copyToClipboard(r2PreviewUrl)}
+            className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-blue-50 hover:text-blue-600"
+            title="Copy file URL"
+          >
+            <Copy className="size-3" />
+          </button>
+          <button
+            type="button"
             onClick={() => {
               onCancel();
               navigate(
@@ -258,15 +283,27 @@ function RouteForm(props: RouteFormProps) {
         </div>
       )}
       {(formData.type === 'redirect' || formData.type === 'proxy') && formData.target && (
-        <a
-          href={formData.target}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-blue-600"
-        >
-          <ExternalLink className="h-3 w-3 shrink-0" />
-          <span className="truncate font-mono">{formData.target.replace(/^https?:\/\//, '')}</span>
-        </a>
+        <div className="flex items-center gap-1.5">
+          <a
+            href={formData.target}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-blue-600"
+          >
+            <ExternalLink className="h-3 w-3 shrink-0" />
+            <span className="truncate font-mono">
+              {formData.target.replace(/^https?:\/\//, '')}
+            </span>
+          </a>
+          <button
+            type="button"
+            onClick={() => copyToClipboard(formData.target)}
+            className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-blue-50 hover:text-blue-600"
+            title="Copy target URL"
+          >
+            <Copy className="size-3" />
+          </button>
+        </div>
       )}
 
       {/* Domain selector - only for create mode */}
@@ -352,6 +389,21 @@ function RouteForm(props: RouteFormProps) {
           <p className="text-tiny text-amber-600 font-gilroy">
             Changing the path will migrate this route
           </p>
+        )}
+        {pathCaseConflicts.length > 0 && (
+          <div className="flex items-start gap-2 rounded-sm bg-red-50 px-3 py-2">
+            <Info className="mt-0.5 size-3.5 shrink-0 text-red-600" />
+            <p className="font-gilroy text-xs text-red-800">
+              Case conflict:{' '}
+              {pathCaseConflicts.map((p, i) => (
+                <span key={p}>
+                  {i > 0 && ', '}
+                  <code className="rounded-sm bg-muted px-1 py-0.5 font-mono text-tiny">{p}</code>
+                </span>
+              ))}{' '}
+              already exists — paths are case-insensitive
+            </p>
+          </div>
         )}
       </div>
 
@@ -605,7 +657,7 @@ function RouteForm(props: RouteFormProps) {
         </Button>
         <Button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || pathCaseConflicts.length > 0}
           className="font-gilroy bg-blue-950 hover:bg-blue-900"
         >
           {isSubmitting ? 'Saving...' : route ? 'Update' : 'Create'}

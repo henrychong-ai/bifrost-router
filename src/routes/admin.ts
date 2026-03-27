@@ -377,6 +377,22 @@ adminRoutes.post('/routes', async c => {
     );
   }
 
+  // Case-insensitive path conflict check
+  const allRoutes = await getAllRoutes(c.env.ROUTES, domain);
+  const pathLower = result.data.path.toLowerCase();
+  const caseConflict = allRoutes.find(
+    r => r.path.toLowerCase() === pathLower && r.path !== result.data.path,
+  );
+  if (caseConflict) {
+    return c.json(
+      {
+        success: false,
+        error: `Case conflict: ${caseConflict.path} already exists (paths are case-insensitive)`,
+      },
+      409,
+    );
+  }
+
   const route = await createRoute(c.env.ROUTES, domain, result.data);
 
   // Record audit log (non-blocking) - only if executionCtx is available
