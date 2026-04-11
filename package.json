@@ -1,6 +1,6 @@
 {
   "name": "bifrost",
-  "version": "1.20.0",
+  "version": "1.20.1",
   "description": "Bifrost - Edge router with Cloudflare Workers and Hono",
   "type": "module",
   "private": true,
@@ -47,7 +47,7 @@
   "dependencies": {
     "@bifrost/shared": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.12.9",
+    "hono": "^4.12.12",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -74,7 +74,13 @@
       "qs": ">=6.14.2",
       "minimatch": ">=10.2.3",
       "rollup": ">=4.59.0",
-      "ajv@^6": "^6.14.0"
+      "ajv@^6": "^6.14.0",
+      "hono": ">=4.12.12",
+      "@hono/node-server": ">=1.19.13",
+      "path-to-regexp@>=8.0.0 <8.4.0": ">=8.4.0",
+      "brace-expansion@>=4.0.0 <5.0.5": ">=5.0.5",
+      "vite@>=7.0.0 <7.3.2": ">=7.3.2",
+      "defu": ">=6.1.5"
     }
   },
   "lint-staged": {

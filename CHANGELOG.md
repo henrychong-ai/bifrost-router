@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented in this file.
 
+## v1.20.1
+
+**Security patches — dependabot advisories resolved**
+
+### Security
+- **hono 4.12.9 → 4.12.12** — Patches cookie prefix bypass (GHSA-r5rp-j6wh-rvv4), cookie name validation in `setCookie()`, IPv4-mapped IPv6 `ipRestriction()` bypass, `serveStatic` repeated-slash middleware bypass, and `toSSG()` path traversal
+- **@hono/node-server 1.19.11 → 1.19.13** (transitive via `@modelcontextprotocol/sdk`) — `serveStatic` middleware bypass
+- **vite 7.3.1 → 7.3.2** — Patches WebSocket arbitrary file read, `server.fs.deny` query bypass, and optimized deps `.map` path traversal
+- **defu 6.1.4 → 6.1.7** (transitive via `unenv`) — Prototype pollution via `__proto__` key in defaults argument
+- **path-to-regexp 8.3.0 → 8.4.2** (transitive via `express`) — DoS via sequential optional groups and multiple wildcards
+- **brace-expansion 5.0.2 → 5.0.5** (transitive via `minimatch`) — Zero-step sequence process hang / memory exhaustion
+
+### Dependencies
+- Added pnpm overrides for `hono`, `@hono/node-server`, `path-to-regexp`, `brace-expansion`, `vite`, and `defu` to force patched versions across all workspace packages
+
+---
+
 ## v1.20.0
 
 ### Added
