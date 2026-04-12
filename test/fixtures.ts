@@ -7,7 +7,7 @@ export const fixtures = {
   redirectRoute: {
     path: '/github',
     type: 'redirect' as const,
-    target: 'https://github.com/henrychong-ai',
+    target: 'https://github.com/example-user',
     statusCode: 302 as const,
     preserveQuery: true,
     enabled: true,
@@ -28,7 +28,7 @@ export const fixtures = {
   r2Route: {
     path: '/media-kit/download',
     type: 'r2' as const,
-    target: 'media-kit/henrychong-media-kit.zip',
+    target: 'media-kit/media-kit.zip',
     cacheControl: 'public, max-age=86400',
     enabled: true,
     createdAt: Date.now(),

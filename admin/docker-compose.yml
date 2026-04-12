@@ -3,8 +3,11 @@ services:
     build:
       context: .
       args:
-        VITE_API_URL: https://henrychong.com
-        VITE_ADMIN_API_KEY: ${VITE_ADMIN_API_KEY}
+        VITE_API_URL: https://example.com
+    environment:
+      # ADMIN_API_KEY is injected at runtime (not baked into the image).
+      # Set via a .env file or shell export before running docker compose up.
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
     ports:
       - "3001:3001"
     restart: unless-stopped

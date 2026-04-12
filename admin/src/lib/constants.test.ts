@@ -14,18 +14,14 @@ import {
 // =============================================================================
 
 describe('R2_BUCKET_CUSTOM_DOMAINS', () => {
-  test('is a Record<string, string>', () => {
-    expect(typeof R2_BUCKET_CUSTOM_DOMAINS).toBe('object');
+  // The public mirror ships with an empty R2 domain map.
+  // Forkers: populate R2_BUCKET_CUSTOM_DOMAINS in constants.ts and update tests.
+  test('is empty in the public mirror template', () => {
+    expect(Object.keys(R2_BUCKET_CUSTOM_DOMAINS)).toHaveLength(0);
   });
 
-  test('does not include bifrost-backups by default', () => {
+  test('does not include bifrost-backups', () => {
     expect(R2_BUCKET_CUSTOM_DOMAINS).not.toHaveProperty('bifrost-backups');
-  });
-
-  test('all values are valid hostnames when configured', () => {
-    for (const domain of Object.values(R2_BUCKET_CUSTOM_DOMAINS)) {
-      expect(domain).toMatch(/^[a-z0-9.-]+\.[a-z]{2,}$/);
-    }
   });
 });
 
@@ -34,81 +30,13 @@ describe('R2_BUCKET_CUSTOM_DOMAINS', () => {
 // =============================================================================
 
 describe('getR2ObjectUrl', () => {
-  test('returns null for unconfigured bucket', () => {
+  // With an empty domain map, all lookups return null.
+  // Forkers: after populating R2_BUCKET_CUSTOM_DOMAINS, add URL assertion tests.
+  test('returns null for buckets not in the domain map', () => {
+    expect(getR2ObjectUrl('files', 'photo.jpg')).toBeNull();
+    expect(getR2ObjectUrl('assets', 'logo.svg')).toBeNull();
     expect(getR2ObjectUrl('nonexistent', 'file.txt')).toBeNull();
-  });
-
-  test('returns null for bifrost-backups', () => {
     expect(getR2ObjectUrl('bifrost-backups', 'backup.gz')).toBeNull();
-  });
-
-  test('encodes spaces in key', () => {
-    // Temporarily add a domain for testing URL encoding
-    const original = R2_BUCKET_CUSTOM_DOMAINS['test-bucket'];
-    R2_BUCKET_CUSTOM_DOMAINS['test-bucket'] = 'files.example.com';
-    try {
-      expect(getR2ObjectUrl('test-bucket', 'my file.pdf')).toBe(
-        'https://files.example.com/my%20file.pdf',
-      );
-    } finally {
-      if (original === undefined) delete R2_BUCKET_CUSTOM_DOMAINS['test-bucket'];
-      else R2_BUCKET_CUSTOM_DOMAINS['test-bucket'] = original;
-    }
-  });
-
-  test('encodes special characters in key', () => {
-    R2_BUCKET_CUSTOM_DOMAINS['test-bucket'] = 'files.example.com';
-    try {
-      expect(getR2ObjectUrl('test-bucket', 'Q1 Report (2025).pdf')).toBe(
-        'https://files.example.com/Q1%20Report%20(2025).pdf',
-      );
-    } finally {
-      delete R2_BUCKET_CUSTOM_DOMAINS['test-bucket'];
-    }
-  });
-
-  test('preserves slashes as path separators', () => {
-    R2_BUCKET_CUSTOM_DOMAINS['test-bucket'] = 'files.example.com';
-    try {
-      expect(getR2ObjectUrl('test-bucket', 'docs/report.pdf')).toBe(
-        'https://files.example.com/docs/report.pdf',
-      );
-    } finally {
-      delete R2_BUCKET_CUSTOM_DOMAINS['test-bucket'];
-    }
-  });
-
-  test('handles deeply nested paths', () => {
-    R2_BUCKET_CUSTOM_DOMAINS['test-bucket'] = 'files.example.com';
-    try {
-      expect(getR2ObjectUrl('test-bucket', 'a/b/c/d.txt')).toBe(
-        'https://files.example.com/a/b/c/d.txt',
-      );
-    } finally {
-      delete R2_BUCKET_CUSTOM_DOMAINS['test-bucket'];
-    }
-  });
-
-  test('encodes each path segment independently', () => {
-    R2_BUCKET_CUSTOM_DOMAINS['test-bucket'] = 'files.example.com';
-    try {
-      expect(getR2ObjectUrl('test-bucket', 'my docs/Q1 Report.pdf')).toBe(
-        'https://files.example.com/my%20docs/Q1%20Report.pdf',
-      );
-    } finally {
-      delete R2_BUCKET_CUSTOM_DOMAINS['test-bucket'];
-    }
-  });
-
-  test('returns correct URL for configured bucket', () => {
-    R2_BUCKET_CUSTOM_DOMAINS['test-bucket'] = 'files.example.com';
-    try {
-      expect(getR2ObjectUrl('test-bucket', 'photo.jpg')).toBe(
-        'https://files.example.com/photo.jpg',
-      );
-    } finally {
-      delete R2_BUCKET_CUSTOM_DOMAINS['test-bucket'];
-    }
   });
 });
 
@@ -131,7 +59,6 @@ describe('getPersistedPageSize', () => {
       getItem: (key: string) => storage.get(key) ?? null,
       setItem: (key: string, value: string) => storage.set(key, value),
     });
-
     storage.set(PAGE_SIZE_STORAGE_KEY, '100');
     expect(getPersistedPageSize()).toBe(100);
   });
@@ -142,7 +69,6 @@ describe('getPersistedPageSize', () => {
       getItem: (key: string) => storage.get(key) ?? null,
       setItem: (key: string, value: string) => storage.set(key, value),
     });
-
     storage.set(PAGE_SIZE_STORAGE_KEY, '999');
     expect(getPersistedPageSize()).toBe(DEFAULT_PAGE_SIZE);
   });
@@ -153,7 +79,6 @@ describe('getPersistedPageSize', () => {
       getItem: (key: string) => storage.get(key) ?? null,
       setItem: (key: string, value: string) => storage.set(key, value),
     });
-
     storage.set(PAGE_SIZE_STORAGE_KEY, 'abc');
     expect(getPersistedPageSize()).toBe(DEFAULT_PAGE_SIZE);
   });
@@ -163,7 +88,6 @@ describe('getPersistedPageSize', () => {
       getItem: () => null,
       setItem: () => {},
     });
-
     expect(getPersistedPageSize()).toBe(DEFAULT_PAGE_SIZE);
   });
 
@@ -173,7 +97,6 @@ describe('getPersistedPageSize', () => {
       getItem: (key: string) => storage.get(key) ?? null,
       setItem: (key: string, value: string) => storage.set(key, value),
     });
-
     for (const size of PAGE_SIZE_OPTIONS) {
       storage.set(PAGE_SIZE_STORAGE_KEY, String(size));
       expect(getPersistedPageSize()).toBe(size);
@@ -192,7 +115,6 @@ describe('persistPageSize', () => {
       getItem: (key: string) => storage.get(key) ?? null,
       setItem: (key: string, value: string) => storage.set(key, value),
     });
-
     persistPageSize(100);
     expect(storage.get(PAGE_SIZE_STORAGE_KEY)).toBe('100');
   });

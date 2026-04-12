@@ -145,12 +145,12 @@ async function seedTestData(db: D1Database) {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
 
-  // Domain A: link.example.com (5 clicks)
+  // Domain A: links.example.com (5 clicks)
   await clickStmt
     .bind(
-      'link.example.com',
+      'links.example.com',
       '/github',
-      'https://github.com/your-username',
+      'https://github.com/example-user',
       'https://google.com',
       'SG',
       'Singapore',
@@ -160,9 +160,9 @@ async function seedTestData(db: D1Database) {
     .run();
   await clickStmt
     .bind(
-      'link.example.com',
+      'links.example.com',
       '/github',
-      'https://github.com/your-username',
+      'https://github.com/example-user',
       'https://twitter.com',
       'SG',
       'Singapore',
@@ -172,7 +172,7 @@ async function seedTestData(db: D1Database) {
     .run();
   await clickStmt
     .bind(
-      'link.example.com',
+      'links.example.com',
       '/linkedin',
       'https://linkedin.com/in/example',
       null,
@@ -184,7 +184,7 @@ async function seedTestData(db: D1Database) {
     .run();
   await clickStmt
     .bind(
-      'link.example.com',
+      'links.example.com',
       '/docs',
       'https://docs.example.com',
       'https://google.com',
@@ -196,7 +196,7 @@ async function seedTestData(db: D1Database) {
     .run();
   await clickStmt
     .bind(
-      'link.example.com',
+      'links.example.com',
       '/old-link',
       'https://example.com/old',
       null,
@@ -207,12 +207,12 @@ async function seedTestData(db: D1Database) {
     )
     .run();
 
-  // Domain B: secondary.example.com (3 clicks)
+  // Domain B: user1.example.com (3 clicks)
   await clickStmt
     .bind(
-      'secondary.example.com',
+      'user1.example.com',
       '/about',
-      'https://secondary.example.com/about',
+      'https://user1.example.com/about',
       null,
       'SG',
       'Singapore',
@@ -222,9 +222,9 @@ async function seedTestData(db: D1Database) {
     .run();
   await clickStmt
     .bind(
-      'secondary.example.com',
+      'user1.example.com',
       '/careers',
-      'https://secondary.example.com/careers',
+      'https://user1.example.com/careers',
       'https://indeed.com',
       'MY',
       'Kuala Lumpur',
@@ -234,9 +234,9 @@ async function seedTestData(db: D1Database) {
     .run();
   await clickStmt
     .bind(
-      'secondary.example.com',
+      'user1.example.com',
       '/old',
-      'https://secondary.example.com/old',
+      'https://user1.example.com/old',
       null,
       'US',
       'San Francisco',
@@ -251,19 +251,19 @@ async function seedTestData(db: D1Database) {
      VALUES (?, ?, ?, ?, ?, ?)`,
   );
 
-  // Domain A: link.example.com (4 views)
-  await viewStmt.bind('link.example.com', '/', null, 'SG', 'Singapore', now).run();
+  // Domain A: links.example.com (4 views)
+  await viewStmt.bind('links.example.com', '/', null, 'SG', 'Singapore', now).run();
   await viewStmt
-    .bind('link.example.com', '/about', 'https://google.com', 'US', 'New York', oneHourAgo)
+    .bind('links.example.com', '/about', 'https://google.com', 'US', 'New York', oneHourAgo)
     .run();
-  await viewStmt.bind('link.example.com', '/contact', null, 'MY', 'Kuala Lumpur', tenDaysAgo).run();
-  await viewStmt.bind('link.example.com', '/old-page', null, 'JP', 'Tokyo', sixtyDaysAgo).run();
+  await viewStmt
+    .bind('links.example.com', '/contact', null, 'MY', 'Kuala Lumpur', tenDaysAgo)
+    .run();
+  await viewStmt.bind('links.example.com', '/old-page', null, 'JP', 'Tokyo', sixtyDaysAgo).run();
 
-  // Domain B: secondary.example.com (2 views)
-  await viewStmt.bind('secondary.example.com', '/home', null, 'SG', 'Singapore', now).run();
-  await viewStmt
-    .bind('secondary.example.com', '/old-home', null, 'US', 'New York', sixtyDaysAgo)
-    .run();
+  // Domain B: user1.example.com (2 views)
+  await viewStmt.bind('user1.example.com', '/home', null, 'SG', 'Singapore', now).run();
+  await viewStmt.bind('user1.example.com', '/old-home', null, 'US', 'New York', sixtyDaysAgo).run();
 
   // -- file_downloads --------------------------------------------------------
   const dlStmt = db.prepare(
@@ -274,7 +274,7 @@ async function seedTestData(db: D1Database) {
   // Domain A (3 downloads)
   await dlStmt
     .bind(
-      'link.example.com',
+      'links.example.com',
       '/files/report.pdf',
       'docs/report.pdf',
       'application/pdf',
@@ -287,7 +287,7 @@ async function seedTestData(db: D1Database) {
     .run();
   await dlStmt
     .bind(
-      'link.example.com',
+      'links.example.com',
       '/files/report.pdf',
       'docs/report.pdf',
       'application/pdf',
@@ -300,7 +300,7 @@ async function seedTestData(db: D1Database) {
     .run();
   await dlStmt
     .bind(
-      'link.example.com',
+      'links.example.com',
       '/files/old.zip',
       'docs/old.zip',
       'application/zip',
@@ -315,9 +315,9 @@ async function seedTestData(db: D1Database) {
   // Domain B (2 downloads)
   await dlStmt
     .bind(
-      'secondary.example.com',
+      'user1.example.com',
       '/files/deck.pdf',
-      'secondary/deck.pdf',
+      'user2/deck.pdf',
       'application/pdf',
       1024000,
       'MISS',
@@ -328,9 +328,9 @@ async function seedTestData(db: D1Database) {
     .run();
   await dlStmt
     .bind(
-      'secondary.example.com',
+      'user1.example.com',
       '/files/old.pdf',
-      'secondary/old.pdf',
+      'user2/old.pdf',
       'application/pdf',
       512000,
       'MISS',
@@ -349,7 +349,7 @@ async function seedTestData(db: D1Database) {
   // Domain A (3 requests)
   await proxyStmt
     .bind(
-      'link.example.com',
+      'links.example.com',
       '/api/v1',
       'https://api.example.com/api/v1',
       200,
@@ -362,7 +362,7 @@ async function seedTestData(db: D1Database) {
     .run();
   await proxyStmt
     .bind(
-      'link.example.com',
+      'links.example.com',
       '/api/v1',
       'https://api.example.com/api/v1',
       500,
@@ -375,7 +375,7 @@ async function seedTestData(db: D1Database) {
     .run();
   await proxyStmt
     .bind(
-      'link.example.com',
+      'links.example.com',
       '/api/old',
       'https://api.example.com/api/old',
       200,
@@ -390,9 +390,9 @@ async function seedTestData(db: D1Database) {
   // Domain B (2 requests)
   await proxyStmt
     .bind(
-      'secondary.example.com',
+      'user1.example.com',
       '/api/data',
-      'https://api.secondary.example.com/data',
+      'https://api.user1.example.com/data',
       200,
       'application/json',
       2048,
@@ -403,9 +403,9 @@ async function seedTestData(db: D1Database) {
     .run();
   await proxyStmt
     .bind(
-      'secondary.example.com',
+      'user1.example.com',
       '/api/old',
-      'https://api.secondary.example.com/old',
+      'https://api.user1.example.com/old',
       404,
       'text/html',
       128,
@@ -424,10 +424,10 @@ async function seedTestData(db: D1Database) {
   // Domain A (4 logs)
   await auditStmt
     .bind(
-      'link.example.com',
+      'links.example.com',
       'create',
-      'admin@example.com',
-      'Admin User',
+      'henry@example.com',
+      'Henry Chong',
       '/github',
       '{"target":"https://github.com"}',
       '10.0.0.1',
@@ -436,10 +436,10 @@ async function seedTestData(db: D1Database) {
     .run();
   await auditStmt
     .bind(
-      'link.example.com',
+      'links.example.com',
       'update',
-      'admin@example.com',
-      'Admin User',
+      'henry@example.com',
+      'Henry Chong',
       '/linkedin',
       '{"before":"old","after":"new"}',
       '10.0.0.1',
@@ -448,10 +448,10 @@ async function seedTestData(db: D1Database) {
     .run();
   await auditStmt
     .bind(
-      'link.example.com',
+      'links.example.com',
       'delete',
-      'ops@example.com',
-      'Ops User',
+      'admin@example.com',
+      'Admin',
       '/old',
       null,
       '10.0.0.2',
@@ -460,10 +460,10 @@ async function seedTestData(db: D1Database) {
     .run();
   await auditStmt
     .bind(
-      'link.example.com',
+      'links.example.com',
       'toggle',
-      'admin@example.com',
-      'Admin User',
+      'henry@example.com',
+      'Henry Chong',
       '/old-toggle',
       null,
       '10.0.0.1',
@@ -474,9 +474,9 @@ async function seedTestData(db: D1Database) {
   // Domain B (2 logs)
   await auditStmt
     .bind(
-      'secondary.example.com',
+      'user1.example.com',
       'create',
-      'ops@secondary.example.com',
+      'ops@user1.example.com',
       'Ops',
       '/about',
       null,
@@ -486,9 +486,9 @@ async function seedTestData(db: D1Database) {
     .run();
   await auditStmt
     .bind(
-      'secondary.example.com',
+      'user1.example.com',
       'seed',
-      'ops@secondary.example.com',
+      'ops@user1.example.com',
       'Ops',
       '/seed-data',
       null,
@@ -516,12 +516,12 @@ describe('query functions', () => {
       expect(result.period).toBe('30d');
       expect(result.domain).toBe('all');
 
-      // Within 30 days: 4 link.example.com clicks + 2 secondary.example.com clicks = 6
-      // (excludes 1 link.example.com + 1 secondary.example.com from 60 days ago)
+      // Within 30 days: 4 example.com clicks + 2 user1 clicks = 6
+      // (excludes 1 example.com + 1 user1 from 60 days ago)
       expect(result.clicks.total).toBe(6);
       expect(result.clicks.uniqueSlugs).toBeGreaterThanOrEqual(1);
 
-      // Within 30 days: 3 link.example.com views + 1 secondary.example.com view = 4
+      // Within 30 days: 3 example.com views + 1 user1 view = 4
       expect(result.views.total).toBe(4);
       expect(result.views.uniquePaths).toBeGreaterThanOrEqual(1);
 
@@ -536,22 +536,22 @@ describe('query functions', () => {
     });
 
     it('filters by single domain', async () => {
-      const result = await getAnalyticsSummary(db, { domain: 'link.example.com' });
+      const result = await getAnalyticsSummary(db, { domain: 'links.example.com' });
 
-      expect(result.domain).toBe('link.example.com');
-      // 4 link.example.com clicks within 30 days
+      expect(result.domain).toBe('links.example.com');
+      // 4 example.com clicks within 30 days
       expect(result.clicks.total).toBe(4);
-      // 3 link.example.com views within 30 days
+      // 3 example.com views within 30 days
       expect(result.views.total).toBe(3);
     });
 
     it('filters by second domain', async () => {
-      const result = await getAnalyticsSummary(db, { domain: 'secondary.example.com' });
+      const result = await getAnalyticsSummary(db, { domain: 'user1.example.com' });
 
-      expect(result.domain).toBe('secondary.example.com');
-      // 2 secondary.example.com clicks within 30 days
+      expect(result.domain).toBe('user1.example.com');
+      // 2 user1 clicks within 30 days
       expect(result.clicks.total).toBe(2);
-      // 1 secondary.example.com view within 30 days
+      // 1 user1 view within 30 days
       expect(result.views.total).toBe(1);
     });
 
@@ -565,7 +565,7 @@ describe('query functions', () => {
     });
 
     it('returns topClicks with name and count', async () => {
-      const result = await getAnalyticsSummary(db, { domain: 'link.example.com' });
+      const result = await getAnalyticsSummary(db, { domain: 'links.example.com' });
 
       expect(result.topClicks.length).toBeGreaterThanOrEqual(1);
       const top = result.topClicks[0];
@@ -591,21 +591,21 @@ describe('query functions', () => {
     });
 
     it('filters by single domain', async () => {
-      const result = await getClicks(db, { domain: 'link.example.com' });
+      const result = await getClicks(db, { domain: 'links.example.com' });
 
       expect(result.items.length).toBe(4);
       expect(result.meta.total).toBe(4);
       for (const item of result.items) {
-        expect(item.domain).toBe('link.example.com');
+        expect(item.domain).toBe('links.example.com');
       }
     });
 
     it('filters by second domain', async () => {
-      const result = await getClicks(db, { domain: 'secondary.example.com' });
+      const result = await getClicks(db, { domain: 'user1.example.com' });
 
       expect(result.items.length).toBe(2);
       for (const item of result.items) {
-        expect(item.domain).toBe('secondary.example.com');
+        expect(item.domain).toBe('user1.example.com');
       }
     });
 
@@ -670,19 +670,19 @@ describe('query functions', () => {
     });
 
     it('filters by single domain', async () => {
-      const result = await getViews(db, { domain: 'link.example.com' });
+      const result = await getViews(db, { domain: 'links.example.com' });
 
       expect(result.items.length).toBe(3);
       for (const item of result.items) {
-        expect(item.domain).toBe('link.example.com');
+        expect(item.domain).toBe('links.example.com');
       }
     });
 
     it('filters by second domain', async () => {
-      const result = await getViews(db, { domain: 'secondary.example.com' });
+      const result = await getViews(db, { domain: 'user1.example.com' });
 
       expect(result.items.length).toBe(1);
-      expect(result.items[0].domain).toBe('secondary.example.com');
+      expect(result.items[0].domain).toBe('user1.example.com');
     });
 
     it('respects pagination', async () => {
@@ -725,7 +725,7 @@ describe('query functions', () => {
 
       expect(result.slug).toBe('/github');
       expect(result.totalClicks).toBe(2);
-      expect(result.target).toBe('https://github.com/your-username');
+      expect(result.target).toBe('https://github.com/example-user');
       expect(Array.isArray(result.clicksByDay)).toBe(true);
       expect(Array.isArray(result.topCountries)).toBe(true);
       expect(Array.isArray(result.topReferrers)).toBe(true);
@@ -740,7 +740,7 @@ describe('query functions', () => {
     });
 
     it('filters by single domain', async () => {
-      const result = await getSlugStats(db, '/about', { domain: 'secondary.example.com' });
+      const result = await getSlugStats(db, '/about', { domain: 'user1.example.com' });
 
       expect(result.totalClicks).toBe(1);
     });
@@ -779,26 +779,26 @@ describe('query functions', () => {
     it('returns paginated download list with no filters', async () => {
       const result = await getDownloads(db);
 
-      // 3 downloads within 30 days (2 link.example.com + 1 secondary.example.com, excludes 2 old)
+      // 3 downloads within 30 days (2 example.com + 1 user1, excludes 2 old)
       expect(result.items.length).toBe(3);
       expect(result.meta.total).toBe(3);
       expect(result.meta.hasMore).toBe(false);
     });
 
     it('filters by single domain', async () => {
-      const result = await getDownloads(db, { domain: 'link.example.com' });
+      const result = await getDownloads(db, { domain: 'links.example.com' });
 
       expect(result.items.length).toBe(2);
       for (const item of result.items) {
-        expect(item.domain).toBe('link.example.com');
+        expect(item.domain).toBe('links.example.com');
       }
     });
 
     it('filters by second domain', async () => {
-      const result = await getDownloads(db, { domain: 'secondary.example.com' });
+      const result = await getDownloads(db, { domain: 'user1.example.com' });
 
       expect(result.items.length).toBe(1);
-      expect(result.items[0].domain).toBe('secondary.example.com');
+      expect(result.items[0].domain).toBe('user1.example.com');
     });
 
     it('respects pagination', async () => {
@@ -818,10 +818,10 @@ describe('query functions', () => {
     });
 
     it('filters by r2Key', async () => {
-      const result = await getDownloads(db, { r2Key: 'secondary/deck.pdf' });
+      const result = await getDownloads(db, { r2Key: 'user2/deck.pdf' });
 
       expect(result.items.length).toBe(1);
-      expect(result.items[0].r2Key).toBe('secondary/deck.pdf');
+      expect(result.items[0].r2Key).toBe('user2/deck.pdf');
     });
 
     it('filters by country', async () => {
@@ -866,7 +866,7 @@ describe('query functions', () => {
 
     it('filters by single domain', async () => {
       const result = await getDownloadStats(db, '/files/deck.pdf', {
-        domain: 'secondary.example.com',
+        domain: 'user1.example.com',
       });
 
       expect(result.totalDownloads).toBe(1);
@@ -888,26 +888,26 @@ describe('query functions', () => {
     it('returns paginated proxy request list with no filters', async () => {
       const result = await getProxyRequests(db);
 
-      // 3 within 30 days (2 link.example.com + 1 secondary.example.com, excludes 2 old)
+      // 3 within 30 days (2 example.com + 1 user1, excludes 2 old)
       expect(result.items.length).toBe(3);
       expect(result.meta.total).toBe(3);
       expect(result.meta.hasMore).toBe(false);
     });
 
     it('filters by single domain', async () => {
-      const result = await getProxyRequests(db, { domain: 'link.example.com' });
+      const result = await getProxyRequests(db, { domain: 'links.example.com' });
 
       expect(result.items.length).toBe(2);
       for (const item of result.items) {
-        expect(item.domain).toBe('link.example.com');
+        expect(item.domain).toBe('links.example.com');
       }
     });
 
     it('filters by second domain', async () => {
-      const result = await getProxyRequests(db, { domain: 'secondary.example.com' });
+      const result = await getProxyRequests(db, { domain: 'user1.example.com' });
 
       expect(result.items.length).toBe(1);
-      expect(result.items[0].domain).toBe('secondary.example.com');
+      expect(result.items[0].domain).toBe('user1.example.com');
     });
 
     it('respects pagination', async () => {
@@ -928,11 +928,11 @@ describe('query functions', () => {
 
     it('filters by targetUrl', async () => {
       const result = await getProxyRequests(db, {
-        targetUrl: 'https://api.secondary.example.com/data',
+        targetUrl: 'https://api.user1.example.com/data',
       });
 
       expect(result.items.length).toBe(1);
-      expect(result.items[0].targetUrl).toBe('https://api.secondary.example.com/data');
+      expect(result.items[0].targetUrl).toBe('https://api.user1.example.com/data');
     });
 
     it('filters by country', async () => {
@@ -976,7 +976,7 @@ describe('query functions', () => {
 
     it('filters by single domain', async () => {
       const result = await getProxyStats(db, '/api/data', {
-        domain: 'secondary.example.com',
+        domain: 'user1.example.com',
       });
 
       expect(result.totalRequests).toBe(1);
@@ -1007,26 +1007,26 @@ describe('query functions', () => {
     it('returns paginated audit log list with no filters', async () => {
       const result = await getAuditLogs(db);
 
-      // 4 logs within 30 days (3 link.example.com + 1 secondary.example.com, excludes 60-day-old entries)
+      // 4 logs within 30 days (3 example.com + 1 user1, excludes 60-day-old entries)
       expect(result.items.length).toBe(4);
       expect(result.meta.total).toBe(4);
       expect(result.meta.hasMore).toBe(false);
     });
 
     it('filters by single domain', async () => {
-      const result = await getAuditLogs(db, { domain: 'link.example.com' });
+      const result = await getAuditLogs(db, { domain: 'links.example.com' });
 
       expect(result.items.length).toBe(3);
       for (const item of result.items) {
-        expect(item.domain).toBe('link.example.com');
+        expect(item.domain).toBe('links.example.com');
       }
     });
 
     it('filters by second domain', async () => {
-      const result = await getAuditLogs(db, { domain: 'secondary.example.com' });
+      const result = await getAuditLogs(db, { domain: 'user1.example.com' });
 
       expect(result.items.length).toBe(1);
-      expect(result.items[0].domain).toBe('secondary.example.com');
+      expect(result.items[0].domain).toBe('user1.example.com');
     });
 
     it('respects pagination', async () => {
@@ -1042,14 +1042,14 @@ describe('query functions', () => {
       for (const item of result.items) {
         expect(item.action).toBe('create');
       }
-      expect(result.items.length).toBe(2); // 1 link.example.com + 1 secondary.example.com
+      expect(result.items.length).toBe(2); // 1 example.com + 1 user1
     });
 
     it('filters by actor', async () => {
-      const result = await getAuditLogs(db, { actor: 'admin@example.com' });
+      const result = await getAuditLogs(db, { actor: 'henry@example.com' });
 
       for (const item of result.items) {
-        expect(item.actorLogin).toBe('admin@example.com');
+        expect(item.actorLogin).toBe('henry@example.com');
       }
       expect(result.items.length).toBe(2); // create + update within 30 days
     });

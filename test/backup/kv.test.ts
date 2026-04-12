@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
 import { backupKV } from '../../src/backup/kv';
-import { SUPPORTED_DOMAINS } from '../../src/types';
 
 /**
  * Clear all objects from the BACKUP_BUCKET
@@ -28,28 +27,23 @@ async function clearKV(): Promise<void> {
 }
 
 describe('backupKV', () => {
-  // backupKV iterates SUPPORTED_DOMAINS, so KV keys must use actual domain values
-  const domain1 = SUPPORTED_DOMAINS[1];
-  const domain2 = SUPPORTED_DOMAINS[0];
-  const domain3 = SUPPORTED_DOMAINS[3];
-
   beforeEach(async () => {
     await clearKV();
     await clearBackupBucket();
   });
 
   it('backs up KV routes to R2 as a compressed file', async () => {
-    // Seed KV with routes using a SUPPORTED_DOMAIN
+    // Seed KV with routes
     const route1 = { path: '/github', type: 'redirect', target: 'https://github.com' };
     const route2 = { path: '/docs', type: 'redirect', target: 'https://docs.example.com' };
-    await env.ROUTES.put(`${domain1}:/github`, JSON.stringify(route1));
-    await env.ROUTES.put(`${domain1}:/docs`, JSON.stringify(route2));
+    await env.ROUTES.put('links.example.com:/github', JSON.stringify(route1));
+    await env.ROUTES.put('links.example.com:/docs', JSON.stringify(route2));
 
     const result = await backupKV(env.ROUTES, env.BACKUP_BUCKET, '20260219');
 
     // Verify result metadata
     expect(result.totalRoutes).toBe(2);
-    expect(result.domains).toContain(domain1);
+    expect(result.domains).toContain('links.example.com');
     expect(result.file).toBe('daily/20260219/kv-routes.ndjson.gz');
 
     // Verify R2 object was written
@@ -60,25 +54,24 @@ describe('backupKV', () => {
 
   it('captures routes across multiple domains', async () => {
     await env.ROUTES.put(
-      `${domain1}:/github`,
+      'links.example.com:/github',
       JSON.stringify({ path: '/github', type: 'redirect', target: 'https://github.com' }),
     );
     await env.ROUTES.put(
-      `${domain2}:/about`,
+      'example.com:/about',
       JSON.stringify({ path: '/about', type: 'redirect', target: 'https://example.com/about' }),
     );
     await env.ROUTES.put(
-      `${domain3}:/home`,
-      JSON.stringify({ path: '/home', type: 'redirect', target: 'https://example.net' }),
+      'secondary.example.net:/home',
+      JSON.stringify({ path: '/home', type: 'redirect', target: 'https://secondary.example.net' }),
     );
 
     const result = await backupKV(env.ROUTES, env.BACKUP_BUCKET, '20260219');
 
     expect(result.totalRoutes).toBe(3);
-    // backupKV returns all SUPPORTED_DOMAINS in the domains array
-    expect(result.domains).toContain(domain1);
-    expect(result.domains).toContain(domain2);
-    expect(result.domains).toContain(domain3);
+    expect(result.domains).toContain('links.example.com');
+    expect(result.domains).toContain('example.com');
+    expect(result.domains).toContain('secondary.example.net');
   });
 
   it('handles empty KV namespace (no routes)', async () => {
@@ -94,7 +87,7 @@ describe('backupKV', () => {
 
   it('writes R2 object with correct key path format', async () => {
     await env.ROUTES.put(
-      `${domain1}:/test`,
+      'links.example.com:/test',
       JSON.stringify({ path: '/test', type: 'redirect', target: 'https://example.com' }),
     );
 
@@ -107,7 +100,7 @@ describe('backupKV', () => {
 
   it('stores custom metadata on the R2 object', async () => {
     await env.ROUTES.put(
-      `${domain1}:/test`,
+      'links.example.com:/test',
       JSON.stringify({ path: '/test', type: 'redirect', target: 'https://example.com' }),
     );
 

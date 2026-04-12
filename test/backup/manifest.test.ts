@@ -15,7 +15,7 @@ async function clearBackupBucket(): Promise<void> {
 
 describe('writeManifest', () => {
   const kvResult: KVBackupResult = {
-    domains: ['link.example.com', 'example.com'],
+    domains: ['links.example.com', 'example.com'],
     totalRoutes: 150,
     file: 'daily/20260219/kv-routes.ndjson.gz',
   };
@@ -47,7 +47,7 @@ describe('writeManifest', () => {
     expect(manifest.date).toBe('20260219');
 
     // KV section
-    expect(manifest.kv.domains).toEqual(['link.example.com', 'example.com']);
+    expect(manifest.kv.domains).toEqual(['links.example.com', 'example.com']);
     expect(manifest.kv.totalRoutes).toBe(150);
     expect(manifest.kv.file).toBe('daily/20260219/kv-routes.ndjson.gz');
   });

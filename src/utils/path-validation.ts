@@ -1,8 +1,7 @@
 /**
  * Path validation utilities for R2 security
  *
- * Prevents path traversal attacks by rejecting R2 object keys with dangerous patterns.
- * Uses strict reject approach — never silently sanitizes, always rejects invalid keys.
+ * Prevents path traversal attacks by rejecting R2 object keys with dangerous patterns
  */
 
 /* eslint-disable no-control-regex */
@@ -47,10 +46,6 @@ export interface R2KeyValidationResult {
   error?: string;
 }
 
-/**
- * Validate an R2 object key using strict reject approach.
- * If the key would need sanitization, it is rejected outright.
- */
 export function validateR2Key(key: string): R2KeyValidationResult {
   if (!key || key.trim() === '') {
     return { valid: false, sanitizedKey: '', error: 'R2 key cannot be empty' };

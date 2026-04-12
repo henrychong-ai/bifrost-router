@@ -78,7 +78,7 @@ Every tool accepts an optional `domain` parameter:
   name: "list_routes",
   inputSchema: {
     domain: z.string().optional().describe(
-      "Target domain (e.g., 'link.henrychong.com', 'henrychong.com'). " +
+      "Target domain (e.g., 'links.example.com', 'example.com'). " +
       "Defaults to EDGE_ROUTER_DOMAIN env var if set."
     ),
     // ... other params
@@ -90,14 +90,14 @@ Every tool accepts an optional `domain` parameter:
 
 | Domain | Description |
 |--------|-------------|
-| `link.henrychong.com` | Short link service |
-| `henrychong.com` | Main domain (151 routes) |
-| `vanessahung.net` | Personal domain (4 routes) |
-| `davidchong.co` | David Chong domain |
-| `sonjachong.com` | Sonja Chong domain |
-| `anjachong.com` | Anja Chong domain |
-| `kitkatcouple.com` | Kit Kat Couple domain |
-| `valeriehung.com` | Valerie Hung domain |
+| `links.example.com` | Short link service |
+| `example.com` | Main domain (151 routes) |
+| `secondary.example.net` | Personal domain (4 routes) |
+| `user1.example.com` | David Chong domain |
+| `user2.example.com` | Sonja Chong domain |
+| `user3.example.com` | Anja Chong domain |
+| `couple.example.com` | Kit Kat Couple domain |
+| `user5.example.com` | Valerie Hung domain |
 
 ### Response Domain Labeling
 
@@ -107,7 +107,7 @@ All tool responses clearly indicate the target domain:
 {
   "content": [{
     "type": "text",
-    "text": "Routes for link.henrychong.com:\n\n1. /linkedin → redirect → https://linkedin.com/in/..."
+    "text": "Routes for links.example.com:\n\n1. /linkedin → redirect → https://linkedin.com/in/..."
   }]
 }
 ```
@@ -219,7 +219,7 @@ mcp/
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `EDGE_ROUTER_API_KEY` | Yes | - | Admin API key |
-| `EDGE_ROUTER_URL` | No | `https://henrychong.com` | Base URL |
+| `EDGE_ROUTER_URL` | No | `https://example.com` | Base URL |
 | `EDGE_ROUTER_DOMAIN` | No | - | Default domain |
 
 ### Installation
@@ -235,9 +235,9 @@ claude mcp add --scope user edge-router -- \
 claude mcp add-json --scope user edge-router '{
   "type": "stdio",
   "command": "op",
-  "args": ["run", "--account", "my.1password.com", "--", "node", "/Users/henrychong/repos/cloudflare-edge-router/mcp/dist/index.js"],
+  "args": ["run", "--account", "your-1password-account", "--", "node", "/Users/henrychong/repos/cloudflare-edge-router/mcp/dist/index.js"],
   "env": {
-    "EDGE_ROUTER_API_KEY": "op://Technology/Cloudflare - HC/API Tokens/ADMIN_API_KEY"
+    "EDGE_ROUTER_API_KEY": "op://Your-Vault/Cloudflare/ADMIN_API_KEY"
   }
 }'
 ```
@@ -373,10 +373,10 @@ An `admin` user automatically has `edit` and `read` permissions.
   "user_id": "U1234567890",
   "user_name": "Henry Chong",
   "permissions": {
-    "link.henrychong.com": "admin",
-    "henrychong.com": "admin",
-    "vanessahung.net": "edit",
-    "davidchong.co": "read"
+    "links.example.com": "admin",
+    "example.com": "admin",
+    "secondary.example.net": "edit",
+    "user1.example.com": "read"
   },
   "created_at": 1736784000,
   "updated_at": 1736784000
@@ -445,7 +445,7 @@ database_name = "cloudflare-edge-router-analytics"
 database_id = "5d3b1430-3405-451a-a165-f497e178a838"
 
 [vars]
-EDGE_ROUTER_URL = "https://henrychong.com"
+EDGE_ROUTER_URL = "https://example.com"
 ```
 
 ### Required Secrets
@@ -689,16 +689,16 @@ CREATE INDEX idx_conversations_updated ON slack_conversations(updated_at);
 │                     │                                               │
 │                     ▼                                               │
 │  Bot: "You got 23 clicks today across all domains:                 │
-│        • link.henrychong.com: 18 clicks                            │
-│        • henrychong.com: 5 clicks"                                 │
+│        • links.example.com: 18 clicks                            │
+│        • example.com: 5 clicks"                                 │
 │                     │                                               │
 │                     ▼ (thread created, state saved)                 │
 │                                                                     │
-│  User (in thread): "What about just link.henrychong.com?"          │
+│  User (in thread): "What about just links.example.com?"          │
 │                     │                                               │
 │                     ▼ (context loaded from D1)                      │
 │                                                                     │
-│  Bot: "For link.henrychong.com specifically:                       │
+│  Bot: "For links.example.com specifically:                       │
 │        • 18 clicks today                                           │
 │        • Top link: /linkedin (7 clicks)                            │
 │        • Top country: US (10 clicks)"                              │
@@ -869,7 +869,7 @@ export const toolDefinitions = [
       properties: {
         domain: {
           type: "string",
-          description: "Target domain (e.g., 'link.henrychong.com')"
+          description: "Target domain (e.g., 'links.example.com')"
         }
       }
     }
@@ -975,9 +975,9 @@ wrangler kv key put --binding SLACK_PERMISSIONS "U1234567890" '{
   "user_id": "U1234567890",
   "user_name": "Henry Chong",
   "permissions": {
-    "link.henrychong.com": "admin",
-    "henrychong.com": "admin",
-    "vanessahung.net": "admin"
+    "links.example.com": "admin",
+    "example.com": "admin",
+    "secondary.example.net": "admin"
   },
   "created_at": 1736784000,
   "updated_at": 1736784000
@@ -1059,7 +1059,7 @@ wrangler kv key put --binding SLACK_PERMISSIONS "U1234567890" '{
 | "Show me /linkedin stats" | get_slug_stats | Detailed stats for that slug |
 | "Add a redirect from /zoom to my Zoom link" | create_route | Confirmation of created route |
 | "Disable /old-blog" | toggle_route | Confirmation route is disabled |
-| "List all routes for vanessahung.net" | list_routes | List of routes for that domain |
+| "List all routes for secondary.example.net" | list_routes | List of routes for that domain |
 | "Delete /test" | delete_route | Confirmation (or permission denied) |
 | "What countries are visitors from?" | get_analytics_summary | Top countries breakdown |
 

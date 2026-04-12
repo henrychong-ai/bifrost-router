@@ -1,3 +1,5 @@
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -6,8 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { PAGE_SIZE_OPTIONS, persistPageSize } from '@/lib/constants';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { PAGE_SIZE_OPTIONS } from '@/lib/constants';
 
 interface PaginationControlsProps {
   offset: number;
@@ -26,58 +27,57 @@ export function PaginationControls({
   onOffsetChange,
   onLimitChange,
 }: PaginationControlsProps) {
-  const start = total === 0 ? 0 : offset + 1;
-  const end = Math.min(offset + limit, total);
+  if (total === 0) return null;
 
-  const handleLimitChange = (value: string) => {
-    const newLimit = Number(value);
-    persistPageSize(newLimit);
-    onLimitChange(newLimit);
-  };
+  const currentPage = Math.floor(offset / limit) + 1;
+  const totalPages = Math.ceil(total / limit);
+
+  if (offset >= total && total > 0) {
+    const lastValidPage = Math.max(0, totalPages - 1);
+    onOffsetChange(lastValidPage * limit);
+  }
 
   return (
-    <div className="flex items-center justify-between pt-4">
-      <div className="text-sm text-muted-foreground font-gilroy">
-        Showing {start}-{end} of {total}
-      </div>
-
+    <div className="mt-4 flex items-center justify-between border-t border-border/30 pt-4">
       <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground font-gilroy">Per page</span>
-          <Select value={String(limit)} onValueChange={handleLimitChange}>
-            <SelectTrigger className="w-20 h-8 font-gilroy">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {PAGE_SIZE_OPTIONS.map(size => (
-                <SelectItem key={size} value={String(size)} className="font-gilroy">
-                  {size}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-8 w-8"
-            disabled={offset === 0}
-            onClick={() => onOffsetChange(Math.max(0, offset - limit))}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-8 w-8"
-            disabled={!hasMore}
-            onClick={() => onOffsetChange(offset + limit)}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
+        <span className="text-sm text-muted-foreground">
+          Showing {offset + 1} - {Math.min(offset + limit, total)} of {total}
+        </span>
+        <span className="text-sm text-muted-foreground">
+          Page {currentPage} of {totalPages}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <Select value={String(limit)} onValueChange={value => onLimitChange(Number(value))}>
+          <SelectTrigger className="w-[70px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PAGE_SIZE_OPTIONS.map(size => (
+              <SelectItem key={size} value={String(size)}>
+                {size}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onOffsetChange(Math.max(0, offset - limit))}
+          disabled={offset === 0}
+        >
+          <ChevronLeft className="h-4 w-4" />
+          Previous
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onOffsetChange(offset + limit)}
+          disabled={!hasMore}
+        >
+          Next
+          <ChevronRight className="h-4 w-4" />
+        </Button>
       </div>
     </div>
   );

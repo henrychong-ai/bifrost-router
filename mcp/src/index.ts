@@ -59,7 +59,7 @@ async function main(): Promise<void> {
     console.error('  EDGE_ROUTER_API_KEY - Admin API key for authentication');
     console.error('');
     console.error('Optional environment variables:');
-    console.error('  EDGE_ROUTER_URL     - Base URL (default: https://henrychong.com)');
+    console.error('  EDGE_ROUTER_URL     - Base URL (default: https://example.com)');
     console.error('  EDGE_ROUTER_DOMAIN  - Default domain for operations');
     process.exit(1);
   }
@@ -98,11 +98,7 @@ async function main(): Promise<void> {
       switch (name) {
         // Route management tools
         case 'list_routes':
-          result = await listRoutes(
-            client,
-            args as { domain?: string; search?: string; limit?: number; offset?: number },
-            defaultDomain,
-          );
+          result = await listRoutes(client, args as { domain?: string }, defaultDomain);
           break;
 
         case 'get_route':
@@ -252,7 +248,11 @@ async function main(): Promise<void> {
         case 'get_object':
           result = await getObject(
             client,
-            args as { bucket: string; key: string; metadata_only?: boolean },
+            args as {
+              bucket: string;
+              key: string;
+              metadata_only?: boolean;
+            },
           );
           break;
 
@@ -277,7 +277,11 @@ async function main(): Promise<void> {
         case 'rename_object':
           result = await renameObject(
             client,
-            args as { bucket: string; old_key: string; new_key: string },
+            args as {
+              bucket: string;
+              old_key: string;
+              new_key: string;
+            },
           );
           break;
 

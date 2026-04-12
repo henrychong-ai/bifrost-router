@@ -6,8 +6,8 @@ WORKDIR /app
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@10.28.2 --activate
 
-# Copy workspace root files needed for pnpm install and version
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+# Copy workspace root files needed for pnpm install, version, and changelog
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json CHANGELOG.md ./
 
 # Copy package.json files for both shared and admin packages
 COPY shared/package.json ./shared/
@@ -27,11 +27,12 @@ RUN pnpm run build
 WORKDIR /app/admin
 
 # Build args for environment variables
+# Note: ADMIN_API_KEY is NOT a build arg — it is injected at runtime by start-with-tailscale.sh
+# via env-config.js, keeping it out of the image layers and build cache entirely.
 ARG VITE_API_URL=https://henrychong.com
-ARG VITE_ADMIN_API_KEY
 
 # Build the application
-RUN VITE_API_URL=$VITE_API_URL VITE_ADMIN_API_KEY=$VITE_ADMIN_API_KEY pnpm run build
+RUN VITE_API_URL=$VITE_API_URL pnpm run build
 
 # Production stage with Tailscale
 FROM nginx:alpine

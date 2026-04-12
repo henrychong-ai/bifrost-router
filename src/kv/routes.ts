@@ -289,7 +289,7 @@ export async function migrateRoute(
     throw new Error(`Route already exists at path: ${normalizedNewPath}`);
   }
 
-  // Case-insensitive path conflict check
+  // Check for case-insensitive path conflict at newPath
   const allRoutes = await getAllRoutes(kv, domain);
   const newPathLower = normalizedNewPath.toLowerCase();
   const caseConflict = allRoutes.find(
@@ -363,7 +363,7 @@ export async function transferRoute(
     throw new Error(`Route already exists at ${toDomain}:${normalizedPath}`);
   }
 
-  // Case-insensitive path conflict check
+  // Check for case-insensitive path conflict at toDomain
   const targetRoutes = await getAllRoutes(kv, toDomain);
   const pathLower = normalizedPath.toLowerCase();
   const caseConflict = targetRoutes.find(

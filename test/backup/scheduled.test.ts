@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
 import { handleScheduled } from '../../src/backup/scheduled';
-import { SUPPORTED_DOMAINS, type Bindings } from '../../src/types';
+import type { Bindings } from '../../src/types';
 import type { BackupManifest } from '../../src/backup/types';
 
 /**
@@ -30,18 +30,14 @@ async function clearKV(): Promise<void> {
 
 describe('handleScheduled', () => {
   beforeEach(async () => {
-    vi.useRealTimers();
     await clearKV();
     await clearBackupBucket();
   });
 
-  // backupKV iterates SUPPORTED_DOMAINS, so KV keys must use actual domain values
-  const testDomain = SUPPORTED_DOMAINS[1];
-
   it('completes a full backup cycle successfully', async () => {
-    // Seed KV routes (must use a SUPPORTED_DOMAIN for backupKV to find it)
+    // Seed KV routes
     await env.ROUTES.put(
-      `${testDomain}:/github`,
+      'links.example.com:/github',
       JSON.stringify({ path: '/github', type: 'redirect', target: 'https://github.com' }),
     );
 
@@ -54,7 +50,7 @@ describe('handleScheduled', () => {
     // Verify manifest content
     const manifest = result.manifest!;
     expect(manifest.kv.totalRoutes).toBe(1);
-    expect(manifest.kv.domains).toContain(testDomain);
+    expect(manifest.kv.domains).toContain('links.example.com');
   });
 
   it('writes a manifest file to R2 after backup', async () => {
@@ -78,7 +74,7 @@ describe('handleScheduled', () => {
 
   it('writes KV backup file to R2', async () => {
     await env.ROUTES.put(
-      `${testDomain}:/test`,
+      'links.example.com:/test',
       JSON.stringify({ path: '/test', type: 'redirect', target: 'https://example.com' }),
     );
 

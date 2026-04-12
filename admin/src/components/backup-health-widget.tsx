@@ -72,7 +72,6 @@ function BackupHealthError({
  * - Overall status (healthy/warning/critical)
  * - Last backup age
  * - Route count
- * - File completeness
  * - Any issues detected
  */
 export function BackupHealthWidget() {

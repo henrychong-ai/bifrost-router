@@ -1,7 +1,7 @@
 # Bifrost — Self-Hosted URL Shortener & Edge Router for Cloudflare Workers
 
 <p align="center">
-  <img src="https://assets.henrychong.com/bifrost/bifrost-logo-readme.png" alt="Bifrost Logo" width="600" />
+  <img src="https://assets.example.com/bifrost/bifrost-logo-readme.png" alt="Bifrost Logo" width="600" />
 </p>
 
 > A free, self-hosted alternative to bit.ly and Rebrandly — built on Cloudflare Workers with zero server costs

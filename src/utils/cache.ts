@@ -21,7 +21,7 @@ export interface PurgeCacheResult {
  * purges the single PoP where the Worker runs.
  *
  * Collects URLs from two sources:
- * 1. Bifrost KV routes pointing to this R2 object (e.g., https://example.com/report)
+ * 1. Bifrost KV routes pointing to this R2 object (e.g., https://links.example.com/report)
  * 2. R2 custom domain URLs for the bucket (e.g., https://files.example.com/report.pdf)
  *
  * Groups URLs by zone ID and batches in groups of 30 (CF API limit).

@@ -5,7 +5,7 @@ import { R2_BUCKETS } from '../types';
  * KV key format for unified namespace
  *
  * Key format: {domain}:{path}
- * Example: henrychong.com:/linkedin
+ * Example: example.com:/linkedin
  *
  * Colon separator chosen because:
  * - Colon is not valid in domain names (reserved for port)
@@ -15,7 +15,7 @@ import { R2_BUCKETS } from '../types';
 
 /**
  * Build a KV key for a route
- * @param domain - The domain (e.g., "henrychong.com")
+ * @param domain - The domain (e.g., "example.com")
  * @param path - The route path (e.g., "/linkedin")
  */
 export function routeKey(domain: string, path: string): string {
@@ -24,7 +24,7 @@ export function routeKey(domain: string, path: string): string {
 
 /**
  * Parse a KV key into domain and path
- * @param key - The KV key (e.g., "henrychong.com:/linkedin")
+ * @param key - The KV key (e.g., "example.com:/linkedin")
  * @returns [domain, path] tuple
  */
 export function parseRouteKey(key: string): [string, string] {

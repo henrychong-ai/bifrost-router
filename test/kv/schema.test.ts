@@ -8,11 +8,10 @@ import {
   UpdateRouteSchema,
   SCHEMA_VERSION,
 } from '../../src/kv/schema';
-import { R2_BUCKETS } from '../../src/types';
 
 describe('routeKey', () => {
   it('constructs a key from domain and path', () => {
-    expect(routeKey('link.example.com', '/github')).toBe('link.example.com:/github');
+    expect(routeKey('links.example.com', '/github')).toBe('links.example.com:/github');
   });
 
   it('handles root path', () => {
@@ -20,16 +19,16 @@ describe('routeKey', () => {
   });
 
   it('handles wildcard paths', () => {
-    expect(routeKey('link.example.com', '/blog/*')).toBe('link.example.com:/blog/*');
+    expect(routeKey('links.example.com', '/blog/*')).toBe('links.example.com:/blog/*');
   });
 
   it('handles paths with special characters', () => {
-    expect(routeKey('link.example.com', '/hello world')).toBe('link.example.com:/hello world');
-    expect(routeKey('link.example.com', '/path/with-dashes')).toBe(
-      'link.example.com:/path/with-dashes',
+    expect(routeKey('links.example.com', '/hello world')).toBe('links.example.com:/hello world');
+    expect(routeKey('links.example.com', '/path/with-dashes')).toBe(
+      'links.example.com:/path/with-dashes',
     );
-    expect(routeKey('link.example.com', '/path/with_underscores')).toBe(
-      'link.example.com:/path/with_underscores',
+    expect(routeKey('links.example.com', '/path/with_underscores')).toBe(
+      'links.example.com:/path/with_underscores',
     );
   });
 
@@ -40,8 +39,8 @@ describe('routeKey', () => {
 
 describe('parseRouteKey', () => {
   it('parses a valid key into domain and path', () => {
-    const [domain, path] = parseRouteKey('link.example.com:/github');
-    expect(domain).toBe('link.example.com');
+    const [domain, path] = parseRouteKey('links.example.com:/github');
+    expect(domain).toBe('links.example.com');
     expect(path).toBe('/github');
   });
 
@@ -52,14 +51,14 @@ describe('parseRouteKey', () => {
   });
 
   it('parses wildcard path key', () => {
-    const [domain, path] = parseRouteKey('link.example.com:/blog/*');
-    expect(domain).toBe('link.example.com');
+    const [domain, path] = parseRouteKey('links.example.com:/blog/*');
+    expect(domain).toBe('links.example.com');
     expect(path).toBe('/blog/*');
   });
 
   it('handles paths with special characters', () => {
-    const [domain, path] = parseRouteKey('link.example.com:/hello world');
-    expect(domain).toBe('link.example.com');
+    const [domain, path] = parseRouteKey('links.example.com:/hello world');
+    expect(domain).toBe('links.example.com');
     expect(path).toBe('/hello world');
   });
 
@@ -68,21 +67,21 @@ describe('parseRouteKey', () => {
   });
 
   it('handles key with multiple colons (only splits on first)', () => {
-    const [domain, path] = parseRouteKey('link.example.com:/path:with:colons');
-    expect(domain).toBe('link.example.com');
+    const [domain, path] = parseRouteKey('links.example.com:/path:with:colons');
+    expect(domain).toBe('links.example.com');
     expect(path).toBe('/path:with:colons');
   });
 });
 
 describe('domainPrefix', () => {
   it('creates a prefix for domain listing', () => {
-    expect(domainPrefix('link.example.com')).toBe('link.example.com:');
+    expect(domainPrefix('links.example.com')).toBe('links.example.com:');
   });
 
   it('creates prefix for various domains', () => {
     expect(domainPrefix('example.com')).toBe('example.com:');
-    expect(domainPrefix('secondary.example.com')).toBe('secondary.example.com:');
-    expect(domainPrefix('user.example.net')).toBe('user.example.net:');
+    expect(domainPrefix('user1.example.com')).toBe('user1.example.com:');
+    expect(domainPrefix('user3.example.com')).toBe('user3.example.com:');
   });
 });
 
@@ -92,13 +91,13 @@ describe('RouteConfigSchema', () => {
       const result = RouteConfigSchema.safeParse({
         path: '/github',
         type: 'redirect',
-        target: 'https://github.com/your-username',
+        target: 'https://github.com/example-user',
       });
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.path).toBe('/github');
         expect(result.data.type).toBe('redirect');
-        expect(result.data.target).toBe('https://github.com/your-username');
+        expect(result.data.target).toBe('https://github.com/example-user');
         // Check defaults
         expect(result.data.preserveQuery).toBe(true);
         expect(result.data.enabled).toBe(true);
@@ -174,7 +173,17 @@ describe('RouteConfigSchema', () => {
     });
 
     it('accepts all valid R2 buckets', () => {
-      for (const bucket of R2_BUCKETS) {
+      const buckets = [
+        'files',
+        'assets',
+        'files-user1',
+        'files-user2',
+        'files-user3',
+        'files-user4',
+        'files-user5',
+        'files-user6',
+      ];
+      for (const bucket of buckets) {
         const result = RouteConfigSchema.safeParse({
           path: '/test',
           type: 'r2',

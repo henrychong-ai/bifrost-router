@@ -27,11 +27,11 @@ RUN pnpm run build
 WORKDIR /app/admin
 
 # Build args for environment variables
+# Note: ADMIN_API_KEY is NOT a build arg — pass it as a runtime env var to the container.
 ARG VITE_API_URL=https://henrychong.com
-ARG VITE_ADMIN_API_KEY
 
 # Build the application
-RUN VITE_API_URL=$VITE_API_URL VITE_ADMIN_API_KEY=$VITE_ADMIN_API_KEY pnpm run build
+RUN VITE_API_URL=$VITE_API_URL pnpm run build
 
 # Production stage
 FROM nginx:alpine
@@ -42,8 +42,12 @@ COPY --from=builder /app/admin/dist /usr/share/nginx/html
 # Copy nginx configuration
 COPY admin/nginx.conf /etc/nginx/conf.d/default.conf
 
+# Copy startup script (generates env-config.js at container start)
+COPY admin/scripts/start.sh /start.sh
+RUN chmod +x /start.sh
+
 # Expose port
 EXPOSE 3001
 
-# Start nginx
-CMD ["nginx", "-g", "daemon off;"]
+# Start via script so env-config.js is written before nginx serves requests
+CMD ["/start.sh"]

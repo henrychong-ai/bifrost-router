@@ -120,7 +120,7 @@ async function processSlackEvent(payload: SlackEventPayload, env: SlackbotBindin
 
   // Create EdgeRouterClient
   const client = new EdgeRouterClient({
-    baseUrl: env.EDGE_ROUTER_URL || 'https://henrychong.com',
+    baseUrl: env.EDGE_ROUTER_URL || 'https://example.com',
     apiKey: env.ADMIN_API_KEY,
   });
 

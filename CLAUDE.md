@@ -2,150 +2,290 @@
 
 Guidance for Claude Code when working with this repository.
 
-**Version:** 1.20.1 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
-
-> **Setup & deployment:** See [README.md](README.md) for the Fork & Deploy guide, API reference, and tech stack.
+**Version:** 1.21.1 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Project Overview
 
-**Bifrost** is an edge router built on Cloudflare Workers with the Hono framework. It provides dynamic routing via Cloudflare KV, supporting redirects, reverse proxying, and R2 bucket serving.
+**Bifrost** is an edge router built on Cloudflare Workers with the Hono framework. Dynamic routing via KV, supporting redirects, reverse proxying, and R2 bucket serving.
 
-**Monorepo packages:**
+> **Setup & deployment:** See [README.md](README.md) for the Fork & Deploy guide.
 
-| Package | Path | Description |
-|---------|------|-------------|
-| Root Worker | `src/`, `test/` | Main edge router (Hono + Cloudflare Workers) |
-| `@bifrost/shared` | `shared/` | Types, Zod schemas, EdgeRouterClient HTTP client |
-| `@bifrost/mcp` | `mcp/` | MCP server for AI-powered route and storage management (22 tools: 8 route + 4 analytics + 10 storage) |
-| Admin Dashboard | `admin/` | React 19 SPA (Vite, Tailwind CSS, shadcn/ui, TanStack Query) |
-| `@bifrost/slackbot` | `slackbot/` | Slack bot Worker for route management |
+## Monorepo Structure
 
-## Development Commands
+| Package | Purpose |
+|---------|---------|
+| **Root** | Main edge router Worker (`src/`, `test/`) |
+| **shared/** | Types, schemas, HTTP client (`@bifrost/shared`) |
+| **mcp/** | MCP server for AI route management |
+| **admin/** | React SPA dashboard (Vite + shadcn/ui) |
+| **slackbot/** | Slack bot Worker for route management |
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| Runtime | Cloudflare Workers, TypeScript 5.9.3, Hono 4.12.0 |
+| Storage | KV (routes), D1 (analytics), R2 (files) |
+| Testing | Vitest 3.2.4 + @cloudflare/vitest-pool-workers 0.12.21 (1040 tests) |
+| Dashboard | React 19 + Vite 7 + Tailwind 4 + TanStack Query |
+| Linting | Oxlint 1.48.0 (primary) + Biome 2.4.2 (formatter) + residual ESLint 10 (admin only) |
+
+## Commands
 
 ```bash
-pnpm run dev           # Local dev server (localhost:8787)
-pnpm run test          # Run all tests (~1055 across root, shared, mcp, slackbot, admin)
-pnpm run typecheck     # TypeScript check
-pnpm run lint          # Lint (oxlint)
-pnpm run lint:fix      # Auto-fix lint issues
-pnpm run format        # Format (biome)
-pnpm run format:check  # Format check (CI)
-pnpm run check         # All checks (lint + format + typecheck)
-pnpm run deploy        # Deploy to production
-pnpm run deploy:dev    # Deploy to dev environment
-pnpm run tail          # View production logs
+pnpm run dev          # Local dev (localhost:8787)
+pnpm run deploy       # Deploy to production
+pnpm run deploy:dev   # Deploy to dev environment
+pnpm run test         # Run tests
+pnpm run lint         # Lint (oxlint)
+pnpm run format       # Format (biome)
+pnpm run format:check # Format check (CI)
+pnpm run typecheck    # TypeScript check
+pnpm run check        # All checks (lint + format + typecheck + test)
 ```
 
-**Build shared packages** (required after changing shared/ or mcp/):
+### Local Development
+
 ```bash
-pnpm -C shared build   # Must build BEFORE mcp
-pnpm -C mcp build
+# Terminal 1: Worker
+pnpm run dev
+
+# Terminal 2: Dashboard
+pnpm --filter admin dev  # Port 3001
 ```
 
-**Admin dashboard:**
+**Config files:**
+- `admin/.env`: `VITE_API_URL=http://localhost:8787`
+- `.dev.vars`: `CLOUDFLARE_API_TOKEN` (for zone cache purge in local dev)
+
+## Deployment
+
+### Credentials (1Password)
+
 ```bash
-pnpm --filter admin dev       # Port 3001
-pnpm --filter admin build
+CLOUDFLARE_API_TOKEN=$(op read "op://Your-Vault/Cloudflare/API-Token" --account your-1password-account) \
+CLOUDFLARE_ACCOUNT_ID="your-cloudflare-account-id" \
+pnpm run deploy
 ```
 
-## Architecture
+### CI/CD (GitHub Actions)
 
-### Route Matching Flow
+| Trigger | Actions |
+|---------|---------|
+| Push to any branch / PR | Lint → Format → Typecheck → Test |
+| Version tag (`v*`) | Lint → Format → Typecheck → Test → Deploy Worker → Upload API Shield → Build & Deploy Dashboard |
+| Manual dispatch | Same as version tag |
 
-1. Request arrives at Cloudflare edge
-2. Global middleware applied (logger, secureHeaders)
-3. System routes checked (`/health`, `/api/*`)
-4. KV route lookup via `matchRoute()` — exact match first, then wildcard
-5. Dispatch to handler based on route type (`redirect`, `proxy`, `r2`)
-6. If no match and domain has service binding fallback → forward to bound Worker
+**Required Secrets:** `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_ZONE_ID`, `ADMIN_API_KEY`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`
 
-### Domain Restriction
+### Cloudflare Resources
 
-The admin API (`/api/*`) is only accessible from the domain set in `ADMIN_API_DOMAIN` env var. Requests to `/api/*` from any other domain return 404 to hide the API's existence.
+| Resource | ID |
+|----------|-----|
+| **Account** | `your-cloudflare-account-id` |
+| **Zone** | `your-zone-id` (example.com) |
+| **KV (prod)** | `your-kv-namespace-id` |
+| **KV (dev)** | `your-kv-dev-namespace-id` |
+| **D1** | `your-d1-database-id` |
 
-### KV Key Format
+**KV Key Format:** `{domain}:{path}` (e.g., `example.com:/linkedin`)
 
-Routes are stored with domain-prefixed keys: `{domain}:{path}` (e.g., `example.com:/github`).
+### R2 Buckets
 
-### Latency Characteristics
+`files` (default), `assets`, `files-user1`, `files-user2`, `files-user3`, `files-user4`, `files-user5`, `files-user6`, `bifrost-backups`
 
-| Scenario | Latency | Notes |
-|----------|---------|-------|
-| Cold request | ~200-250ms | Full KV lookup from origin |
-| Warm request | ~30-90ms | KV edge cache hit |
-| CPU time | ~3ms | Actual worker execution |
+## Supported Domains
 
-KV lookup dominates latency. Use 301 for permanent redirects (browser caches, bypasses worker on repeat visits).
+Defined in `src/types.ts`:
 
-## Conventions & Patterns
+| Domain | Purpose |
+|--------|---------|
+| `links.example.com` | Primary short links |
+| `bifrost.example.com` | Admin API (protected) |
+| `example.com` | Primary domain |
+| `secondary.example.net` | Secondary domain |
+| `user1.example.com` | User domain (pending) |
+| `user2.example.com` | User domain (pending) |
+| `user3.example.com` | User domain (pending) |
+| `couple.example.com` | User domain (pending) |
+| `user5.example.com` | User domain (pending) |
 
-### Adding Admin API Endpoints
+### Adding a New Supported Domain
 
-All admin routes live in `src/routes/admin.ts`. Follow the existing pattern:
-1. Define a Zod schema for request validation
-2. Add the route handler to the `adminRoutes` Hono app
-3. Add corresponding tests in `test/routes/admin.test.ts`
+Update **all 4 locations** — missing any one causes silent failures:
 
-### Adding Route Handlers
+| # | File | What to update |
+|---|------|----------------|
+| 1 | `src/types.ts` | `SUPPORTED_DOMAINS` array |
+| 2 | `openapi/bifrost-api.yaml` | `DomainQuery` enum — **API Shield (block mode) returns 403 for unknown domain values** |
+| 3 | Cloudflare Dashboard | Add as Custom Domain on the Worker |
+| 4 | `wrangler.toml` | Add service binding if domain uses Worker-to-Worker fallback |
 
-Route type handlers live in `src/handlers/`. Each exports a single handler function that receives the Hono context and route config.
+## Route Types
 
-### Security Requirements
+| Type | Handler | Description |
+|------|---------|-------------|
+| `redirect` | `handleRedirect` | URL redirect (301/302/307/308) |
+| `proxy` | `handleProxy` | Reverse proxy to external URL |
+| `r2` | `handleR2` | Serve from R2 bucket |
 
-When modifying proxy or R2 handling:
-- **Proxy targets** must go through SSRF validation (`src/utils/url-validation.ts`) — blocks private/internal IPs
-- **R2 keys** must be sanitised via path traversal protection (`src/utils/path-validation.ts`)
-- **Auth comparisons** must use timing-safe comparison (`src/utils/crypto.ts`)
+### Route Config Schema
 
-### Testing
-
-Tests use **Vitest** with `@cloudflare/vitest-pool-workers`, which runs tests inside the Workers runtime with real KV, D1, and R2 bindings (via Miniflare).
-
-**Key test utilities:**
-- `test/fixtures.ts` — Pre-built route configs (`fixtures.redirectRoute`, `fixtures.proxyRoute`, `fixtures.r2Route`, etc.)
-- `test/helpers.ts` — `seedRoute()`, `seedRoutes()`, `clearRoutes()` for KV setup; `TEST_DOMAIN` = `example.com`
-- Tests access bindings via `import { env, SELF } from 'cloudflare:test'`
-- Admin API test key: `test-api-key-12345` (set in `vitest.config.ts`)
-
-**Test file structure mirrors `src/`:**
+```typescript
+interface KVRouteConfig {
+  path: string;            // "/github", "/blog/*"
+  type: RouteType;         // "redirect" | "proxy" | "r2"
+  target: string;          // Target URL or R2 key
+  statusCode?: number;     // 301, 302, 307, 308
+  preserveQuery?: boolean; // Default: true
+  preservePath?: boolean;  // Default: false
+  cacheControl?: string;
+  hostHeader?: string;     // Override Host header (proxy)
+  forceDownload?: boolean; // Force download (R2)
+  bucket?: string;         // R2 bucket name
+  enabled?: boolean;       // Default: true
+}
 ```
-test/
-├── fixtures.ts          # Shared test data
-├── helpers.ts           # KV seeding utilities
-├── backup/              # R2 backup system tests (kv, manifest, scheduled, health)
-├── db/                  # D1 recording and query tests
-├── handlers/            # redirect, proxy, r2 handler tests
-├── kv/                  # KV schema, lookup, and CRUD tests
-├── middleware/           # CORS, rate limiting, secure headers tests
-├── routes/              # Admin API and analytics API tests
-└── utils/               # Security utility tests (crypto, path, URL, OG parser)
+
+## Admin API
+
+**Base:** `https://bifrost.example.com/api`
+**Auth:** `X-Admin-Key: <api_key>` or `Authorization: Bearer <key>`
+**Access:** Protected network access only
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/routes` | List routes (`?domain=&search=&limit=&offset=`) |
+| `GET /api/routes?path=` | Get single route |
+| `POST /api/routes` | Create route |
+| `PUT /api/routes?path=` | Update route |
+| `DELETE /api/routes?path=` | Delete route |
+| `POST /api/routes/seed` | Bulk import routes |
+| `POST /api/routes/migrate` | Migrate route to new path |
+| `POST /api/routes/transfer` | Transfer route between domains |
+| `GET /api/routes/by-target` | Find routes serving an R2 object |
+| `GET /api/analytics/*` | Analytics endpoints |
+| `GET /api/storage/buckets` | List R2 buckets |
+| `GET /api/storage/:bucket/objects` | List objects |
+| `GET /api/storage/:bucket/meta/:key` | Get object metadata |
+| `GET /api/storage/:bucket/objects/:key` | Download object |
+| `POST /api/storage/:bucket/upload` | Upload object |
+| `DELETE /api/storage/:bucket/objects/:key` | Delete object |
+| `POST /api/storage/:bucket/rename` | Rename object within bucket |
+| `POST /api/storage/:bucket/move` | Move object to different bucket |
+| `PUT /api/storage/:bucket/metadata/:key` | Update metadata |
+| `POST /api/storage/:bucket/purge-cache/:key` | Purge CDN cache for object |
+
+### Analytics Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/analytics/summary` | Dashboard overview |
+| `GET /api/analytics/clicks` | Paginated click records |
+| `GET /api/analytics/views` | Paginated view records |
+| `GET /api/analytics/clicks/:slug` | Stats for specific link |
+
+**Query params:** `domain`, `days` (1-365), `limit` (max 1000), `offset`, `slug`, `path`, `country`
+
+## API Shield
+
+**Status:** Active (block mode) on `example.com` zone
+**Schema:** `openapi/bifrost-api.yaml` (OpenAPI 3.0.3)
+
+The pipeline **automatically uploads** the OpenAPI schema to API Shield after every production deploy via `scripts/upload-api-shield.mjs`. The upload is non-fatal — if it fails, the Worker is already deployed and the schema can be uploaded manually.
+
+**To update:** Edit schema → Validate → Tag and push (CI/CD deploys Worker + uploads schema)
+**Fallback:** Upload via Cloudflare Dashboard → Security → API Shield
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `wrangler.toml` | Worker config, bindings, env vars |
+| `src/index.ts` | Hono app entry point |
+| `src/routes/admin.ts` | Admin API routes |
+| `src/routes/storage.ts` | R2 storage management routes |
+| `src/routes/analytics.ts` | Analytics API routes |
+| `src/types.ts` | Domain list, route types |
+| `src/utils/path-validation.ts` | R2 key validation (strict reject) |
+| `openapi/bifrost-api.yaml` | API Shield schema |
+| `scripts/upload-api-shield.mjs` | Auto-upload schema to API Shield (called by CI/CD) |
+
+## MCP Server
+
+**Package:** `@bifrost/mcp` - 22 tools (8 route + 4 analytics + 10 storage)
+
+Config in `~/.claude.json`:
+```json
+{
+  "bifrost": {
+    "type": "stdio",
+    "command": "op",
+    "args": ["run", "--account", "your-1password-account", "--", "node", "/path/to/mcp/dist/index.js"],
+    "env": {
+      "EDGE_ROUTER_API_KEY": "op://Your-Vault/Cloudflare/ADMIN_API_KEY",
+      "EDGE_ROUTER_URL": "https://bifrost.example.com",
+      "EDGE_ROUTER_DOMAIN": "links.example.com"
+    }
+  }
+}
 ```
 
-### Domain Configuration
+## Backup System
 
-Domains are configured in `src/types.ts`:
-- `SUPPORTED_DOMAINS` array — all domains the worker handles
-- `R2_BUCKETS` array + `BUCKET_BINDINGS` map — R2 bucket configuration
-- `DOMAIN_SERVICE_FALLBACK` — Worker-to-Worker fallback mapping
-- `CLOUDFLARE_ZONE_IDS` — Zone IDs per domain (for CDN cache purge)
-- `R2_BUCKET_CUSTOM_DOMAINS` — R2 custom domain URLs per bucket (for cache purge)
-- `Bindings` type — must match `wrangler.toml` bindings
+### KV Routes (R2)
 
-**When adding a new domain**, update `SUPPORTED_DOMAINS` in `src/types.ts`, add as a Custom Domain in the Cloudflare Dashboard, and if using API Shield, add the domain to the `DomainQuery` enum in `openapi/bifrost-api.yaml` (API Shield block mode returns 403 for unknown domain values).
+**Schedule:** Daily 8 PM UTC (4 AM SGT) via cron trigger
+**Storage:** R2 bucket `bifrost-backups` → `daily/YYYYMMDD/`
+**Contents:** KV routes as compressed NDJSON (`kv-routes.ndjson.gz`) + manifest (`manifest.json`)
+**Retention:** Indefinite (~8KB/day, negligible storage)
+**Manifest version:** 2.0.0
 
-### Minimum Required Bindings
+### D1 Analytics (Time Travel)
 
-| Binding | Type | Required | Purpose |
-|---------|------|----------|---------|
-| `ROUTES` | KV | Yes | Route storage |
-| `DB` | D1 | Yes | Analytics |
-| `ADMIN_API_KEY` | Secret | Yes | Admin auth |
-| R2 buckets | R2 | No | File serving |
-| `BACKUP_BUCKET` | R2 | No | Daily backups |
-| `CLOUDFLARE_API_TOKEN` | Secret | No | CDN cache purge |
-| Service bindings | Service | No | Worker-to-Worker fallback |
+D1 analytics are **not** backed up to R2. Cloudflare D1 Time Travel provides automatic 30-day point-in-time recovery at minute-level granularity, at no extra cost.
 
-## Dashboard Implementation Notes
+**Database:** `bifrost-analytics` (`your-d1-database-id`)
+**Region:** APAC
+**Tables:** `link_clicks`, `page_views`, `file_downloads`, `proxy_requests`, `audit_logs`
+
+**Restore via CLI:**
+```bash
+# Restore to a specific timestamp (RFC3339 or Unix seconds)
+wrangler d1 time-travel restore bifrost-analytics --timestamp=2026-03-25T12:00:00Z
+
+# Restore to a specific bookmark
+wrangler d1 time-travel restore bifrost-analytics --bookmark=<bookmark-id>
+
+# Get current bookmark
+wrangler d1 time-travel info bifrost-analytics
+```
+
+**Note:** Restore is destructive (overwrites DB in place) but returns a bookmark to undo.
+
+## Dashboard
+
+React 19 SPA built with Vite 7, Tailwind CSS 4, shadcn/ui, TanStack Query, and React Router v7.
+
+```bash
+pnpm --filter admin dev      # Dev server on port 3001
+pnpm --filter admin build    # Production build
+pnpm -C admin lint           # Lint (oxlint + residual ESLint)
+```
+
+**Environment variables:** `VITE_API_URL` (API base URL), `VITE_ADMIN_API_KEY` (admin API key)
+
+### Docker Container Architecture
+
+The `:tailscale` image includes nginx (serves SPA on localhost:3001), tailscaled (userspace networking), and Tailscale Serve (proxies HTTPS). Authenticates to tailnet as `bifrost.your-tailnet.ts.net`.
+
+| File | Purpose |
+|------|---------|
+| `admin/Dockerfile.tailscale` | Multi-stage build with Tailscale |
+| `admin/docker-compose.tailscale.yml` | Production deployment config |
+| `admin/scripts/start-with-tailscale.sh` | Container startup script |
+
+## Implementation Notes
 
 ### Cross-Page Navigation (v1.16.2–v1.16.3)
 
@@ -167,87 +307,43 @@ Single-domain API responses include `domain` on each route, but the fallback ens
 
 All single-route operations use query parameters (not path parameters) to avoid URL encoding issues with special characters (`/`, `*`, etc.) in route paths.
 
-## Rate Limiting
+### R2 Cache Purge
 
-Rate limiting is handled by **Cloudflare WAF**, not in Worker code. Worker-level middleware is available at `src/middleware/rate-limit.ts` but inactive. To reactivate:
+When "Purge Cache" is triggered from the storage edit dialog, the Worker uses the **Cloudflare Zone Cache Purge API** (`POST /zones/{zone_id}/purge_cache`) to globally invalidate CDN cache across all edge PoPs. URLs are collected from two sources:
+1. **Bifrost KV routes** — all R2-type routes pointing to the object
+2. **R2 custom domain URLs** — bucket-to-domain mapping in `src/types.ts`
 
-```typescript
-// In src/routes/admin.ts
-import { rateLimit } from '../middleware/rate-limit';
-adminRoutes.use('*', async (c, next) => {
-  if (c.req.method === 'OPTIONS') { await next(); return; }
-  return rateLimit({ maxRequests: 100, windowSeconds: 60 })(c, next);
-});
+Requires `CLOUDFLARE_API_TOKEN` Worker secret with **Zone > Cache Purge > Purge** permission. Without it, URLs are collected but not purged (graceful degradation). Set via:
+```bash
+wrangler secret put CLOUDFLARE_API_TOKEN
 ```
+Use the same "API Token - Workers Edit" token from 1Password, after adding Cache Purge permission in the Cloudflare dashboard.
 
-## Backup System
+### Rate Limiting
 
-### KV Routes (R2)
-Automated daily backups via cron trigger at 20:00 UTC. KV routes backed up as compressed NDJSON to R2 bucket `bifrost-backups`. Retention: indefinite (~8KB/day).
+Handled by **Cloudflare WAF**, not in Worker code. Worker-level middleware available at `src/middleware/rate-limit.ts` if needed.
 
-### D1 Analytics (Time Travel)
-D1 analytics are not backed up to R2. Cloudflare D1 Time Travel provides automatic 30-day point-in-time recovery. Restore via `wrangler d1 time-travel restore <db> --timestamp=<RFC3339>`.
+### wrangler.toml Environment Inheritance
 
-## System Routes
+**NOT inherited** (must define per-environment):
+- `[[kv_namespaces]]`, `[[d1_databases]]`, `[[r2_buckets]]`, `[vars]`
 
-| Path | Description |
-|------|-------------|
-| `/health` | Health check (returns JSON with status, version, timestamp) |
-| `/api/*` | Admin API (domain-restricted, API key required) |
+**IS inherited** (do NOT define per-environment):
+- `[observability]`
 
-## Error Handling
+### Linting Architecture
 
-- Invalid routes → 404 with hint to use admin API
-- Admin API errors → structured JSON with `success: false`
-- Unhandled errors → logged, return 500
-- Development mode includes stack traces
+**Oxlint** (primary linter) with native plugins: import, promise, node, vitest, react, jsx-a11y. Config: `oxlint.json`.
+**Biome** (formatter only, linter disabled). Config: `biome.json`.
+**Residual ESLint** in admin/ only for `eslint-plugin-react-refresh` (Vite HMR). Uses `eslint-plugin-oxlint` to avoid rule duplication. Relaxed rules for `src/components/ui/` (shadcn generated code).
 
-## API Shield (Optional)
+## Versioning
 
-If using Cloudflare API Shield, `scripts/upload-api-shield.mjs` auto-uploads the OpenAPI schema after deploy. See `ci-cd.yml.example` for pipeline integration. Requires `CLOUDFLARE_ZONE_ID` secret and API token with "Zone > API Gateway > Edit" permission.
+1. Update `version` in `package.json`
+2. Update `VERSION` in `wrangler.toml` `[vars]` section
+3. Update `admin/package.json` version
+4. Update version in this file header
+5. **Update `CHANGELOG.md`** with new version entry
+6. Commit, tag (`git tag v1.x.x`), and push with tags (`git push origin main --tags`)
 
-## Version Policy
-
-| Change Type | Version | Examples |
-|-------------|---------|----------|
-| Patch (Z) | x.y.**Z** | Bug fixes, typos, minor improvements |
-| Minor (Y) | x.**Y**.0 | New features, non-breaking enhancements |
-| Major (X) | **X**.0.0 | Breaking changes, architecture changes |
-
-**Files to update:**
-
-1. `package.json` — package version
-2. `wrangler.toml` — `VERSION` in `[vars]` section
-3. `admin/package.json` — dashboard version
-4. `CLAUDE.md` — version in this file header
-5. `CHANGELOG.md` — new version entry
-
-Commit, tag (`git tag v1.x.x`), and push with tags (`git push origin main --tags`).
-
-## Project Structure
-
-```
-bifrost/                        # pnpm monorepo
-├── src/
-│   ├── index.ts                # Hono app entry point
-│   ├── types.ts                # Bindings, domains, route types
-│   ├── db/                     # D1: Drizzle schema, analytics writes, queries
-│   ├── kv/                     # KV: route CRUD, lookup (exact + wildcard), Zod schemas
-│   ├── handlers/               # redirect.ts, proxy.ts, r2.ts
-│   ├── middleware/              # CORS, rate limiting
-│   ├── utils/                  # crypto, url-validation, path-validation, kv-errors, og-parser, cache
-│   └── routes/                 # admin.ts (CRUD + search/pagination + storage mount), analytics.ts, storage.ts
-├── test/                       # Mirrors src/ structure (see Testing section)
-├── shared/src/                 # Types, schemas, EdgeRouterClient
-├── mcp/src/                    # MCP server (tools/routes.ts, tools/analytics.ts, tools/storage.ts)
-├── admin/src/                  # React SPA (components, hooks, pages)
-├── slackbot/src/               # Slack bot (events, auth, formatting)
-├── drizzle/                    # 8 D1 migration SQL files (0000-0007)
-├── openapi/                    # API Shield OpenAPI spec
-├── scripts/                    # CI/CD utility scripts
-└── wrangler.toml               # Worker config with placeholder IDs
-```
-
----
-
-*Built with Cloudflare Workers and Hono*
+**Deploy requires a version tag.** Push to main runs CI only. Production deploy (Worker + Dashboard) triggers on `v*` tags.

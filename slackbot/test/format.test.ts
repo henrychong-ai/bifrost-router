@@ -16,12 +16,12 @@ import {
 import type { Route, AnalyticsSummary } from '@bifrost/shared';
 
 describe('formatRouteList', () => {
-  const domain = 'link.henrychong.com';
+  const domain = 'links.example.com';
 
   it('should format empty route list', () => {
     const result = formatRouteList([], domain);
 
-    expect(result).toContain('*Routes for link.henrychong.com*');
+    expect(result).toContain('*Routes for links.example.com*');
     expect(result).toContain('No routes configured.');
   });
 
@@ -129,7 +129,7 @@ describe('formatAnalyticsSummary', () => {
   it('should format analytics summary with all sections', () => {
     const summary: AnalyticsSummary = {
       period: '30d',
-      domain: 'link.henrychong.com',
+      domain: 'links.example.com',
       clicks: { total: 1234, uniqueSlugs: 50 },
       views: { total: 5678, uniquePaths: 100 },
       topClicks: [
@@ -154,7 +154,7 @@ describe('formatAnalyticsSummary', () => {
     const result = formatAnalyticsSummary(summary);
 
     expect(result).toContain('*Analytics Summary (30d)*');
-    expect(result).toContain('Domain: `link.henrychong.com`');
+    expect(result).toContain('Domain: `links.example.com`');
     expect(result).toContain(':chart_with_upwards_trend: *Totals*');
     expect(result).toContain('Total Clicks: 1,234');
     expect(result).toContain('Unique Links: 50');
@@ -213,7 +213,7 @@ describe('formatAnalyticsSummary', () => {
   it('should show medal emojis for top 3 positions', () => {
     const summary: AnalyticsSummary = {
       period: '30d',
-      domain: 'henrychong.com',
+      domain: 'example.com',
       clicks: { total: 100, uniqueSlugs: 5 },
       views: { total: 200, uniquePaths: 10 },
       topClicks: [
@@ -246,14 +246,14 @@ describe('formatRouteCreated', () => {
       path: '/twitter',
       type: 'redirect',
       target: 'https://twitter.com/user',
-      domain: 'link.henrychong.com',
+      domain: 'links.example.com',
     });
 
     expect(result).toContain(':white_check_mark: *Route Created*');
     expect(result).toContain('Path: `/twitter`');
     expect(result).toContain('Type: redirect');
     expect(result).toContain('Target: https://twitter.com/user');
-    expect(result).toContain('Domain: link.henrychong.com');
+    expect(result).toContain('Domain: links.example.com');
   });
 });
 
@@ -302,14 +302,14 @@ describe('formatPermissionDenied', () => {
 
 describe('formatHelp', () => {
   it('should format help with accessible domains', () => {
-    const domains = ['link.henrychong.com', 'henrychong.com'];
+    const domains = ['links.example.com', 'example.com'];
     const result = formatHelp(domains);
 
     expect(result).toContain(':wave: *Bifrost Bot*');
     expect(result).toContain('*Examples:*');
     expect(result).toContain('*Your accessible domains:*');
-    expect(result).toContain('`link.henrychong.com`');
-    expect(result).toContain('`henrychong.com`');
+    expect(result).toContain('`links.example.com`');
+    expect(result).toContain('`example.com`');
   });
 
   it('should show message when no domains accessible', () => {
@@ -320,7 +320,7 @@ describe('formatHelp', () => {
   });
 
   it('should include example commands', () => {
-    const result = formatHelp(['link.henrychong.com']);
+    const result = formatHelp(['links.example.com']);
 
     expect(result).toContain('List all routes');
     expect(result).toContain('Create a redirect');

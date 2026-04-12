@@ -29,7 +29,7 @@ pnpm -C mcp build
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `EDGE_ROUTER_URL` | `https://henrychong.com` | Base URL of the edge router |
+| `EDGE_ROUTER_URL` | `https://example.com` | Base URL of the edge router |
 | `EDGE_ROUTER_DOMAIN` | - | Default domain for operations |
 
 ## Claude Code Integration
@@ -44,8 +44,8 @@ Add to your `~/.claude.json`:
       "args": ["/path/to/bifrost/mcp/dist/index.js"],
       "env": {
         "EDGE_ROUTER_API_KEY": "your-api-key",
-        "EDGE_ROUTER_URL": "https://henrychong.com",
-        "EDGE_ROUTER_DOMAIN": "link.henrychong.com"
+        "EDGE_ROUTER_URL": "https://example.com",
+        "EDGE_ROUTER_DOMAIN": "links.example.com"
       }
     }
   }
@@ -61,15 +61,15 @@ Add to your `~/.claude.json`:
       "command": "op",
       "args": [
         "run",
-        "--account", "my.1password.com",
+        "--account", "your-1password-account",
         "--",
         "node",
         "/path/to/bifrost/mcp/dist/index.js"
       ],
       "env": {
-        "EDGE_ROUTER_API_KEY": "op://Technology/Cloudflare - HC/API Tokens/ADMIN_API_KEY",
-        "EDGE_ROUTER_URL": "https://henrychong.com",
-        "EDGE_ROUTER_DOMAIN": "link.henrychong.com"
+        "EDGE_ROUTER_API_KEY": "op://Your-Vault/Cloudflare/ADMIN_API_KEY",
+        "EDGE_ROUTER_URL": "https://example.com",
+        "EDGE_ROUTER_DOMAIN": "links.example.com"
       }
     }
   }
@@ -88,8 +88,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
       "args": ["/path/to/bifrost/mcp/dist/index.js"],
       "env": {
         "EDGE_ROUTER_API_KEY": "your-api-key",
-        "EDGE_ROUTER_URL": "https://henrychong.com",
-        "EDGE_ROUTER_DOMAIN": "link.henrychong.com"
+        "EDGE_ROUTER_URL": "https://example.com",
+        "EDGE_ROUTER_DOMAIN": "links.example.com"
       }
     }
   }
@@ -126,13 +126,13 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ### List Routes
 
 ```
-"List all routes for link.henrychong.com"
+"List all routes for links.example.com"
 ```
 
 ### Create a Redirect
 
 ```
-"Create a redirect from /twitter to https://twitter.com/henrychong"
+"Create a redirect from /twitter to https://twitter.com/example"
 ```
 
 ### View Analytics
@@ -183,9 +183,9 @@ mcp/
 
 The MCP server can manage routes for any domain configured in bifrost:
 
-- `link.henrychong.com` - Short link service
-- `henrychong.com` - Personal domain
-- `vanessahung.net` - Personal domain
+- `links.example.com` - Short link service
+- `example.com` - Personal domain
+- `secondary.example.net` - Personal domain
 - Additional domains as configured
 
 ## Security

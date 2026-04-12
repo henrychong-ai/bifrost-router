@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 import type { CreateRouteInput, UpdateRouteInput } from '@/lib/schemas';
 
@@ -9,8 +9,9 @@ import type { CreateRouteInput, UpdateRouteInput } from '@/lib/schemas';
 
 export const routeKeys = {
   all: ['routes'] as const,
-  list: (params: { domain?: string; search?: string; limit?: number; offset?: number }) =>
-    ['routes', params] as const,
+  list: (domain?: string, search?: string, limit?: number, offset?: number) =>
+    ['routes', { domain, search, limit, offset }] as const,
+  search: (query: string) => ['routes', 'search', query] as const,
   detail: (path: string) => ['routes', path] as const,
 };
 
@@ -19,15 +20,23 @@ export const routeKeys = {
 // =============================================================================
 
 /**
- * Fetch routes with optional search, filtering, and pagination
+ * Query options for the routes list
  */
-export function useRoutes(
-  params: { domain?: string; search?: string; limit?: number; offset?: number } = {},
-) {
+interface UseRoutesOptions {
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * Fetch all routes for a domain with optional search and pagination
+ * @param domain - Optional domain to filter routes
+ * @param options - Optional search, limit, and offset parameters
+ */
+export function useRoutes(domain?: string, options?: UseRoutesOptions) {
   return useQuery({
-    queryKey: routeKeys.list(params),
-    queryFn: () => api.routes.list(params),
-    placeholderData: keepPreviousData,
+    queryKey: routeKeys.list(domain, options?.search, options?.limit, options?.offset),
+    queryFn: () => api.routes.list(domain, options),
   });
 }
 
@@ -41,12 +50,25 @@ export function usePrefetchAllDomainRoutes(domains: readonly string[], currentDo
     for (const domain of domains) {
       if (domain === currentDomain) continue;
       queryClient.prefetchQuery({
-        queryKey: routeKeys.list({ domain, limit: 1000 }),
-        queryFn: () => api.routes.list({ domain, limit: 1000 }),
+        queryKey: routeKeys.list(domain, undefined, 1000),
+        queryFn: () => api.routes.list(domain, { limit: 1000 }),
         staleTime: 60_000,
       });
     }
   }, [domains, currentDomain, queryClient]);
+}
+
+/**
+ * Search routes across all domains for command palette
+ * @param query - Search term (min 2 characters to trigger)
+ */
+export function useSearchRoutes(query: string) {
+  return useQuery({
+    queryKey: routeKeys.search(query),
+    queryFn: () => api.routes.list(undefined, { search: query }),
+    enabled: query.length >= 2,
+    staleTime: 5 * 60 * 1000,
+  });
 }
 
 /**

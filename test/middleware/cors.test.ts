@@ -179,9 +179,7 @@ describe('cors middleware', () => {
 
 describe('isAllowedOrigin', () => {
   it('returns origin for allowed origins in ALLOWED_ORIGINS', () => {
-    expect(isAllowedOrigin('https://bifrost.henrychong.com')).toBe(
-      'https://bifrost.henrychong.com',
-    );
+    expect(isAllowedOrigin('https://bifrost.example.com')).toBe('https://bifrost.example.com');
     expect(isAllowedOrigin('http://localhost:3001')).toBe('http://localhost:3001');
     expect(isAllowedOrigin('http://localhost:5173')).toBe('http://localhost:5173');
     expect(isAllowedOrigin('http://127.0.0.1:3001')).toBe('http://127.0.0.1:3001');
@@ -216,7 +214,7 @@ describe('isAllowedOrigin', () => {
 
 describe('ALLOWED_ORIGINS', () => {
   it('contains expected origins', () => {
-    expect(ALLOWED_ORIGINS).toContain('https://bifrost.henrychong.com');
+    expect(ALLOWED_ORIGINS).toContain('https://bifrost.example.com');
     expect(ALLOWED_ORIGINS).toContain('http://localhost:3001');
     expect(ALLOWED_ORIGINS).toContain('http://localhost:5173');
   });

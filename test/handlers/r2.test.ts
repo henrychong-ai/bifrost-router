@@ -339,7 +339,8 @@ describe('handleR2', () => {
         FILES_BUCKET: mockBucket as unknown as R2Bucket,
       });
 
-      // Strict reject: path traversal is blocked with 400, bucket.get is never called
+      // Strict validation rejects keys with dangerous patterns (path traversal)
+      // The bucket.get should never be called since the key is rejected upfront
       expect(mockBucket.get).not.toHaveBeenCalled();
     });
   });

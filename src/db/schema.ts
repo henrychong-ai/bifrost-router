@@ -11,7 +11,7 @@ export const linkClicks = sqliteTable('link_clicks', {
   /** Auto-increment primary key */
   id: integer('id').primaryKey({ autoIncrement: true }),
 
-  /** Domain that received the click (e.g., 'henrychong.com') */
+  /** Domain that received the click (e.g., 'example.com') */
   domain: text('domain').notNull(),
 
   /** Path/slug that was clicked (e.g., '/linkedin') */
@@ -134,7 +134,7 @@ export const fileDownloads = sqliteTable('file_downloads', {
   /** Auto-increment primary key */
   id: integer('id').primaryKey({ autoIncrement: true }),
 
-  /** Domain that received the request (e.g., 'henrychong.com') */
+  /** Domain that received the request (e.g., 'example.com') */
   domain: text('domain').notNull(),
 
   /** Path that was requested (e.g., '/wedding/reception') */
@@ -206,7 +206,7 @@ export const proxyRequests = sqliteTable('proxy_requests', {
   /** Auto-increment primary key */
   id: integer('id').primaryKey({ autoIncrement: true }),
 
-  /** Domain that received the request (e.g., 'henrychong.com') */
+  /** Domain that received the request (e.g., 'example.com') */
   domain: text('domain').notNull(),
 
   /** Path that was requested (e.g., '/api/data') */
@@ -278,7 +278,7 @@ export const auditLogs = sqliteTable('audit_logs', {
   /** Auto-increment primary key */
   id: integer('id').primaryKey({ autoIncrement: true }),
 
-  /** Domain affected by the action (e.g., 'henrychong.com') */
+  /** Domain affected by the action (e.g., 'example.com') */
   domain: text('domain').notNull(),
 
   /** Action type: create, update, delete, toggle, seed */

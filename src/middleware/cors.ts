@@ -6,7 +6,7 @@ import type { AppEnv } from '../types';
  * Single source of truth - used by index.ts, admin.ts, and cors middleware
  */
 export const ALLOWED_ORIGINS = [
-  'https://bifrost.henrychong.com',
+  'https://bifrost.example.com',
   'http://localhost:3001',
   'http://localhost:5173',
   'http://127.0.0.1:3001',
