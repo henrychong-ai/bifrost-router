@@ -43,7 +43,7 @@ function createTestManifest(overrides: Partial<BackupManifest> = {}): BackupMani
     timestamp: Date.now() - 4 * 60 * 60 * 1000, // 4 hours ago
     date: '20260123',
     kv: {
-      domains: ['henrychong.com', 'link.henrychong.com'],
+      domains: ['example.com', 'links.example.com'],
       totalRoutes: 320,
       file: 'daily/20260123/kv-routes.ndjson.gz',
     },
@@ -134,7 +134,7 @@ describe('checkBackupHealth', () => {
       const manifest = createTestManifest({
         date,
         kv: {
-          domains: ['henrychong.com'],
+          domains: ['example.com'],
           totalRoutes: 50, // Below default minimum of 100
           file: 'daily/20260123/kv-routes.ndjson.gz',
         },
@@ -223,8 +223,9 @@ describe('checkBackupHealth', () => {
 
     it('returns critical when backup files are missing', async () => {
       const date = '20260123';
-      const incompleteFiles = createCompleteFilesMap(date);
-      incompleteFiles.delete(`daily/${date}/kv-routes.ndjson.gz`);
+      const incompleteFiles = new Map<string, { size: number }>();
+      // Only manifest, missing kv-routes
+      incompleteFiles.set(`daily/${date}/manifest.json`, { size: 1234 });
 
       const bucket = createMockBucket({
         delimitedPrefixes: [`daily/${date}/`],
@@ -268,7 +269,7 @@ describe('checkBackupHealth', () => {
       const manifest = createTestManifest({
         date,
         kv: {
-          domains: ['henrychong.com'],
+          domains: ['example.com'],
           totalRoutes: 50, // Below default minimum but above custom
           file: 'daily/20260123/kv-routes.ndjson.gz',
         },
@@ -344,7 +345,7 @@ describe('checkBackupHealth', () => {
       expect(health.lastBackup?.manifest).not.toBeNull();
       expect(health.lastBackup?.manifest?.version).toBe('2.0.0');
       expect(health.lastBackup?.manifest?.kv.totalRoutes).toBe(320);
-      expect(health.lastBackup?.manifest?.kv.domains).toContain('henrychong.com');
+      expect(health.lastBackup?.manifest?.kv.domains).toContain('example.com');
     });
   });
 

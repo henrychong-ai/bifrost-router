@@ -14,7 +14,6 @@ import {
   seedRoutes,
 } from '../../src/kv/routes';
 import { SCHEMA_VERSION } from '../../src/kv/schema';
-import { SUPPORTED_DOMAINS } from '../../src/types';
 import { clearRoutes } from '../helpers';
 
 describe('routes', () => {
@@ -301,9 +300,8 @@ describe('getAllRoutes', () => {
 
 describe('getAllRoutesAllDomains', () => {
   // getAllRoutesAllDomains only returns routes for keys whose domain is in SUPPORTED_DOMAINS
-  // Use dynamic references so tests work regardless of configured domains
-  const domain1 = SUPPORTED_DOMAINS[0];
-  const domain2 = SUPPORTED_DOMAINS[3];
+  const domain1 = 'example.com';
+  const domain2 = 'secondary.example.net';
 
   beforeEach(async () => {
     await clearRoutes(domain1);
@@ -478,8 +476,8 @@ describe('parseRouteKey (re-export)', () => {
   });
 
   it('parses a valid key', () => {
-    const [domain, path] = parseRouteKey('link.example.com:/github');
-    expect(domain).toBe('link.example.com');
+    const [domain, path] = parseRouteKey('links.example.com:/github');
+    expect(domain).toBe('links.example.com');
     expect(path).toBe('/github');
   });
 });

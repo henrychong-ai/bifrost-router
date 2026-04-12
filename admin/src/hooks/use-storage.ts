@@ -1,28 +1,35 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
-import type { StorageListParams } from '@/lib/api-client';
+import type { StorageListParams, R2MetadataUpdate } from '@/lib/api-client';
+
+// =============================================================================
+// Query Keys
+// =============================================================================
 
 export const storageKeys = {
   all: ['storage'] as const,
-  buckets: () => ['storage', 'buckets'] as const,
-  objects: (bucket: string, params: StorageListParams) =>
-    ['storage', 'objects', bucket, params] as const,
+  buckets: ['storage', 'buckets'] as const,
+  list: (bucket: string, params?: StorageListParams) => ['storage', bucket, params ?? {}] as const,
   meta: (bucket: string, key: string) => ['storage', bucket, 'meta', key] as const,
 };
 
+// =============================================================================
+// Queries
+// =============================================================================
+
 export function useStorageBuckets() {
   return useQuery({
-    queryKey: storageKeys.buckets(),
+    queryKey: storageKeys.buckets,
     queryFn: () => api.storage.listBuckets(),
   });
 }
 
-export function useStorageObjects(bucket: string, params: StorageListParams = {}) {
+export function useStorageObjects(bucket: string, params?: StorageListParams) {
   return useQuery({
-    queryKey: storageKeys.objects(bucket, params),
+    queryKey: storageKeys.list(bucket, params),
     queryFn: () => api.storage.listObjects(bucket, params),
-    enabled: !!bucket,
     placeholderData: keepPreviousData,
+    enabled: !!bucket,
   });
 }
 
@@ -34,21 +41,24 @@ export function useObjectMeta(bucket: string, key: string) {
   });
 }
 
+// =============================================================================
+// Mutations
+// =============================================================================
+
 export function useUploadObject() {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: ({
       bucket,
-      key,
       file,
-      overwrite,
+      key,
+      options,
     }: {
       bucket: string;
-      key: string;
       file: File;
-      overwrite?: boolean;
-    }) => api.storage.uploadObject(bucket, key, file, overwrite),
+      key: string;
+      options?: { overwrite?: boolean };
+    }) => api.storage.uploadObject(bucket, file, key, options),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: storageKeys.all });
     },
@@ -57,7 +67,6 @@ export function useUploadObject() {
 
 export function useDeleteObject() {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: ({ bucket, key }: { bucket: string; key: string }) =>
       api.storage.deleteObject(bucket, key),
@@ -69,7 +78,6 @@ export function useDeleteObject() {
 
 export function useRenameObject() {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: ({ bucket, oldKey, newKey }: { bucket: string; oldKey: string; newKey: string }) =>
       api.storage.renameObject(bucket, oldKey, newKey),
@@ -109,8 +117,8 @@ export function useUpdateObjectMetadata() {
     }: {
       bucket: string;
       key: string;
-      metadata: { contentType?: string; cacheControl?: string; contentDisposition?: string };
-    }) => api.storage.updateMetadata(bucket, key, metadata),
+      metadata: R2MetadataUpdate;
+    }) => api.storage.updateObjectMetadata(bucket, key, metadata),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: storageKeys.all });
     },

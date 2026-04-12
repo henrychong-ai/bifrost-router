@@ -127,7 +127,7 @@ app.all('*', async c => {
   const route = await matchRoute(c.env.ROUTES, domain, path);
 
   if (!route) {
-    // Check for service binding fallback (e.g., henrychong-site for henrychong.com)
+    // Check for service binding fallback (e.g., example-site for example.com)
     const serviceFallback = getServiceFallback(c.env, url.hostname);
     if (serviceFallback) {
       console.log(

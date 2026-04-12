@@ -11,19 +11,16 @@ import type { EdgeRouterClient } from '@bifrost/shared';
 // Mock EdgeRouterClient
 function createMockClient(): EdgeRouterClient {
   return {
-    listRoutes: vi.fn().mockResolvedValue({
-      routes: [
-        {
-          path: '/github',
-          type: 'redirect',
-          target: 'https://github.com/user',
-          enabled: true,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        },
-      ],
-      total: 1,
-    }),
+    listRoutes: vi.fn().mockResolvedValue([
+      {
+        path: '/github',
+        type: 'redirect',
+        target: 'https://github.com/user',
+        enabled: true,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    ]),
     getRoute: vi.fn().mockResolvedValue({
       path: '/github',
       type: 'redirect',
@@ -38,7 +35,7 @@ function createMockClient(): EdgeRouterClient {
     toggleRoute: vi.fn().mockResolvedValue(undefined),
     getAnalyticsSummary: vi.fn().mockResolvedValue({
       period: '30d',
-      domain: 'link.henrychong.com',
+      domain: 'links.example.com',
       clicks: { total: 100, uniqueSlugs: 10 },
       views: { total: 200, uniquePaths: 20 },
       topClicks: [{ name: '/linkedin', count: 50 }],
@@ -66,7 +63,7 @@ const adminUser: SlackUserPermissions = {
   user_id: 'U_ADMIN',
   user_name: 'admin_user',
   permissions: {
-    'link.henrychong.com': 'admin',
+    'links.example.com': 'admin',
   },
   created_at: Date.now(),
   updated_at: Date.now(),
@@ -76,7 +73,7 @@ const readOnlyUser: SlackUserPermissions = {
   user_id: 'U_READ',
   user_name: 'readonly_user',
   permissions: {
-    'link.henrychong.com': 'read',
+    'links.example.com': 'read',
   },
   created_at: Date.now(),
   updated_at: Date.now(),
@@ -126,11 +123,11 @@ describe('handleEvent', () => {
 
   describe('list routes command', () => {
     it('should list routes when user says "list routes"', async () => {
-      const event = createEvent('list routes for link.henrychong.com');
+      const event = createEvent('list routes for links.example.com');
       const result = await handleEvent(event, adminUser, mockClient, botToken);
 
-      expect(mockClient.listRoutes).toHaveBeenCalledWith('link.henrychong.com');
-      expect(result).toContain('*Routes for link.henrychong.com*');
+      expect(mockClient.listRoutes).toHaveBeenCalledWith('links.example.com');
+      expect(result).toContain('*Routes for links.example.com*');
     });
 
     it('should use default domain when not specified', async () => {
@@ -149,7 +146,7 @@ describe('handleEvent', () => {
         created_at: Date.now(),
         updated_at: Date.now(),
       };
-      const event = createEvent('list routes for link.henrychong.com');
+      const event = createEvent('list routes for links.example.com');
       const result = await handleEvent(event, noAccessUser, mockClient, botToken);
 
       expect(result).toContain(':no_entry: *Permission Denied*');
@@ -158,7 +155,7 @@ describe('handleEvent', () => {
 
   describe('analytics command', () => {
     it('should show analytics summary', async () => {
-      const event = createEvent('show analytics for link.henrychong.com');
+      const event = createEvent('show analytics for links.example.com');
       const result = await handleEvent(event, adminUser, mockClient, botToken);
 
       expect(mockClient.getAnalyticsSummary).toHaveBeenCalled();
@@ -166,7 +163,7 @@ describe('handleEvent', () => {
     });
 
     it('should parse days parameter', async () => {
-      const event = createEvent('show analytics for link.henrychong.com last 7 days');
+      const event = createEvent('show analytics for links.example.com last 7 days');
       await handleEvent(event, adminUser, mockClient, botToken);
 
       expect(mockClient.getAnalyticsSummary).toHaveBeenCalledWith(
@@ -227,7 +224,7 @@ describe('handleEvent', () => {
     });
 
     it('should create proxy route', async () => {
-      const event = createEvent('add proxy from /api to https://api.example.com');
+      const event = createEvent('add proxy from /api to https://api.external-service.com');
       await handleEvent(event, adminUser, mockClient, botToken);
 
       expect(mockClient.createRoute).toHaveBeenCalledWith(
@@ -261,7 +258,7 @@ describe('handleEvent', () => {
       const editUser: SlackUserPermissions = {
         user_id: 'U_EDIT',
         user_name: 'edit_user',
-        permissions: { 'link.henrychong.com': 'edit' },
+        permissions: { 'links.example.com': 'edit' },
         created_at: Date.now(),
         updated_at: Date.now(),
       };
@@ -309,19 +306,19 @@ describe('handleEvent', () => {
 
   describe('domain extraction', () => {
     it('should extract domain from "for domain" syntax', async () => {
-      const event = createEvent('list routes for henrychong.com');
+      const event = createEvent('list routes for example.com');
       await handleEvent(event, adminUser, mockClient, botToken);
 
-      // Note: User doesn't have henrychong.com access, so this will fail
+      // Note: User doesn't have example.com access, so this will fail
       // but we can verify the domain was extracted
     });
 
-    it('should extract link.henrychong.com domain', async () => {
-      const event = createEvent('show analytics link.henrychong.com');
+    it('should extract links.example.com domain', async () => {
+      const event = createEvent('show analytics links.example.com');
       await handleEvent(event, adminUser, mockClient, botToken);
 
       expect(mockClient.getAnalyticsSummary).toHaveBeenCalledWith(
-        expect.objectContaining({ domain: 'link.henrychong.com' }),
+        expect.objectContaining({ domain: 'links.example.com' }),
       );
     });
   });

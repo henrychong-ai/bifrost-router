@@ -17,10 +17,11 @@ import type {
   ApiResponse,
   PaginatedApiResponse,
   AnalyticsQueryOptions,
+  R2ListObjectsParams,
   R2ObjectInfo,
   R2ListResponse,
+  R2UploadResponse,
   R2BucketsResponse,
-  R2ListObjectsParams,
   R2UpdateMetadataParams,
 } from './types.js';
 
@@ -33,7 +34,7 @@ type FetchFunction = (input: string | URL | Request, init?: RequestInit) => Prom
  * Configuration for EdgeRouterClient
  */
 export interface EdgeRouterClientConfig {
-  /** Base URL for the Admin API (e.g., 'https://henrychong.com') */
+  /** Base URL for the Admin API (e.g., 'https://example.com') */
   baseUrl: string;
 
   /** Admin API key for authentication */
@@ -135,6 +136,78 @@ export class EdgeRouterClient {
   }
 
   /**
+   * Make an authenticated multipart request (for file uploads)
+   */
+  private async requestMultipart<T>(path: string, formData: FormData): Promise<T> {
+    const url = new URL(`${this.baseUrl}${path}`);
+    const response = await this.fetch(url.toString(), {
+      method: 'POST',
+      headers: {
+        'X-Admin-Key': this.apiKey,
+      },
+      body: formData,
+    });
+
+    let data: ApiResponse<T>;
+    try {
+      data = await response.json();
+    } catch {
+      throw new EdgeRouterError(
+        `Failed to parse response: ${response.statusText}`,
+        response.status,
+      );
+    }
+
+    if (!response.ok || !data.success) {
+      throw new EdgeRouterError(
+        (data as ApiResponse).error ?? `Request failed: ${response.statusText}`,
+        response.status,
+        (data as ApiResponse).details,
+      );
+    }
+
+    return data.data as T;
+  }
+
+  /**
+   * Make an authenticated request that returns the raw Response (for binary downloads)
+   */
+  private async requestRaw(
+    method: string,
+    path: string,
+    params?: Record<string, string | number | undefined>,
+  ): Promise<Response> {
+    const url = new URL(`${this.baseUrl}${path}`);
+    if (params) {
+      for (const [key, value] of Object.entries(params)) {
+        if (value !== undefined) {
+          url.searchParams.set(key, String(value));
+        }
+      }
+    }
+
+    const response = await this.fetch(url.toString(), {
+      method,
+      headers: {
+        'X-Admin-Key': this.apiKey,
+      },
+    });
+
+    if (!response.ok) {
+      let errorMessage = `Request failed: ${response.statusText}`;
+      try {
+        const data = await response.json();
+        if (data.error) errorMessage = data.error;
+      } catch {
+        // Use default message
+      }
+      throw new EdgeRouterError(errorMessage, response.status);
+    }
+
+    return response;
+  }
+
+  /**
    * Get the effective domain, resolving default if not provided
    */
   private getDomain(domain?: string): string | undefined {
@@ -146,22 +219,19 @@ export class EdgeRouterClient {
   // ===========================================================================
 
   /**
-   * List routes for a domain with optional search and pagination
+   * List all routes for a domain
+   * @param domain - Optional domain to filter routes
+   * @param search - Optional search term to filter routes (case-insensitive)
    */
-  async listRoutes(
-    domain?: string,
-    options?: { search?: string; limit?: number; offset?: number },
-  ): Promise<{ routes: Route[]; total: number }> {
+  async listRoutes(domain?: string, search?: string): Promise<Route[]> {
     const effectiveDomain = this.getDomain(domain);
+    const params: Record<string, string> = {};
+    if (effectiveDomain) params.domain = effectiveDomain;
+    if (search) params.search = search;
     const response = await this.request<{ routes: Route[]; total: number }>('GET', '/api/routes', {
-      params: {
-        ...(effectiveDomain && { domain: effectiveDomain }),
-        ...(options?.search && { search: options.search }),
-        ...(options?.limit !== undefined && { limit: options.limit }),
-        ...(options?.offset !== undefined && { offset: options.offset }),
-      },
+      params: Object.keys(params).length > 0 ? params : undefined,
     });
-    return response;
+    return response.routes;
   }
 
   /**
@@ -331,71 +401,11 @@ export class EdgeRouterClient {
   }
 
   // ===========================================================================
-  // Storage Management
+  // R2 Storage
   // ===========================================================================
 
   /**
-   * Make a raw request (for binary downloads)
-   */
-  private async requestRaw(
-    method: string,
-    path: string,
-    params?: Record<string, string | number | undefined>,
-  ): Promise<Response> {
-    const url = new URL(`${this.baseUrl}${path}`);
-    if (params) {
-      for (const [key, value] of Object.entries(params)) {
-        if (value !== undefined) url.searchParams.set(key, String(value));
-      }
-    }
-    const response = await this.fetch(url.toString(), {
-      method,
-      headers: { 'X-Admin-Key': this.apiKey },
-    });
-    if (!response.ok) {
-      let errorMsg = response.statusText;
-      try {
-        const data = await response.json();
-        errorMsg = (data as ApiResponse).error ?? errorMsg;
-      } catch {
-        /* ignore parse errors */
-      }
-      throw new EdgeRouterError(errorMsg, response.status);
-    }
-    return response;
-  }
-
-  /**
-   * Make a multipart form data request (for uploads)
-   */
-  private async requestMultipart<T>(path: string, formData: FormData): Promise<T> {
-    const url = new URL(`${this.baseUrl}${path}`);
-    const response = await this.fetch(url.toString(), {
-      method: 'POST',
-      headers: { 'X-Admin-Key': this.apiKey },
-      body: formData,
-    });
-    let data: ApiResponse<T>;
-    try {
-      data = await response.json();
-    } catch {
-      throw new EdgeRouterError(
-        `Failed to parse response: ${response.statusText}`,
-        response.status,
-      );
-    }
-    if (!response.ok || !data.success) {
-      throw new EdgeRouterError(
-        data.error ?? `Request failed: ${response.statusText}`,
-        response.status,
-        data.details,
-      );
-    }
-    return data.data as T;
-  }
-
-  /**
-   * List all R2 buckets with access levels
+   * List available R2 buckets
    */
   async listBuckets(): Promise<R2BucketsResponse> {
     return this.request<R2BucketsResponse>('GET', '/api/storage/buckets');
@@ -405,65 +415,87 @@ export class EdgeRouterClient {
    * List objects in an R2 bucket
    */
   async listObjects(bucket: string, params?: R2ListObjectsParams): Promise<R2ListResponse> {
-    return this.request<R2ListResponse>('GET', `/api/storage/${bucket}/objects`, {
-      params: {
-        prefix: params?.prefix,
-        cursor: params?.cursor,
-        limit: params?.limit,
-        delimiter: params?.delimiter,
+    return this.request<R2ListResponse>(
+      'GET',
+      `/api/storage/${encodeURIComponent(bucket)}/objects`,
+      {
+        params: {
+          prefix: params?.prefix,
+          cursor: params?.cursor,
+          limit: params?.limit,
+          delimiter: params?.delimiter,
+        },
       },
-    });
+    );
   }
 
   /**
-   * Get object metadata
+   * Get metadata for an R2 object
    */
   async getObjectMeta(bucket: string, key: string): Promise<R2ObjectInfo> {
-    return this.request<R2ObjectInfo>('GET', `/api/storage/${bucket}/meta/${key}`);
+    return this.request<R2ObjectInfo>(
+      'GET',
+      `/api/storage/${encodeURIComponent(bucket)}/meta/${encodeURIComponent(key)}`,
+    );
   }
 
   /**
-   * Download an object (returns raw response)
+   * Download an R2 object with its metadata
    */
   async downloadObject(
     bucket: string,
     key: string,
   ): Promise<{ meta: R2ObjectInfo; body: ArrayBuffer }> {
     const meta = await this.getObjectMeta(bucket, key);
-    const response = await this.requestRaw('GET', `/api/storage/${bucket}/objects/${key}`);
+    const response = await this.requestRaw(
+      'GET',
+      `/api/storage/${encodeURIComponent(bucket)}/objects/${encodeURIComponent(key)}`,
+    );
     const body = await response.arrayBuffer();
     return { meta, body };
   }
 
   /**
-   * Upload an object via multipart form data
+   * Upload a file to an R2 bucket
    */
   async uploadObject(
     bucket: string,
     key: string,
-    content: Blob | File,
+    content: Blob | Buffer,
     contentType: string,
     options?: { overwrite?: boolean },
-  ): Promise<R2ObjectInfo> {
+  ): Promise<R2UploadResponse> {
     const formData = new FormData();
+    const blob =
+      content instanceof Blob
+        ? content
+        : new Blob([new Uint8Array(content)], { type: contentType });
+    formData.append('file', blob, key.split('/').pop() ?? 'file');
     formData.append('key', key);
-    formData.append('file', new Blob([content], { type: contentType }), key.split('/').pop());
-    if (options?.overwrite) formData.append('overwrite', 'true');
-    return this.requestMultipart<R2ObjectInfo>(`/api/storage/${bucket}/upload`, formData);
+    if (options?.overwrite) {
+      formData.append('overwrite', 'true');
+    }
+    return this.requestMultipart<R2UploadResponse>(
+      `/api/storage/${encodeURIComponent(bucket)}/upload`,
+      formData,
+    );
   }
 
   /**
-   * Delete an object
+   * Delete an R2 object
    */
   async deleteObject(bucket: string, key: string): Promise<void> {
-    await this.request<void>('DELETE', `/api/storage/${bucket}/objects/${key}`);
+    await this.request<void>(
+      'DELETE',
+      `/api/storage/${encodeURIComponent(bucket)}/objects/${encodeURIComponent(key)}`,
+    );
   }
 
   /**
-   * Rename/move an object within a bucket
+   * Rename/move an R2 object
    */
   async renameObject(bucket: string, oldKey: string, newKey: string): Promise<R2ObjectInfo> {
-    return this.request<R2ObjectInfo>('POST', `/api/storage/${bucket}/rename`, {
+    return this.request<R2ObjectInfo>('POST', `/api/storage/${encodeURIComponent(bucket)}/rename`, {
       body: { oldKey, newKey },
     });
   }
@@ -477,22 +509,26 @@ export class EdgeRouterClient {
     destinationBucket: string,
     destinationKey?: string,
   ): Promise<R2ObjectInfo> {
-    return this.request<R2ObjectInfo>('POST', `/api/storage/${bucket}/move`, {
+    return this.request<R2ObjectInfo>('POST', `/api/storage/${encodeURIComponent(bucket)}/move`, {
       body: { key, destinationBucket, destinationKey },
     });
   }
 
   /**
-   * Update object HTTP metadata
+   * Update HTTP metadata for an R2 object
    */
   async updateObjectMetadata(
     bucket: string,
     key: string,
     metadata: R2UpdateMetadataParams,
   ): Promise<R2ObjectInfo> {
-    return this.request<R2ObjectInfo>('PUT', `/api/storage/${bucket}/metadata/${key}`, {
-      body: metadata,
-    });
+    return this.request<R2ObjectInfo>(
+      'PUT',
+      `/api/storage/${encodeURIComponent(bucket)}/metadata/${encodeURIComponent(key)}`,
+      {
+        body: metadata,
+      },
+    );
   }
 
   /**
@@ -516,7 +552,7 @@ export class EdgeRouterClient {
  *
  * Expected environment variables:
  * - EDGE_ROUTER_API_KEY: Admin API key (required)
- * - EDGE_ROUTER_URL: Base URL (default: 'https://henrychong.com')
+ * - EDGE_ROUTER_URL: Base URL (default: 'https://example.com')
  * - EDGE_ROUTER_DOMAIN: Default domain (optional)
  */
 export function createClientFromEnv(env?: Record<string, string | undefined>): EdgeRouterClient {
@@ -528,7 +564,7 @@ export function createClientFromEnv(env?: Record<string, string | undefined>): E
   }
 
   return new EdgeRouterClient({
-    baseUrl: resolvedEnv.EDGE_ROUTER_URL ?? 'https://henrychong.com',
+    baseUrl: resolvedEnv.EDGE_ROUTER_URL ?? 'https://example.com',
     apiKey,
     defaultDomain: resolvedEnv.EDGE_ROUTER_DOMAIN,
   });

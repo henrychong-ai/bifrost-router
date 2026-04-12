@@ -3,11 +3,11 @@ import { HTTPException } from 'hono/http-exception';
 import type { AppEnv, Bindings } from '../types';
 import { ALL_BUCKET_BINDINGS } from '../types';
 import { validateR2Key } from '../utils/path-validation';
+import { purgeR2CacheForObject } from '../utils/cache';
 import { recordAuditLog } from '../db/analytics';
 import type { AuditAction } from '@bifrost/shared';
 import type { R2ObjectInfo, AllR2BucketName } from '@bifrost/shared';
 import { ALL_R2_BUCKETS, READ_ONLY_BUCKETS } from '@bifrost/shared';
-import { purgeR2CacheForObject } from '../utils/cache';
 
 const DEFAULT_R2_COPY_SIZE_LIMIT_MB = 100;
 
@@ -616,7 +616,7 @@ storageRoutes.post('/:bucket/purge-cache/:key{.+}', async c => {
     c.executionCtx.waitUntil(
       recordAuditLog(c.env.DB, {
         action: 'r2_cache_purge' as AuditAction,
-        domain: 'storage',
+        domain: 'bifrost.example.com',
         path: `/${bucketName}/${key}`,
         actorLogin: actor.login,
         actorName: actor.name,

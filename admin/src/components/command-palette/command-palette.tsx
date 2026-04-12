@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Command } from 'cmdk';
 import {
@@ -9,12 +9,17 @@ import {
   Download,
   Globe,
   ClipboardList,
-  HardDrive,
   Plus,
   Search,
+  FileText,
+  Loader2,
+  HardDrive,
 } from 'lucide-react';
 import { useCommandPalette } from '@/hooks/use-command-palette';
 import { useKeyboardShortcut, getModifierKey } from '@/hooks/use-keyboard-shortcuts';
+import { useDebounce, useSearchRoutes } from '@/hooks';
+import { useRoutesFilters } from '@/context';
+import type { Route as RouteData } from '@/lib/schemas';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Kbd } from '@/components/ui/kbd';
 
@@ -27,9 +32,60 @@ interface CommandItemType {
   group: 'navigation' | 'analytics' | 'actions';
 }
 
+function RouteSearchItem({
+  route,
+  onSelect,
+}: {
+  route: RouteData;
+  onSelect: (route: RouteData) => void;
+}) {
+  const TypeIcon = { redirect: ArrowUpRight, proxy: Globe, r2: FileText }[route.type];
+  const typeStyles = {
+    redirect: 'bg-blue-100 text-blue-700 border-blue-200',
+    proxy: 'bg-amber-100 text-amber-700 border-amber-200',
+    r2: 'bg-gray-100 text-gray-700 border-gray-200',
+  }[route.type];
+
+  return (
+    <Command.Item
+      value={`route:${route.domain ?? ''}:${route.path}`}
+      onSelect={() => onSelect(route)}
+      className="relative flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-2 text-sm outline-none aria-selected:bg-accent aria-selected:text-accent-foreground"
+    >
+      <TypeIcon className="size-4 shrink-0 text-muted-foreground" />
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <div className="flex items-center gap-2">
+          <span className="truncate font-mono font-medium text-blue-600">{route.path}</span>
+          <span
+            className={`inline-flex shrink-0 items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${typeStyles}`}
+          >
+            {route.type}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          {route.domain && <span className="font-mono">{route.domain}</span>}
+          {route.domain && <span className="text-muted-foreground/50">&rarr;</span>}
+          <span className="truncate font-mono">{route.target}</span>
+        </div>
+      </div>
+    </Command.Item>
+  );
+}
+
 export function CommandPalette() {
   const { isOpen, close, toggle } = useCommandPalette();
   const navigate = useNavigate();
+  const { setFilters: setRoutesFilters } = useRoutesFilters();
+
+  // Route search state
+  const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 300);
+  const { data: searchResults, isLoading: isSearching } = useSearchRoutes(debouncedSearch);
+
+  const resetAndClose = useCallback(() => {
+    setSearch('');
+    close();
+  }, [close]);
 
   useKeyboardShortcut('k', toggle, { modifiers: ['cmd'], ignoreInputs: false });
 
@@ -128,37 +184,67 @@ export function CommandPalette() {
     (commandId: string) => {
       const command = commands.find(c => c.id === commandId);
       if (command) {
-        close();
+        resetAndClose();
         command.action();
       }
     },
-    [commands, close],
+    [commands, resetAndClose],
+  );
+
+  const handleRouteSelect = useCallback(
+    (route: RouteData) => {
+      resetAndClose();
+      setRoutesFilters({
+        search: route.path,
+      });
+      navigate('/routes');
+    },
+    [resetAndClose, navigate, setRoutesFilters],
+  );
+
+  const handleViewAllResults = useCallback(
+    (searchQuery: string) => {
+      resetAndClose();
+      setRoutesFilters({ search: searchQuery });
+      navigate('/routes');
+    },
+    [resetAndClose, navigate, setRoutesFilters],
   );
 
   useEffect(() => {
     if (isOpen) {
       const handleEscape = (e: KeyboardEvent) => {
         if (e.key === 'Escape') {
-          close();
+          resetAndClose();
         }
       };
       document.addEventListener('keydown', handleEscape);
       return () => document.removeEventListener('keydown', handleEscape);
     }
-  }, [isOpen, close]);
+  }, [isOpen, resetAndClose]);
 
   const navigationCommands = commands.filter(c => c.group === 'navigation');
   const analyticsCommands = commands.filter(c => c.group === 'analytics');
   const actionCommands = commands.filter(c => c.group === 'actions');
 
   return (
-    <Dialog open={isOpen} onOpenChange={open => !open && close()}>
-      <DialogContent className="overflow-hidden p-0 max-w-lg">
-        <Command className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-4 [&_[cmdk-item]_svg]:w-4">
+    <Dialog open={isOpen} onOpenChange={open => !open && resetAndClose()}>
+      <DialogContent className="max-w-lg overflow-hidden p-0">
+        <Command
+          filter={(value, search) => {
+            // Route search results: always show (already server-filtered)
+            if (value.startsWith('route:')) return 1;
+            // Static commands: substring matching
+            return value.toLowerCase().includes(search.toLowerCase()) ? 1 : 0;
+          }}
+          className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-4 [&_[cmdk-item]_svg]:w-4"
+        >
           <div className="flex items-center border-b px-3">
             <Search className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
             <Command.Input
-              placeholder="Type a command or search..."
+              value={search}
+              onValueChange={setSearch}
+              placeholder="Type a command or search routes..."
               className="flex h-12 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
             />
           </div>
@@ -188,6 +274,38 @@ export function CommandPalette() {
                 {actionCommands.map(command => (
                   <CommandItem key={command.id} command={command} onSelect={handleSelect} />
                 ))}
+              </Command.Group>
+            )}
+
+            {debouncedSearch.length >= 2 && isSearching && (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                <span className="ml-2 text-sm text-muted-foreground">Searching routes...</span>
+              </div>
+            )}
+
+            {debouncedSearch.length >= 2 && searchResults && searchResults.routes.length > 0 && (
+              <Command.Group
+                heading={`Routes (${searchResults.routes.length})`}
+                className="px-1 py-1.5"
+              >
+                {searchResults.routes.slice(0, 15).map(route => (
+                  <RouteSearchItem
+                    key={`${route.domain ?? ''}:${route.path}`}
+                    route={route}
+                    onSelect={handleRouteSelect}
+                  />
+                ))}
+                {searchResults.routes.length > 15 && (
+                  <Command.Item
+                    value="route:view-all"
+                    onSelect={() => handleViewAllResults(debouncedSearch)}
+                    className="relative flex cursor-pointer select-none items-center rounded-md px-2 py-2 text-sm italic text-muted-foreground outline-none aria-selected:bg-accent aria-selected:text-accent-foreground"
+                  >
+                    <Search className="mr-2 h-4 w-4" />
+                    <span>View all {searchResults.routes.length} results on Routes page</span>
+                  </Command.Item>
+                )}
               </Command.Group>
             )}
           </Command.List>

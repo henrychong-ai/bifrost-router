@@ -18,13 +18,13 @@ import {
 describe('schemas', () => {
   describe('DomainSchema', () => {
     it('accepts valid domains', () => {
-      expect(DomainSchema.safeParse('link.henrychong.com').success).toBe(true);
-      expect(DomainSchema.safeParse('henrychong.com').success).toBe(true);
+      expect(DomainSchema.safeParse('links.example.com').success).toBe(true);
+      expect(DomainSchema.safeParse('example.com').success).toBe(true);
       expect(DomainSchema.safeParse(undefined).success).toBe(true);
     });
 
     it('rejects invalid domains', () => {
-      expect(DomainSchema.safeParse('example.com').success).toBe(false);
+      expect(DomainSchema.safeParse('unsupported.example.org').success).toBe(false);
       expect(DomainSchema.safeParse('localhost').success).toBe(false);
     });
   });
@@ -114,7 +114,7 @@ describe('schemas', () => {
   describe('ListRoutesInputSchema', () => {
     it('accepts optional domain', () => {
       expect(ListRoutesInputSchema.safeParse({}).success).toBe(true);
-      expect(ListRoutesInputSchema.safeParse({ domain: 'henrychong.com' }).success).toBe(true);
+      expect(ListRoutesInputSchema.safeParse({ domain: 'example.com' }).success).toBe(true);
     });
   });
 
@@ -135,7 +135,7 @@ describe('schemas', () => {
         path: '/github',
         type: 'redirect',
         target: 'https://github.com/test',
-        domain: 'link.henrychong.com',
+        domain: 'links.example.com',
       });
       expect(result.success).toBe(true);
     });
@@ -162,13 +162,13 @@ describe('schemas', () => {
   describe('GetAnalyticsSummaryInputSchema', () => {
     it('accepts optional domain and days', () => {
       expect(GetAnalyticsSummaryInputSchema.safeParse({}).success).toBe(true);
-      expect(GetAnalyticsSummaryInputSchema.safeParse({ domain: 'henrychong.com' }).success).toBe(
+      expect(GetAnalyticsSummaryInputSchema.safeParse({ domain: 'example.com' }).success).toBe(
         true,
       );
       expect(GetAnalyticsSummaryInputSchema.safeParse({ days: 7 }).success).toBe(true);
       expect(
         GetAnalyticsSummaryInputSchema.safeParse({
-          domain: 'henrychong.com',
+          domain: 'example.com',
           days: 30,
         }).success,
       ).toBe(true);

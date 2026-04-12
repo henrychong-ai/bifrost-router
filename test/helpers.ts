@@ -5,7 +5,7 @@ import { routeKey, domainPrefix } from '../src/kv/schema';
 /**
  * Default test domain
  */
-export const TEST_DOMAIN = 'henrychong.com';
+export const TEST_DOMAIN = 'example.com';
 
 /**
  * Seed a single route into KV for testing
@@ -14,7 +14,7 @@ export const TEST_DOMAIN = 'henrychong.com';
  */
 export async function seedRoute(route: KVRouteConfig, domain = TEST_DOMAIN): Promise<void> {
   const kv = env.ROUTES;
-  // Store the route with domain prefix (e.g., "henrychong.com:/github")
+  // Store the route with domain prefix (e.g., "example.com:/github")
   await kv.put(routeKey(domain, route.path), JSON.stringify(route));
 }
 
@@ -52,7 +52,7 @@ export async function clearRoutes(domain = TEST_DOMAIN): Promise<void> {
  * Clear all routes from KV for all test domains
  */
 export async function clearAllRoutes(): Promise<void> {
-  const testDomains = ['henrychong.com', 'link.henrychong.com', 'vanessahung.net'];
+  const testDomains = ['example.com', 'links.example.com', 'secondary.example.net'];
   for (const domain of testDomains) {
     await clearRoutes(domain);
   }

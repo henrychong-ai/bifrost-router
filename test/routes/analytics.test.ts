@@ -8,7 +8,7 @@ describe('analytics routes', () => {
   const validApiKey = 'test-api-key-12345';
 
   // Create test env with ADMIN_API_DOMAIN set to enable domain restriction
-  const testEnv = { ...env, ADMIN_API_DOMAIN: 'henrychong.com' };
+  const testEnv = { ...env, ADMIN_API_DOMAIN: 'example.com' };
 
   // Initialize D1 database schema before tests
   beforeAll(async () => {
@@ -54,7 +54,7 @@ describe('analytics routes', () => {
   // Helper to make authenticated requests
   const makeRequest = (app: Hono<AppEnv>, path: string, options: RequestInit = {}) => {
     return app.fetch(
-      new Request(`http://henrychong.com${path}`, {
+      new Request(`http://example.com${path}`, {
         ...options,
         headers: {
           'X-Admin-Key': validApiKey,
@@ -70,7 +70,7 @@ describe('analytics routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://henrychong.com/api/analytics/summary'),
+        new Request('http://example.com/api/analytics/summary'),
         testEnv,
       );
 
@@ -81,7 +81,7 @@ describe('analytics routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://henrychong.com/api/analytics/clicks'),
+        new Request('http://example.com/api/analytics/clicks'),
         testEnv,
       );
 
@@ -92,7 +92,7 @@ describe('analytics routes', () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
       const response = await app.fetch(
-        new Request('http://henrychong.com/api/analytics/views'),
+        new Request('http://example.com/api/analytics/views'),
         testEnv,
       );
 
@@ -149,12 +149,12 @@ describe('analytics routes', () => {
     it('accepts domain parameter', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
-      const response = await makeRequest(app, '/api/analytics/summary?domain=henrychong.com');
+      const response = await makeRequest(app, '/api/analytics/summary?domain=example.com');
 
       expect(response.status).toBe(200);
       const data = await response.json();
       expect(data.success).toBe(true);
-      expect(data.data.domain).toBe('henrychong.com');
+      expect(data.data.domain).toBe('example.com');
     });
 
     it('validates days parameter range', async () => {
@@ -224,7 +224,7 @@ describe('analytics routes', () => {
 
       const response = await makeRequest(
         app,
-        '/api/analytics/clicks?domain=henrychong.com&country=SG&slug=/github',
+        '/api/analytics/clicks?domain=example.com&country=SG&slug=/github',
       );
 
       expect(response.status).toBe(200);

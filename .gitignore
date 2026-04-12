@@ -28,4 +28,3 @@ coverage/
 
 # Environment variables
 .env
-auth.env

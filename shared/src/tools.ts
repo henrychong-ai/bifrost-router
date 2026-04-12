@@ -42,7 +42,7 @@ export interface ToolDefinition {
  */
 const domainProperty: JsonSchemaProperty = {
   type: 'string',
-  description: `Target domain (e.g., 'link.henrychong.com'). Supported: ${SUPPORTED_DOMAINS.join(', ')}. Defaults to EDGE_ROUTER_DOMAIN env var if set.`,
+  description: `Target domain (e.g., 'links.example.com'). Supported: ${SUPPORTED_DOMAINS.join(', ')}. Defaults to EDGE_ROUTER_DOMAIN env var if set.`,
   enum: [...SUPPORTED_DOMAINS],
 };
 
@@ -56,26 +56,15 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: 'list_routes',
     description:
-      'List all routes configured for a domain. Supports search, filtering, and pagination. Returns route paths, types, targets, and enabled status.',
+      'List all routes configured for a domain. Supports full-text search across path, target, type, status code, bucket, and host header. Returns route paths, types, targets, and enabled status.',
     inputSchema: {
       type: 'object',
       properties: {
         domain: domainProperty,
         search: {
           type: 'string',
-          description: 'Search routes by path, target, type, or bucket (case-insensitive)',
-        },
-        limit: {
-          type: 'number',
-          description: 'Maximum routes to return (default: all, max: 1000)',
-          minimum: 1,
-          maximum: 1000,
-        },
-        offset: {
-          type: 'number',
-          description: 'Pagination offset (default: 0)',
-          minimum: 0,
-          default: 0,
+          description:
+            'Search term to filter routes. Matches against path, target URL, type, status code, bucket, and host header (case-insensitive).',
         },
       },
     },
@@ -396,7 +385,8 @@ export const toolDefinitions: ToolDefinition[] = [
   // ===========================================================================
   {
     name: 'list_buckets',
-    description: 'List R2 storage buckets with read-write or read-only access level for each.',
+    description:
+      'List R2 storage buckets accessible to the authenticated user, with read-write or read-only access level for each.',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -461,7 +451,7 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: 'get_object',
     description:
-      'Download an R2 object. Returns text preview for text files under 5MB, or metadata summary for binary/large files. Use metadata_only=true to skip content download.',
+      'Download an R2 object. Returns base64-encoded content for files under 5MB, or metadata with download URL for larger files. Use metadata_only=true to skip content download.',
     inputSchema: {
       type: 'object',
       properties: {

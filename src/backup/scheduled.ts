@@ -21,7 +21,10 @@ function getDateString(): string {
  * 1. Backup KV routes (all domains)
  * 2. Write manifest file
  *
- * D1 analytics are covered by Cloudflare D1 Time Travel (30-day point-in-time recovery).
+ * D1 analytics are NOT backed up here — Cloudflare D1 Time Travel
+ * provides automatic 30-day point-in-time recovery.
+ *
+ * KV backups are retained indefinitely (~8KB/day, negligible storage).
  *
  * @param env - Worker environment bindings
  * @returns Backup result with manifest or error

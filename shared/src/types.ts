@@ -16,12 +16,12 @@
 export const R2_BUCKETS = [
   'files',
   'assets',
-  'files-anjachong',
-  'files-davidchong',
-  'files-nadjachong',
-  'files-sonjachong',
-  'files-valeriehung',
-  'files-vanessahung',
+  'files-user1',
+  'files-user2',
+  'files-user3',
+  'files-user4',
+  'files-user5',
+  'files-user6',
 ] as const;
 
 export type R2BucketName = (typeof R2_BUCKETS)[number];
@@ -41,15 +41,15 @@ export function isValidR2Bucket(bucket: string): bucket is R2BucketName {
  * Supported domains for the edge router
  */
 export const SUPPORTED_DOMAINS = [
-  'henrychong.com',
-  'link.henrychong.com',
-  'bifrost.henrychong.com',
-  'vanessahung.net',
-  'davidchong.co',
-  'sonjachong.com',
-  'anjachong.com',
-  'kitkatcouple.com',
-  'valeriehung.com',
+  'example.com',
+  'links.example.com',
+  'bifrost.example.com',
+  'secondary.example.net',
+  'user1.example.com',
+  'user2.example.com',
+  'user3.example.com',
+  'couple.example.com',
+  'user5.example.com',
 ] as const;
 
 export type SupportedDomain = (typeof SUPPORTED_DOMAINS)[number];
@@ -150,78 +150,6 @@ export interface UpdateRouteInput {
   forceDownload?: boolean;
   bucket?: R2BucketName;
   enabled?: boolean;
-}
-
-// =============================================================================
-// R2 Storage Types
-// =============================================================================
-
-/**
- * All R2 buckets including read-only backup bucket
- */
-export const ALL_R2_BUCKETS = [...R2_BUCKETS, 'bifrost-backups'] as const;
-export type AllR2BucketName = (typeof ALL_R2_BUCKETS)[number];
-
-/**
- * Read-only buckets (no write operations allowed)
- */
-export const READ_ONLY_BUCKETS: readonly AllR2BucketName[] = ['bifrost-backups'];
-
-/**
- * R2 object metadata
- */
-export interface R2ObjectInfo {
-  key: string;
-  size: number;
-  etag: string;
-  uploaded: string;
-  httpMetadata?: {
-    contentType?: string;
-    cacheControl?: string;
-    contentDisposition?: string;
-    contentLanguage?: string;
-    contentEncoding?: string;
-  };
-  customMetadata?: Record<string, string>;
-}
-
-/**
- * R2 list response
- */
-export interface R2ListResponse {
-  objects: R2ObjectInfo[];
-  truncated: boolean;
-  cursor?: string;
-  delimitedPrefixes: string[];
-}
-
-/**
- * R2 buckets response
- */
-export interface R2BucketsResponse {
-  buckets: Array<{
-    name: AllR2BucketName;
-    access: 'read-write' | 'read-only';
-  }>;
-}
-
-/**
- * R2 list objects query params
- */
-export interface R2ListObjectsParams {
-  prefix?: string;
-  cursor?: string;
-  limit?: number;
-  delimiter?: string;
-}
-
-/**
- * R2 update metadata params
- */
-export interface R2UpdateMetadataParams {
-  contentType?: string;
-  cacheControl?: string;
-  contentDisposition?: string;
 }
 
 // =============================================================================
@@ -398,6 +326,86 @@ export interface AnalyticsQueryOptions {
 }
 
 // =============================================================================
+// R2 Storage Types (for Storage API)
+// =============================================================================
+
+/**
+ * All R2 buckets including read-only backup bucket
+ */
+export const ALL_R2_BUCKETS = [...R2_BUCKETS, 'bifrost-backups'] as const;
+export type AllR2BucketName = (typeof ALL_R2_BUCKETS)[number];
+
+/**
+ * Read-only buckets (no write operations allowed)
+ */
+export const READ_ONLY_BUCKETS: readonly AllR2BucketName[] = ['bifrost-backups'];
+
+/**
+ * R2 object metadata
+ */
+export interface R2ObjectInfo {
+  key: string;
+  size: number;
+  etag: string;
+  uploaded: string;
+  httpMetadata?: {
+    contentType?: string;
+    cacheControl?: string;
+    contentDisposition?: string;
+    contentLanguage?: string;
+    contentEncoding?: string;
+  };
+  customMetadata?: Record<string, string>;
+}
+
+/**
+ * R2 list response
+ */
+export interface R2ListResponse {
+  objects: R2ObjectInfo[];
+  truncated: boolean;
+  cursor?: string;
+  delimitedPrefixes: string[];
+}
+
+/**
+ * R2 buckets response
+ */
+export interface R2BucketsResponse {
+  buckets: Array<{
+    name: AllR2BucketName;
+    access: 'read-write' | 'read-only';
+  }>;
+}
+
+/**
+ * R2 upload response
+ */
+export interface R2UploadResponse extends R2ObjectInfo {
+  routeCreated?: boolean;
+  routeError?: string;
+}
+
+/**
+ * R2 list objects query params
+ */
+export interface R2ListObjectsParams {
+  prefix?: string;
+  cursor?: string;
+  limit?: number;
+  delimiter?: string;
+}
+
+/**
+ * R2 update metadata params
+ */
+export interface R2UpdateMetadataParams {
+  contentType?: string;
+  cacheControl?: string;
+  contentDisposition?: string;
+}
+
+// =============================================================================
 // Permission Types (for Slackbot)
 // =============================================================================
 
@@ -443,15 +451,18 @@ export const TOOL_PERMISSIONS: Record<string, PermissionLevel> = {
   // Admin operations
   delete_route: 'admin',
 
-  // Storage operations
+  // Storage read operations
   list_buckets: 'read',
   list_objects: 'read',
   get_object_meta: 'read',
   get_object: 'read',
+
+  // Storage edit operations
   upload_object: 'edit',
   rename_object: 'edit',
-  move_object: 'edit',
   update_object_metadata: 'edit',
+
+  // Storage admin operations
   delete_object: 'admin',
 };
 

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import type { AppEnv } from '../types';
+import type { AppEnv, KVRouteConfig } from '../types';
 import { SUPPORTED_DOMAINS, isValidDomain } from '../types';
 import { CreateRouteSchema, UpdateRouteSchema, SCHEMA_VERSION } from '../kv/schema';
 import {
@@ -75,7 +75,7 @@ type RequiredDomainParseResult =
 
 /**
  * Get target domain from request (required for mutations)
- * Priority: X-Domain header > ?domain query param > ADMIN_API_DOMAIN env var > henrychong.com fallback
+ * Priority: X-Domain header > ?domain query param > ADMIN_API_DOMAIN env var > example.com fallback
  * Returns validation result - if invalid domain provided, returns validation failure
  */
 function getRequiredDomainFromRequest(c: {
@@ -90,8 +90,8 @@ function getRequiredDomainFromRequest(c: {
     // Invalid domain provided - caller should return 400
     return result;
   }
-  // Default to ADMIN_API_DOMAIN from env, or 'henrychong.com' as fallback
-  const defaultDomain = c.env.ADMIN_API_DOMAIN || 'henrychong.com';
+  // Default to ADMIN_API_DOMAIN from env, or 'example.com' as fallback
+  const defaultDomain = c.env.ADMIN_API_DOMAIN || 'example.com';
   return { valid: true, domain: result.domain ?? defaultDomain };
 }
 
@@ -149,9 +149,9 @@ adminRoutes.use(
   '*',
   cors({
     origins: [
-      'https://bifrost.henrychong.com',
-      'https://henrychong.com',
-      'https://bifrost.parrot-lizard.ts.net', // Admin dashboard on Tailscale
+      'https://bifrost.example.com',
+      'https://example.com',
+      'https://bifrost.your-tailnet.ts.net', // Admin dashboard on Tailscale
       'http://localhost:3001', // Local development (API key still required)
     ],
   }),
@@ -242,8 +242,8 @@ adminRoutes.get('/routes', async c => {
 
   const domain = domainResult.domain;
 
-  // Parse search/filter/pagination query params
-  const queryResult = RoutesListQuerySchema.safeParse({
+  // Parse search/pagination query params
+  const queryParams = RoutesListQuerySchema.safeParse({
     limit: c.req.query('limit'),
     offset: c.req.query('offset'),
     search: c.req.query('search'),
@@ -251,81 +251,86 @@ adminRoutes.get('/routes', async c => {
     enabled: c.req.query('enabled'),
   });
 
-  if (!queryResult.success) {
-    return c.json(
-      {
-        success: false,
-        error: 'Invalid query parameters',
-        details: queryResult.error.issues,
-      },
-      400,
-    );
-  }
-
-  const { limit, offset, search, type, enabled } = queryResult.data;
+  const {
+    limit,
+    offset,
+    search,
+    type: typeFilter,
+    enabled: enabledFilter,
+  } = queryParams.success
+    ? queryParams.data
+    : { limit: undefined, offset: 0, search: undefined, type: undefined, enabled: undefined };
 
   // Get all routes for domain(s)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let routes: any[];
+  type RouteWithDomain = KVRouteConfig & { domain?: string };
+  let allRoutes: RouteWithDomain[];
+  let version: string;
+  let updatedAt: number;
+
   if (domain) {
-    const domainRoutes = await getAllRoutes(c.env.ROUTES, domain);
-    routes = domainRoutes.map(r => ({ ...r, domain }));
+    const routes = await getAllRoutes(c.env.ROUTES, domain);
+    const meta = await getMetadata(c.env.ROUTES, domain);
+    allRoutes = routes.map(r => ({ ...r, domain }));
+    version = meta?.version ?? SCHEMA_VERSION;
+    updatedAt = meta?.updatedAt ?? Date.now();
   } else {
-    routes = await getAllRoutesAllDomains(c.env.ROUTES);
+    allRoutes = await getAllRoutesAllDomains(c.env.ROUTES);
+    version = SCHEMA_VERSION;
+    updatedAt = Date.now();
   }
 
-  // Apply search filter (case-insensitive substring across multiple fields)
-  let filtered = routes;
+  // Apply filters
+  let filteredRoutes = allRoutes;
+
+  // Search filter: case-insensitive substring match across multiple fields
   if (search) {
     const searchLower = search.toLowerCase();
-    filtered = filtered.filter(r => {
-      const searchFields = [
-        String(r.path || ''),
-        String(r.target || ''),
-        String(r.type || ''),
-        String(r.statusCode || ''),
-        String(r.bucket || ''),
-        String(r.hostHeader || ''),
-        String(r.domain || ''),
+    filteredRoutes = filteredRoutes.filter(r => {
+      const fields = [
+        r.path ?? '',
+        r.target ?? '',
+        r.type ?? '',
+        String(r.statusCode ?? ''),
+        r.bucket ?? '',
+        r.hostHeader ?? '',
       ];
-      return searchFields.some(f => f.toLowerCase().includes(searchLower));
+      return fields.some(f => f.toLowerCase().includes(searchLower));
     });
   }
 
-  // Apply type filter
-  if (type) {
-    filtered = filtered.filter(r => r.type === type);
+  // Type filter
+  if (typeFilter) {
+    filteredRoutes = filteredRoutes.filter(r => r.type === typeFilter);
   }
 
-  // Apply enabled filter
-  if (enabled !== undefined) {
-    const isEnabled = enabled === 'true';
-    filtered = filtered.filter(r => (r.enabled !== false) === isEnabled);
+  // Enabled filter
+  if (enabledFilter !== undefined) {
+    const isEnabled = enabledFilter === 'true';
+    filteredRoutes = filteredRoutes.filter(r => (r.enabled !== false) === isEnabled);
   }
 
-  const total = filtered.length;
+  const total = filteredRoutes.length;
 
   // Apply pagination (only if limit is provided)
-  if (limit) {
-    filtered = filtered.slice(offset, offset + limit);
+  if (limit !== undefined) {
+    filteredRoutes = filteredRoutes.slice(offset, offset + limit);
+  } else if (offset > 0) {
+    filteredRoutes = filteredRoutes.slice(offset);
   }
-
-  const meta = domain
-    ? await getMetadata(c.env.ROUTES, domain)
-    : { version: SCHEMA_VERSION, updatedAt: Date.now(), count: total };
 
   return c.json({
     success: true,
     data: {
-      routes: filtered,
+      routes: filteredRoutes,
       meta: {
-        ...meta,
+        version,
+        updatedAt,
+        count: filteredRoutes.length,
         total,
-        count: filtered.length,
         offset,
-        hasMore: limit ? offset + limit < total : false,
+        hasMore: offset + filteredRoutes.length < total,
       },
-      targetDomain: domain ?? 'all',
+      targetDomain: domain || 'all',
       supportedDomains: SUPPORTED_DOMAINS,
     },
   });
@@ -377,7 +382,7 @@ adminRoutes.post('/routes', async c => {
     );
   }
 
-  // Case-insensitive path conflict check
+  // Check for case-insensitive path conflict
   const allRoutes = await getAllRoutes(c.env.ROUTES, domain);
   const pathLower = result.data.path.toLowerCase();
   const caseConflict = allRoutes.find(
@@ -950,15 +955,15 @@ adminRoutes.get('/routes/by-target', async c => {
 });
 
 /**
+ * Storage API routes
+ * Mounted at /api/storage/*
+ * Inherits domain restriction, CORS, and auth from parent middleware
+ */
+adminRoutes.route('/storage', storageRoutes);
+
+/**
  * Analytics API routes
  * Mounted at /api/analytics/*
  * Inherits domain restriction, CORS, and auth from parent middleware
  */
 adminRoutes.route('/analytics', analyticsRoutes);
-
-/**
- * R2 Storage management routes
- * Mounted at /api/storage/*
- * Inherits domain restriction, CORS, and auth from parent middleware
- */
-adminRoutes.route('/storage', storageRoutes);

@@ -96,7 +96,6 @@ describe('tools', () => {
       expect(toolCategories.delete_route).toBe('route');
       expect(toolCategories.toggle_route).toBe('route');
       expect(toolCategories.migrate_route).toBe('route');
-      expect(toolCategories.transfer_route).toBe('route');
     });
 
     it('maps analytics tools correctly', () => {
@@ -114,9 +113,7 @@ describe('tools', () => {
       expect(toolCategories.upload_object).toBe('storage');
       expect(toolCategories.delete_object).toBe('storage');
       expect(toolCategories.rename_object).toBe('storage');
-      expect(toolCategories.move_object).toBe('storage');
       expect(toolCategories.update_object_metadata).toBe('storage');
-      expect(toolCategories.purge_cache).toBe('storage');
     });
   });
 

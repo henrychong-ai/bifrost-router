@@ -10,7 +10,7 @@ describe('EdgeRouterClient', () => {
     client = new EdgeRouterClient({
       baseUrl: 'https://test.example.com',
       apiKey: 'test-api-key',
-      defaultDomain: 'link.henrychong.com',
+      defaultDomain: 'links.example.com',
       fetch: mockFetch,
     });
   });
@@ -47,7 +47,7 @@ describe('EdgeRouterClient', () => {
       await client.listRoutes();
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://test.example.com/api/routes?domain=link.henrychong.com',
+        'https://test.example.com/api/routes?domain=links.example.com',
         expect.objectContaining({
           method: 'GET',
           headers: {
@@ -64,15 +64,15 @@ describe('EdgeRouterClient', () => {
         json: async () => ({ success: true, data: [] }),
       });
 
-      await client.listRoutes('henrychong.com');
+      await client.listRoutes('example.com');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://test.example.com/api/routes?domain=henrychong.com',
+        'https://test.example.com/api/routes?domain=example.com',
         expect.any(Object),
       );
     });
 
-    it('returns routes and total', async () => {
+    it('returns routes array', async () => {
       const mockRoutes = [{ path: '/test', type: 'redirect', target: 'https://example.com' }];
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -83,9 +83,9 @@ describe('EdgeRouterClient', () => {
         }),
       });
 
-      const result = await client.listRoutes();
+      const routes = await client.listRoutes();
 
-      expect(result).toEqual({ routes: mockRoutes, total: 1 });
+      expect(routes).toEqual(mockRoutes);
     });
   });
 
@@ -235,7 +235,7 @@ describe('EdgeRouterClient', () => {
       await client.getAnalyticsSummary({ days: 7 });
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://test.example.com/api/analytics/summary?domain=link.henrychong.com&days=7',
+        'https://test.example.com/api/analytics/summary?domain=links.example.com&days=7',
         expect.any(Object),
       );
     });
@@ -326,7 +326,7 @@ describe('createClientFromEnv', () => {
     const client = createClientFromEnv({
       EDGE_ROUTER_API_KEY: 'test-key',
       EDGE_ROUTER_URL: 'https://custom.com',
-      EDGE_ROUTER_DOMAIN: 'henrychong.com',
+      EDGE_ROUTER_DOMAIN: 'example.com',
     });
 
     expect(client).toBeInstanceOf(EdgeRouterClient);

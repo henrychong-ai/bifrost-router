@@ -243,13 +243,12 @@ export async function uploadObject(
       contentType = detected;
     }
 
-    // Check size limit (for base64 mode; file_path mode checked above via stat.size)
+    // Check size limit
     if (buffer.length > MAX_UPLOAD_SIZE) {
       return `Error: File size (${formatSize(buffer.length)}) exceeds maximum upload size of ${formatSize(MAX_UPLOAD_SIZE)}.`;
     }
 
-    const blob = new Blob([buffer], { type: contentType });
-    const result = await client.uploadObject(args.bucket, args.key, blob, contentType, {
+    const result = await client.uploadObject(args.bucket, args.key, buffer, contentType, {
       overwrite: args.overwrite,
     });
 
@@ -263,6 +262,13 @@ export async function uploadObject(
 
     if (source) {
       lines.push(`Source: ${source}`);
+    }
+
+    if (result.routeCreated) {
+      lines.push('', 'Route created automatically.');
+    }
+    if (result.routeError) {
+      lines.push('', `Route creation failed: ${result.routeError}`);
     }
 
     return lines.join('\n');

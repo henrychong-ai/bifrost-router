@@ -141,7 +141,7 @@ describe('recording functions', () => {
   describe('recordClick', () => {
     it('inserts a row with minimal required fields', async () => {
       const data: LinkClickData = {
-        domain: 'link.example.com',
+        domain: 'links.example.com',
         slug: '/minimal',
         targetUrl: 'https://example.com',
       };
@@ -154,7 +154,7 @@ describe('recording functions', () => {
 
       expect(result.results.length).toBe(1);
       const row = result.results[0];
-      expect(row.domain).toBe('link.example.com');
+      expect(row.domain).toBe('links.example.com');
       expect(row.slug).toBe('/minimal');
       expect(row.target_url).toBe('https://example.com');
       expect(row.query_string).toBeNull();
@@ -172,9 +172,9 @@ describe('recording functions', () => {
 
     it('inserts a row with all optional fields populated', async () => {
       const data: LinkClickData = {
-        domain: 'link.example.com',
+        domain: 'links.example.com',
         slug: '/full-click',
-        targetUrl: 'https://github.com/your-username',
+        targetUrl: 'https://github.com/example-user',
         queryString: '?utm_source=twitter',
         referrer: 'https://twitter.com',
         userAgent: 'Mozilla/5.0',
@@ -195,9 +195,9 @@ describe('recording functions', () => {
 
       expect(result.results.length).toBe(1);
       const row = result.results[0];
-      expect(row.domain).toBe('link.example.com');
+      expect(row.domain).toBe('links.example.com');
       expect(row.slug).toBe('/full-click');
-      expect(row.target_url).toBe('https://github.com/your-username');
+      expect(row.target_url).toBe('https://github.com/example-user');
       expect(row.query_string).toBe('?utm_source=twitter');
       expect(row.referrer).toBe('https://twitter.com');
       expect(row.user_agent).toBe('Mozilla/5.0');
@@ -211,15 +211,18 @@ describe('recording functions', () => {
     });
 
     it('does not throw on database error (swallows errors)', async () => {
+      // Pass an object that would cause the recording to fail internally
+      // by using an invalid DB (cast to satisfy TS)
       const fakeDb = {
         prepare: () => {
           throw new Error('DB unavailable');
         },
       } as unknown as D1Database;
 
+      // Should not throw -- errors are swallowed
       await expect(
         recordClick(fakeDb, {
-          domain: 'link.example.com',
+          domain: 'links.example.com',
           slug: '/err',
           targetUrl: 'https://example.com',
         }),
@@ -525,8 +528,8 @@ describe('recording functions', () => {
       const data: AuditLogData = {
         domain: 'example.com',
         action: 'update',
-        actorLogin: 'admin@example.com',
-        actorName: 'Admin User',
+        actorLogin: 'henry@example.com',
+        actorName: 'Henry Chong',
         path: '/linkedin',
         details: JSON.stringify({ before: { target: 'old' }, after: { target: 'new' } }),
         ipAddress: '10.0.0.5',
@@ -537,15 +540,15 @@ describe('recording functions', () => {
       const result = await env.DB.prepare(
         "SELECT * FROM audit_logs WHERE action = 'update' AND actor_login = ?",
       )
-        .bind('admin@example.com')
+        .bind('henry@example.com')
         .all();
 
       expect(result.results.length).toBe(1);
       const row = result.results[0];
       expect(row.domain).toBe('example.com');
       expect(row.action).toBe('update');
-      expect(row.actor_login).toBe('admin@example.com');
-      expect(row.actor_name).toBe('Admin User');
+      expect(row.actor_login).toBe('henry@example.com');
+      expect(row.actor_name).toBe('Henry Chong');
       expect(row.path).toBe('/linkedin');
       expect(row.details).toBe(
         JSON.stringify({ before: { target: 'old' }, after: { target: 'new' } }),
@@ -554,7 +557,16 @@ describe('recording functions', () => {
     });
 
     it('records all audit action types', async () => {
-      const actions = ['delete', 'toggle', 'seed', 'migrate'] as const;
+      const actions = [
+        'delete',
+        'toggle',
+        'seed',
+        'migrate',
+        'r2_upload',
+        'r2_delete',
+        'r2_rename',
+        'r2_metadata_update',
+      ] as const;
 
       for (const action of actions) {
         await recordAuditLog(env.DB, {

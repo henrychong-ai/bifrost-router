@@ -2,14 +2,14 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   useRoutes,
-  usePrefetchAllDomainRoutes,
-  routeKeys,
   useCreateRoute,
   useUpdateRoute,
   useDeleteRoute,
   useToggleRoute,
   useMigrateRoute,
   useTransferRoute,
+  usePrefetchAllDomainRoutes,
+  routeKeys,
   useDebounce,
 } from '@/hooks';
 import { useQueryClient } from '@tanstack/react-query';
@@ -74,11 +74,11 @@ import {
   Power,
   PowerOff,
   ExternalLink,
+  Copy,
   HardDrive,
   Search,
   X,
   Info,
-  Copy,
 } from 'lucide-react';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
@@ -138,7 +138,7 @@ function RouteForm(props: RouteFormProps) {
     forceDownload: route?.forceDownload ?? false,
     bucket: (route?.bucket || 'files') as R2BucketName,
     enabled: route?.enabled ?? true,
-    domain: 'henrychong.com' as SupportedDomain, // Default to henrychong.com
+    domain: 'example.com' as SupportedDomain, // Default to example.com
   });
 
   // Duplicate target detection across all accessible domains
@@ -157,7 +157,7 @@ function RouteForm(props: RouteFormProps) {
     return matches;
   }, [formData.target, allDomainRoutes, mode, route]);
 
-  // Case-insensitive path conflict detection
+  // Case-insensitive path conflict detection (e.g. /test1 vs /TEST1 on same domain)
   const pathCaseConflicts = useMemo(() => {
     if (!formData.path || !allDomainRoutes) return [];
     const pathLower = formData.path.toLowerCase();
@@ -706,7 +706,7 @@ export function RoutesPage() {
     const map = new Map<string, Route[]>();
     for (const domain of SUPPORTED_DOMAINS) {
       const cached = queryClient.getQueryData<{ routes: Route[] }>(
-        routeKeys.list({ domain, limit: 1000 }),
+        routeKeys.list(domain, undefined, 1000),
       );
       if (cached) map.set(domain, cached.routes);
     }

@@ -87,8 +87,8 @@ describe('copyToClipboard', () => {
   test('copies text and shows success toast', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
-    await copyToClipboard('https://example.com/test');
-    expect(writeText).toHaveBeenCalledWith('https://example.com/test');
+    await copyToClipboard('https://links.example.com/test');
+    expect(writeText).toHaveBeenCalledWith('https://links.example.com/test');
     const { toast } = await import('sonner');
     expect(toast.success).toHaveBeenCalledWith('Link copied to clipboard');
   });

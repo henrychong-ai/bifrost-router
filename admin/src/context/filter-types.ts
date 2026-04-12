@@ -5,15 +5,15 @@ import type { AuditAction } from '@/lib/schemas';
  * Supported domains for route management
  */
 export const SUPPORTED_DOMAINS = [
-  'henrychong.com',
-  'link.henrychong.com',
-  'bifrost.henrychong.com',
-  'vanessahung.net',
-  'davidchong.co',
-  'sonjachong.com',
-  'anjachong.com',
-  'kitkatcouple.com',
-  'valeriehung.com',
+  'example.com',
+  'links.example.com',
+  'bifrost.example.com',
+  'secondary.example.net',
+  'user1.example.com',
+  'user2.example.com',
+  'user3.example.com',
+  'couple.example.com',
+  'user5.example.com',
 ] as const;
 
 export type SupportedDomain = (typeof SUPPORTED_DOMAINS)[number];

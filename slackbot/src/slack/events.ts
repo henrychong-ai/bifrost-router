@@ -144,10 +144,11 @@ function extractDomain(text: string): string | undefined {
   // Match common domain patterns
   const patterns = [
     /(?:for|on)\s+([a-z0-9][a-z0-9-]*\.(?:com|net|co|io))/i,
-    /([a-z0-9][a-z0-9-]*\.(?:henrychong|vanessahung|davidchong|sonjachong|anjachong|kitkatcouple|valeriehung)\.(?:com|net|co))/i,
-    /(link\.henrychong\.com)/i,
-    /(henrychong\.com)/i,
-    /(vanessahung\.net)/i,
+    // Add your subdomain patterns here, e.g.:
+    // /([a-z0-9][a-z0-9-]*\.example\.com)/i,
+    /(links\.example\.com)/i,
+    /(example\.com)/i,
+    /(secondary\.example\.net)/i,
   ];
 
   for (const pattern of patterns) {
@@ -215,7 +216,7 @@ async function executeCommand(
 ): Promise<string> {
   // Determine default domain
   const accessibleDomains = getAccessibleDomains(permissions);
-  const domain = command.domain || accessibleDomains[0] || 'link.henrychong.com';
+  const domain = command.domain || accessibleDomains[0] || 'links.example.com';
 
   try {
     switch (command.action) {
@@ -225,7 +226,7 @@ async function executeCommand(
           return formatPermissionDenied(check.message || 'Permission denied');
         }
 
-        const { routes } = await client.listRoutes(domain);
+        const routes = await client.listRoutes(domain);
         return formatRouteList(routes, domain);
       }
 

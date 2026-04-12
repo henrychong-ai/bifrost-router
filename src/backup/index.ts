@@ -4,12 +4,14 @@
  * Automated daily backups of KV routes to R2.
  * Triggered by Cloudflare Workers cron at 8 PM UTC (4 AM SGT).
  *
- * D1 analytics are covered by Cloudflare D1 Time Travel (30-day point-in-time recovery).
- *
  * Backup structure:
  *   daily/YYYYMMDD/
  *     manifest.json      - Backup metadata and file listing
  *     kv-routes.ndjson.gz - All KV routes (compressed NDJSON)
+ *
+ * Retention: Indefinite (KV backups are ~8KB/day).
+ *
+ * D1 analytics are covered by Cloudflare D1 Time Travel (30-day PITR).
  */
 
 export { handleScheduled } from './scheduled';

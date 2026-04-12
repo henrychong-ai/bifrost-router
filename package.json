@@ -1,6 +1,6 @@
 {
   "name": "bifrost",
-  "version": "1.20.1",
+  "version": "1.21.1",
   "description": "Bifrost - Edge router with Cloudflare Workers and Hono",
   "type": "module",
   "private": true,
@@ -13,7 +13,7 @@
     "lint:fix": "oxlint --ignore-pattern 'scripts/**' --fix --max-warnings=0",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm run test",
+    "check": "pnpm run lint && pnpm -C admin run lint && pnpm run format:check && pnpm run -r typecheck && pnpm run test && pnpm run -r test",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -36,10 +36,6 @@
   ],
   "author": "Henry Chong",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/henrychong-ai/bifrost-router.git"
-  },
   "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319",
   "engines": {
     "node": ">=24.0.0"
@@ -54,13 +50,13 @@
     "@biomejs/biome": "^2.4.9",
     "@cloudflare/vitest-pool-workers": "^0.12.21",
     "@cloudflare/workers-types": "^4.20260329.1",
-    "@vitest/coverage-v8": "^3.1.0",
+    "@vitest/coverage-v8": "^3.2.4",
     "drizzle-kit": "^0.31.10",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
     "oxlint": "^1.57.0",
     "typescript": "^5.9.3",
-    "vitest": "^3.1.0",
+    "vitest": "^3.2.4",
     "wrangler": "4.78.0"
   },
   "pnpm": {
@@ -70,7 +66,7 @@
       "picomatch": ">=4.0.4",
       "micromatch>picomatch": "^2.3.2",
       "yaml": ">=2.8.3",
-      "devalue": ">=5.6.4",
+      "devalue": ">=5.6.2",
       "qs": ">=6.14.2",
       "minimatch": ">=10.2.3",
       "rollup": ">=4.59.0",
@@ -79,9 +75,12 @@
       "@hono/node-server": ">=1.19.13",
       "path-to-regexp@>=8.0.0 <8.4.0": ">=8.4.0",
       "brace-expansion@>=4.0.0 <5.0.5": ">=5.0.5",
-      "vite@>=7.0.0 <7.3.2": ">=7.3.2",
-      "defu": ">=6.1.5"
-    }
+      "vite@>=7.0.0 <7.3.2": ">=7.3.2"
+    },
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "workerd"
+    ]
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [

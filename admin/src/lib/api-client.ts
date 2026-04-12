@@ -19,7 +19,6 @@ import {
   type AnalyticsQueryParams,
   type PaginationQueryParams,
   type AuditQueryParams,
-  type RoutesListMeta,
   ApiResponseSchema,
   RoutesListResponseSchema,
   RouteResponseSchema,
@@ -39,7 +38,7 @@ import {
 // =============================================================================
 
 const API_BASE = env.VITE_API_URL;
-const API_KEY = env.VITE_ADMIN_API_KEY;
+const API_KEY = env.ADMIN_API_KEY;
 
 class ApiError extends Error {
   status: number;
@@ -92,24 +91,40 @@ function buildQueryString(params: Record<string, string | number | undefined>): 
 // Routes API
 // =============================================================================
 
-export interface RoutesListParams {
-  domain?: string;
-  search?: string;
-  limit?: number;
-  offset?: number;
-}
-
 export const routesApi = {
   /**
-   * List routes with optional search, filtering, and pagination
+   * List all routes for a domain with optional search and pagination
+   * @param domain - Optional domain to filter routes (defaults to example.com)
+   * @param options - Optional search, limit, and offset parameters
    */
-  async list(params: RoutesListParams = {}): Promise<{ routes: Route[]; meta?: RoutesListMeta }> {
-    const query = buildQueryString(params as Record<string, string | number | undefined>);
+  async list(
+    domain?: string,
+    options?: { search?: string; limit?: number; offset?: number },
+  ): Promise<{
+    routes: Route[];
+    total: number;
+    offset: number;
+    hasMore: boolean;
+  }> {
+    const query = buildQueryString({
+      domain,
+      search: options?.search,
+      limit: options?.limit,
+      offset: options?.offset,
+    });
     const response = await fetchApi(`/api/routes${query}`, RoutesListResponseSchema);
     if (!response.success || !response.data) {
       throw new ApiError(500, response.error || 'Failed to fetch routes');
     }
-    return { routes: response.data.routes, meta: response.data.meta };
+    const meta = (response.data as Record<string, unknown>).meta as
+      | { total?: number; offset?: number; hasMore?: boolean }
+      | undefined;
+    return {
+      routes: response.data.routes,
+      total: meta?.total ?? response.data.routes.length,
+      offset: meta?.offset ?? 0,
+      hasMore: meta?.hasMore ?? false,
+    };
   },
 
   /**
@@ -506,15 +521,10 @@ export const metadataApi = {
 };
 
 // =============================================================================
-// Storage API
+// Storage API Types
 // =============================================================================
 
-export interface StorageBucket {
-  name: string;
-  access: 'read-write' | 'read-only';
-}
-
-export interface StorageObject {
+export interface R2ObjectInfo {
   key: string;
   size: number;
   etag: string;
@@ -529,8 +539,8 @@ export interface StorageObject {
   customMetadata?: Record<string, string>;
 }
 
-export interface StorageListResponse {
-  objects: StorageObject[];
+export interface R2ListResponse {
+  objects: R2ObjectInfo[];
   truncated: boolean;
   cursor?: string;
   delimitedPrefixes: string[];
@@ -543,27 +553,94 @@ export interface StorageListParams {
   delimiter?: string;
 }
 
-const StorageBucketsResponseSchema = z.object({
-  success: z.boolean(),
-  data: z
-    .object({
-      buckets: z.array(
-        z.object({
-          name: z.string(),
-          access: z.enum(['read-write', 'read-only']),
-        }),
-      ),
-    })
-    .optional(),
-  error: z.string().optional(),
-});
+export interface R2MetadataUpdate {
+  contentType?: string;
+  cacheControl?: string;
+  contentDisposition?: string;
+}
 
-const StorageListResponseSchema = z.object({
-  success: z.boolean(),
-  data: z
-    .object({
-      objects: z.array(
-        z.object({
+export interface R2BucketInfo {
+  name: string;
+  access: 'read-write' | 'read-only';
+}
+
+// =============================================================================
+// Storage API
+// =============================================================================
+
+export const storageApi = {
+  /**
+   * List all available R2 buckets
+   */
+  async listBuckets(): Promise<R2BucketInfo[]> {
+    const response = await fetchApi(
+      '/api/storage/buckets',
+      z.object({
+        success: z.boolean(),
+        data: z.object({
+          buckets: z.array(
+            z.object({
+              name: z.string(),
+              access: z.enum(['read-write', 'read-only']),
+            }),
+          ),
+        }),
+      }),
+    );
+    return response.data.buckets;
+  },
+
+  /**
+   * List objects in a bucket with optional prefix filtering
+   */
+  async listObjects(bucket: string, params?: StorageListParams): Promise<R2ListResponse> {
+    const query = buildQueryString({
+      prefix: params?.prefix,
+      cursor: params?.cursor,
+      limit: params?.limit,
+      delimiter: params?.delimiter,
+    });
+    const response = await fetchApi(
+      `/api/storage/${encodeURIComponent(bucket)}/objects${query}`,
+      z.object({
+        success: z.boolean(),
+        data: z.object({
+          objects: z.array(
+            z.object({
+              key: z.string(),
+              size: z.number(),
+              etag: z.string(),
+              uploaded: z.string(),
+              httpMetadata: z
+                .object({
+                  contentType: z.string().optional(),
+                  cacheControl: z.string().optional(),
+                  contentDisposition: z.string().optional(),
+                  contentLanguage: z.string().optional(),
+                  contentEncoding: z.string().optional(),
+                })
+                .optional(),
+              customMetadata: z.record(z.string(), z.string()).optional(),
+            }),
+          ),
+          truncated: z.boolean(),
+          cursor: z.string().optional(),
+          delimitedPrefixes: z.array(z.string()),
+        }),
+      }),
+    );
+    return response.data;
+  },
+
+  /**
+   * Get metadata for a specific object
+   */
+  async getObjectMeta(bucket: string, key: string): Promise<R2ObjectInfo> {
+    const response = await fetchApi(
+      `/api/storage/${encodeURIComponent(bucket)}/meta/${key}`,
+      z.object({
+        success: z.boolean(),
+        data: z.object({
           key: z.string(),
           size: z.number(),
           etag: z.string(),
@@ -579,144 +656,14 @@ const StorageListResponseSchema = z.object({
             .optional(),
           customMetadata: z.record(z.string(), z.string()).optional(),
         }),
-      ),
-      truncated: z.boolean(),
-      cursor: z.string().optional(),
-      delimitedPrefixes: z.array(z.string()),
-    })
-    .optional(),
-  error: z.string().optional(),
-});
-
-const StorageObjectResponseSchema = z.object({
-  success: z.boolean(),
-  data: z
-    .object({
-      key: z.string(),
-      size: z.number().optional(),
-      etag: z.string().optional(),
-      uploaded: z.string().optional(),
-      httpMetadata: z
-        .object({
-          contentType: z.string().optional(),
-          cacheControl: z.string().optional(),
-          contentDisposition: z.string().optional(),
-          contentLanguage: z.string().optional(),
-          contentEncoding: z.string().optional(),
-        })
-        .optional(),
-      customMetadata: z.record(z.string(), z.string()).optional(),
-    })
-    .optional(),
-  error: z.string().optional(),
-});
-
-const StorageDeleteResponseSchema = z.object({
-  success: z.boolean(),
-  message: z.string().optional(),
-  error: z.string().optional(),
-});
-
-export const storageApi = {
-  async listBuckets(): Promise<StorageBucket[]> {
-    const response = await fetchApi('/api/storage/buckets', StorageBucketsResponseSchema);
-    if (!response.success || !response.data) {
-      throw new ApiError(500, response.error || 'Failed to fetch buckets');
-    }
-    return response.data.buckets;
-  },
-
-  async listObjects(bucket: string, params: StorageListParams = {}): Promise<StorageListResponse> {
-    const query = buildQueryString(params as Record<string, string | number | undefined>);
-    const response = await fetchApi(
-      `/api/storage/${encodeURIComponent(bucket)}/objects${query}`,
-      StorageListResponseSchema,
+      }),
     );
-    if (!response.success || !response.data) {
-      throw new ApiError(500, response.error || 'Failed to list objects');
-    }
     return response.data;
   },
 
-  async uploadObject(
-    bucket: string,
-    key: string,
-    file: File,
-    overwrite = false,
-  ): Promise<StorageObject> {
-    const url = new URL(`/api/storage/${encodeURIComponent(bucket)}/upload`, API_BASE);
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('key', key);
-    formData.append('overwrite', String(overwrite));
-
-    const response = await fetch(url.toString(), {
-      method: 'POST',
-      headers: { 'X-Admin-Key': API_KEY },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-      throw new ApiError(
-        response.status,
-        (error as { error?: string }).error || `HTTP ${response.status}`,
-      );
-    }
-
-    const data = StorageObjectResponseSchema.parse(await response.json());
-    if (!data.success || !data.data) {
-      throw new ApiError(400, data.error || 'Failed to upload object');
-    }
-    return data.data as StorageObject;
-  },
-
-  async deleteObject(bucket: string, key: string): Promise<void> {
-    await fetchApi(
-      `/api/storage/${encodeURIComponent(bucket)}/objects/${key}`,
-      StorageDeleteResponseSchema,
-      { method: 'DELETE' },
-    );
-  },
-
-  async renameObject(bucket: string, oldKey: string, newKey: string): Promise<StorageObject> {
-    const response = await fetchApi(
-      `/api/storage/${encodeURIComponent(bucket)}/rename`,
-      StorageObjectResponseSchema,
-      {
-        method: 'POST',
-        body: JSON.stringify({ oldKey, newKey }),
-      },
-    );
-    if (!response.success || !response.data) {
-      throw new ApiError(400, response.error || 'Failed to rename object');
-    }
-    return response.data as StorageObject;
-  },
-
   /**
-   * Move an object to a different bucket
+   * Download an object as a blob
    */
-  async moveObject(
-    bucket: string,
-    key: string,
-    destinationBucket: string,
-    destinationKey?: string,
-  ): Promise<StorageObject> {
-    const response = await fetchApi(
-      `/api/storage/${encodeURIComponent(bucket)}/move`,
-      StorageObjectResponseSchema,
-      {
-        method: 'POST',
-        body: JSON.stringify({ key, destinationBucket, destinationKey }),
-      },
-    );
-    if (!response.success || !response.data) {
-      throw new ApiError(400, response.error || 'Failed to move object');
-    }
-    return response.data as StorageObject;
-  },
-
   async downloadObject(bucket: string, key: string): Promise<Blob> {
     const url = new URL(`/api/storage/${encodeURIComponent(bucket)}/objects/${key}`, API_BASE);
 
@@ -737,34 +684,144 @@ export const storageApi = {
     return response.blob();
   },
 
-  async getObjectMeta(bucket: string, key: string): Promise<StorageObject> {
-    const response = await fetchApi(
-      `/api/storage/${encodeURIComponent(bucket)}/meta/${key}`,
-      StorageObjectResponseSchema,
-    );
-    if (!response.success || !response.data) {
-      throw new ApiError(404, response.error || 'Object not found');
+  /**
+   * Upload a file to a bucket
+   */
+  async uploadObject(
+    bucket: string,
+    file: File,
+    key: string,
+    options?: { overwrite?: boolean },
+  ): Promise<R2ObjectInfo> {
+    const url = new URL(`/api/storage/${encodeURIComponent(bucket)}/upload`, API_BASE);
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('key', key);
+    if (options?.overwrite) {
+      formData.append('overwrite', 'true');
     }
-    return response.data as StorageObject;
+
+    const response = await fetch(url.toString(), {
+      method: 'POST',
+      headers: {
+        'X-Admin-Key': API_KEY,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new ApiError(
+        response.status,
+        (error as { error?: string }).error || `HTTP ${response.status}`,
+      );
+    }
+
+    const data = await response.json();
+    return (data as { data: R2ObjectInfo }).data;
   },
 
-  async updateMetadata(
+  /**
+   * Delete an object from a bucket
+   */
+  async deleteObject(bucket: string, key: string): Promise<void> {
+    await fetchApi(
+      `/api/storage/${encodeURIComponent(bucket)}/objects/${key}`,
+      z.object({
+        success: z.boolean(),
+        message: z.string().optional(),
+        error: z.string().optional(),
+      }),
+      { method: 'DELETE' },
+    );
+  },
+
+  /**
+   * Rename/move an object within a bucket
+   */
+  async renameObject(bucket: string, oldKey: string, newKey: string): Promise<R2ObjectInfo> {
+    const response = await fetchApi(
+      `/api/storage/${encodeURIComponent(bucket)}/rename`,
+      z.object({
+        success: z.boolean(),
+        data: z
+          .object({
+            key: z.string(),
+            size: z.number().optional(),
+            etag: z.string().optional(),
+            uploaded: z.string().optional(),
+          })
+          .optional(),
+        error: z.string().optional(),
+      }),
+      {
+        method: 'POST',
+        body: JSON.stringify({ oldKey, newKey }),
+      },
+    );
+    return response.data as R2ObjectInfo;
+  },
+
+  /**
+   * Move an object to a different bucket
+   */
+  async moveObject(
     bucket: string,
     key: string,
-    metadata: { contentType?: string; cacheControl?: string; contentDisposition?: string },
-  ): Promise<StorageObject> {
+    destinationBucket: string,
+    destinationKey?: string,
+  ): Promise<R2ObjectInfo> {
+    const response = await fetchApi(
+      `/api/storage/${encodeURIComponent(bucket)}/move`,
+      z.object({
+        success: z.boolean(),
+        data: z
+          .object({
+            key: z.string(),
+            size: z.number().optional(),
+            etag: z.string().optional(),
+            uploaded: z.string().optional(),
+          })
+          .optional(),
+        error: z.string().optional(),
+      }),
+      {
+        method: 'POST',
+        body: JSON.stringify({ key, destinationBucket, destinationKey }),
+      },
+    );
+    return response.data as R2ObjectInfo;
+  },
+
+  /**
+   * Update object HTTP metadata
+   */
+  async updateObjectMetadata(
+    bucket: string,
+    key: string,
+    metadata: R2MetadataUpdate,
+  ): Promise<R2ObjectInfo> {
     const response = await fetchApi(
       `/api/storage/${encodeURIComponent(bucket)}/metadata/${key}`,
-      StorageObjectResponseSchema,
+      z.object({
+        success: z.boolean(),
+        data: z
+          .object({
+            key: z.string(),
+            size: z.number().optional(),
+            etag: z.string().optional(),
+            uploaded: z.string().optional(),
+          })
+          .optional(),
+        error: z.string().optional(),
+      }),
       {
         method: 'PUT',
         body: JSON.stringify(metadata),
       },
     );
-    if (!response.success || !response.data) {
-      throw new ApiError(400, response.error || 'Failed to update metadata');
-    }
-    return response.data as StorageObject;
+    return response.data as R2ObjectInfo;
   },
 
   /**

@@ -8,7 +8,10 @@
 # CI/CD and tooling
 .github
 .husky
+.claude
+.wrangler
 coverage
+plans
 
 # Worker source (not needed for dashboard build)
 src
@@ -28,13 +31,16 @@ tsconfig.json
 vitest.config.ts
 drizzle.config.ts
 wrangler.toml
+wrangler.henrychong.toml
 openapitools.json
 .nvmrc
 
 # Documentation
 *.md
+!CHANGELOG.md
 !admin/**/*.md
 !shared/**/*.md
 
 # OS files
+.DS_Store
 node_modules

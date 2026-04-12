@@ -2,7 +2,7 @@ import type { BackupManifest, KVBackupResult } from './types';
 
 /**
  * Manifest schema version
- * 2.0.0 — Removed D1 backup (covered by Cloudflare D1 Time Travel)
+ * v2.0.0: KV-only backup (D1 removed — covered by Cloudflare Time Travel)
  */
 const MANIFEST_VERSION = '2.0.0';
 
