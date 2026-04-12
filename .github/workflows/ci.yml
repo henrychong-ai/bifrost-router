@@ -22,7 +22,7 @@ env:
 
 jobs:
   lint-format-typecheck-and-test:
-    name: Lint-Format-Typecheck & Test
+    name: Gitleaks & Lint-Format-Typecheck & Test
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
