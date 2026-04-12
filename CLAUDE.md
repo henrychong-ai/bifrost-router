@@ -1,13 +1,14 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working with this repository.
+
+**Version:** 1.20.1 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 > **Setup & deployment:** See [README.md](README.md) for the Fork & Deploy guide, API reference, and tech stack.
-> **Version history:** See [CHANGELOG.md](CHANGELOG.md).
 
 ## Project Overview
 
-**Bifrost** is an edge router built on Cloudflare Workers with the Hono framework. It provides dynamic routing via Cloudflare KV, supporting redirects, reverse proxying, and R2 bucket serving. Check `package.json` for the current version.
+**Bifrost** is an edge router built on Cloudflare Workers with the Hono framework. It provides dynamic routing via Cloudflare KV, supporting redirects, reverse proxying, and R2 bucket serving.
 
 **Monorepo packages:**
 
@@ -213,7 +214,15 @@ If using Cloudflare API Shield, `scripts/upload-api-shield.mjs` auto-uploads the
 | Minor (Y) | x.**Y**.0 | New features, non-breaking enhancements |
 | Major (X) | **X**.0.0 | Breaking changes, architecture changes |
 
-**Files to update:** `package.json` (version) and `wrangler.toml` (`VERSION` in `[vars]`).
+**Files to update:**
+
+1. `package.json` — package version
+2. `wrangler.toml` — `VERSION` in `[vars]` section
+3. `admin/package.json` — dashboard version
+4. `CLAUDE.md` — version in this file header
+5. `CHANGELOG.md` — new version entry
+
+Commit, tag (`git tag v1.x.x`), and push with tags (`git push origin main --tags`).
 
 ## Project Structure
 
