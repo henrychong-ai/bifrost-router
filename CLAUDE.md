@@ -24,11 +24,11 @@ Guidance for Claude Code when working with this repository.
 
 | Layer | Technology |
 |-------|------------|
-| Runtime | Cloudflare Workers, TypeScript 5.9.3, Hono 4.12.12 |
+| Runtime | Cloudflare Workers, TypeScript, Hono |
 | Storage | KV (routes), D1 (analytics), R2 (files) |
-| Testing | Vitest 3.2.4 + @cloudflare/vitest-pool-workers 0.12.21 (786 tests) |
-| Dashboard | React 19 + Vite 7 + Tailwind 4 + TanStack Query |
-| Linting | Oxlint 1.57.0 (primary) + Biome 2.4.9 (formatter) + residual ESLint 10 (admin only) |
+| Testing | Vitest + @cloudflare/vitest-pool-workers |
+| Dashboard | React 19 + Vite + Tailwind CSS + TanStack Query |
+| Linting | Oxlint (primary) + Biome (formatter) + residual ESLint (admin only) |
 
 ## Commands
 
