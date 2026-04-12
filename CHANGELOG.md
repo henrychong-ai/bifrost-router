@@ -6,6 +6,13 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.21.2
+
+### Fixed
+- Add `sharp` to `pnpm.onlyBuiltDependencies` — resolves "Ignored build scripts" warning during install
+
+---
+
 ## v1.21.1
 
 **Security patches — dependabot advisories resolved**

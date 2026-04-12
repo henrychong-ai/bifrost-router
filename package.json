@@ -1,6 +1,6 @@
 {
   "name": "bifrost",
-  "version": "1.21.1",
+  "version": "1.21.2",
   "description": "Bifrost - Edge router with Cloudflare Workers and Hono",
   "type": "module",
   "private": true,
@@ -79,6 +79,7 @@
     },
     "onlyBuiltDependencies": [
       "esbuild",
+      "sharp",
       "workerd"
     ]
   },
