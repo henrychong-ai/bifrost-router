@@ -38,7 +38,7 @@ WORKDIR /app/admin
 # Build args for environment variables
 # Note: ADMIN_API_KEY is NOT a build arg — it is injected at runtime by start-with-tailscale.sh
 # via env-config.js, keeping it out of the image layers and build cache entirely.
-ARG VITE_API_URL=https://henrychong.com
+ARG VITE_API_URL=https://yourdomain.com
 
 # Build the application. Vite's dependency pre-bundling cache lives at
 # node_modules/.vite — mounted here so it survives across builds.

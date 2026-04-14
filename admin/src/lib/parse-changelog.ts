@@ -130,7 +130,7 @@ export function parseChangelog(raw: string): ChangelogVersion[] {
 }
 
 /**
- * Section name → badge colour classes (Blocktree design system).
+ * Section name → badge colour classes.
  */
 const SECTION_BADGE_CLASSES: Record<string, string> = {
   added: 'bg-green-100 text-green-700',

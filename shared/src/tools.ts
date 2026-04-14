@@ -123,7 +123,7 @@ export const toolDefinitions: ToolDefinition[] = [
         hostHeader: {
           type: 'string',
           description:
-            'Override Host header for proxy requests (e.g., "fusang.co" when proxying to cdn.webflow.com)',
+            'Override Host header for proxy requests (e.g., "example.com" when proxying to cdn.webflow.com)',
         },
         bucket: {
           type: 'string',

@@ -227,7 +227,7 @@ mcp/
 #### Claude Code
 ```bash
 claude mcp add --scope user edge-router -- \
-  node /Users/henrychong/repos/cloudflare-edge-router/mcp/dist/index.js
+  node /path/to/bifrost-router/mcp/dist/index.js
 ```
 
 #### With 1Password
@@ -235,7 +235,7 @@ claude mcp add --scope user edge-router -- \
 claude mcp add-json --scope user edge-router '{
   "type": "stdio",
   "command": "op",
-  "args": ["run", "--account", "your-1password-account", "--", "node", "/Users/henrychong/repos/cloudflare-edge-router/mcp/dist/index.js"],
+  "args": ["run", "--account", "your-1password-account", "--", "node", "/path/to/bifrost-router/mcp/dist/index.js"],
   "env": {
     "EDGE_ROUTER_API_KEY": "op://Your-Vault/Cloudflare/ADMIN_API_KEY"
   }

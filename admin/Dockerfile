@@ -28,7 +28,7 @@ WORKDIR /app/admin
 
 # Build args for environment variables
 # Note: ADMIN_API_KEY is NOT a build arg — pass it as a runtime env var to the container.
-ARG VITE_API_URL=https://henrychong.com
+ARG VITE_API_URL=https://yourdomain.com
 
 # Build the application
 RUN VITE_API_URL=$VITE_API_URL pnpm run build

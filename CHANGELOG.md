@@ -6,6 +6,22 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.22.4
+
+### Changed
+- **Sanitisation sweep for public distribution** — remove or genericise residual references to personal/team infrastructure that had leaked into the public template:
+  - **`VITE_API_URL` default** — `admin/Dockerfile`, `admin/Dockerfile.tailscale`, and `admin/.env.example` defaulted to a personal domain. Now defaults to `https://yourdomain.com` — self-hosters must set `VITE_API_URL` to their own Bifrost admin API origin at build time.
+  - **Gilroy font `@font-face` blocks** — `admin/src/index.css` previously loaded the Gilroy typeface from a third-party CDN hard-coded into the template. Removed the four `@font-face` declarations; kept the `--font-gilroy` CSS variable with its `ui-sans-serif, system-ui, sans-serif` fallback stack so existing `font-gilroy` utility classes continue to resolve gracefully. Replaced with an inline comment documenting how self-hosters can supply their own brand font.
+  - **"Blocktree" naming in dashboard CSS and JSDoc** — renamed to generic "Brand"/"Color Palette" labels in `admin/src/index.css` and `admin/src/lib/parse-changelog.ts`.
+  - **`"fusang.co"` JSDoc examples for `hostHeader`** — changed to `"example.com"` in `shared/src/types.ts`, `shared/src/tools.ts`, `src/types.ts` (4 occurrences).
+  - **`vps-2` comment in `admin/docker-compose.prod.yml`** — changed to generic "your server".
+  - **Personal-path example in `mcp/PLAN.md`** — `/Users/henrychong/repos/cloudflare-edge-router/mcp/dist/index.js` → `/path/to/bifrost-router/mcp/dist/index.js` (two occurrences).
+  - **`wrangler.henrychong.toml` excluded path in `.dockerignore`** — removed (file does not exist in this repo; was a leftover from upstream's personal multi-zone config).
+  - **`CHANGELOG.md` provenance references** — historical entries that credited the private upstream repo by internal name (`Fusang Bifrost`, `Fusang bifrost`, `fusang bifrost`, `bifrost-hc`) rewritten to the generic phrase "upstream Bifrost". No functional history was altered; only the wording that revealed private repo names.
+- **`CONTRIBUTING.md` GitHub Issues link** — kept as-is (`github.com/henrychong-ai/bifrost-router`). This is the canonical public-repo URL that contributors need to file issues against; the `henrychong-ai` GitHub org owns this public template.
+
+---
+
 ## v1.22.3
 
 ### Changed
@@ -132,7 +148,7 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 ## v1.18.0
 
 ### Added
-- **Changelog dashboard** — New `/changelog` page with searchable version history, section badges, current version highlighting, and inline code rendering. Synced from Fusang bifrost v1.25.0.
+- **Changelog dashboard** — New `/changelog` page with searchable version history, section badges, current version highlighting, and inline code rendering. Synced from upstream Bifrost v1.25.0.
 - **Sidebar changelog link** — Changelog nav item pinned at bottom of sidebar, clickable version in footer
 
 ### Changed
@@ -179,7 +195,7 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ### Added
 - **Storage dialog** — "View in Routes" clickable rows for associated routes, navigates to routes tab and auto-opens route's edit dialog
-- **Cross-navigation** — Branded Blocktree pill buttons for "View in Storage" and "View in Routes" actions (blue-50/blue-700 pill style)
+- **Cross-navigation** — Branded pill buttons for "View in Storage" and "View in Routes" actions (blue-50/blue-700 pill style)
 
 ---
 
@@ -199,7 +215,7 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ## v1.16.0
 
-**Sync Fusang v1.24.1–v1.24.3: Route preview + standalone target links**
+**Sync upstream v1.24.1–v1.24.3: Route preview + standalone target links**
 
 ### Added
 - **Route dialog** — R2 file preview (image thumbnail, PDF inline) at top of form
@@ -268,9 +284,9 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 ---
 
 ## v1.14.0 (2026-03-13)
-**Sync Fusang Bifrost v1.22.0–v1.23.3: Cache Purge, Route Transfer, Storage Dialog, D1 Pagination**
+**Sync upstream Bifrost v1.22.0–v1.23.3: Cache Purge, Route Transfer, Storage Dialog, D1 Pagination**
 
-Sync 6 changes from Fusang bifrost into bifrost-hc. Adds global CDN cache purge, route domain transfer, unified storage edit dialog, paginated D1 backups with error isolation, and dependency updates.
+Sync 6 changes from upstream Bifrost. Adds global CDN cache purge, route domain transfer, unified storage edit dialog, paginated D1 backups with error isolation, and dependency updates.
 
 ### Added
 - **Zone Cache Purge**: `POST /api/storage/:bucket/purge-cache/:key` — purge Cloudflare CDN cache globally via Zone Cache Purge API. Collects URLs from KV routes + R2 custom domains, groups by zone, batches of 30. New `src/utils/cache.ts` module
@@ -323,7 +339,7 @@ Add direct file upload from disk to the `upload_object` MCP tool, bypassing base
 ## v1.13.0 (2026-02-25)
 **R2 Cross-Bucket Move, Audit Enhancements & Dialog UX Fixes**
 
-Port and adapt R2 cross-bucket move, expanded audit action filtering, and dialog UX improvements from Fusang Bifrost v1.20.0. Extends test count from 935 to 949.
+Port and adapt R2 cross-bucket move, expanded audit action filtering, and dialog UX improvements from upstream Bifrost v1.20.0. Extends test count from 935 to 949.
 
 ### Added
 - **R2 cross-bucket move**: `POST /api/storage/:bucket/move` endpoint — move objects between writable buckets with size guard (100 MB limit) and conflict detection
@@ -349,9 +365,9 @@ Port and adapt R2 cross-bucket move, expanded audit action filtering, and dialog
 ---
 
 ## v1.12.3 (2026-02-20)
-**Tests: Comprehensive test coverage port from Fusang Bifrost**
+**Tests: Comprehensive test coverage port from upstream Bifrost**
 
-Port and adapt 11 new test files from Fusang Bifrost v1.19.9, extending total test count from 487 to 935. Covers KV layer, D1 analytics, backup system, slackbot permissions, MCP storage tools, and R2 copy size guard. Fixes CI gap where root workspace tests were not run in pipeline.
+Port and adapt 11 new test files from upstream Bifrost v1.19.9, extending total test count from 487 to 935. Covers KV layer, D1 analytics, backup system, slackbot permissions, MCP storage tools, and R2 copy size guard. Fixes CI gap where root workspace tests were not run in pipeline.
 
 ### Added
 - `test/kv/schema.test.ts` — KV schema version, key parsing, metadata structure
@@ -369,7 +385,7 @@ Port and adapt 11 new test files from Fusang Bifrost v1.19.9, extending total te
 
 ### Fixed
 - **CI gap**: Root workspace tests (`pnpm run test`) were excluded from `pnpm run -r test` despite `.` in `pnpm-workspace.yaml`. Added explicit root test step to CI workflow and `check` script.
-- `test/kv/routes.test.ts` adapted to HC implementation: `getRoute`/`getRouteSafe`/`deleteRoute` don't call `normalizePath` (unlike Fusang); `getAllRoutesAllDomains` filters to `SUPPORTED_DOMAINS`
+- `test/kv/routes.test.ts` adapted to HC implementation: `getRoute`/`getRouteSafe`/`deleteRoute` don't call `normalizePath` (unlike upstream); `getAllRoutesAllDomains` filters to `SUPPORTED_DOMAINS`
 
 ### Infrastructure
 - `vitest.config.ts`: `R2_COPY_SIZE_LIMIT_MB: '0.001'` for size guard tests (avoids 100 MB buffers)
@@ -434,7 +450,7 @@ Bumped all safe non-breaking dependencies. Fixed 3 open Dependabot alerts via pn
 ## v1.12.0 (2026-02-19)
 **R2 Storage Management, Route Search & Pagination**
 
-Major feature release porting genericised features from Fusang Bifrost. Adds full R2 storage management across API, MCP, and dashboard, plus route search and pagination.
+Major feature release porting genericised features from upstream Bifrost. Adds full R2 storage management across API, MCP, and dashboard, plus route search and pagination.
 
 ### Added
 - **Route search**: Full-text search across route fields (`?search=` on GET /api/routes) — matches path, target, type, status code, bucket, and host header (case-insensitive)
@@ -456,7 +472,7 @@ Major feature release porting genericised features from Fusang Bifrost. Adds ful
 ## v1.11.9 (2026-02-18)
 **CI/CD: Separate CI and CD into parallel jobs, tooling improvements**
 
-Restructured GitHub Actions pipeline to cleanly separate CI (quality gates) from CD (deployment). Deploy now only triggers on version tags, matching the fusang bifrost pattern.
+Restructured GitHub Actions pipeline to cleanly separate CI (quality gates) from CD (deployment). Deploy now only triggers on version tags, matching the upstream Bifrost pattern.
 
 ### Pipeline Restructure
 - **Changed**: Split single job into 4 jobs: `ci`, `deploy-worker`, `build-and-push-container`, `deploy-to-vps`
@@ -494,7 +510,7 @@ Replaced ESLint+globals with Oxlint (primary linter) and Biome (formatter). Fixe
 
 ### Typecheck Fixes
 - **Fixed**: `Cannot find module '@bifrost/shared'` — added missing `@bifrost/shared: workspace:*` dependency to root package.json
-- **Fixed**: `Property 'error' does not exist` in migrate route handler — aligned domain validation types with fusang bifrost's centralised `error` pattern (renamed `providedValue` → `error` in types + validation function + all 7 call sites)
+- **Fixed**: `Property 'error' does not exist` in migrate route handler — aligned domain validation types with upstream Bifrost's centralised `error` pattern (renamed `providedValue` → `error` in types + validation function + all 7 call sites)
 
 ---
 
@@ -539,7 +555,7 @@ Closes CVE-2026-24771, CVE-2026-24473, CVE-2026-24472, CVE-2026-24398 (hono), CV
 ## v1.11.5 (2026-02-06)
 **Refactor: Switch to Individual Radix UI Packages**
 
-Replaced umbrella `radix-ui` package with individual `@radix-ui/*` packages for consistency with fusang bifrost.
+Replaced umbrella `radix-ui` package with individual `@radix-ui/*` packages for consistency with upstream Bifrost.
 
 **Changes:**
 - Added `@radix-ui/react-alert-dialog@^1.1.15`

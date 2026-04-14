@@ -31,7 +31,6 @@ tsconfig.json
 vitest.config.ts
 drizzle.config.ts
 wrangler.toml
-wrangler.henrychong.toml
 openapitools.json
 .nvmrc
 

@@ -1,42 +1,29 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* Gilroy Font */
-@font-face {
-  font-family: "Gilroy";
-  src: url("https://assets.fusang.co/fonts/gilroy/Gilroy-Regular.ttf") format("truetype");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Gilroy";
-  src: url("https://assets.fusang.co/fonts/gilroy/Gilroy-Medium.ttf") format("truetype");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Gilroy";
-  src: url("https://assets.fusang.co/fonts/gilroy/Gilroy-SemiBold.ttf") format("truetype");
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Gilroy";
-  src: url("https://assets.fusang.co/fonts/gilroy/Gilroy-Bold.ttf") format("truetype");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
+/*
+ * Font face (optional): the dashboard uses `font-gilroy` utility classes that
+ * resolve to the `--font-gilroy` CSS variable (see @theme block below). The
+ * variable's fallback stack (`ui-sans-serif, system-ui, sans-serif`) kicks in
+ * by default so no external font load is needed.
+ *
+ * To use a custom brand font, self-host the files (or load from a CDN you
+ * control) and add @font-face declarations here. Example:
+ *
+ *   @font-face {
+ *     font-family: "YourBrandFont";
+ *     src: url("https://assets.yourdomain.com/fonts/yourfont/Regular.woff2") format("woff2");
+ *     font-weight: 400;
+ *     font-display: swap;
+ *   }
+ *
+ * Then update `--font-gilroy` in the @theme block below to reference it:
+ *   --font-gilroy: "YourBrandFont", ui-sans-serif, system-ui, sans-serif;
+ */
 
 @custom-variant dark (&:is(.dark *));
 
-/* Blocktree Color Palette */
+/* Color Palette */
 @theme inline {
   /* Border radius */
   --radius-sm: calc(var(--radius) - 4px);
@@ -89,7 +76,7 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* Blocktree Brand Colors */
+  /* Brand Colors */
   --color-blue-50: #f0f4f9;
   --color-blue-100: #cedceb;
   --color-blue-200: #abc4db;
@@ -144,7 +131,7 @@
 :root {
   --radius: 0.625rem;
 
-  /* Blocktree Light Mode */
+  /* Light Mode */
   --background: #ffffff;
   --foreground: #1f2c3b;
   --card: #ffffff;
@@ -264,7 +251,7 @@
   }
 }
 
-/* Blocktree utility classes */
+/* Brand utility classes */
 @layer utilities {
   .font-gilroy {
     font-family: var(--font-gilroy);

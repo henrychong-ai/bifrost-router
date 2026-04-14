@@ -272,7 +272,7 @@ export interface ProxyRouteConfig extends BaseRouteConfig {
   target: string;
   /** Cache-Control header for proxied content */
   cacheControl?: string;
-  /** Override Host header for proxy requests (e.g., "fusang.co" when proxying to cdn.webflow.com) */
+  /** Override Host header for proxy requests (e.g., "example.com" when proxying to cdn.webflow.com) */
   hostHeader?: string;
 }
 
@@ -323,7 +323,7 @@ export interface KVRouteConfig {
   /** Cache-Control header for proxied/R2 content */
   cacheControl?: string;
 
-  /** Override Host header for proxy requests (e.g., "fusang.co" when proxying to cdn.webflow.com) */
+  /** Override Host header for proxy requests (e.g., "example.com" when proxying to cdn.webflow.com) */
   hostHeader?: string;
 
   /** Force browser to download instead of display inline (R2 only, default: false) */
