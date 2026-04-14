@@ -202,6 +202,25 @@ The pipeline **automatically uploads** the OpenAPI schema to API Shield after ev
 **To update:** Edit schema → Validate → Tag and push (CI/CD deploys Worker + uploads schema)
 **Fallback:** Upload via Cloudflare Dashboard → Security → API Shield
 
+## Troubleshooting
+
+### Supported Domain Returns 403 / No Worker Response
+
+**Symptom:** A domain listed in `SUPPORTED_DOMAINS` returns HTTP 403 with bare Cloudflare HTML. `curl -I` shows `server: cloudflare` but no `cf-worker` header — the Worker isn't intercepting.
+
+**Root cause:** Step 5 of the "Adding a New Supported Domain" checklist was skipped — the code knows about the domain, but Cloudflare has no Custom Domain binding for it on the Worker. Nothing in CI enforces this.
+
+**Diagnosis:**
+```bash
+# List all Custom Domains bound to the Worker
+curl -s -H "Authorization: Bearer $CF_TOKEN" \
+  "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/domains?per_page=100&service=bifrost-worker" \
+  | jq -r ".result[].hostname" | sort
+```
+If the domain is missing from this list, the binding was never created.
+
+**Fix:** Cloudflare Dashboard → Workers → bifrost-worker → Settings → Domains & Routes → Add Custom Domain → `<hostname>`. Cloudflare auto-creates the DNS record and provisions TLS. If the hostname has pre-existing DNS records, delete them first (or use `override_existing_dns_record: true` via the API).
+
 ## Key Files
 
 | File | Purpose |
