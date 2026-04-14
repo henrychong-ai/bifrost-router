@@ -6,6 +6,16 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.22.2
+
+### Added
+- **Drift-detection test for `SUPPORTED_DOMAINS`** — `test/supported-domains-consistency.test.ts` asserts that all three hardcoded copies (`src/types.ts`, `shared/src/types.ts`, `admin/src/context/filter-types.ts`) plus the OpenAPI `DomainQuery` enum contain identical domain lists. Self-hosters adding new domains will get a CI failure if they miss any of the 4 locations.
+
+### Changed
+- **"Adding a New Supported Domain" checklist updated from 4 → 6 locations** — `shared/src/types.ts` and `admin/src/context/filter-types.ts` were silently missing from the checklist, which caused drift in upstream repos.
+
+---
+
 ## v1.22.1
 
 ### Changed

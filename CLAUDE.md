@@ -2,7 +2,7 @@
 
 Guidance for Claude Code when working with this repository.
 
-**Version:** 1.22.1 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.22.2 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Project Overview
 
@@ -112,14 +112,18 @@ Defined in `src/types.ts`:
 
 ### Adding a New Supported Domain
 
-Update **all 4 locations** — missing any one causes silent failures:
+Update **all 6 locations** — missing any one causes silent failures (routes rejected, MCP tools broken, API 403s, or domain missing from dashboard dropdown):
 
 | # | File | What to update |
 |---|------|----------------|
-| 1 | `src/types.ts` | `SUPPORTED_DOMAINS` array |
-| 2 | `openapi/bifrost-api.yaml` | `DomainQuery` enum — **API Shield (block mode) returns 403 for unknown domain values** |
-| 3 | Cloudflare Dashboard | Add as Custom Domain on the Worker |
-| 4 | `wrangler.toml` | Add service binding if domain uses Worker-to-Worker fallback |
+| 1 | `src/types.ts` | `SUPPORTED_DOMAINS` array — Worker-side route validation |
+| 2 | `shared/src/types.ts` | `SUPPORTED_DOMAINS` array — MCP tool enums + admin form schemas. Rebuild with `pnpm -C shared build` after |
+| 3 | `admin/src/context/filter-types.ts` | `SUPPORTED_DOMAINS` array — dashboard Domain filter dropdown (duplicates the shared list) |
+| 4 | `openapi/bifrost-api.yaml` | `DomainQuery` enum — **API Shield (block mode) returns 403 for unknown domain values** |
+| 5 | Cloudflare Dashboard | Add as Custom Domain on the Worker |
+| 6 | `wrangler.toml` | Add service binding if domain uses Worker-to-Worker fallback |
+
+A drift-detection test (`test/supported-domains-consistency.test.ts`) asserts that copies 1-4 stay in sync — CI will fail if they drift.
 
 ## Route Types
 
