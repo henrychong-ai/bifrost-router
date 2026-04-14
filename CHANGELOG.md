@@ -6,6 +6,13 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.22.1
+
+### Changed
+- **Use `routeKey()` helper in normalize-case endpoint** — `POST /api/routes/normalize-case` now uses the existing `routeKey(domain, path)` helper from `src/kv/schema.ts` instead of hand-constructing keys. Refactor-only; no behaviour change.
+
+---
+
 ## v1.22.0
 
 **Case-insensitive routing + dependency bumps**

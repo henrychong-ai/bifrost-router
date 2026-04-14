@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import type { AppEnv, KVRouteConfig } from '../types';
 import { SUPPORTED_DOMAINS, isValidDomain } from '../types';
-import { CreateRouteSchema, UpdateRouteSchema, SCHEMA_VERSION } from '../kv/schema';
+import { CreateRouteSchema, UpdateRouteSchema, SCHEMA_VERSION, routeKey } from '../kv/schema';
 import {
   getAllRoutes,
   getAllRoutesAllDomains,
@@ -931,21 +931,19 @@ adminRoutes.post('/routes/normalize-case', async c => {
     }
 
     try {
-      const oldKey = `${route.domain}:${route.path}`;
-      const newKey = `${route.domain}:${lowerPath}`;
+      const oldKey = routeKey(route.domain, route.path);
+      const newKey = routeKey(route.domain, lowerPath);
 
-      // Check if lowercase route already exists
       const existingLower = await c.env.ROUTES.get(newKey);
       if (existingLower) {
         errors.push(`${oldKey} → ${newKey}: lowercase route already exists, skipping`);
         continue;
       }
 
-      // Write new lowercase route, then delete old
-      const migratedRoute = { ...route, path: lowerPath, updatedAt: Date.now() };
-      // Remove the domain field added by getAllRoutesAllDomains before storing
-      const { domain: _domain, ...routeWithoutDomain } = migratedRoute;
-      await c.env.ROUTES.put(newKey, JSON.stringify(routeWithoutDomain));
+      // Strip the domain field (added by getAllRoutesAllDomains) — it's not part of the stored value
+      const { domain: _domain, ...routeWithoutDomain } = route;
+      const migratedRoute = { ...routeWithoutDomain, path: lowerPath, updatedAt: Date.now() };
+      await c.env.ROUTES.put(newKey, JSON.stringify(migratedRoute));
       await c.env.ROUTES.delete(oldKey);
       migrated++;
     } catch (error) {
