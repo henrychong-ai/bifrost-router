@@ -2,13 +2,14 @@
 @import "tw-animate-css";
 
 /*
- * Font face (optional): the dashboard uses `font-gilroy` utility classes that
- * resolve to the `--font-gilroy` CSS variable (see @theme block below). The
- * variable's fallback stack (`ui-sans-serif, system-ui, sans-serif`) kicks in
- * by default so no external font load is needed.
+ * Font face: the dashboard uses `font-gilroy` utility classes that resolve to
+ * the `--font-gilroy` CSS variable (see @theme block below). By default, the
+ * four weights below are loaded from a public CDN. If the CDN is unreachable,
+ * the variable's fallback stack (`ui-sans-serif, system-ui, sans-serif`) kicks
+ * in automatically via `font-display: swap`.
  *
  * To use a custom brand font, self-host the files (or load from a CDN you
- * control) and add @font-face declarations here. Example:
+ * control) and replace the @font-face declarations below. Example:
  *
  *   @font-face {
  *     font-family: "YourBrandFont";
@@ -20,6 +21,39 @@
  * Then update `--font-gilroy` in the @theme block below to reference it:
  *   --font-gilroy: "YourBrandFont", ui-sans-serif, system-ui, sans-serif;
  */
+
+/* Gilroy Font (public CDN default) */
+@font-face {
+  font-family: "Gilroy";
+  src: url("https://assets.fusang.co/fonts/gilroy/Gilroy-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Gilroy";
+  src: url("https://assets.fusang.co/fonts/gilroy/Gilroy-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Gilroy";
+  src: url("https://assets.fusang.co/fonts/gilroy/Gilroy-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Gilroy";
+  src: url("https://assets.fusang.co/fonts/gilroy/Gilroy-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
 
 @custom-variant dark (&:is(.dark *));
 

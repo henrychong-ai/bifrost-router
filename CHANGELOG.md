@@ -6,6 +6,13 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.22.5
+
+### Changed
+- **Restore Gilroy `@font-face` declarations (public CDN default)** — v1.22.4 removed the four `@font-face` blocks that loaded Gilroy from `https://assets.fusang.co/fonts/gilroy/...`, thinking it was a leak. The CDN bucket is in fact a public R2 bucket intended to serve the font publicly, so it's an appropriate default for this template. Restored the declarations in `admin/src/index.css` with an updated comment explaining that (a) the default loads from this public CDN, (b) the `font-display: swap` fallback stack handles CDN-unreachable cases gracefully, and (c) self-hosters can replace the blocks with their own font URLs. The rest of the v1.22.4 sanitisation sweep (personal `VITE_API_URL` default, `vps-2` comment, `/Users/henrychong/` paths, `fusang.co` JSDoc examples, `Fusang Bifrost` / `bifrost-hc` provenance references) remains unchanged.
+
+---
+
 ## v1.22.4
 
 ### Changed
