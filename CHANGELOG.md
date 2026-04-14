@@ -6,6 +6,20 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.22.3
+
+### Changed
+- **Docker build cache optimisations — `admin/Dockerfile.tailscale` + `.dockerignore`** — bundle of six changes that move the build-cache hit rate on typical release-tag builds from ~16% (baseline) to ~40–60%, and skip `pnpm install` / vite build entirely on source-only commits:
+  - **Defer `CHANGELOG.md` COPY to post-install** — `CHANGELOG.md` is consumed by vite (`admin/src/pages/changelog.tsx` imports it via `?raw`), not by `pnpm install`. Moving it after install stops every CHANGELOG edit from busting the install layer.
+  - **pnpm store cache mount** — `RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store/v3 pnpm install ...`. Even when the install layer itself invalidates (e.g. root `package.json` version bump on a release), packages are served from the mounted store instead of re-downloaded. Typical install drops from ~13s to ~3s on invalidation.
+  - **Vite pre-bundling cache mount** — `RUN --mount=type=cache,id=vite-deps,target=/app/admin/node_modules/.vite pnpm run build`. Preserves the `optimizeDeps` scan across builds.
+  - **apk cache mount in stage-1** — `RUN --mount=type=cache,id=apk-cache,target=/var/cache/apk` with `ln -s /var/cache/apk /etc/apk/cache` (`--no-cache` removed so the mount actually persists).
+  - **`COPY --link` on stage-1 cross-stage and static copies** — Tailscale binaries, `dist` from builder, nginx.conf, start script. BuildKit computes layers in parallel instead of sequentially.
+  - **`.dockerignore` excludes build-irrelevant `admin/` files** — `admin/Dockerfile*`, `admin/docker-compose*.yml`, `admin/eslint.config.js`, `admin/vitest.config.ts`, `admin/README.md`, `admin/dist`, `shared/dist`. Removed the `!admin/**/*.md` re-inclusion. Editing the Dockerfile itself no longer invalidates the source COPY layer.
+- **BuildKit requirement** — these mount/link directives require BuildKit ≥ 0.10. `docker/setup-buildx-action@v3` in CI pipelines (used by `ci-cd.yml.example`) provides this automatically. Self-hosters running `docker build` locally should use a recent Docker Desktop / Docker Engine with BuildKit enabled (the default since Docker 23).
+
+---
+
 ## v1.22.2
 
 ### Added

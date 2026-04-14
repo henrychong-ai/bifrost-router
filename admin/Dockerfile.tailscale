@@ -6,15 +6,24 @@ WORKDIR /app
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@10.28.2 --activate
 
-# Copy workspace root files needed for pnpm install, version, and changelog
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json CHANGELOG.md ./
+# Copy workspace manifests needed for pnpm install (lockfile-only set — keeps
+# this layer stable across CHANGELOG.md edits and non-dep file changes)
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 
 # Copy package.json files for both shared and admin packages
 COPY shared/package.json ./shared/
 COPY admin/package.json ./admin/
 
-# Install dependencies for both packages
-RUN pnpm install --frozen-lockfile --filter @bifrost/shared --filter bifrost-dashboard
+# Install dependencies with a persistent pnpm store cache mount — even when the
+# layer itself invalidates (e.g. root package.json version bump on a release
+# tag), packages are served from the mount instead of re-downloaded.
+RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store/v3 \
+    pnpm install --frozen-lockfile --filter @bifrost/shared --filter bifrost-dashboard
+
+# CHANGELOG.md is consumed by vite build (admin/src/pages/changelog.tsx imports
+# it via ?raw), not by pnpm install. Copy it after install so edits don't bust
+# the install layer cache.
+COPY CHANGELOG.md ./
 
 # Copy source files for both packages
 COPY shared/ ./shared/
@@ -31,26 +40,33 @@ WORKDIR /app/admin
 # via env-config.js, keeping it out of the image layers and build cache entirely.
 ARG VITE_API_URL=https://henrychong.com
 
-# Build the application
-RUN VITE_API_URL=$VITE_API_URL pnpm run build
+# Build the application. Vite's dependency pre-bundling cache lives at
+# node_modules/.vite — mounted here so it survives across builds.
+RUN --mount=type=cache,id=vite-deps,target=/app/admin/node_modules/.vite \
+    VITE_API_URL=$VITE_API_URL pnpm run build
 
 # Production stage with Tailscale
 FROM nginx:alpine
 
-# Install Tailscale from official image (avoids Alpine repo version lag)
-COPY --from=docker.io/tailscale/tailscale:stable /usr/local/bin/tailscale /usr/local/bin/tailscale
-COPY --from=docker.io/tailscale/tailscale:stable /usr/local/bin/tailscaled /usr/local/bin/tailscaled
-RUN apk add --no-cache ca-certificates iptables ip6tables \
+# Install Tailscale from official image (avoids Alpine repo version lag).
+# --link lets BuildKit compute these layers independently and in parallel.
+COPY --link --from=docker.io/tailscale/tailscale:stable /usr/local/bin/tailscale /usr/local/bin/tailscale
+COPY --link --from=docker.io/tailscale/tailscale:stable /usr/local/bin/tailscaled /usr/local/bin/tailscaled
+
+# apk package cache mount — avoids re-downloading packages on layer invalidation.
+RUN --mount=type=cache,id=apk-cache,target=/var/cache/apk \
+    ln -s /var/cache/apk /etc/apk/cache \
+    && apk add ca-certificates iptables ip6tables \
     && mkdir -p /var/run/tailscale /var/cache/tailscale /var/lib/tailscale
 
 # Copy built assets
-COPY --from=builder /app/admin/dist /usr/share/nginx/html
+COPY --link --from=builder /app/admin/dist /usr/share/nginx/html
 
 # Copy nginx configuration (listen on localhost:3001 for internal use)
-COPY admin/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --link admin/nginx.conf /etc/nginx/conf.d/default.conf
 
 # Copy startup script
-COPY admin/scripts/start-with-tailscale.sh /start.sh
+COPY --link admin/scripts/start-with-tailscale.sh /start.sh
 RUN chmod +x /start.sh
 
 # Tailscale state directory (mount as volume for persistence)

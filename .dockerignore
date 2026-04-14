@@ -35,11 +35,22 @@ wrangler.henrychong.toml
 openapitools.json
 .nvmrc
 
-# Documentation
+# Documentation (root *.md excluded except CHANGELOG.md which vite bundles)
 *.md
 !CHANGELOG.md
-!admin/**/*.md
-!shared/**/*.md
+
+# Admin files not needed in any container stage — keeps the vite build cache
+# from invalidating on Dockerfile/compose/lint-config edits. admin/nginx.conf
+# and admin/scripts/ stay in context (stage-1 COPYs them).
+admin/Dockerfile*
+admin/docker-compose*.yml
+admin/eslint.config.js
+admin/vitest.config.ts
+admin/README.md
+admin/dist
+
+# Shared build output — rebuilt inside the container
+shared/dist
 
 # OS files
 .DS_Store
