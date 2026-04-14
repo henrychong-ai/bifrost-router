@@ -1,6 +1,6 @@
 {
   "name": "bifrost",
-  "version": "1.21.2",
+  "version": "1.22.0",
   "description": "Bifrost - Edge router with Cloudflare Workers and Hono",
   "type": "module",
   "private": true,
@@ -47,17 +47,17 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.9",
+    "@biomejs/biome": "^2.4.11",
     "@cloudflare/vitest-pool-workers": "^0.12.21",
-    "@cloudflare/workers-types": "^4.20260329.1",
+    "@cloudflare/workers-types": "^4.20260414.1",
     "@vitest/coverage-v8": "^3.2.4",
     "drizzle-kit": "^0.31.10",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
-    "oxlint": "^1.57.0",
+    "oxlint": "^1.60.0",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4",
-    "wrangler": "4.78.0"
+    "wrangler": "4.81.1"
   },
   "pnpm": {
     "overrides": {

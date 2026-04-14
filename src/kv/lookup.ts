@@ -35,6 +35,9 @@ export function normalizePath(path: string): string {
     normalized = normalized.slice(0, -1);
   }
 
+  // Normalize to lowercase for case-insensitive matching
+  normalized = normalized.toLowerCase();
+
   return normalized;
 }
 

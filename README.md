@@ -36,6 +36,7 @@ A lightweight, high-performance edge router and URL shortener built on Cloudflar
   - `redirect` — URL redirects (301, 302, 307, 308)
   - `proxy` — Reverse proxy to external URLs
   - `r2` — Serve content from R2 buckets
+- **Case-Insensitive Paths** — Visitors can use any case in the URL (`/LinkedIn`, `/LINKEDIN`, `/linkedin` all match the same route)
 - **KV-Powered** — Route changes propagate globally in seconds
 - **Admin API** — Full CRUD operations with API key authentication, search, and pagination
 - **Admin Dashboard** — React SPA with Command Palette (Cmd+K), filters, analytics, R2 Storage browser with file preview (images, PDFs) and standalone target links
@@ -357,6 +358,7 @@ All admin endpoints require `X-Admin-Key` header or `Authorization: Bearer <key>
 | `DELETE` | `/api/routes?path=` | Delete route |
 | `POST` | `/api/routes/migrate` | Migrate route to new path |
 | `POST` | `/api/routes/transfer` | Transfer route between domains |
+| `POST` | `/api/routes/normalize-case` | One-time migration: convert all route paths to lowercase (run after upgrading to v1.22.0+ if you have pre-existing uppercase routes) |
 | `GET` | `/api/routes/by-target` | Find routes serving an R2 object (`?bucket=&target=`) |
 | `POST` | `/api/routes/seed` | Bulk import routes |
 | `GET` | `/api/analytics/summary` | Analytics overview |

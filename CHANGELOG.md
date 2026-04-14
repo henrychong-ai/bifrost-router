@@ -6,6 +6,22 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.22.0
+
+**Case-insensitive routing + dependency bumps**
+
+### Changed
+- **Case-insensitive paths** — All route paths are normalized to lowercase. Visitors can use any case in the URL (e.g., `/LinkedIn`, `/LINKEDIN`, `/linkedin`) and it will match the stored route. `normalizePath()` now applies `.toLowerCase()` as the final step.
+- **Dashboard path input** — Path inputs in create and edit mode automatically convert to lowercase as the user types.
+- **Removed case conflict checks** — Case conflict detection in route creation, migration, and transfer is removed (now redundant since all paths are lowercase). The exact-match duplicate check remains.
+- **Dependency bumps** — wrangler 4.78.0 → 4.81.1, biome 2.4.9 → 2.4.11, oxlint 1.57.0 → 1.60.0, plus minor/patch updates across the monorepo.
+
+### Added
+- **`POST /api/routes/normalize-case`** — One-time migration endpoint to convert existing KV routes with uppercase paths to lowercase. Idempotent and safe to re-run. Self-hosters should run this once after upgrading if they have pre-existing routes with uppercase paths.
+- **Oxlint 1.60 rule handling** — Disabled `vitest/require-mock-type-parameters` and `react/hook-use-state` (intentional — see CLAUDE.md rationale). Removed deleted `unicorn/prevent-abbreviations` rule.
+
+---
+
 ## v1.21.2
 
 ### Fixed

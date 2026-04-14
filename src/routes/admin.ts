@@ -382,22 +382,6 @@ adminRoutes.post('/routes', async c => {
     );
   }
 
-  // Check for case-insensitive path conflict
-  const allRoutes = await getAllRoutes(c.env.ROUTES, domain);
-  const pathLower = result.data.path.toLowerCase();
-  const caseConflict = allRoutes.find(
-    r => r.path.toLowerCase() === pathLower && r.path !== result.data.path,
-  );
-  if (caseConflict) {
-    return c.json(
-      {
-        success: false,
-        error: `Case conflict: ${caseConflict.path} already exists (paths are case-insensitive)`,
-      },
-      409,
-    );
-  }
-
   const route = await createRoute(c.env.ROUTES, domain, result.data);
 
   // Record audit log (non-blocking) - only if executionCtx is available
@@ -924,6 +908,53 @@ adminRoutes.post('/routes/transfer', async c => {
     const status = message.includes('already exists') ? 409 : 400;
     return c.json({ success: false, error: message }, status);
   }
+});
+
+/**
+ * POST /api/routes/normalize-case - Normalize all route paths to lowercase
+ *
+ * One-time migration endpoint. Scans all routes across all domains and
+ * migrates any routes with non-lowercase paths to their lowercase equivalent.
+ * Idempotent — safe to re-run.
+ */
+adminRoutes.post('/routes/normalize-case', async c => {
+  const allRoutes = await getAllRoutesAllDomains(c.env.ROUTES);
+  let migrated = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+
+  for (const route of allRoutes) {
+    const lowerPath = route.path.toLowerCase();
+    if (route.path === lowerPath) {
+      skipped++;
+      continue;
+    }
+
+    try {
+      const oldKey = `${route.domain}:${route.path}`;
+      const newKey = `${route.domain}:${lowerPath}`;
+
+      // Check if lowercase route already exists
+      const existingLower = await c.env.ROUTES.get(newKey);
+      if (existingLower) {
+        errors.push(`${oldKey} → ${newKey}: lowercase route already exists, skipping`);
+        continue;
+      }
+
+      // Write new lowercase route, then delete old
+      const migratedRoute = { ...route, path: lowerPath, updatedAt: Date.now() };
+      // Remove the domain field added by getAllRoutesAllDomains before storing
+      const { domain: _domain, ...routeWithoutDomain } = migratedRoute;
+      await c.env.ROUTES.put(newKey, JSON.stringify(routeWithoutDomain));
+      await c.env.ROUTES.delete(oldKey);
+      migrated++;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      errors.push(`${route.domain}:${route.path}: ${msg}`);
+    }
+  }
+
+  return c.json({ success: true, data: { migrated, skipped, errors } });
 });
 
 /**

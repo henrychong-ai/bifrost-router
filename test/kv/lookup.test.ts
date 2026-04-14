@@ -39,8 +39,26 @@ describe('normalizePath', () => {
     });
 
     it('handles malformed encoding gracefully', () => {
-      // Invalid encoding should keep original
-      expect(normalizePath('/invalid%ZZ')).toBe('/invalid%ZZ');
+      // Invalid encoding should keep original (but lowercased)
+      expect(normalizePath('/invalid%ZZ')).toBe('/invalid%zz');
+    });
+  });
+
+  describe('case normalization', () => {
+    it('converts paths to lowercase', () => {
+      expect(normalizePath('/LinkedIn')).toBe('/linkedin');
+      expect(normalizePath('/GitHub')).toBe('/github');
+      expect(normalizePath('/API/V1/Users')).toBe('/api/v1/users');
+    });
+
+    it('preserves already lowercase paths', () => {
+      expect(normalizePath('/blog')).toBe('/blog');
+      expect(normalizePath('/api/v1')).toBe('/api/v1');
+    });
+
+    it('handles all-uppercase paths', () => {
+      expect(normalizePath('/README')).toBe('/readme');
+      expect(normalizePath('/FAQ')).toBe('/faq');
     });
   });
 

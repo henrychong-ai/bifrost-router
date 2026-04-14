@@ -17,8 +17,9 @@
     "import/no-cycle": "warn",
     "import/no-self-import": "error",
     "unicorn/filename-case": ["error", { "cases": { "kebabCase": true, "pascalCase": true } }],
-    "unicorn/prevent-abbreviations": "off",
-    "unicorn/no-null": "off"
+    "unicorn/no-null": "off",
+    "vitest/require-mock-type-parameters": "off",
+    "react/hook-use-state": "off"
   },
   "ignorePatterns": [
     "dist",

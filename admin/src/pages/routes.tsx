@@ -157,22 +157,6 @@ function RouteForm(props: RouteFormProps) {
     return matches;
   }, [formData.target, allDomainRoutes, mode, route]);
 
-  // Case-insensitive path conflict detection (e.g. /test1 vs /TEST1 on same domain)
-  const pathCaseConflicts = useMemo(() => {
-    if (!formData.path || !allDomainRoutes) return [];
-    const pathLower = formData.path.toLowerCase();
-    const activeDomain = mode === 'edit' ? (route?.domain ?? formData.domain) : formData.domain;
-    const domainRoutes = allDomainRoutes.get(activeDomain) ?? [];
-    const matches: string[] = [];
-    for (const r of domainRoutes) {
-      if (r.path.toLowerCase() === pathLower && r.path !== formData.path) {
-        if (mode === 'edit' && r.path === route?.path) continue;
-        matches.push(r.path);
-      }
-    }
-    return matches;
-  }, [formData.path, formData.domain, allDomainRoutes, mode, route]);
-
   // R2 file preview
   const r2PreviewUrl =
     formData.type === 'r2' && formData.target
@@ -377,33 +361,20 @@ function RouteForm(props: RouteFormProps) {
         <Input
           id="path"
           value={formData.path}
-          onChange={e => setFormData({ ...formData, path: e.target.value })}
+          onChange={e => setFormData({ ...formData, path: e.target.value.toLowerCase() })}
           placeholder="/example"
           required
           className="font-mono"
         />
         {mode === 'create' && (
-          <p className="text-tiny text-muted-foreground font-gilroy">Must start with /</p>
+          <p className="text-tiny text-muted-foreground font-gilroy">
+            Must start with / — paths are automatically lowercased
+          </p>
         )}
         {mode === 'edit' && formData.path !== route.path && (
           <p className="text-tiny text-amber-600 font-gilroy">
             Changing the path will migrate this route
           </p>
-        )}
-        {pathCaseConflicts.length > 0 && (
-          <div className="flex items-start gap-2 rounded-sm bg-red-50 px-3 py-2">
-            <Info className="mt-0.5 size-3.5 shrink-0 text-red-600" />
-            <p className="font-gilroy text-xs text-red-800">
-              Case conflict:{' '}
-              {pathCaseConflicts.map((p, i) => (
-                <span key={p}>
-                  {i > 0 && ', '}
-                  <code className="rounded-sm bg-muted px-1 py-0.5 font-mono text-tiny">{p}</code>
-                </span>
-              ))}{' '}
-              already exists — paths are case-insensitive
-            </p>
-          </div>
         )}
       </div>
 
@@ -657,7 +628,7 @@ function RouteForm(props: RouteFormProps) {
         </Button>
         <Button
           type="submit"
-          disabled={isSubmitting || pathCaseConflicts.length > 0}
+          disabled={isSubmitting}
           className="font-gilroy bg-blue-950 hover:bg-blue-900"
         >
           {isSubmitting ? 'Saving...' : route ? 'Update' : 'Create'}

@@ -169,6 +169,35 @@ paths:
         '409':
           description: Route already exists on destination domain
 
+  /api/routes/normalize-case:
+    post:
+      summary: Normalize all route paths to lowercase
+      description: One-time admin-only migration endpoint. Converts existing routes with uppercase paths to lowercase. Idempotent.
+      tags: [Routes]
+      responses:
+        '200':
+          description: Migration complete
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      migrated:
+                        type: integer
+                      skipped:
+                        type: integer
+                      errors:
+                        type: array
+                        items:
+                          type: string
+        '401':
+          description: Missing or invalid admin API key
+
   /api/routes/by-target:
     get:
       summary: Find routes by R2 target

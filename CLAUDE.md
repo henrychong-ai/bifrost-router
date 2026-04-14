@@ -2,7 +2,7 @@
 
 Guidance for Claude Code when working with this repository.
 
-**Version:** 1.21.2 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.22.0 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Project Overview
 
@@ -88,7 +88,7 @@ pnpm run deploy
 | **KV (dev)** | `your-kv-dev-namespace-id` |
 | **D1** | `your-d1-database-id` |
 
-**KV Key Format:** `{domain}:{path}` (e.g., `example.com:/linkedin`)
+**KV Key Format:** `{domain}:{path}` (e.g., `example.com:/linkedin`). Paths are always lowercase — `normalizePath()` applies `.toLowerCase()`.
 
 ### R2 Buckets
 
@@ -163,6 +163,7 @@ interface KVRouteConfig {
 | `POST /api/routes/seed` | Bulk import routes |
 | `POST /api/routes/migrate` | Migrate route to new path |
 | `POST /api/routes/transfer` | Transfer route between domains |
+| `POST /api/routes/normalize-case` | One-time migration: convert all route paths to lowercase |
 | `GET /api/routes/by-target` | Find routes serving an R2 object |
 | `GET /api/analytics/*` | Analytics endpoints |
 | `GET /api/storage/buckets` | List R2 buckets |
@@ -336,6 +337,16 @@ Handled by **Cloudflare WAF**, not in Worker code. Worker-level middleware avail
 **Oxlint** (primary linter) with native plugins: import, promise, node, vitest, react, jsx-a11y. Config: `oxlint.json`.
 **Biome** (formatter only, linter disabled). Config: `biome.json`.
 **Residual ESLint** in admin/ only for `eslint-plugin-react-refresh` (Vite HMR). Uses `eslint-plugin-oxlint` to avoid rule duplication. Relaxed rules for `src/components/ui/` (shadcn generated code).
+
+**Disabled Oxlint rules (intentional):**
+- `vitest/require-mock-type-parameters` — `vi.fn()` calls in tests are typed via `as unknown as Type` casts; adding type params is redundant
+- `react/hook-use-state` — `sidebar.tsx` uses `[_open, _setOpen]` (shadcn/ui internal state pattern); `filter-context.tsx` uses `[filters, setFiltersState]` to distinguish raw setter from wrapped API
+
+### Dashboard architecture (not Workers Static Assets)
+
+The dashboard is served via a Docker container (nginx + Tailscale), not via Cloudflare Workers Static Assets. The Worker has **no `[assets]` binding** and **no admin-domain SPA middleware** in `src/index.ts`.
+
+If switching to Workers Static Assets in future, add a KV-route-precedence check (call `matchRoute()` first, fall through to the KV catch-all if a route exists; otherwise serve the SPA) to prevent KV-configured routes on admin domains from being masked by `index.html`.
 
 ## Versioning
 

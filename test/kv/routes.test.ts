@@ -14,6 +14,7 @@ import {
   seedRoutes,
 } from '../../src/kv/routes';
 import { SCHEMA_VERSION } from '../../src/kv/schema';
+import { matchRoute } from '../../src/kv/lookup';
 import { clearRoutes } from '../helpers';
 
 describe('routes', () => {
@@ -95,6 +96,39 @@ describe('routes', () => {
 
       const retrieved = await getRoute(env.ROUTES, testDomain, '/test-route');
       expect(retrieved).not.toBeNull();
+    });
+
+    it('normalizes mixed-case paths to lowercase when creating routes', async () => {
+      const route = await createRoute(env.ROUTES, testDomain, {
+        path: '/LinkedIn',
+        type: 'redirect',
+        target: 'https://linkedin.com/in/example',
+      });
+
+      expect(route.path).toBe('/linkedin');
+
+      const retrieved = await getRoute(env.ROUTES, testDomain, '/linkedin');
+      expect(retrieved).not.toBeNull();
+      expect(retrieved?.path).toBe('/linkedin');
+    });
+
+    it('retrieves lowercase route regardless of lookup case (via matchRoute)', async () => {
+      await createRoute(env.ROUTES, testDomain, {
+        path: '/GitHub',
+        type: 'redirect',
+        target: 'https://github.com/example',
+      });
+
+      // matchRoute normalizes the request path, so all case variants should hit the same route
+      const lower = await matchRoute(env.ROUTES, testDomain, '/github');
+      const upper = await matchRoute(env.ROUTES, testDomain, '/GITHUB');
+      const mixed = await matchRoute(env.ROUTES, testDomain, '/GitHub');
+      expect(lower).not.toBeNull();
+      expect(upper).not.toBeNull();
+      expect(mixed).not.toBeNull();
+      expect(lower?.path).toBe('/github');
+      expect(upper?.path).toBe('/github');
+      expect(mixed?.path).toBe('/github');
     });
   });
 
