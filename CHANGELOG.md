@@ -6,6 +6,17 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.22.6
+
+### Changed
+- **Bump minor/patch dependencies** — routine dev-tooling refresh:
+  - `@biomejs/biome` `^2.4.11` → `^2.4.12` (root)
+  - `@cloudflare/workers-types` `^4.20260414.1` → `^4.20260415.1` (root + slackbot)
+  - `wrangler` `4.81.1` → `4.82.2` (root + slackbot)
+  - `pnpm-lock.yaml` regenerated. No dependabot PRs or security alerts were open at the time of this bump. Major-version updates (`typescript` 6, `vite` 8, `vitest` 4 root/slackbot, `@vitest/coverage-v8` 4, `@vitejs/plugin-react` 6, `@cloudflare/vitest-pool-workers` 0.14, `lucide-react` 1.x) were intentionally deferred. CI parity validated locally: lint, admin lint, format check, root + workspace typechecks, full test suite (root 463 + shared 68 + admin 79 + mcp 80 + slackbot 104 = 794 tests), and admin dashboard build all pass.
+
+---
+
 ## v1.22.5
 
 ### Changed
