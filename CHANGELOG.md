@@ -6,6 +6,26 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.22.7
+
+### Changed
+- **Bump minor/patch dependencies** — routine dev-tooling refresh, includes Dependabot PR #6 (hono security fix):
+  - `hono` `^4.12.12` → `^4.12.14` (root + slackbot) — folds in Dependabot PR #6 / GHSA-458j-xx4x-4375 (improper handling of JSX attribute names in `hono/jsx` SSR). Also updates the `hono` pnpm override to `>=4.12.14`.
+  - `@biomejs/biome` `^2.4.12` → `^2.4.13` (root)
+  - `@cloudflare/workers-types` `^4.20260415.1` → `^4.20260423.1` (root + slackbot)
+  - `oxlint` `^1.60.0` → `^1.61.0` (root) and `eslint-plugin-oxlint` `^1.60.0` → `^1.61.0` (admin)
+  - `wrangler` `4.82.2` → `4.84.1` (root + slackbot)
+  - `@tanstack/react-query` `^5.99.0` → `^5.100.1` (admin)
+  - `react-hook-form` `^7.72.1` → `^7.73.1` (admin)
+  - `react-router-dom` `^7.14.1` → `^7.14.2` (admin)
+  - `@tailwindcss/vite` / `tailwindcss` `^4.2.2` → `^4.2.4` (admin)
+  - `eslint` `^10.2.0` → `^10.2.1` (admin)
+  - `typescript-eslint` `^8.58.2` → `^8.59.0` (admin)
+  - `vitest` `^4.1.4` → `^4.1.5` (shared, mcp, admin)
+  - `pnpm-lock.yaml` regenerated. Major-version updates (`typescript` 6, `vite` 8, `vitest` 4 root/slackbot, `@vitest/coverage-v8` 4, `@vitejs/plugin-react` 6, `@cloudflare/vitest-pool-workers` 0.14, `lucide-react` 1.x) were intentionally deferred. CI parity validated locally: lint, admin lint, format check, root + workspace typechecks, full test suite (root 463 + shared 68 + admin 79 + mcp 80 + slackbot 104 = 794 tests), and admin dashboard build all pass.
+
+---
+
 ## v1.22.6
 
 ### Changed
