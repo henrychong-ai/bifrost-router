@@ -6,6 +6,17 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.22.7
+
+### Fixed
+- **Workers Observability parent flag** — the top-level `[observability]` block in `wrangler.toml` was missing its own `enabled = true` master switch. Without it, Cloudflare retains no Workers Logs or Traces, even with `[observability.logs]` and `[observability.traces]` children enabled. The parent flag is the master switch under Cloudflare's GA observability model.
+
+  Originally surfaced via the personal Grafana "Cloudflare Metrics" dashboard while drilling into worker errors and finding no stack traces in the Workers Logs UI. The Cloudflare Settings API was patched directly for immediate forward-going visibility; this version makes the change durable across future deploys.
+
+  Quotas remain unchanged: 20M invocation logs/month included on Workers Paid, 7-day rolling retention, $0.60 per additional million.
+
+---
+
 ## v1.22.6
 
 ### Changed
