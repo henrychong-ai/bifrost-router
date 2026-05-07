@@ -2,7 +2,7 @@
 
 Guidance for Claude Code when working with this repository.
 
-**Version:** 1.22.11 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.22.12 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Project Overview
 

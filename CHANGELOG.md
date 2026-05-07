@@ -6,6 +6,29 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.22.12
+
+### Changed
+- **Bump minor/patch dependencies** — routine refresh + security pickups:
+  - `hono` `^4.12.12` → `^4.12.18` (root + slackbot) — picks up GHSA-69xw-7hcm-h432 (JSX tag-name HTML injection) and GHSA-9vqf-7f2p-gf9v (bodyLimit bypass for chunked requests). Supersedes Dependabot PR #6.
+  - `wrangler` `4.82.2` → `4.90.0` (root + slackbot)
+  - `@cloudflare/workers-types` `^4.20260415.1` → `^4.20260507.1` (root + slackbot)
+  - `@biomejs/biome` `^2.4.12` → `^2.4.14` (root)
+  - `oxlint` / `eslint-plugin-oxlint` `^1.60.0` → `^1.63.0` (root + admin)
+  - `zod` `^4.3.6` → `^4.4.3` (all packages)
+  - `@types/node` `^25.6.0` → `^25.6.1` (admin/shared/mcp/slackbot)
+  - `react` / `react-dom` `^19.2.5` → `^19.2.6` (admin)
+  - `@tanstack/react-query` `^5.99.0` → `^5.100.9` (admin)
+  - `react-hook-form` `^7.72.1` → `^7.75.0` (admin)
+  - `react-router-dom` `^7.14.1` → `^7.15.0` (admin)
+  - `tailwindcss` / `@tailwindcss/vite` `^4.2.2` → `^4.2.4` (admin)
+  - `eslint` `^10.2.0` → `^10.3.0` (admin)
+  - `typescript-eslint` `^8.58.2` → `^8.59.2` (admin)
+  - Added `pnpm.overrides` entry `ip-address@<=10.1.0` → `>=10.1.1` to resolve GHSA-v2v4-37r5-5v8g (XSS in `Address6` HTML-emitting methods, transitive via `mcp > @modelcontextprotocol/sdk > express-rate-limit > ip-address`).
+  - `pnpm-lock.yaml` regenerated. Major-version updates (`typescript` 6, `vite` 8, `vitest` 4 root/slackbot, `@vitest/coverage-v8` 4, `@vitejs/plugin-react` 6, `@cloudflare/vitest-pool-workers` 0.16, `lint-staged` 17, `lucide-react` 1.x) were intentionally deferred. CI parity validated locally: lint, admin lint, format check, root + workspace typechecks, and full test suite (root 471 + workspace 100% passing) all green. `pnpm audit --prod` reports no known vulnerabilities.
+
+---
+
 ## v1.22.11
 
 ### Changed
