@@ -6,6 +6,15 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.22.10
+
+### Changed
+- **`safeServiceFetch` failure path now serves 503 instead of 404** — when the helper returns `null` (URL-parse error, binding misconfig, transient fetch error), the service-fallback branch in `src/index.ts` now responds with `503 Service Unavailable` rather than a synthetic 404. The original v1.22.9 implementation returned 404 for all helper failures, which conflated "this URL doesn't exist" with "the upstream service is unavailable" — that hides real availability incidents in monitoring, leads to incorrect CDN cache behaviour (404s are cacheable; 503s without explicit cache headers are not), and reports valid routes as missing during inner-Worker outages. 503 correctly signals upstream-availability while still avoiding `scriptThrewException` on the Worker (the original goal of the wrap). One-line change in `src/index.ts`; helper itself is unchanged.
+
+  Mirrors the same fix in upstream personal repo at v1.22.10.
+
+---
+
 ## v1.22.9
 
 ### Added
