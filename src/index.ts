@@ -7,6 +7,7 @@ import { getServiceFallback, isValidDomain } from './types';
 import { matchRoute } from './kv/lookup';
 import { handleRedirect, handleProxy, handleR2, CACHE_STATUS_HEADER } from './handlers';
 import { adminRoutes } from './routes/admin';
+import { safeServiceFetch } from './utils/safe-service-fetch';
 import {
   recordClick,
   recordPageView,
@@ -138,9 +139,20 @@ app.all('*', async c => {
           path,
         }),
       );
-      // Forward the request to the service binding
+      // Forward the request to the service binding via safeServiceFetch,
+      // which wraps the call in try/catch. URL-parse errors (e.g. malformed
+      // percent-encoding from scanners) and service-binding failures return
+      // null + a warn log; we serve a synthetic 404 in that case rather than
+      // letting the throw surface as scriptThrewException on this Worker.
+      // (Inner-Worker exceptions resolve as 5xx Responses and pass through.)
+      const serviceResponse = await safeServiceFetch(serviceFallback, c.req.raw, {
+        hostname: url.hostname,
+        path,
+      });
+      if (!serviceResponse) {
+        return c.notFound();
+      }
       // Clone both request and response to avoid immutable headers issue from Hono middleware
-      const serviceResponse = await serviceFallback.fetch(new Request(c.req.raw));
       const response = new Response(serviceResponse.body, serviceResponse);
 
       // Track page views for HTML responses only (not assets like JS, CSS, images)

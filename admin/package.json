@@ -1,7 +1,7 @@
 {
   "name": "bifrost-dashboard",
   "private": true,
-  "version": "1.22.7",
+  "version": "1.22.9",
   "type": "module",
   "engines": {
     "node": ">=24.0.0"

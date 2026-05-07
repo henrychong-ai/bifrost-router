@@ -58,6 +58,7 @@ A lightweight, high-performance edge router and URL shortener built on Cloudflar
 - **SSRF Protection** — Blocks proxy requests to private/internal IPs
 - **Path Traversal Protection** — R2 keys sanitized to prevent directory traversal
 - **Rate Limiting** — Via Cloudflare WAF (Worker middleware available if needed)
+- **Service-Binding Fetch Resilience** — Worker-to-Worker service-binding calls are wrapped in `try/catch` via the `safeServiceFetch` helper, so URL-parse errors and binding failures become 404s + warn logs instead of `scriptThrewException` worker errors
 
 ### Project Structure
 
