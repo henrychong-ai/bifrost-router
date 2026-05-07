@@ -142,7 +142,7 @@ app.all('*', async c => {
       // Forward the request to the service binding via safeServiceFetch,
       // which wraps the call in try/catch. URL-parse errors (e.g. malformed
       // percent-encoding from scanners) and service-binding failures return
-      // null + a warn log; we serve a synthetic 404 in that case rather than
+      // null + a warn log; we serve a synthetic 503 in that case rather than
       // letting the throw surface as scriptThrewException on this Worker.
       // (Inner-Worker exceptions resolve as 5xx Responses and pass through.)
       const serviceResponse = await safeServiceFetch(serviceFallback, c.req.raw, {
@@ -150,7 +150,12 @@ app.all('*', async c => {
         path,
       });
       if (!serviceResponse) {
-        return c.notFound();
+        // 503: signals an upstream availability problem (binding misconfig,
+        // inner-Worker redeploy, OOM, or runtime URL-parse rejection),
+        // not "this URL doesn't exist". A 404 here would hide real
+        // availability incidents in monitoring and lead to incorrect
+        // CDN cache behaviour.
+        return c.json({ error: 'Service Unavailable' }, 503);
       }
       // Clone both request and response to avoid immutable headers issue from Hono middleware
       const response = new Response(serviceResponse.body, serviceResponse);
