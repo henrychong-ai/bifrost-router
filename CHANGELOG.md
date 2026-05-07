@@ -6,40 +6,44 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.22.11
+
+### Changed
+- Trimmed verbosity introduced by the v1.22.7–v1.22.10 series:
+  - `src/utils/safe-service-fetch.ts` — dropped the unused `SafeServiceFetchContext` interface; inlined the param shape on the function signature.
+  - `CHANGELOG.md` — collapsed v1.22.7–v1.22.10 narrative blocks; added an umbrella note at the top of the series.
+  - `CLAUDE.md` — replaced the multi-paragraph "Service-Binding Fetch Resilience" subsection with a 2-line pointer to the helper JSDoc.
+
+  Pure cleanup. No behaviour change. Mirrors upstream personal repo v1.22.11.
+
+---
+
+> **v1.22.7–v1.22.10 — scanner-resilience series.** Three releases mirroring
+> the upstream personal repo's `scriptThrewException` fix series for
+> double-URL-encoded scanner paths. v1.22.7 enables observability,
+> v1.22.9 adds a tested `safeServiceFetch` helper around the service-binding
+> fallback (skipping v1.22.8 since the inline-wrap → helper-extraction
+> happened in lockstep upstream), v1.22.10 corrects the failure status
+> code from 404 to 503 per Codex review.
+
 ## v1.22.10
 
 ### Changed
-- **`safeServiceFetch` failure path now serves 503 instead of 404** — when the helper returns `null` (URL-parse error, binding misconfig, transient fetch error), the service-fallback branch in `src/index.ts` now responds with `503 Service Unavailable` rather than a synthetic 404. The original v1.22.9 implementation returned 404 for all helper failures, which conflated "this URL doesn't exist" with "the upstream service is unavailable" — that hides real availability incidents in monitoring, leads to incorrect CDN cache behaviour (404s are cacheable; 503s without explicit cache headers are not), and reports valid routes as missing during inner-Worker outages. 503 correctly signals upstream-availability while still avoiding `scriptThrewException` on the Worker (the original goal of the wrap). One-line change in `src/index.ts`; helper itself is unchanged.
-
-  Mirrors the same fix in upstream personal repo at v1.22.10.
+- `safeServiceFetch` failure path now serves **503 instead of 404** — 404 conflated "URL doesn't exist" with "upstream is unavailable", hiding incidents and confusing CDN cache. One-line change in `src/index.ts`; helper unchanged. Mirrors upstream personal repo v1.22.10.
 
 ---
 
 ## v1.22.9
 
 ### Added
-- **`safeServiceFetch` helper for service-binding fetch resilience** — `src/utils/safe-service-fetch.ts` exports `safeServiceFetch(service, req, ctx) → Promise<Response | null>` which wraps `service.fetch(new Request(req))` in `try/catch` and returns `null` on URL-parse error or service-binding failure (with a `warn`-level structured log line carrying hostname/path/error). The service-fallback branch in `src/index.ts` now calls the helper and serves a synthetic 404 on `null`.
-
-  **What this protects against:**
-  - **Malformed percent-encoded paths** (e.g. `/%252fmaster%252f.env` from vulnerability scanners) — workerd's URL parser throws a `TypeError` when constructing `new Request(c.req.raw)`. Without the wrap, this surfaces as `scriptThrewException` on the Worker.
-  - **Service-binding failures** — if the inner Worker is mid-redeploy, OOM-killed, or the binding drops, `service.fetch(...)` rejects.
-
-  **What this does NOT do** (intentionally): when the inner Worker itself throws, `service.fetch()` does not reject — it resolves with a 5xx Response. The helper passes those through unchanged; they're not its concern. Pattern-based blocking of scanner traffic that triggers inner exceptions belongs at the **Cloudflare WAF** layer, not in Worker code.
-
-  8 new unit tests in `test/utils/safe-service-fetch.test.ts` cover: 200/404/5xx response passthrough, Error/TypeError/non-Error throws all returning null + warn log, contextual logging fields, and request-clone semantics.
-
-  Public template lands directly at v1.22.9 with the helper-extracted shape (the upstream lineage went inline-wrap at v1.22.8 → helper-extraction at v1.22.9; bundling them here keeps the template's release trail clean).
+- `safeServiceFetch` helper for service-binding fetch resilience — `src/utils/safe-service-fetch.ts` exports `safeServiceFetch(service, req, ctx) → Promise<Response | null>` which wraps `service.fetch(new Request(req))` in `try/catch`. URL-parse errors (e.g. `/%252fmaster%252f.env` from scanners) and binding failures return `null` + `warn` log instead of `scriptThrewException`. The service-fallback branch in `src/index.ts` calls the helper. 8 unit tests in `test/utils/safe-service-fetch.test.ts`.
 
 ---
 
 ## v1.22.7
 
 ### Fixed
-- **Workers Observability parent flag** — the top-level `[observability]` block in `wrangler.toml` was missing its own `enabled = true` master switch. Without it, Cloudflare retains no Workers Logs or Traces, even with `[observability.logs]` and `[observability.traces]` children enabled. The parent flag is the master switch under Cloudflare's GA observability model.
-
-  Originally surfaced via the personal Grafana "Cloudflare Metrics" dashboard while drilling into worker errors and finding no stack traces in the Workers Logs UI. The Cloudflare Settings API was patched directly for immediate forward-going visibility; this version makes the change durable across future deploys.
-
-  Quotas remain unchanged: 20M invocation logs/month included on Workers Paid, 7-day rolling retention, $0.60 per additional million.
+- Added `enabled = true` to the top-level `[observability]` block in `wrangler.toml`. Without the parent flag, Cloudflare retains no Workers Logs or Traces — child flags alone don't persist.
 
 ---
 
