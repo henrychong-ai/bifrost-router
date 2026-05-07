@@ -2,7 +2,7 @@
 
 Guidance for Claude Code when working with this repository.
 
-**Version:** 1.22.7 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.22.9 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Project Overview
 
@@ -232,6 +232,7 @@ If the domain is missing from this list, the binding was never created.
 | `src/routes/analytics.ts` | Analytics API routes |
 | `src/types.ts` | Domain list, route types |
 | `src/utils/path-validation.ts` | R2 key validation (strict reject) |
+| `src/utils/safe-service-fetch.ts` | Defensive wrapper around service-binding `fetch` calls |
 | `openapi/bifrost-api.yaml` | API Shield schema |
 | `scripts/upload-api-shield.mjs` | Auto-upload schema to API Shield (called by CI/CD) |
 
@@ -346,6 +347,14 @@ Use the same "API Token - Workers Edit" token from 1Password, after adding Cache
 ### Rate Limiting
 
 Handled by **Cloudflare WAF**, not in Worker code. Worker-level middleware available at `src/middleware/rate-limit.ts` if needed.
+
+### Service-Binding Fetch Resilience (v1.22.9)
+
+The service-binding fallback in `src/index.ts` forwards via `safeServiceFetch(service, req, ctx)` from `src/utils/safe-service-fetch.ts`, which wraps the call in `try/catch`. URL-parse errors (e.g. workerd refusing a malformed percent-encoded path from a vulnerability scanner) and service-binding failures return `null` + a `warn`-level log line; the caller serves a synthetic 404 instead of letting the throw surface as `scriptThrewException` on the Worker.
+
+**Note on inner-Worker exceptions:** when the Worker behind the service binding throws, `service.fetch()` does not reject — it resolves with a 5xx Response. The helper passes those through unchanged; they're not the helper's concern. Pattern-based blocking of scanner traffic that triggers those inner exceptions belongs at the Cloudflare WAF layer, not in Worker code.
+
+The helper is unit-tested in `test/utils/safe-service-fetch.test.ts` covering the success path (200/404/5xx passthrough), the failure path (Error / TypeError / non-Error throws all return null + log), the request-clone behaviour, and contextual logging.
 
 ### wrangler.toml Environment Inheritance
 

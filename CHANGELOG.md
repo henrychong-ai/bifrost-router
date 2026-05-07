@@ -6,6 +6,23 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.22.9
+
+### Added
+- **`safeServiceFetch` helper for service-binding fetch resilience** — `src/utils/safe-service-fetch.ts` exports `safeServiceFetch(service, req, ctx) → Promise<Response | null>` which wraps `service.fetch(new Request(req))` in `try/catch` and returns `null` on URL-parse error or service-binding failure (with a `warn`-level structured log line carrying hostname/path/error). The service-fallback branch in `src/index.ts` now calls the helper and serves a synthetic 404 on `null`.
+
+  **What this protects against:**
+  - **Malformed percent-encoded paths** (e.g. `/%252fmaster%252f.env` from vulnerability scanners) — workerd's URL parser throws a `TypeError` when constructing `new Request(c.req.raw)`. Without the wrap, this surfaces as `scriptThrewException` on the Worker.
+  - **Service-binding failures** — if the inner Worker is mid-redeploy, OOM-killed, or the binding drops, `service.fetch(...)` rejects.
+
+  **What this does NOT do** (intentionally): when the inner Worker itself throws, `service.fetch()` does not reject — it resolves with a 5xx Response. The helper passes those through unchanged; they're not its concern. Pattern-based blocking of scanner traffic that triggers inner exceptions belongs at the **Cloudflare WAF** layer, not in Worker code.
+
+  8 new unit tests in `test/utils/safe-service-fetch.test.ts` cover: 200/404/5xx response passthrough, Error/TypeError/non-Error throws all returning null + warn log, contextual logging fields, and request-clone semantics.
+
+  Public template lands directly at v1.22.9 with the helper-extracted shape (the upstream lineage went inline-wrap at v1.22.8 → helper-extraction at v1.22.9; bundling them here keeps the template's release trail clean).
+
+---
+
 ## v1.22.7
 
 ### Fixed
