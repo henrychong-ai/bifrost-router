@@ -2,7 +2,7 @@
 
 Guidance for Claude Code when working with this repository.
 
-**Version:** 1.22.10 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.22.11 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Project Overview
 
@@ -348,13 +348,9 @@ Use the same "API Token - Workers Edit" token from 1Password, after adding Cache
 
 Handled by **Cloudflare WAF**, not in Worker code. Worker-level middleware available at `src/middleware/rate-limit.ts` if needed.
 
-### Service-Binding Fetch Resilience (v1.22.9)
+### Service-Binding Fetch Resilience
 
-The service-binding fallback in `src/index.ts` forwards via `safeServiceFetch(service, req, ctx)` from `src/utils/safe-service-fetch.ts`, which wraps the call in `try/catch`. URL-parse errors (e.g. workerd refusing a malformed percent-encoded path from a vulnerability scanner) and service-binding failures return `null` + a `warn`-level log line; the caller serves a synthetic 404 instead of letting the throw surface as `scriptThrewException` on the Worker.
-
-**Note on inner-Worker exceptions:** when the Worker behind the service binding throws, `service.fetch()` does not reject — it resolves with a 5xx Response. The helper passes those through unchanged; they're not the helper's concern. Pattern-based blocking of scanner traffic that triggers those inner exceptions belongs at the Cloudflare WAF layer, not in Worker code.
-
-The helper is unit-tested in `test/utils/safe-service-fetch.test.ts` covering the success path (200/404/5xx passthrough), the failure path (Error / TypeError / non-Error throws all return null + log), the request-clone behaviour, and contextual logging.
+The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `src/utils/safe-service-fetch.ts` (returns null on URL-parse / binding errors → caller serves 503). See helper JSDoc for full rationale.
 
 ### wrangler.toml Environment Inheritance
 

@@ -26,20 +26,19 @@
  * in Worker code.
  */
 
-export interface SafeServiceFetchContext {
-  hostname: string;
-  path: string;
-}
-
 /**
  * Forward `req` to `service` and return the response.
  * Returns `null` on URL-parse error or service-binding failure (and logs at
  * `warn` level with the supplied context).
+ *
+ * Works for any Fetcher: Worker-to-Worker service bindings, Workers Static
+ * Assets bindings (`c.env.ASSETS`), or any other built-in primitive that
+ * implements the Fetcher interface.
  */
 export async function safeServiceFetch(
   service: Fetcher,
   req: Request,
-  context: SafeServiceFetchContext,
+  context: { hostname: string; path: string },
 ): Promise<Response | null> {
   try {
     return await service.fetch(new Request(req));
