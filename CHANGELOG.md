@@ -601,6 +601,7 @@ Replaced ESLint+globals with Oxlint (primary linter) and Biome (formatter). Fixe
 
 ### Linting Migration
 - **Added**: `oxlint.json` — Oxlint config with native plugins (import, promise, node, vitest, react, jsx-a11y)
+- **Added**: `biome.json` — Biome 2.3.15 formatter (linter disabled, Tailwind CSS parser enabled)
 - **Removed**: Root `eslint.config.js`, replaced by `oxlint.json`
 - **Changed**: `admin/eslint.config.js` — rewritten as residual-only (eslint-plugin-react-refresh + eslint-plugin-oxlint)
 - **Changed**: Root devDeps — removed @eslint/js, eslint, globals, typescript-eslint; added oxlint, @biomejs/biome
@@ -610,8 +611,6 @@ Replaced ESLint+globals with Oxlint (primary linter) and Biome (formatter). Fixe
 
 ### Typecheck Fixes
 - **Fixed**: `Cannot find module '@bifrost/shared'` — added missing `@bifrost/shared: workspace:*` dependency to root package.json
-
-### Typecheck Fixes
 - **Fixed**: `Property 'error' does not exist` in migrate route handler — aligned domain validation types with upstream Bifrost's centralised `error` pattern (renamed `providedValue` → `error` in types + validation function + all 7 call sites)
 
 ---
@@ -735,4 +734,127 @@ Global Cmd+K (Mac) / Ctrl+K (Windows) command palette for quick navigation and a
 
 - R2 streaming: `body.tee()` instead of `arrayBuffer()`
 - Proxy URL construction: `URL` constructor instead of string concatenation
-- $REMAINING_HISTORY
+- Path normalization on KV write
+- Backup health endpoint always returns HTTP 200
+- CI/CD recursive coverage across monorepo
+
+---
+
+## v1.9.6 (2026-02-04)
+**Node 24 & ES2024 Upgrade**
+
+Upgraded TypeScript target from ES2022 to ES2024 across all sub-packages.
+
+---
+
+## v1.9.5 (2026-02-03)
+**CI/CD Pipeline Enhancement**
+
+Unified CI/CD pipeline with Worker auto-deployment and Dashboard container auto-deployment via Tailscale.
+
+---
+
+## v1.9.4 (2026-02-02)
+**Health Endpoint Version from Environment**
+
+Health endpoint returns version from `VERSION` environment variable in wrangler.toml.
+
+---
+
+## v1.9.0 (2026-01-29)
+**Multi-R2 Bucket Support**
+
+R2 routes can serve from 8 buckets: files (default), assets, and 6 family-specific buckets.
+
+---
+
+## v1.8.0 (2026-01-26)
+**Host Header Override for Proxy Routes**
+
+New `hostHeader` option for proxy routes to override HTTP Host header sent to origin.
+
+---
+
+## v1.7.0 (2026-01-23)
+**API Shield Schema Validation**
+
+OpenAPI 3.0.3 schema validation at the Cloudflare edge. Block mode active.
+
+---
+
+## v1.6.0 (2026-01-23)
+**R2 Backup Health Check System**
+
+New `/api/backups/health` endpoint and dashboard widget for backup monitoring.
+
+---
+
+## v1.5.0 (2026-01-23)
+**Force Download Option for R2 Routes**
+
+New `forceDownload` toggle for explicit Content-Disposition control.
+
+---
+
+## v1.4.0 (2026-01-23)
+**Preserve Path Feature for Wildcard Redirects**
+
+New `preservePath` toggle for redirect routes to preserve URL path when redirecting.
+
+---
+
+## v1.3.0 (2026-01-16)
+**R2 Backup System**
+
+Daily automated backups to R2 with KV routes and D1 analytics (NDJSON + gzip). 30-day retention.
+
+---
+
+## v1.2.0 (2026-01-15)
+**Unified KV Architecture**
+
+Migrated from 8 per-domain KV namespaces to single unified `bifrost-routes` namespace with domain-prefixed keys.
+
+---
+
+## v1.0.0 (2026-01-14)
+**Bifrost: Complete Rename & Stable Release**
+
+Project renamed from `cloudflare-edge-router` to `bifrost`. All packages, workers, and databases renamed.
+
+---
+
+## v0.9.0 (2026-01-14)
+**MCP Server, Slackbot & Monorepo Structure**
+
+- MCP Server for AI-powered route management
+- Slackbot for Slack-based route management
+- Monorepo migration with pnpm workspaces
+
+---
+
+## v0.8.0 (2026-01-13)
+**D1 Analytics & Admin API Security**
+
+D1 analytics database for link clicks and page views. Admin API domain restriction.
+
+---
+
+## v0.7.0 (2026-01-11)
+**Security Hardening & KV Key Format Migration**
+
+Security fixes for CORS, auth ordering, and rate limiting. KV key format migration.
+
+---
+
+## v0.6.0 (2026-01-10)
+**Multi-Domain Support**
+
+Added `example.com` (151 routes) and `secondary.example.net` (4 routes) domain support.
+
+---
+
+## v0.5.0 (2026-01-09)
+**Initial Multi-Domain Routing**
+
+Initial multi-domain routing infrastructure with `links.example.com` as primary domain.
