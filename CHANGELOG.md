@@ -6,6 +6,25 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.22.13
+
+### Changed
+- **Bump minor/patch dependencies** — routine refresh:
+  - `@biomejs/biome` `^2.4.14` → `^2.4.15` (root)
+  - `oxlint` / `eslint-plugin-oxlint` `^1.63.0` → `^1.64.0` (root + admin)
+  - `wrangler` `4.90.0` → `4.91.0` (root + slackbot)
+  - `@cloudflare/workers-types` `^4.20260507.1` → `^4.20260514.1` (root + slackbot)
+  - `@types/node` `^25.6.1` → `^25.8.0` (admin/shared/mcp/slackbot)
+  - `@tanstack/react-query` `^5.100.9` → `^5.100.10` (admin)
+  - `react-router-dom` `^7.15.0` → `^7.15.1` (admin)
+  - `tailwindcss` / `@tailwindcss/vite` `^4.2.4` → `^4.3.0` (admin)
+  - `tailwind-merge` `^3.5.0` → `^3.6.0` (admin)
+  - `typescript-eslint` `^8.59.2` → `^8.59.3` (admin)
+  - `vitest` `^4.1.4` → `^4.1.6` (admin/shared/mcp)
+  - `pnpm-lock.yaml` regenerated. Major-version updates (`typescript` 6, `vite` 8, root/slackbot `vitest` 4, `@vitest/coverage-v8` 4, `@vitejs/plugin-react` 6, `@cloudflare/vitest-pool-workers` 0.16, `lint-staged` 17, `lucide-react` 1.x) were intentionally deferred. CI parity validated locally: lint, admin lint, format check, root + workspace typechecks, full test suite (root 471 + workspace 331 passing), and admin build all green. No open Dependabot PRs or security alerts.
+
+---
+
 ## v1.22.12
 
 ### Changed
