@@ -26,7 +26,13 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
   - `typescript-eslint` `^8.59.2` → `^8.59.4` (admin)
   - `vitest` `^4.1.4` → `^4.1.7` (admin/shared/mcp)
   - Updated matching `pnpm.overrides` entry for `hono`.
-  - `pnpm-lock.yaml` regenerated. No open Dependabot PRs or security alerts to absorb. Major-version updates (`typescript` 6, `vite` 8, root/slackbot `vitest` 4, `@vitest/coverage-v8` 4, `@vitejs/plugin-react` 6, `@cloudflare/vitest-pool-workers` 0.16, `lint-staged` 17, `lucide-react` 1.x) were intentionally deferred. CI parity validated locally: lint, admin lint, format check, root + workspace typechecks, admin build, and full test suite (root 471 + shared 68 + admin 79 + mcp 80 + slackbot 104 = 802 passing) all green.
+  - Added `pnpm.overrides` entries to clear transitive security advisories surfaced by `pnpm audit`:
+    - `fast-uri@<=3.1.1` → `>=3.1.2` — GHSA-q3j6-qgpj-74h6 (path traversal) and GHSA-v39h-62p7-jpjc (host confusion), transitive via `mcp > @modelcontextprotocol/sdk > ajv > fast-uri`.
+    - `postcss@<8.5.10` → `>=8.5.10` — GHSA-qx2v-qp2m-jg93 (XSS via unescaped `</style>`), transitive via `vitest > vite > postcss`.
+    - `ws@>=8.0.0 <8.20.1` → `>=8.20.1` — GHSA-58qx-3vcg-4xpx (uninitialized memory disclosure), transitive via `@cloudflare/vitest-pool-workers > miniflare > ws`.
+    - `esbuild@<=0.24.2` → `>=0.25.0` — GHSA-67mh-4wv8-2f99 (dev-server CSRF), transitive via `drizzle-kit > @esbuild-kit/esm-loader > @esbuild-kit/core-utils > esbuild`.
+    - `brace-expansion` override tightened from `<5.0.5` → `<5.0.6` for GHSA-jxxr-4gwj-5jf2.
+  - `pnpm-lock.yaml` regenerated. No open Dependabot PRs or open Dependabot security alerts to absorb (3 default-branch alerts surfaced on push correspond to the four advisories now neutralised via overrides — `pnpm audit` reports "No known vulnerabilities found" post-override). Major-version updates (`typescript` 6, `vite` 8, root/slackbot `vitest` 4, `@vitest/coverage-v8` 4, `@vitejs/plugin-react` 6, `@cloudflare/vitest-pool-workers` 0.16, `lint-staged` 17, `lucide-react` 1.x) were intentionally deferred. CI parity validated locally: lint, admin lint, format check, root + workspace typechecks, admin build, and full test suite (root 471 + shared 68 + admin 79 + mcp 80 + slackbot 104 = 802 passing) all green.
 
 ---
 
