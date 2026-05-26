@@ -232,22 +232,22 @@ function UploadDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="font-gilroy font-semibold text-blue-950">Upload File</DialogTitle>
-          <DialogDescription className="font-gilroy">
+          <DialogTitle className="font-inter font-semibold text-blue-950">Upload File</DialogTitle>
+          <DialogDescription className="font-inter">
             Upload a file to <code className="font-mono text-blue-600">{bucket}</code>
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label className="font-gilroy font-medium text-charcoal-700">File</Label>
+            <Label className="font-inter font-medium text-charcoal-700">File</Label>
             <Input
               ref={fileInputRef}
               type="file"
               onChange={handleFileChange}
-              className="font-gilroy"
+              className="font-inter"
             />
             {file && (
-              <p className="font-gilroy text-tiny text-muted-foreground">
+              <p className="font-inter text-tiny text-muted-foreground">
                 {file.name} ({formatBytes(file.size)})
               </p>
             )}
@@ -255,7 +255,7 @@ function UploadDialog({
 
           <div className="space-y-2">
             <div className="flex items-center gap-1.5">
-              <Label htmlFor="upload-key" className="font-gilroy font-medium text-charcoal-700">
+              <Label htmlFor="upload-key" className="font-inter font-medium text-charcoal-700">
                 Object Key
               </Label>
               <Tooltip>
@@ -277,9 +277,9 @@ function UploadDialog({
               className="font-mono"
             />
             {key && validateObjectKey(key) ? (
-              <p className="font-gilroy text-tiny text-destructive">{validateObjectKey(key)}</p>
+              <p className="font-inter text-tiny text-destructive">{validateObjectKey(key)}</p>
             ) : (
-              <p className="font-gilroy text-tiny text-muted-foreground">
+              <p className="font-inter text-tiny text-muted-foreground">
                 Full path within the bucket
               </p>
             )}
@@ -287,10 +287,10 @@ function UploadDialog({
 
           <div className="flex items-center justify-between rounded-lg border p-3">
             <div className="space-y-0.5">
-              <Label htmlFor="overwrite" className="font-gilroy font-medium text-charcoal-700">
+              <Label htmlFor="overwrite" className="font-inter font-medium text-charcoal-700">
                 Overwrite
               </Label>
-              <p className="font-gilroy text-tiny text-muted-foreground">
+              <p className="font-inter text-tiny text-muted-foreground">
                 Replace existing file if it exists
               </p>
             </div>
@@ -302,7 +302,7 @@ function UploadDialog({
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
-              className="font-gilroy"
+              className="font-inter"
             >
               Cancel
             </Button>
@@ -312,7 +312,7 @@ function UploadDialog({
                   <Button
                     type="submit"
                     disabled={isSubmitDisabled}
-                    className="bg-blue-950 font-gilroy hover:bg-blue-900"
+                    className="bg-blue-950 font-inter hover:bg-blue-900"
                   >
                     {upload.isPending ? 'Uploading...' : 'Upload'}
                   </Button>
@@ -460,10 +460,10 @@ function StorageEditDialog({
       <Dialog open={open && !moveOpen} onOpenChange={onOpenChange}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl lg:max-w-2xl">
           <DialogHeader>
-            <DialogTitle className="font-gilroy font-semibold text-blue-950">
+            <DialogTitle className="font-inter font-semibold text-blue-950">
               Edit Object
             </DialogTitle>
-            <DialogDescription className="font-gilroy">
+            <DialogDescription className="font-inter">
               <code className="font-mono text-blue-600">{getBasename(object.key)}</code> in{' '}
               <code className="font-mono text-blue-600">{bucket}</code>
             </DialogDescription>
@@ -530,11 +530,9 @@ function StorageEditDialog({
 
             {/* Object Info */}
             <div className="space-y-2">
-              <h4 className="font-gilroy text-small font-semibold text-charcoal-700">
-                Object Info
-              </h4>
+              <h4 className="font-inter text-small font-semibold text-charcoal-700">Object Info</h4>
               <div className="rounded-lg border border-charcoal-100 bg-charcoal-50/50 p-3">
-                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 font-gilroy text-tiny">
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 font-inter text-tiny">
                   <dt className="text-charcoal-500">Key</dt>
                   <dd className="truncate font-mono text-charcoal-700">{object.key}</dd>
                   <dt className="text-charcoal-500">Bucket</dt>
@@ -557,7 +555,7 @@ function StorageEditDialog({
 
             {/* Associated Routes */}
             <div className="space-y-2">
-              <h4 className="font-gilroy text-small font-semibold text-charcoal-700">
+              <h4 className="font-inter text-small font-semibold text-charcoal-700">
                 Associated Routes
               </h4>
               {routesLoading ? (
@@ -579,7 +577,7 @@ function StorageEditDialog({
                         {route.domain}
                       </Badge>
                       <span className="font-mono text-tiny text-charcoal-700">{route.path}</span>
-                      <Badge variant="secondary" className="ml-auto font-gilroy text-tiny">
+                      <Badge variant="secondary" className="ml-auto font-inter text-tiny">
                         {route.type}
                       </Badge>
                       <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-blue-700" />
@@ -587,7 +585,7 @@ function StorageEditDialog({
                   ))}
                 </div>
               ) : (
-                <p className="font-gilroy text-tiny text-muted-foreground">
+                <p className="font-inter text-tiny text-muted-foreground">
                   No routes serve this file
                 </p>
               )}
@@ -596,7 +594,7 @@ function StorageEditDialog({
                 variant="outline"
                 onClick={handlePurgeCache}
                 disabled={purgeCacheMutation.isPending}
-                className="font-gilroy"
+                className="font-inter"
               >
                 <RotateCcw className="mr-2 h-3.5 w-3.5" />
                 {purgeCacheMutation.isPending ? 'Purging...' : 'Purge Cache'}
@@ -609,20 +607,20 @@ function StorageEditDialog({
 
                 {/* Replace File */}
                 <div className="space-y-2">
-                  <h4 className="font-gilroy text-small font-semibold text-charcoal-700">
+                  <h4 className="font-inter text-small font-semibold text-charcoal-700">
                     Replace File
                   </h4>
-                  <p className="font-gilroy text-tiny text-muted-foreground">
+                  <p className="font-inter text-tiny text-muted-foreground">
                     Upload a new file keeping the same key. The URL will remain the same.
                   </p>
                   <Input
                     ref={replaceInputRef}
                     type="file"
                     onChange={handleReplaceFileChange}
-                    className="font-gilroy"
+                    className="font-inter"
                   />
                   {replaceFile && (
-                    <p className="font-gilroy text-tiny text-charcoal-600">
+                    <p className="font-inter text-tiny text-charcoal-600">
                       {replaceFile.name} ({formatBytes(replaceFile.size)})
                     </p>
                   )}
@@ -631,7 +629,7 @@ function StorageEditDialog({
                     variant="outline"
                     onClick={handleReplace}
                     disabled={!replaceFile || upload.isPending}
-                    className="font-gilroy"
+                    className="font-inter"
                   >
                     <RefreshCw className="mr-2 h-3.5 w-3.5" />
                     {upload.isPending ? 'Replacing...' : 'Replace'}
@@ -642,15 +640,15 @@ function StorageEditDialog({
 
                 {/* Rename */}
                 <div className="space-y-2">
-                  <h4 className="font-gilroy text-small font-semibold text-charcoal-700">Rename</h4>
+                  <h4 className="font-inter text-small font-semibold text-charcoal-700">Rename</h4>
                   <Input
                     value={newKey}
                     onChange={e => setNewKey(e.target.value)}
                     className="font-mono"
                   />
-                  {keyError && <p className="font-gilroy text-tiny text-destructive">{keyError}</p>}
+                  {keyError && <p className="font-inter text-tiny text-destructive">{keyError}</p>}
                   {keyChanged && !keyError && (
-                    <p className="font-gilroy text-tiny text-amber-600">
+                    <p className="font-inter text-tiny text-amber-600">
                       Key will change from{' '}
                       <code className="font-mono">{getBasename(object.key)}</code> to{' '}
                       <code className="font-mono">{getBasename(newKey)}</code>
@@ -660,7 +658,7 @@ function StorageEditDialog({
                     size="sm"
                     onClick={handleRename}
                     disabled={!keyChanged || !!keyError || rename.isPending}
-                    className="bg-blue-950 font-gilroy hover:bg-blue-900"
+                    className="bg-blue-950 font-inter hover:bg-blue-900"
                   >
                     {rename.isPending ? 'Renaming...' : 'Rename'}
                   </Button>
@@ -671,14 +669,14 @@ function StorageEditDialog({
                   <>
                     <div className="border-t border-charcoal-100" />
                     <div className="space-y-2">
-                      <h4 className="font-gilroy text-small font-semibold text-charcoal-700">
+                      <h4 className="font-inter text-small font-semibold text-charcoal-700">
                         Move to Bucket
                       </h4>
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() => setMoveOpen(true)}
-                        className="font-gilroy"
+                        className="font-inter"
                       >
                         <ArrowRightLeft className="mr-2 h-3.5 w-3.5" />
                         Move to another bucket
@@ -691,13 +689,13 @@ function StorageEditDialog({
 
                 {/* HTTP Metadata */}
                 <div className="space-y-3">
-                  <h4 className="font-gilroy text-small font-semibold text-charcoal-700">
+                  <h4 className="font-inter text-small font-semibold text-charcoal-700">
                     HTTP Metadata
                   </h4>
                   <div className="space-y-2">
                     <Label
                       htmlFor="edit-content-type"
-                      className="font-gilroy text-tiny font-medium text-charcoal-600"
+                      className="font-inter text-tiny font-medium text-charcoal-600"
                     >
                       Content-Type
                     </Label>
@@ -712,7 +710,7 @@ function StorageEditDialog({
                   <div className="space-y-2">
                     <Label
                       htmlFor="edit-cache-control"
-                      className="font-gilroy text-tiny font-medium text-charcoal-600"
+                      className="font-inter text-tiny font-medium text-charcoal-600"
                     >
                       Cache-Control
                     </Label>
@@ -727,7 +725,7 @@ function StorageEditDialog({
                   <div className="space-y-2">
                     <Label
                       htmlFor="edit-content-disposition"
-                      className="font-gilroy text-tiny font-medium text-charcoal-600"
+                      className="font-inter text-tiny font-medium text-charcoal-600"
                     >
                       Content-Disposition
                     </Label>
@@ -743,7 +741,7 @@ function StorageEditDialog({
                     size="sm"
                     onClick={handleMetadataSave}
                     disabled={updateMeta.isPending}
-                    className="bg-blue-950 font-gilroy hover:bg-blue-900"
+                    className="bg-blue-950 font-inter hover:bg-blue-900"
                   >
                     {updateMeta.isPending ? 'Saving...' : 'Save Metadata'}
                   </Button>
@@ -815,17 +813,17 @@ function MoveDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="font-gilroy font-semibold text-blue-950">
+          <DialogTitle className="font-inter font-semibold text-blue-950">
             Move to Bucket
           </DialogTitle>
-          <DialogDescription className="font-gilroy">
+          <DialogDescription className="font-inter">
             Move <code className="font-mono text-blue-600">{getBasename(objectKey)}</code> from{' '}
             <code className="font-mono text-blue-600">{bucket}</code> to another bucket.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="dest-bucket" className="font-gilroy font-medium text-charcoal-700">
+            <Label htmlFor="dest-bucket" className="font-inter font-medium text-charcoal-700">
               Destination Bucket
             </Label>
             <Select value={destinationBucket} onValueChange={setDestinationBucket}>
@@ -842,7 +840,7 @@ function MoveDialog({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="dest-key" className="font-gilroy font-medium text-charcoal-700">
+            <Label htmlFor="dest-key" className="font-inter font-medium text-charcoal-700">
               Destination Key
             </Label>
             <Input
@@ -852,7 +850,7 @@ function MoveDialog({
               required
               className="font-mono"
             />
-            <p className="font-gilroy text-tiny text-muted-foreground">
+            <p className="font-inter text-tiny text-muted-foreground">
               Optionally change the key in the destination bucket.
             </p>
           </div>
@@ -861,14 +859,14 @@ function MoveDialog({
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
-              className="font-gilroy"
+              className="font-inter"
             >
               Cancel
             </Button>
             <Button
               type="submit"
               disabled={!destinationBucket || move.isPending}
-              className="bg-blue-950 font-gilroy hover:bg-blue-900"
+              className="bg-blue-950 font-inter hover:bg-blue-900"
             >
               {move.isPending ? 'Moving...' : 'Move'}
             </Button>
@@ -1012,7 +1010,7 @@ export function StoragePage() {
   if (bucketsLoading) {
     return (
       <div className="space-y-6">
-        <h1 className="font-gilroy text-huge font-bold text-blue-950">Storage</h1>
+        <h1 className="font-inter text-huge font-bold text-blue-950">Storage</h1>
         <div className="space-y-2">
           {[...Array(3)].map((_, i) => (
             <Skeleton key={i} className="h-12 w-full" />
@@ -1025,12 +1023,12 @@ export function StoragePage() {
   if (!buckets || buckets.length === 0) {
     return (
       <div className="space-y-6">
-        <h1 className="font-gilroy text-huge font-bold text-blue-950">Storage</h1>
+        <h1 className="font-inter text-huge font-bold text-blue-950">Storage</h1>
         <Card>
           <CardContent className="pt-6">
             <div className="flex flex-col items-center gap-3 py-8 text-muted-foreground">
               <ShieldAlert className="h-10 w-10" />
-              <p className="font-gilroy">No storage buckets available.</p>
+              <p className="font-inter">No storage buckets available.</p>
             </div>
           </CardContent>
         </Card>
@@ -1041,10 +1039,10 @@ export function StoragePage() {
   if (error) {
     return (
       <div className="space-y-6">
-        <h1 className="font-gilroy text-huge font-bold text-blue-950">Storage</h1>
+        <h1 className="font-inter text-huge font-bold text-blue-950">Storage</h1>
         <Card className="border-destructive">
           <CardContent className="pt-6">
-            <p className="font-gilroy text-destructive">Failed to load objects: {error.message}</p>
+            <p className="font-inter text-destructive">Failed to load objects: {error.message}</p>
           </CardContent>
         </Card>
       </div>
@@ -1056,13 +1054,13 @@ export function StoragePage() {
       {/* Header */}
       <div className="animate-fade-in flex items-center justify-between">
         <div className="flex flex-1 items-center gap-4">
-          <h1 className="font-gilroy text-huge font-bold text-blue-950">Storage</h1>
+          <h1 className="font-inter text-huge font-bold text-blue-950">Storage</h1>
           <div className="gradient-accent-bar h-1 flex-1 rounded-full opacity-30" />
         </div>
         {!readOnly && (
           <Button
             onClick={() => setUploadOpen(true)}
-            className="ml-4 bg-blue-950 font-gilroy hover:bg-blue-900"
+            className="ml-4 bg-blue-950 font-inter hover:bg-blue-900"
           >
             <Upload className="mr-2 h-4 w-4" />
             Upload
@@ -1073,7 +1071,7 @@ export function StoragePage() {
       {/* Bucket selector + read-only badge */}
       <div className="animate-stagger-init animate-fade-in-up stagger-1 flex flex-wrap items-end gap-3">
         <div className="flex flex-col gap-1.5">
-          <label className="font-gilroy text-small text-charcoal-600">Bucket</label>
+          <label className="font-inter text-small text-charcoal-600">Bucket</label>
           <Select
             value={selectedBucket}
             onValueChange={v => {
@@ -1095,7 +1093,7 @@ export function StoragePage() {
           </Select>
         </div>
         <div className="flex flex-col gap-1.5">
-          <label className="font-gilroy text-small text-charcoal-600">
+          <label className="font-inter text-small text-charcoal-600">
             Prefix filter{' '}
             <kbd className="ml-1 rounded-sm border border-charcoal-200 bg-charcoal-50 px-1 font-mono text-tiny text-charcoal-500">
               /
@@ -1115,7 +1113,7 @@ export function StoragePage() {
               placeholder="e.g. images/logos/"
               className="w-56 font-mono"
             />
-            <Button type="submit" variant="outline" size="sm" className="font-gilroy">
+            <Button type="submit" variant="outline" size="sm" className="font-inter">
               Go
             </Button>
           </form>
@@ -1123,7 +1121,7 @@ export function StoragePage() {
         {readOnly && (
           <Badge
             variant="outline"
-            className="border-amber-300 bg-amber-50 font-gilroy text-amber-700"
+            className="border-amber-300 bg-amber-50 font-inter text-amber-700"
           >
             <ShieldAlert className="mr-1 h-3 w-3" />
             Read-only
@@ -1132,7 +1130,7 @@ export function StoragePage() {
       </div>
 
       {/* Breadcrumb nav */}
-      <div className="animate-stagger-init animate-fade-in-up stagger-2 flex items-center gap-1 font-gilroy text-small text-charcoal-600">
+      <div className="animate-stagger-init animate-fade-in-up stagger-2 flex items-center gap-1 font-inter text-small text-charcoal-600">
         <button
           onClick={() => navigateToPrefix('')}
           className="flex items-center gap-1 transition-colors hover:text-blue-600"
@@ -1156,8 +1154,8 @@ export function StoragePage() {
       {/* File table */}
       <Card className="animate-stagger-init animate-fade-in-up stagger-3 border-border/50">
         <CardHeader>
-          <CardTitle className="font-gilroy font-semibold text-blue-950">Objects</CardTitle>
-          <CardDescription className="font-gilroy">
+          <CardTitle className="font-inter font-semibold text-blue-950">Objects</CardTitle>
+          <CardDescription className="font-inter">
             {isLoading
               ? 'Loading...'
               : `${(data?.delimitedPrefixes.length ?? 0) + (data?.objects.length ?? 0)} items${prefix ? ` in ${prefix}` : ''}`}
@@ -1174,16 +1172,10 @@ export function StoragePage() {
             <Table>
               <TableHeader>
                 <TableRow className="border-charcoal-100 bg-muted/30">
-                  <TableHead className="font-gilroy font-semibold text-charcoal-700">
-                    Name
-                  </TableHead>
-                  <TableHead className="font-gilroy font-semibold text-charcoal-700">
-                    Size
-                  </TableHead>
-                  <TableHead className="font-gilroy font-semibold text-charcoal-700">
-                    Type
-                  </TableHead>
-                  <TableHead className="font-gilroy font-semibold text-charcoal-700">
+                  <TableHead className="font-inter font-semibold text-charcoal-700">Name</TableHead>
+                  <TableHead className="font-inter font-semibold text-charcoal-700">Size</TableHead>
+                  <TableHead className="font-inter font-semibold text-charcoal-700">Type</TableHead>
+                  <TableHead className="font-inter font-semibold text-charcoal-700">
                     Uploaded
                   </TableHead>
                   <TableHead className="w-[70px]" />
@@ -1199,7 +1191,7 @@ export function StoragePage() {
                       className="cursor-pointer transition-colors hover:bg-gold-50/50"
                       onClick={() => navigateToPrefix(folderPrefix)}
                     >
-                      <TableCell className="font-gilroy text-small font-medium text-blue-600">
+                      <TableCell className="font-inter text-small font-medium text-blue-600">
                         <span className="flex items-center gap-2">
                           <Folder className="h-4 w-4 text-gold-500" />
                           {folderName}/
@@ -1229,10 +1221,10 @@ export function StoragePage() {
                     <TableCell className="font-mono text-small text-charcoal-600">
                       {formatBytes(obj.size)}
                     </TableCell>
-                    <TableCell className="font-gilroy text-small text-charcoal-600">
+                    <TableCell className="font-inter text-small text-charcoal-600">
                       {getContentTypeLabel(obj.httpMetadata?.contentType)}
                     </TableCell>
-                    <TableCell className="font-gilroy text-small text-charcoal-600">
+                    <TableCell className="font-inter text-small text-charcoal-600">
                       {formatDate(obj.uploaded)}
                     </TableCell>
                     <TableCell onClick={e => e.stopPropagation()}>
@@ -1248,14 +1240,14 @@ export function StoragePage() {
                               onClick={() =>
                                 copyToClipboard(getR2ObjectUrl(selectedBucket, obj.key)!)
                               }
-                              className="font-gilroy"
+                              className="font-inter"
                             >
                               <Copy className="mr-2 size-4" />
                               Copy Link
                             </DropdownMenuItem>
                           )}
                           {getR2ObjectUrl(selectedBucket, obj.key) && (
-                            <DropdownMenuItem asChild className="font-gilroy">
+                            <DropdownMenuItem asChild className="font-inter">
                               <a
                                 href={getR2ObjectUrl(selectedBucket, obj.key)!}
                                 target="_blank"
@@ -1267,7 +1259,7 @@ export function StoragePage() {
                             </DropdownMenuItem>
                           )}
                           <DropdownMenuItem
-                            className="font-gilroy"
+                            className="font-inter"
                             onClick={async () => {
                               try {
                                 const response = await storageApi.downloadObject(
@@ -1294,13 +1286,13 @@ export function StoragePage() {
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => setEditTarget(obj)}
-                            className="font-gilroy"
+                            className="font-inter"
                           >
                             <Pencil className="mr-2 h-4 w-4" />
                             Edit
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            className="font-gilroy"
+                            className="font-inter"
                             onClick={async () => {
                               try {
                                 const result = await storageApi.purgeCache(selectedBucket, obj.key);
@@ -1318,7 +1310,7 @@ export function StoragePage() {
                           {!readOnly && (
                             <DropdownMenuItem
                               onClick={() => setDeleteTarget(obj)}
-                              className="font-gilroy text-destructive"
+                              className="font-inter text-destructive"
                             >
                               <Trash2 className="mr-2 h-4 w-4" />
                               Delete
@@ -1336,13 +1328,13 @@ export function StoragePage() {
                     <TableCell colSpan={5} className="py-12 text-center">
                       <div className="flex flex-col items-center gap-3 text-muted-foreground">
                         <HardDrive className="h-10 w-10" />
-                        <p className="font-gilroy">No objects in this location</p>
+                        <p className="font-inter">No objects in this location</p>
                         {!readOnly && (
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => setUploadOpen(true)}
-                            className="font-gilroy"
+                            className="font-inter"
                           >
                             <Upload className="mr-2 h-4 w-4" />
                             Upload a file
@@ -1357,7 +1349,7 @@ export function StoragePage() {
           )}
 
           {data?.truncated && (
-            <p className="mt-4 text-center font-gilroy text-tiny text-muted-foreground">
+            <p className="mt-4 text-center font-inter text-tiny text-muted-foreground">
               Showing {(data.delimitedPrefixes.length ?? 0) + (data.objects.length ?? 0)} of many
               objects. Use a more specific prefix to narrow results.
             </p>
@@ -1389,10 +1381,10 @@ export function StoragePage() {
       <AlertDialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="font-gilroy font-semibold text-blue-950">
+            <AlertDialogTitle className="font-inter font-semibold text-blue-950">
               Delete Object
             </AlertDialogTitle>
-            <AlertDialogDescription className="font-gilroy">
+            <AlertDialogDescription className="font-inter">
               Are you sure you want to delete{' '}
               <code className="font-mono text-blue-600">{deleteTarget?.key}</code> from{' '}
               <code className="font-mono text-blue-600">{selectedBucket}</code>? This action cannot
@@ -1400,11 +1392,11 @@ export function StoragePage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="font-gilroy">Cancel</AlertDialogCancel>
+            <AlertDialogCancel className="font-inter">Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               disabled={deleteObject.isPending}
-              className="bg-destructive font-gilroy text-white hover:bg-destructive/90"
+              className="bg-destructive font-inter text-white hover:bg-destructive/90"
             >
               {deleteObject.isPending ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>

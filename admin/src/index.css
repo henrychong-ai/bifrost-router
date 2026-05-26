@@ -2,55 +2,35 @@
 @import "tw-animate-css";
 
 /*
- * Font face: the dashboard uses `font-gilroy` utility classes that resolve to
- * the `--font-gilroy` CSS variable (see @theme block below). By default, the
- * four weights below are loaded from a public CDN. If the CDN is unreachable,
- * the variable's fallback stack (`ui-sans-serif, system-ui, sans-serif`) kicks
- * in automatically via `font-display: swap`.
+ * Font face: the dashboard uses `font-inter` utility classes that resolve to
+ * the `--font-inter` CSS variable (see @theme block below). By default, Inter
+ * Variable v4.1 is loaded from a public CDN as a single woff2 file covering
+ * all weights (100-900) via the `wght` axis AND optical sizes (14-32) via the
+ * `opsz` axis. If the CDN is unreachable, the variable's fallback stack
+ * (`ui-sans-serif, system-ui, sans-serif`) kicks in via `font-display: swap`.
  *
- * To use a custom brand font, self-host the files (or load from a CDN you
- * control) and replace the @font-face declarations below. Example:
+ * Inter v4.1 by Rasmus Andersson — SIL OFL 1.1 (free for any use).
+ * Upstream: https://github.com/rsms/inter/releases/tag/v4.1
+ *
+ * To use a custom brand font, self-host the file (or load from a CDN you
+ * control) and replace the @font-face declaration below. Example:
  *
  *   @font-face {
  *     font-family: "YourBrandFont";
- *     src: url("https://assets.yourdomain.com/fonts/yourfont/Regular.woff2") format("woff2");
+ *     src: url("https://assets.yourdomain.com/fonts/yourfont.woff2") format("woff2");
  *     font-weight: 400;
  *     font-display: swap;
  *   }
  *
- * Then update `--font-gilroy` in the @theme block below to reference it:
- *   --font-gilroy: "YourBrandFont", ui-sans-serif, system-ui, sans-serif;
+ * Then update `--font-inter` in the @theme block below to reference it:
+ *   --font-inter: "YourBrandFont", ui-sans-serif, system-ui, sans-serif;
  */
 
-/* Gilroy Font (public CDN default) */
+/* Inter v4 Variable (public CDN default) */
 @font-face {
-  font-family: "Gilroy";
-  src: url("https://assets.fusang.co/fonts/gilroy/Gilroy-Regular.ttf") format("truetype");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Gilroy";
-  src: url("https://assets.fusang.co/fonts/gilroy/Gilroy-Medium.ttf") format("truetype");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Gilroy";
-  src: url("https://assets.fusang.co/fonts/gilroy/Gilroy-SemiBold.ttf") format("truetype");
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Gilroy";
-  src: url("https://assets.fusang.co/fonts/gilroy/Gilroy-Bold.ttf") format("truetype");
-  font-weight: 700;
+  font-family: "Inter";
+  src: url("https://assets.fusang.co/fonts/inter/inter-variable.woff2") format("woff2-variations");
+  font-weight: 100 900;
   font-style: normal;
   font-display: swap;
 }
@@ -149,17 +129,53 @@
   --color-charcoal-950: #0c1928;
 
   /* Font family */
-  --font-gilroy: "Gilroy", ui-sans-serif, system-ui, sans-serif;
+  --font-inter: "Inter", ui-sans-serif, system-ui, sans-serif;
 
-  /* Font sizes */
-  --text-display: 3rem;
-  --text-huge: 2rem;
-  --text-xlarge: 1.5rem;
-  --text-large: 1.125rem;
-  --text-base: 1rem;
-  --text-small: 0.875rem;
-  --text-tiny: 0.75rem;
-  --text-mini: 0.5625rem;
+  /* Font sizes — Inter v4 tracking table.
+     Letter-spacing tuned per size class per rsms.me/inter spec.
+     Pairs with `font-optical-sizing: auto` for full Inter v4 compliance.
+     Positive tracking below 16px (small-text legibility), increasingly negative
+     above (large-text display polish). Line-height paired where previously set. */
+  --text-mini: 0.5625rem; /* 9px */
+  --text-mini--letter-spacing: 0.0089em;
+
+  --text-tiny: 0.75rem; /* 12px */
+  --text-tiny--letter-spacing: 0.005em;
+
+  --text-small: 0.875rem; /* 14px */
+  --text-small--letter-spacing: 0.003em;
+
+  --text-base: 1rem; /* 16px */
+  --text-base--letter-spacing: -0.0011em;
+
+  --text-large: 1.125rem; /* 18px */
+  --text-large--line-height: 1.4;
+  --text-large--letter-spacing: -0.0033em;
+
+  --text-xlarge: 1.5rem; /* 24px */
+  --text-xlarge--line-height: 1.3;
+  --text-xlarge--letter-spacing: -0.0125em;
+
+  --text-huge: 2rem; /* 32px */
+  --text-huge--line-height: 1.2;
+  --text-huge--letter-spacing: -0.0192em;
+
+  --text-display: 3rem; /* 48px */
+  --text-display--line-height: 1.1;
+  --text-display--letter-spacing: -0.0289em;
+
+  /* Tailwind built-in size overrides — keep tracking consistent with Inter spec
+     when developers reach for Tailwind's standard text-xs / text-sm / etc. */
+  --text-xs--letter-spacing: 0.005em; /* 12px */
+  --text-sm--letter-spacing: 0.003em; /* 14px */
+  --text-lg--letter-spacing: -0.0033em; /* 18px */
+  --text-xl--letter-spacing: -0.0067em; /* 20px */
+  --text-2xl--letter-spacing: -0.0125em; /* 24px */
+  --text-3xl--letter-spacing: -0.0175em; /* 30px */
+  --text-4xl--letter-spacing: -0.0217em; /* 36px */
+  --text-5xl--letter-spacing: -0.0289em; /* 48px */
+  --text-6xl--letter-spacing: -0.0322em; /* 60px */
+  --text-7xl--letter-spacing: -0.0344em; /* 72px */
 }
 
 :root {
@@ -261,7 +277,9 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-family: var(--font-gilroy);
+    font-family: var(--font-inter);
+    /* Engages Inter v4's `opsz` axis (14-32) — font auto-tunes shapes for the rendered size. */
+    font-optical-sizing: auto;
   }
   h1,
   h2,
@@ -269,7 +287,7 @@
   h4,
   h5,
   h6 {
-    font-family: var(--font-gilroy);
+    font-family: var(--font-inter);
   }
 }
 
@@ -287,28 +305,8 @@
 
 /* Brand utility classes */
 @layer utilities {
-  .font-gilroy {
-    font-family: var(--font-gilroy);
-  }
-
-  .text-display {
-    font-size: var(--text-display);
-    line-height: 1.1;
-  }
-
-  .text-huge {
-    font-size: var(--text-huge);
-    line-height: 1.2;
-  }
-
-  .text-xlarge {
-    font-size: var(--text-xlarge);
-    line-height: 1.3;
-  }
-
-  .text-large {
-    font-size: var(--text-large);
-    line-height: 1.4;
+  .font-inter {
+    font-family: var(--font-inter);
   }
 
   .gradient-gold {

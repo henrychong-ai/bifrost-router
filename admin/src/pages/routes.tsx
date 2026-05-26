@@ -92,7 +92,7 @@ function RouteTypeBadge({ type }: { type: Route['type'] }) {
   };
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-tiny font-gilroy font-medium border ${styles[type]}`}
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-tiny font-inter font-medium border ${styles[type]}`}
     >
       {type}
     </span>
@@ -259,7 +259,7 @@ function RouteForm(props: RouteFormProps) {
                 `/storage?bucket=${encodeURIComponent(formData.bucket)}&open=${encodeURIComponent(formData.target)}`,
               );
             }}
-            className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-gilroy font-medium text-blue-700 transition-colors hover:bg-blue-100 hover:text-blue-950 whitespace-nowrap"
+            className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-inter font-medium text-blue-700 transition-colors hover:bg-blue-100 hover:text-blue-950 whitespace-nowrap"
           >
             <HardDrive className="h-3 w-3 shrink-0" />
             View in Storage
@@ -293,7 +293,7 @@ function RouteForm(props: RouteFormProps) {
       {/* Domain selector - only for create mode */}
       {!route && (
         <div className="space-y-2">
-          <Label htmlFor="domain" className="font-gilroy font-medium text-charcoal-700">
+          <Label htmlFor="domain" className="font-inter font-medium text-charcoal-700">
             Domain
           </Label>
           <Select
@@ -311,7 +311,7 @@ function RouteForm(props: RouteFormProps) {
               ))}
             </SelectContent>
           </Select>
-          <p className="text-tiny text-muted-foreground font-gilroy">
+          <p className="text-tiny text-muted-foreground font-inter">
             Domain where this route will be created
           </p>
         </div>
@@ -320,7 +320,7 @@ function RouteForm(props: RouteFormProps) {
       {/* Domain display in edit mode */}
       {mode === 'edit' && route?.domain && (
         <div className="space-y-2">
-          <Label className="font-gilroy font-medium text-charcoal-700">Domain</Label>
+          <Label className="font-inter font-medium text-charcoal-700">Domain</Label>
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center rounded-full border border-charcoal-200 bg-charcoal-50 px-2.5 py-0.5 font-mono text-tiny font-medium text-charcoal-700">
               {route.domain}
@@ -332,7 +332,7 @@ function RouteForm(props: RouteFormProps) {
       {/* Transfer to domain dropdown - edit mode only */}
       {mode === 'edit' && route?.domain && allowedDomains.length > 1 && onTransfer && (
         <div className="space-y-2">
-          <Label className="font-gilroy font-medium text-charcoal-700">Transfer to Domain</Label>
+          <Label className="font-inter font-medium text-charcoal-700">Transfer to Domain</Label>
           <Select value="" onValueChange={value => onTransfer(value)}>
             <SelectTrigger className="font-mono">
               <SelectValue placeholder="Select domain to transfer..." />
@@ -347,7 +347,7 @@ function RouteForm(props: RouteFormProps) {
                 ))}
             </SelectContent>
           </Select>
-          <p className="text-tiny text-muted-foreground font-gilroy">
+          <p className="text-tiny text-muted-foreground font-inter">
             Move this route to a different domain (path stays the same)
           </p>
         </div>
@@ -355,7 +355,7 @@ function RouteForm(props: RouteFormProps) {
 
       {/* Path field - shown in both create and edit modes */}
       <div className="space-y-2">
-        <Label htmlFor="path" className="font-gilroy font-medium text-charcoal-700">
+        <Label htmlFor="path" className="font-inter font-medium text-charcoal-700">
           Path
         </Label>
         <Input
@@ -367,36 +367,36 @@ function RouteForm(props: RouteFormProps) {
           className="font-mono"
         />
         {mode === 'create' && (
-          <p className="text-tiny text-muted-foreground font-gilroy">
+          <p className="text-tiny text-muted-foreground font-inter">
             Must start with / — paths are automatically lowercased
           </p>
         )}
         {mode === 'edit' && formData.path !== route.path && (
-          <p className="text-tiny text-amber-600 font-gilroy">
+          <p className="text-tiny text-amber-600 font-inter">
             Changing the path will migrate this route
           </p>
         )}
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="type" className="font-gilroy font-medium text-charcoal-700">
+        <Label htmlFor="type" className="font-inter font-medium text-charcoal-700">
           Type
         </Label>
         <Select
           value={formData.type}
           onValueChange={value => setFormData({ ...formData, type: value as Route['type'] })}
         >
-          <SelectTrigger className="font-gilroy">
+          <SelectTrigger className="font-inter">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="redirect" className="font-gilroy">
+            <SelectItem value="redirect" className="font-inter">
               Redirect
             </SelectItem>
-            <SelectItem value="proxy" className="font-gilroy">
+            <SelectItem value="proxy" className="font-inter">
               Proxy
             </SelectItem>
-            <SelectItem value="r2" className="font-gilroy">
+            <SelectItem value="r2" className="font-inter">
               R2
             </SelectItem>
           </SelectContent>
@@ -405,7 +405,7 @@ function RouteForm(props: RouteFormProps) {
 
       <div className="space-y-2">
         <div className="flex items-center gap-1">
-          <Label htmlFor="target" className="font-gilroy font-medium text-charcoal-700">
+          <Label htmlFor="target" className="font-inter font-medium text-charcoal-700">
             Target
           </Label>
           {formData.type === 'r2' && (
@@ -438,7 +438,7 @@ function RouteForm(props: RouteFormProps) {
         {duplicateTargets.length > 0 && (
           <div className="flex items-start gap-2 rounded-sm bg-blue-50 px-3 py-2">
             <Info className="mt-0.5 size-3.5 shrink-0 text-blue-600" />
-            <p className="font-gilroy text-xs text-charcoal-700">
+            <p className="font-inter text-xs text-charcoal-700">
               Also targets:{' '}
               {duplicateTargets.slice(0, 3).map((m, i) => (
                 <span key={`${m.domain}:${m.path}`}>
@@ -462,7 +462,7 @@ function RouteForm(props: RouteFormProps) {
       {formData.type === 'redirect' && (
         <>
           <div className="space-y-2">
-            <Label htmlFor="statusCode" className="font-gilroy font-medium text-charcoal-700">
+            <Label htmlFor="statusCode" className="font-inter font-medium text-charcoal-700">
               Status Code
             </Label>
             <Select
@@ -474,20 +474,20 @@ function RouteForm(props: RouteFormProps) {
                 })
               }
             >
-              <SelectTrigger className="font-gilroy">
+              <SelectTrigger className="font-inter">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="301" className="font-gilroy">
+                <SelectItem value="301" className="font-inter">
                   301 (Permanent)
                 </SelectItem>
-                <SelectItem value="302" className="font-gilroy">
+                <SelectItem value="302" className="font-inter">
                   302 (Temporary)
                 </SelectItem>
-                <SelectItem value="307" className="font-gilroy">
+                <SelectItem value="307" className="font-inter">
                   307 (Temporary, preserve method)
                 </SelectItem>
-                <SelectItem value="308" className="font-gilroy">
+                <SelectItem value="308" className="font-inter">
                   308 (Permanent, preserve method)
                 </SelectItem>
               </SelectContent>
@@ -496,10 +496,10 @@ function RouteForm(props: RouteFormProps) {
 
           <div className="flex items-center justify-between rounded-lg border border-charcoal-200 p-3">
             <div className="space-y-0.5">
-              <Label htmlFor="preserveQuery" className="font-gilroy font-medium text-charcoal-700">
+              <Label htmlFor="preserveQuery" className="font-inter font-medium text-charcoal-700">
                 Preserve Query String
               </Label>
-              <p className="text-tiny text-muted-foreground font-gilroy">
+              <p className="text-tiny text-muted-foreground font-inter">
                 Pass query parameters to the target URL
               </p>
             </div>
@@ -512,10 +512,10 @@ function RouteForm(props: RouteFormProps) {
 
           <div className="flex items-center justify-between rounded-lg border border-charcoal-200 p-3">
             <div className="space-y-0.5">
-              <Label htmlFor="preservePath" className="font-gilroy font-medium text-charcoal-700">
+              <Label htmlFor="preservePath" className="font-inter font-medium text-charcoal-700">
                 Preserve Path
               </Label>
-              <p className="text-tiny text-muted-foreground font-gilroy">
+              <p className="text-tiny text-muted-foreground font-inter">
                 Append the URL path to the target (for wildcard routes)
               </p>
             </div>
@@ -531,7 +531,7 @@ function RouteForm(props: RouteFormProps) {
       {formData.type === 'r2' && (
         <>
           <div className="space-y-2">
-            <Label htmlFor="bucket" className="font-gilroy font-medium text-charcoal-700">
+            <Label htmlFor="bucket" className="font-inter font-medium text-charcoal-700">
               R2 Bucket
             </Label>
             <Select
@@ -549,17 +549,17 @@ function RouteForm(props: RouteFormProps) {
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-tiny text-muted-foreground font-gilroy">
+            <p className="text-tiny text-muted-foreground font-inter">
               R2 bucket to serve files from
             </p>
           </div>
 
           <div className="flex items-center justify-between rounded-lg border border-charcoal-200 p-3">
             <div className="space-y-0.5">
-              <Label htmlFor="forceDownload" className="font-gilroy font-medium text-charcoal-700">
+              <Label htmlFor="forceDownload" className="font-inter font-medium text-charcoal-700">
                 Force Download
               </Label>
-              <p className="text-tiny text-muted-foreground font-gilroy">
+              <p className="text-tiny text-muted-foreground font-inter">
                 Force browser to download file instead of displaying inline
               </p>
             </div>
@@ -575,7 +575,7 @@ function RouteForm(props: RouteFormProps) {
       {formData.type === 'proxy' && (
         <div className="space-y-2">
           <div className="flex items-center gap-1">
-            <Label htmlFor="hostHeader" className="font-gilroy font-medium text-charcoal-700">
+            <Label htmlFor="hostHeader" className="font-inter font-medium text-charcoal-700">
               Host Header (optional)
             </Label>
             <Tooltip>
@@ -600,7 +600,7 @@ function RouteForm(props: RouteFormProps) {
 
       <div className="space-y-2">
         <div className="flex items-center gap-1">
-          <Label htmlFor="cacheControl" className="font-gilroy font-medium text-charcoal-700">
+          <Label htmlFor="cacheControl" className="font-inter font-medium text-charcoal-700">
             Cache-Control (optional)
           </Label>
           <Tooltip>
@@ -623,13 +623,13 @@ function RouteForm(props: RouteFormProps) {
       </div>
 
       <DialogFooter>
-        <Button type="button" variant="outline" onClick={onCancel} className="font-gilroy">
+        <Button type="button" variant="outline" onClick={onCancel} className="font-inter">
           Cancel
         </Button>
         <Button
           type="submit"
           disabled={isSubmitting}
-          className="font-gilroy bg-blue-950 hover:bg-blue-900"
+          className="font-inter bg-blue-950 hover:bg-blue-900"
         >
           {isSubmitting ? 'Saving...' : route ? 'Update' : 'Create'}
         </Button>
@@ -871,10 +871,10 @@ export function RoutesPage() {
   if (error) {
     return (
       <div className="space-y-6">
-        <h1 className="text-huge font-gilroy font-bold text-blue-950">Routes</h1>
+        <h1 className="text-huge font-inter font-bold text-blue-950">Routes</h1>
         <Card className="border-destructive">
           <CardContent className="pt-6">
-            <p className="text-destructive font-gilroy">Failed to load routes: {error.message}</p>
+            <p className="text-destructive font-inter">Failed to load routes: {error.message}</p>
           </CardContent>
         </Card>
       </div>
@@ -885,22 +885,22 @@ export function RoutesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4 flex-1">
-          <h1 className="text-huge font-gilroy font-bold text-blue-950">Routes</h1>
+          <h1 className="text-huge font-inter font-bold text-blue-950">Routes</h1>
           <div className="h-1 flex-1 rounded-full gradient-accent-bar opacity-30" />
         </div>
         <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="font-gilroy bg-blue-950 hover:bg-blue-900 ml-4">
+            <Button className="font-inter bg-blue-950 hover:bg-blue-900 ml-4">
               <Plus className="h-4 w-4 mr-2" />
               New Route
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-xl lg:max-w-2xl">
             <DialogHeader>
-              <DialogTitle className="font-gilroy font-semibold text-blue-950">
+              <DialogTitle className="font-inter font-semibold text-blue-950">
                 Create Route
               </DialogTitle>
-              <DialogDescription className="font-gilroy">
+              <DialogDescription className="font-inter">
                 Add a new route to the edge router.
               </DialogDescription>
             </DialogHeader>
@@ -919,7 +919,7 @@ export function RoutesPage() {
       <div className="flex flex-wrap items-end gap-3">
         {/* Domain Filter */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-gilroy text-charcoal-600">Domain</label>
+          <label className="text-small font-inter text-charcoal-600">Domain</label>
           <Select
             value={filters.domain || 'all'}
             onValueChange={value =>
@@ -929,19 +929,15 @@ export function RoutesPage() {
               })
             }
           >
-            <SelectTrigger className="w-48 font-gilroy">
+            <SelectTrigger className="w-48 font-inter">
               <SelectValue placeholder="All domains" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all" className="font-gilroy">
+              <SelectItem value="all" className="font-inter">
                 All domains
               </SelectItem>
               {SUPPORTED_DOMAINS.map(domain => (
-                <SelectItem
-                  key={domain}
-                  value={domain}
-                  className="font-gilroy font-mono text-small"
-                >
+                <SelectItem key={domain} value={domain} className="font-inter font-mono text-small">
                   {domain}
                 </SelectItem>
               ))}
@@ -951,7 +947,7 @@ export function RoutesPage() {
 
         {/* Search Input */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-gilroy text-charcoal-600">Search</label>
+          <label className="text-small font-inter text-charcoal-600">Search</label>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-charcoal-400" />
             <Input
@@ -961,14 +957,14 @@ export function RoutesPage() {
               onChange={e =>
                 handleFilterChange({ ...filters, search: e.target.value || undefined })
               }
-              className="pl-8 w-48 font-gilroy"
+              className="pl-8 w-48 font-inter"
             />
           </div>
         </div>
 
         {/* Type Filter */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-gilroy text-charcoal-600">Type</label>
+          <label className="text-small font-inter text-charcoal-600">Type</label>
           <Select
             value={filters.type || 'all'}
             onValueChange={value =>
@@ -978,20 +974,20 @@ export function RoutesPage() {
               })
             }
           >
-            <SelectTrigger className="w-32 font-gilroy">
+            <SelectTrigger className="w-32 font-inter">
               <SelectValue placeholder="All types" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all" className="font-gilroy">
+              <SelectItem value="all" className="font-inter">
                 All types
               </SelectItem>
-              <SelectItem value="redirect" className="font-gilroy">
+              <SelectItem value="redirect" className="font-inter">
                 Redirect
               </SelectItem>
-              <SelectItem value="proxy" className="font-gilroy">
+              <SelectItem value="proxy" className="font-inter">
                 Proxy
               </SelectItem>
-              <SelectItem value="r2" className="font-gilroy">
+              <SelectItem value="r2" className="font-inter">
                 R2
               </SelectItem>
             </SelectContent>
@@ -1000,7 +996,7 @@ export function RoutesPage() {
 
         {/* Enabled Filter */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-gilroy text-charcoal-600">Status</label>
+          <label className="text-small font-inter text-charcoal-600">Status</label>
           <Select
             value={filters.enabled === undefined ? 'all' : filters.enabled ? 'active' : 'disabled'}
             onValueChange={value =>
@@ -1010,17 +1006,17 @@ export function RoutesPage() {
               })
             }
           >
-            <SelectTrigger className="w-32 font-gilroy">
+            <SelectTrigger className="w-32 font-inter">
               <SelectValue placeholder="All" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all" className="font-gilroy">
+              <SelectItem value="all" className="font-inter">
                 All
               </SelectItem>
-              <SelectItem value="active" className="font-gilroy">
+              <SelectItem value="active" className="font-inter">
                 Active
               </SelectItem>
-              <SelectItem value="disabled" className="font-gilroy">
+              <SelectItem value="disabled" className="font-inter">
                 Disabled
               </SelectItem>
             </SelectContent>
@@ -1033,7 +1029,7 @@ export function RoutesPage() {
             variant="ghost"
             size="sm"
             onClick={handleResetFilters}
-            className="font-gilroy text-charcoal-500 hover:text-charcoal-700"
+            className="font-inter text-charcoal-500 hover:text-charcoal-700"
           >
             <X className="h-4 w-4 mr-1" />
             Reset
@@ -1043,8 +1039,8 @@ export function RoutesPage() {
 
       <Card className="border-border/50">
         <CardHeader>
-          <CardTitle className="font-gilroy font-semibold text-blue-950">All Routes</CardTitle>
-          <CardDescription className="font-gilroy">
+          <CardTitle className="font-inter font-semibold text-blue-950">All Routes</CardTitle>
+          <CardDescription className="font-inter">
             {isLoading
               ? 'Loading...'
               : `Showing ${filteredRoutes.length} of ${total} routes${hasActiveFilters ? ' (filtered)' : ''}`}
@@ -1062,20 +1058,16 @@ export function RoutesPage() {
               <TableHeader>
                 <TableRow className="border-charcoal-100 bg-muted/30">
                   {!filters.domain && (
-                    <TableHead className="font-gilroy font-semibold text-charcoal-700">
+                    <TableHead className="font-inter font-semibold text-charcoal-700">
                       Domain
                     </TableHead>
                   )}
-                  <TableHead className="font-gilroy font-semibold text-charcoal-700">
-                    Path
-                  </TableHead>
-                  <TableHead className="font-gilroy font-semibold text-charcoal-700">
-                    Type
-                  </TableHead>
-                  <TableHead className="font-gilroy font-semibold text-charcoal-700">
+                  <TableHead className="font-inter font-semibold text-charcoal-700">Path</TableHead>
+                  <TableHead className="font-inter font-semibold text-charcoal-700">Type</TableHead>
+                  <TableHead className="font-inter font-semibold text-charcoal-700">
                     Target
                   </TableHead>
-                  <TableHead className="font-gilroy font-semibold text-charcoal-700">
+                  <TableHead className="font-inter font-semibold text-charcoal-700">
                     Status
                   </TableHead>
                   <TableHead className="w-[70px]"></TableHead>
@@ -1104,7 +1096,7 @@ export function RoutesPage() {
                     </TableCell>
                     <TableCell>
                       <span
-                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-tiny font-gilroy font-medium border ${
+                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-tiny font-inter font-medium border ${
                           route.enabled !== false
                             ? 'bg-green-100 text-green-700 border-green-200'
                             : 'bg-charcoal-100 text-charcoal-500 border-charcoal-200'
@@ -1127,13 +1119,13 @@ export function RoutesPage() {
                                 `https://${route.domain ?? filters.domain}${route.path}`,
                               )
                             }
-                            className="font-gilroy"
+                            className="font-inter"
                           >
                             <Copy className="mr-2 size-4" />
                             Copy Link
                           </DropdownMenuItem>
                           {route.type === 'redirect' && (
-                            <DropdownMenuItem asChild className="font-gilroy">
+                            <DropdownMenuItem asChild className="font-inter">
                               <a href={route.target} target="_blank" rel="noopener noreferrer">
                                 <ExternalLink className="h-4 w-4 mr-2" />
                                 Open Target
@@ -1142,14 +1134,14 @@ export function RoutesPage() {
                           )}
                           <DropdownMenuItem
                             onClick={() => setEditRoute(route)}
-                            className="font-gilroy"
+                            className="font-inter"
                           >
                             <Pencil className="h-4 w-4 mr-2" />
                             Edit
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => handleToggle(route)}
-                            className="font-gilroy"
+                            className="font-inter"
                           >
                             {route.enabled !== false ? (
                               <>
@@ -1165,7 +1157,7 @@ export function RoutesPage() {
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => setDeleteConfirmRoute(route)}
-                            className="text-destructive font-gilroy"
+                            className="text-destructive font-inter"
                           >
                             <Trash2 className="h-4 w-4 mr-2" />
                             Delete
@@ -1179,7 +1171,7 @@ export function RoutesPage() {
                   <TableRow>
                     <TableCell
                       colSpan={filters.domain ? 5 : 6}
-                      className="text-center text-muted-foreground font-gilroy"
+                      className="text-center text-muted-foreground font-inter"
                     >
                       {hasActiveFilters
                         ? 'No routes match the current filters'
@@ -1205,10 +1197,8 @@ export function RoutesPage() {
       <Dialog open={!!editRoute} onOpenChange={() => setEditRoute(null)}>
         <DialogContent className="sm:max-w-xl lg:max-w-2xl">
           <DialogHeader>
-            <DialogTitle className="font-gilroy font-semibold text-blue-950">
-              Edit Route
-            </DialogTitle>
-            <DialogDescription className="font-gilroy">
+            <DialogTitle className="font-inter font-semibold text-blue-950">Edit Route</DialogTitle>
+            <DialogDescription className="font-inter">
               Update route configuration for{' '}
               <code className="font-mono text-blue-600">{editRoute?.path}</code>
             </DialogDescription>
@@ -1269,10 +1259,10 @@ export function RoutesPage() {
       <Dialog open={!!deleteConfirmRoute} onOpenChange={() => setDeleteConfirmRoute(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="font-gilroy font-semibold text-blue-950">
+            <DialogTitle className="font-inter font-semibold text-blue-950">
               Delete Route
             </DialogTitle>
-            <DialogDescription className="font-gilroy">
+            <DialogDescription className="font-inter">
               Are you sure you want to delete the route{' '}
               <code className="font-mono text-blue-600">{deleteConfirmRoute?.path}</code>? This
               action cannot be undone.
@@ -1282,7 +1272,7 @@ export function RoutesPage() {
             <Button
               variant="outline"
               onClick={() => setDeleteConfirmRoute(null)}
-              className="font-gilroy"
+              className="font-inter"
             >
               Cancel
             </Button>
@@ -1290,7 +1280,7 @@ export function RoutesPage() {
               variant="destructive"
               onClick={handleDelete}
               disabled={deleteRoute.isPending}
-              className="font-gilroy"
+              className="font-inter"
             >
               {deleteRoute.isPending ? 'Deleting...' : 'Delete'}
             </Button>
@@ -1302,7 +1292,7 @@ export function RoutesPage() {
       <AlertDialog open={!!migrationConfirm} onOpenChange={() => setMigrationConfirm(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="font-gilroy">Confirm Path Change</AlertDialogTitle>
+            <AlertDialogTitle className="font-inter">Confirm Path Change</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3">
                 <p>
@@ -1329,10 +1319,10 @@ export function RoutesPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="font-gilroy">Cancel</AlertDialogCancel>
+            <AlertDialogCancel className="font-inter">Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleConfirmMigration}
-              className="bg-blue-600 hover:bg-blue-700 font-gilroy"
+              className="bg-blue-600 hover:bg-blue-700 font-inter"
               disabled={migrateRoute.isPending || updateRoute.isPending}
             >
               {migrateRoute.isPending ? 'Migrating...' : 'Migrate Route'}
@@ -1345,10 +1335,10 @@ export function RoutesPage() {
       <AlertDialog open={!!transferTarget} onOpenChange={() => setTransferTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="font-gilroy font-semibold text-blue-950">
+            <AlertDialogTitle className="font-inter font-semibold text-blue-950">
               Transfer Route
             </AlertDialogTitle>
-            <AlertDialogDescription className="font-gilroy">
+            <AlertDialogDescription className="font-inter">
               Transfer route <code className="font-mono text-blue-600">{transferTarget?.path}</code>{' '}
               from <code className="font-mono text-blue-600">{transferTarget?.fromDomain}</code> to{' '}
               <code className="font-mono text-blue-600">{transferTarget?.toDomain}</code>?
@@ -1359,11 +1349,11 @@ export function RoutesPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="font-gilroy">Cancel</AlertDialogCancel>
+            <AlertDialogCancel className="font-inter">Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleTransferConfirm}
               disabled={transferRoute.isPending}
-              className="bg-blue-950 font-gilroy hover:bg-blue-900"
+              className="bg-blue-950 font-inter hover:bg-blue-900"
             >
               {transferRoute.isPending ? 'Transferring...' : 'Transfer'}
             </AlertDialogAction>

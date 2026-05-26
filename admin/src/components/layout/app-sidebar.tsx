@@ -89,7 +89,7 @@ export function AppSidebar() {
             className="h-10 w-10 rounded-lg"
           />
           <div className="flex flex-col">
-            <span className="font-gilroy font-semibold text-white">Bifrost</span>
+            <span className="font-inter font-semibold text-white">Bifrost</span>
             <span className="text-tiny text-sidebar-foreground/60">Analytics Dashboard</span>
           </div>
         </div>
@@ -97,7 +97,7 @@ export function AppSidebar() {
 
       <SidebarContent className="px-2">
         <SidebarGroup>
-          <SidebarGroupLabel className="text-sidebar-foreground/50 font-gilroy uppercase text-tiny tracking-wider">
+          <SidebarGroupLabel className="text-sidebar-foreground/50 font-inter uppercase text-tiny tracking-wider">
             Navigation
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -107,7 +107,7 @@ export function AppSidebar() {
                   <SidebarMenuButton
                     asChild
                     isActive={isActive(item.href)}
-                    className="font-gilroy transition-all duration-200"
+                    className="font-inter transition-all duration-200"
                   >
                     <Link to={item.href}>
                       <item.icon className="h-4 w-4" />
@@ -121,7 +121,7 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel className="text-sidebar-foreground/50 font-gilroy uppercase text-tiny tracking-wider">
+          <SidebarGroupLabel className="text-sidebar-foreground/50 font-inter uppercase text-tiny tracking-wider">
             Analytics
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -131,7 +131,7 @@ export function AppSidebar() {
                   <SidebarMenuButton
                     asChild
                     isActive={isActive(item.href)}
-                    className="font-gilroy transition-all duration-200"
+                    className="font-inter transition-all duration-200"
                   >
                     <Link to={item.href}>
                       <item.icon className="h-4 w-4" />
@@ -151,7 +151,7 @@ export function AppSidebar() {
                 <SidebarMenuButton
                   asChild
                   isActive={isActive('/changelog')}
-                  className="font-gilroy transition-all duration-200 hover:translate-x-1"
+                  className="font-inter transition-all duration-200 hover:translate-x-1"
                 >
                   <Link to="/changelog" className="group/link">
                     <ScrollText className="size-4 transition-transform duration-200 group-hover/link:scale-110" />
@@ -169,7 +169,7 @@ export function AppSidebar() {
         <div className="h-1 w-full rounded-full gradient-accent-bar mb-3" />
         <Link
           to="/changelog"
-          className="font-gilroy text-tiny text-sidebar-foreground/50 transition-colors hover:text-sidebar-foreground/80"
+          className="font-inter text-tiny text-sidebar-foreground/50 transition-colors hover:text-sidebar-foreground/80"
         >
           Bifrost v{__APP_VERSION__}
         </Link>

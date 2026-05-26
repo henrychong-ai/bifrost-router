@@ -162,7 +162,7 @@ export function FilterToolbar({
     <div className={`flex flex-wrap items-end gap-3 ${className}`}>
       {/* Primary Search Input */}
       <div className="flex flex-col gap-1.5">
-        <label className="text-small font-gilroy text-charcoal-600">{searchLabel}</label>
+        <label className="text-small font-inter text-charcoal-600">{searchLabel}</label>
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-charcoal-400" />
           <Input
@@ -170,7 +170,7 @@ export function FilterToolbar({
             placeholder={searchPlaceholder}
             value={filters.search || ''}
             onChange={e => handleSearchChange(e.target.value)}
-            className="pl-8 w-48 font-gilroy"
+            className="pl-8 w-48 font-inter"
           />
         </div>
       </div>
@@ -178,7 +178,7 @@ export function FilterToolbar({
       {/* Secondary Search Input (optional) */}
       {search2Label && (
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-gilroy text-charcoal-600">{search2Label}</label>
+          <label className="text-small font-inter text-charcoal-600">{search2Label}</label>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-charcoal-400" />
             <Input
@@ -186,7 +186,7 @@ export function FilterToolbar({
               placeholder={search2Placeholder || `Search ${search2Label.toLowerCase()}...`}
               value={filters.search2 || ''}
               onChange={e => handleSearch2Change(e.target.value)}
-              className="pl-8 w-48 font-gilroy"
+              className="pl-8 w-48 font-inter"
             />
           </div>
         </div>
@@ -195,17 +195,17 @@ export function FilterToolbar({
       {/* Domain Filter */}
       {showDomain && (
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-gilroy text-charcoal-600">Domain</label>
+          <label className="text-small font-inter text-charcoal-600">Domain</label>
           <Select value={filters.domain || 'all'} onValueChange={handleDomainChange}>
-            <SelectTrigger className="w-48 font-gilroy">
+            <SelectTrigger className="w-48 font-inter">
               <SelectValue placeholder="All domains" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all" className="font-gilroy">
+              <SelectItem value="all" className="font-inter">
                 All domains
               </SelectItem>
               {DOMAINS.map(domain => (
-                <SelectItem key={domain} value={domain} className="font-gilroy">
+                <SelectItem key={domain} value={domain} className="font-inter">
                   {domain}
                 </SelectItem>
               ))}
@@ -217,14 +217,14 @@ export function FilterToolbar({
       {/* Country Filter */}
       {showCountry && (
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-gilroy text-charcoal-600">Country</label>
+          <label className="text-small font-inter text-charcoal-600">Country</label>
           <Input
             type="text"
             placeholder="e.g. US, SG"
             value={filters.country || ''}
             onChange={e => handleCountryChange(e.target.value)}
             list="country-suggestions"
-            className="w-28 font-gilroy uppercase"
+            className="w-28 font-inter uppercase"
             maxLength={2}
           />
           <datalist id="country-suggestions">
@@ -240,14 +240,14 @@ export function FilterToolbar({
       {/* Days Filter */}
       {showDays && (
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-gilroy text-charcoal-600">Time Range</label>
+          <label className="text-small font-inter text-charcoal-600">Time Range</label>
           <Select value={String(filters.days || 1)} onValueChange={handleDaysChange}>
-            <SelectTrigger className="w-32 font-gilroy">
+            <SelectTrigger className="w-32 font-inter">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {DAYS_PRESETS.map(({ value, label }) => (
-                <SelectItem key={value} value={value} className="font-gilroy">
+                <SelectItem key={value} value={value} className="font-inter">
                   {label}
                 </SelectItem>
               ))}
@@ -262,7 +262,7 @@ export function FilterToolbar({
           variant="ghost"
           size="sm"
           onClick={handleResetClick}
-          className="font-gilroy text-charcoal-500 hover:text-charcoal-700"
+          className="font-inter text-charcoal-500 hover:text-charcoal-700"
         >
           <X className="h-4 w-4 mr-1" />
           Reset

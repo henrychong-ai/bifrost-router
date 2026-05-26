@@ -39,8 +39,8 @@ export function ChangelogPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="animate-fade-in flex items-center gap-4">
-        <h1 className="font-gilroy text-huge font-bold text-blue-950">Changelog</h1>
-        <Badge className="border-transparent bg-gold-100 font-gilroy text-gold-600 hover:scale-100">
+        <h1 className="font-inter text-huge font-bold text-blue-950">Changelog</h1>
+        <Badge className="border-transparent bg-gold-100 font-inter text-gold-600 hover:scale-100">
           v{__APP_VERSION__}
         </Badge>
         <div className="gradient-accent-bar h-1 flex-1 rounded-full opacity-30" />
@@ -60,10 +60,10 @@ export function ChangelogPage() {
             placeholder="Search versions, features, fixes..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="pl-10 font-gilroy"
+            className="pl-10 font-inter"
           />
         </div>
-        <span aria-live="polite" className="font-gilroy text-small text-muted-foreground">
+        <span aria-live="polite" className="font-inter text-small text-muted-foreground">
           {filtered.length} of {allVersions.length} versions
         </span>
       </div>
@@ -72,7 +72,7 @@ export function ChangelogPage() {
       {filtered.length === 0 ? (
         <Card className="animate-fade-in border-border/50">
           <CardContent className="py-12 text-center">
-            <p className="font-gilroy text-muted-foreground">No versions match your search.</p>
+            <p className="font-inter text-muted-foreground">No versions match your search.</p>
           </CardContent>
         </Card>
       ) : (
@@ -90,19 +90,17 @@ export function ChangelogPage() {
               >
                 <CardHeader className="pb-3">
                   <div className="flex items-center gap-3">
-                    <CardTitle className="font-gilroy text-large font-semibold text-blue-950">
+                    <CardTitle className="font-inter text-large font-semibold text-blue-950">
                       v{version.version}
                     </CardTitle>
                     {isCurrent && (
-                      <Badge className="border-transparent bg-gold-100 font-gilroy text-tiny text-gold-600 hover:scale-100">
+                      <Badge className="border-transparent bg-gold-100 font-inter text-tiny text-gold-600 hover:scale-100">
                         Current
                       </Badge>
                     )}
                   </div>
                   {version.subtitle && (
-                    <p className="font-gilroy font-semibold text-charcoal-700">
-                      {version.subtitle}
-                    </p>
+                    <p className="font-inter font-semibold text-charcoal-700">{version.subtitle}</p>
                   )}
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -110,7 +108,7 @@ export function ChangelogPage() {
                     <div key={section.name}>
                       <Badge
                         className={`
-                          mb-2 border-transparent font-gilroy text-tiny hover:scale-100
+                          mb-2 border-transparent font-inter text-tiny hover:scale-100
                           ${getSectionBadgeClasses(section.name)}
                         `}
                       >
@@ -120,7 +118,7 @@ export function ChangelogPage() {
                         {section.items.map((item, iIndex) => (
                           <li key={iIndex} className="flex gap-2 text-small">
                             <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-charcoal-300" />
-                            <span className="font-gilroy">
+                            <span className="font-inter">
                               <span
                                 className={
                                   item.isBold ? 'font-semibold text-blue-950' : 'text-charcoal-700'
@@ -141,7 +139,7 @@ export function ChangelogPage() {
                     </div>
                   ))}
                   {version.sections.length === 0 && (
-                    <p className="font-gilroy text-small text-muted-foreground italic">
+                    <p className="font-inter text-small text-muted-foreground italic">
                       No changes documented.
                     </p>
                   )}

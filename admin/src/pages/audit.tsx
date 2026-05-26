@@ -198,10 +198,10 @@ export function AuditPage() {
   if (error) {
     return (
       <div className="space-y-6">
-        <h1 className="text-huge font-gilroy font-bold text-blue-950">Audit Log</h1>
+        <h1 className="text-huge font-inter font-bold text-blue-950">Audit Log</h1>
         <Card className="border-destructive">
           <CardContent className="pt-6">
-            <p className="text-destructive font-gilroy">
+            <p className="text-destructive font-inter">
               Failed to load audit logs: {error.message}
             </p>
           </CardContent>
@@ -216,7 +216,7 @@ export function AuditPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <h1 className="text-huge font-gilroy font-bold text-blue-950">Audit Log</h1>
+        <h1 className="text-huge font-inter font-bold text-blue-950">Audit Log</h1>
         <div className="h-1 flex-1 rounded-full gradient-accent-bar opacity-30" />
       </div>
 
@@ -231,49 +231,49 @@ export function AuditPage() {
 
         {/* Action filter */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-gilroy text-charcoal-600">Action</label>
+          <label className="text-small font-inter text-charcoal-600">Action</label>
           <Select value={filters.action || 'all'} onValueChange={handleActionChange}>
-            <SelectTrigger className="w-[140px] font-gilroy">
+            <SelectTrigger className="w-[140px] font-inter">
               <SelectValue placeholder="Action" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all" className="font-gilroy">
+              <SelectItem value="all" className="font-inter">
                 All Actions
               </SelectItem>
-              <SelectItem value="create" className="font-gilroy">
+              <SelectItem value="create" className="font-inter">
                 Create
               </SelectItem>
-              <SelectItem value="update" className="font-gilroy">
+              <SelectItem value="update" className="font-inter">
                 Update
               </SelectItem>
-              <SelectItem value="delete" className="font-gilroy">
+              <SelectItem value="delete" className="font-inter">
                 Delete
               </SelectItem>
-              <SelectItem value="toggle" className="font-gilroy">
+              <SelectItem value="toggle" className="font-inter">
                 Toggle
               </SelectItem>
-              <SelectItem value="seed" className="font-gilroy">
+              <SelectItem value="seed" className="font-inter">
                 Seed
               </SelectItem>
-              <SelectItem value="migrate" className="font-gilroy">
+              <SelectItem value="migrate" className="font-inter">
                 Migrate
               </SelectItem>
-              <SelectItem value="r2_upload" className="font-gilroy">
+              <SelectItem value="r2_upload" className="font-inter">
                 R2 Upload
               </SelectItem>
-              <SelectItem value="r2_delete" className="font-gilroy">
+              <SelectItem value="r2_delete" className="font-inter">
                 R2 Delete
               </SelectItem>
-              <SelectItem value="r2_rename" className="font-gilroy">
+              <SelectItem value="r2_rename" className="font-inter">
                 R2 Rename
               </SelectItem>
-              <SelectItem value="r2_move" className="font-gilroy">
+              <SelectItem value="r2_move" className="font-inter">
                 R2 Move
               </SelectItem>
-              <SelectItem value="r2_replace" className="font-gilroy">
+              <SelectItem value="r2_replace" className="font-inter">
                 R2 Replace
               </SelectItem>
-              <SelectItem value="r2_metadata_update" className="font-gilroy">
+              <SelectItem value="r2_metadata_update" className="font-inter">
                 R2 Metadata
               </SelectItem>
             </SelectContent>
@@ -283,10 +283,8 @@ export function AuditPage() {
 
       <Card className="border-border/50">
         <CardHeader>
-          <CardTitle className="font-gilroy font-semibold text-blue-950">
-            Activity History
-          </CardTitle>
-          <CardDescription className="font-gilroy">
+          <CardTitle className="font-inter font-semibold text-blue-950">Activity History</CardTitle>
+          <CardDescription className="font-inter">
             {isLoading
               ? 'Loading...'
               : `Showing ${data?.items.length || 0} of ${data?.meta.total || 0} audit entries`}
@@ -305,25 +303,25 @@ export function AuditPage() {
                 <Table>
                   <TableHeader>
                     <TableRow className="border-charcoal-100 bg-muted/30">
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         Time
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         Action
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         Domain
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         Path
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         Actor
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         Details
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         IP Address
                       </TableHead>
                     </TableRow>
@@ -332,7 +330,7 @@ export function AuditPage() {
                     {data?.items.map((log: AuditLog) => (
                       <TableRow key={log.id} className="hover:bg-gold-50/50 transition-colors">
                         <TableCell
-                          className="text-small font-gilroy whitespace-nowrap"
+                          className="text-small font-inter whitespace-nowrap"
                           title={formatDate(log.createdAt)}
                         >
                           {formatRelativeTime(log.createdAt)}
@@ -340,7 +338,7 @@ export function AuditPage() {
                         <TableCell>
                           <Badge
                             variant="outline"
-                            className={`${ACTION_COLORS[log.action]} flex items-center gap-1 w-fit font-gilroy font-medium`}
+                            className={`${ACTION_COLORS[log.action]} flex items-center gap-1 w-fit font-inter font-medium`}
                           >
                             {ACTION_ICONS[log.action]}
                             {log.action}
@@ -352,7 +350,7 @@ export function AuditPage() {
                         <TableCell className="font-mono text-small max-w-[200px] truncate font-medium text-blue-600">
                           {log.path || '-'}
                         </TableCell>
-                        <TableCell className="text-small font-gilroy whitespace-nowrap">
+                        <TableCell className="text-small font-inter whitespace-nowrap">
                           <div className="flex flex-col">
                             <span className="font-medium">
                               {log.actorName || log.actorLogin || 'Unknown'}
@@ -365,7 +363,7 @@ export function AuditPage() {
                           </div>
                         </TableCell>
                         <TableCell
-                          className="text-small font-gilroy text-charcoal-600 max-w-[200px] truncate"
+                          className="text-small font-inter text-charcoal-600 max-w-[200px] truncate"
                           title={log.details || ''}
                         >
                           {parseDetails(log.details)}
@@ -379,7 +377,7 @@ export function AuditPage() {
                       <TableRow>
                         <TableCell
                           colSpan={7}
-                          className="text-center text-muted-foreground font-gilroy"
+                          className="text-center text-muted-foreground font-inter"
                         >
                           No audit logs recorded
                         </TableCell>
@@ -392,7 +390,7 @@ export function AuditPage() {
               {/* Pagination */}
               {data && data.meta.total > limit && (
                 <div className="flex items-center justify-between pt-4 border-t border-border/30 mt-4">
-                  <div className="text-small text-muted-foreground font-gilroy">
+                  <div className="text-small text-muted-foreground font-inter">
                     Showing {offset + 1} - {Math.min(offset + limit, data.meta.total)} of{' '}
                     {data.meta.total}
                   </div>
@@ -402,7 +400,7 @@ export function AuditPage() {
                       size="sm"
                       onClick={() => setOffset(Math.max(0, offset - limit))}
                       disabled={!hasPrev}
-                      className="font-gilroy hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 transition-colors"
+                      className="font-inter hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 transition-colors"
                     >
                       <ChevronLeft className="h-4 w-4" />
                       Previous
@@ -412,7 +410,7 @@ export function AuditPage() {
                       size="sm"
                       onClick={() => setOffset(offset + limit)}
                       disabled={!hasNext}
-                      className="font-gilroy hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 transition-colors"
+                      className="font-inter hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 transition-colors"
                     >
                       Next
                       <ChevronRight className="h-4 w-4" />

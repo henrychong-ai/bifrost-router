@@ -75,12 +75,10 @@ export function DownloadsPage() {
   if (error) {
     return (
       <div className="space-y-6">
-        <h1 className="text-huge font-gilroy font-bold text-blue-950">Downloads</h1>
+        <h1 className="text-huge font-inter font-bold text-blue-950">Downloads</h1>
         <Card className="border-destructive">
           <CardContent className="pt-6">
-            <p className="text-destructive font-gilroy">
-              Failed to load downloads: {error.message}
-            </p>
+            <p className="text-destructive font-inter">Failed to load downloads: {error.message}</p>
           </CardContent>
         </Card>
       </div>
@@ -93,7 +91,7 @@ export function DownloadsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <h1 className="text-huge font-gilroy font-bold text-blue-950">Downloads</h1>
+        <h1 className="text-huge font-inter font-bold text-blue-950">Downloads</h1>
         <div className="h-1 flex-1 rounded-full gradient-accent-bar opacity-30" />
       </div>
 
@@ -107,8 +105,8 @@ export function DownloadsPage() {
 
       <Card className="border-border/50">
         <CardHeader>
-          <CardTitle className="font-gilroy font-semibold text-blue-950">Download Log</CardTitle>
-          <CardDescription className="font-gilroy">
+          <CardTitle className="font-inter font-semibold text-blue-950">Download Log</CardTitle>
+          <CardDescription className="font-inter">
             {isLoading
               ? 'Loading...'
               : `Showing ${data?.items.length || 0} of ${data?.meta.total || 0} downloads`}
@@ -127,55 +125,55 @@ export function DownloadsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow className="border-charcoal-100 bg-muted/30">
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         Time
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         Domain
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         Path
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         R2 Key
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         Type
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         Size
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         Cache
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         Query
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         Referrer
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         City
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         Country
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         Continent
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         Colo
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         Timezone
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         Protocol
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         User Agent
                       </TableHead>
-                      <TableHead className="whitespace-nowrap font-gilroy font-semibold text-charcoal-700">
+                      <TableHead className="whitespace-nowrap font-inter font-semibold text-charcoal-700">
                         IP Address
                       </TableHead>
                     </TableRow>
@@ -183,7 +181,7 @@ export function DownloadsPage() {
                   <TableBody>
                     {data?.items.map(download => (
                       <TableRow key={download.id} className="hover:bg-gold-50/50 transition-colors">
-                        <TableCell className="text-small font-gilroy whitespace-nowrap">
+                        <TableCell className="text-small font-inter whitespace-nowrap">
                           {formatDate(download.createdAt)}
                         </TableCell>
                         <TableCell className="font-mono text-small whitespace-nowrap text-charcoal-600">
@@ -208,14 +206,14 @@ export function DownloadsPage() {
                           {download.cacheStatus === 'HIT' ? (
                             <Badge
                               variant="default"
-                              className="bg-emerald-500 hover:bg-emerald-600 text-white font-gilroy"
+                              className="bg-emerald-500 hover:bg-emerald-600 text-white font-inter"
                             >
                               HIT
                             </Badge>
                           ) : download.cacheStatus === 'MISS' ? (
                             <Badge
                               variant="default"
-                              className="bg-amber-500 hover:bg-amber-600 text-white font-gilroy"
+                              className="bg-amber-500 hover:bg-amber-600 text-white font-inter"
                             >
                               MISS
                             </Badge>
@@ -229,29 +227,29 @@ export function DownloadsPage() {
                         >
                           {download.queryString || '-'}
                         </TableCell>
-                        <TableCell className="max-w-[200px] truncate text-small font-gilroy text-charcoal-600">
+                        <TableCell className="max-w-[200px] truncate text-small font-inter text-charcoal-600">
                           {download.referrer || '-'}
                         </TableCell>
-                        <TableCell className="text-small font-gilroy whitespace-nowrap">
+                        <TableCell className="text-small font-inter whitespace-nowrap">
                           {download.city || '-'}
                         </TableCell>
-                        <TableCell className="text-small font-gilroy whitespace-nowrap font-medium">
+                        <TableCell className="text-small font-inter whitespace-nowrap font-medium">
                           {download.country || '-'}
                         </TableCell>
-                        <TableCell className="text-small font-gilroy whitespace-nowrap text-charcoal-500">
+                        <TableCell className="text-small font-inter whitespace-nowrap text-charcoal-500">
                           {download.continent || '-'}
                         </TableCell>
                         <TableCell className="font-mono text-small whitespace-nowrap text-charcoal-500">
                           {download.colo || '-'}
                         </TableCell>
-                        <TableCell className="text-small font-gilroy whitespace-nowrap text-charcoal-500">
+                        <TableCell className="text-small font-inter whitespace-nowrap text-charcoal-500">
                           {download.timezone || '-'}
                         </TableCell>
                         <TableCell className="font-mono text-small whitespace-nowrap text-charcoal-500">
                           {download.httpProtocol || '-'}
                         </TableCell>
                         <TableCell
-                          className="max-w-[300px] truncate text-small font-gilroy text-charcoal-400"
+                          className="max-w-[300px] truncate text-small font-inter text-charcoal-400"
                           title={download.userAgent || ''}
                         >
                           {download.userAgent || '-'}
@@ -265,7 +263,7 @@ export function DownloadsPage() {
                       <TableRow>
                         <TableCell
                           colSpan={17}
-                          className="text-center text-muted-foreground font-gilroy"
+                          className="text-center text-muted-foreground font-inter"
                         >
                           No downloads recorded
                         </TableCell>
@@ -278,7 +276,7 @@ export function DownloadsPage() {
               {/* Pagination */}
               {data && data.meta.total > limit && (
                 <div className="flex items-center justify-between pt-4 border-t border-border/30 mt-4">
-                  <div className="text-small text-muted-foreground font-gilroy">
+                  <div className="text-small text-muted-foreground font-inter">
                     Showing {offset + 1} - {Math.min(offset + limit, data.meta.total)} of{' '}
                     {data.meta.total}
                   </div>
@@ -288,7 +286,7 @@ export function DownloadsPage() {
                       size="sm"
                       onClick={() => setOffset(Math.max(0, offset - limit))}
                       disabled={!hasPrev}
-                      className="font-gilroy hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 transition-colors"
+                      className="font-inter hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 transition-colors"
                     >
                       <ChevronLeft className="h-4 w-4" />
                       Previous
@@ -298,7 +296,7 @@ export function DownloadsPage() {
                       size="sm"
                       onClick={() => setOffset(offset + limit)}
                       disabled={!hasNext}
-                      className="font-gilroy hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 transition-colors"
+                      className="font-inter hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 transition-colors"
                     >
                       Next
                       <ChevronRight className="h-4 w-4" />

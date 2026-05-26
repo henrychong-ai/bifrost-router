@@ -6,6 +6,86 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.23.0 — Dashboard typography: Gilroy → Inter Variable (full Inter v4 spec)
+
+Replaces Gilroy with **Inter Variable v4.1** as the dashboard typeface. Single-pass migration consolidating the full Inter v4 design-system stack — font swap, optical sizing, weight standardisation, and the size-tied tracking table — into one Y-bump.
+
+### Why Inter v4
+
+- **Open licence (SIL OFL 1.1)** — Inter is freely usable and redistributable; suitable for forks of this open-source repo.
+- **Variable font** — single woff2 file carries all weights (100–900) AND optical sizes (14–32) via the `opsz` axis. Replaces 4 static Gilroy TTF downloads.
+- **Industry standard** — Linear / GitHub / Mozilla / Stripe all use Inter for dashboards.
+
+### Font asset
+
+Public CDN default: `https://assets.fusang.co/fonts/inter/inter-variable.woff2` (matches the previous Gilroy hosting pattern). Forkers self-hosting their own font should update both the `@font-face` declaration in `admin/src/index.css` and the `<link rel="preload">` in `admin/index.html` — see comment block at the top of `index.css` for the substitution pattern.
+
+### Dashboard code changes
+
+#### `admin/src/index.css`
+
+- **Removed:** 4 `@font-face` Gilroy TTF declarations (Regular/Medium/SemiBold/Bold).
+- **Added:** 1 `@font-face` Inter Variable woff2 declaration with `font-weight: 100 900` range, `format("woff2-variations")`.
+- **Token rename:** `--font-gilroy` → `--font-inter`.
+- **Paired-token tracking table** (Tailwind 4) — every `--text-{name}` token now carries `--letter-spacing` per Inter v4 spec (positive <16px for small-text legibility, near-zero at 16px, increasingly negative >16px for display polish). Tailwind built-in classes (`text-xs` through `text-7xl`) also overridden.
+- **Optical sizing:** `body { font-optical-sizing: auto; }` engages Inter v4's `opsz` axis.
+- **Deleted redundant manual classes:** `.text-display`, `.text-huge`, `.text-xlarge`, `.text-large` removed from `@layer utilities` (Tailwind 4 auto-generates from paired tokens).
+- **Utility class rename:** `.font-gilroy` → `.font-inter`.
+- **Body + headings:** `var(--font-gilroy)` → `var(--font-inter)`.
+- **Header comment block** updated to describe the Inter v4 axis pattern and how forkers can substitute their own brand font.
+
+#### `admin/index.html`
+
+- **Added** `<link rel="preload">` for Inter Variable woff2 — eliminates flash-of-unstyled-text on first paint.
+
+#### `admin/src/components/ui/sidebar.tsx` — Option A weight drop
+
+- Removed `font-medium` (500) on the always-on `sidebar-group-label` (line 388) and `sidebar-menu-badge` (line 563). These elements now use default 400 weight; combined with `opsz auto`, they read with the right visual texture.
+- **Kept** `data-[active=true]:font-medium` (line 454) — the active-menu-item emphasis pattern.
+
+#### Component renames (11 files)
+
+All `font-gilroy` Tailwind utility class references renamed to `font-inter` across admin components and pages.
+
+### Inter v4 tracking table (rsms.me/inter spec)
+
+| Token / Tailwind class | Size | Letter-spacing |
+|---|---|---|
+| `text-mini` | 9px | +0.0089em |
+| `text-tiny` / `text-xs` | 12px | +0.005em |
+| `text-small` / `text-sm` | 14px | +0.003em |
+| `text-base` | 16px | -0.0011em |
+| `text-large` / `text-lg` | 18px | -0.0033em |
+| `text-xl` | 20px | -0.0067em |
+| `text-xlarge` / `text-2xl` | 24px | -0.0125em |
+| `text-3xl` | 30px | -0.0175em |
+| `text-huge` / `text-4xl` | 32–36px | -0.0192em / -0.0217em |
+| `text-display` / `text-5xl` | 48px | -0.0289em |
+| `text-6xl` / `text-7xl` | 60–72px | -0.0322em / -0.0344em |
+
+### Design system standard locked
+
+Dashboard now uses ONLY standard 100-step weights (400 default, 500 medium for active emphasis, 600 semibold for wordmark / banners). No arbitrary intermediate weights. Tracking applied automatically per Tailwind size class — no per-component tuning required.
+
+### Forker note: customising the font
+
+The dashboard inherits all Inter v4 behaviour (opsz axis + tracking table + weight stops) from the `@font-face` declaration and the `@theme inline` tokens in `admin/src/index.css`. To swap to a different brand font:
+
+1. Replace the `@font-face` declaration with your own font's URL + format
+2. Update `--font-inter` in `@theme inline` to reference your font name
+3. If your font ISN'T variable, drop the tracking-table paired tokens (or keep them — they degrade gracefully)
+4. Rebuild the dashboard (`pnpm --filter admin build`)
+
+### Testing posture
+
+CSS + className changes only; no logic or component-behaviour changes. Existing test suite must still pass. CI runs lint/format/typecheck/test on every push.
+
+### Rollback
+
+- **L0 (5 min):** revert this commit + retag previous version. Dashboard rebuilds with Gilroy classes; Inter preload becomes harmless 404 on subsequent forks.
+
+---
+
 ## v1.22.12
 
 ### Changed
