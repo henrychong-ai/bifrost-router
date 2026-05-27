@@ -6,6 +6,60 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.24.0 — Global security headers hardening + CI gate
+
+Tightens `secureHeaders()` and adds a closed-allowlist Permissions-Policy header on every response. Brings the open-source template in line with the production hardening baseline used by the parent Fusang deployment. Also closes a recursive-typecheck CI gap that hides root Worker type errors from the `check` chain.
+
+### `src/index.ts` — secureHeaders hardening
+
+- **HSTS upgraded** from `max-age=15552000` (180 days) to `max-age=31536000` (1 year — the HSTS-preload-eligible threshold).
+- **`xFrameOptions: 'DENY'`** added. Hono's default is `SAMEORIGIN`; `DENY` is strictly stronger (clickjacking defence).
+- The remaining Hono defaults (`xContentTypeOptions`, `crossOriginOpenerPolicy`, `crossOriginResourcePolicy`, `referrerPolicy`, `xDnsPrefetchControl`, `xDownloadOptions`, `xPermittedCrossDomainPolicies`) are kept.
+
+### `src/index.ts` — Permissions-Policy global middleware
+
+Hono's `secureHeaders()` API does not support Permissions-Policy, so it's attached via a separate global middleware that runs after `next()` (so it modifies the populated response). The 27-feature deny list:
+
+```
+accelerometer, ambient-light-sensor, autoplay, battery, camera,
+cross-origin-isolated, display-capture, encrypted-media,
+execution-while-not-rendered, execution-while-out-of-viewport,
+fullscreen (self only), geolocation, gyroscope, keyboard-map,
+magnetometer, microphone, midi, navigation-override, payment,
+picture-in-picture, publickey-credentials-get, screen-wake-lock,
+sync-xhr, usb, web-share, xr-spatial-tracking,
+interest-cohort, attribution-reporting
+```
+
+`interest-cohort` (FLoC) and `attribution-reporting` are privacy-adjacent denials. `fullscreen=(self)` allows same-origin fullscreen (admin dashboard may use it) while denying cross-origin embeds. All others are `()` (closed allowlist).
+
+**Forker note:** if your deployment uses any of the denied browser features, edit the `PERMISSIONS_POLICY` array in `src/index.ts` before deploying. The defaults are safe for the reference admin dashboard.
+
+### `package.json` — CI gate
+
+Added `pnpm run typecheck` (root) to the `check` chain. Previously only `pnpm run -r typecheck` ran, which is recursive across workspaces and silently skips the root Worker. The repo currently has 0 root errors, so the gate is preventive — future regressions caught at `check` time.
+
+### `test/middleware/secure-headers.test.ts` — regression coverage
+
+- Updated HSTS assertion from `max-age=15552000` to `max-age=31536000`.
+- Updated `x-frame-options` assertion from `SAMEORIGIN` to `DENY`.
+- New `Permissions-Policy` describe block: 2 cases asserting the camera/microphone/geolocation/payment/FLoC/attribution-reporting denials are present, no `=none` (must use `=()`), and the header attaches to JSON API responses too.
+
+### Non-goals (explicit skips)
+
+| Item | Reason |
+|---|---|
+| HSTS `includeSubDomains` + `preload` | Requires per-subdomain HTTPS audit. Forkers should audit their own subdomain inventory before adding these directives. |
+| CSP framework | Defer for template; forkers should scope CSP to their dashboard's specific origins. |
+| Zaraz/Fathom Analytics | Out of scope for open-source template. |
+| Stytch / JWKS | Out of scope (template ships with simple `X-Admin-Key` auth). |
+
+### Rollback
+
+Single-commit revert per file. No data migration, no schema, no state.
+
+---
+
 ## v1.23.0 — Dashboard typography: Gilroy → Inter Variable (full Inter v4 spec)
 
 Replaces Gilroy with **Inter Variable v4.1** as the dashboard typeface. Single-pass migration consolidating the full Inter v4 design-system stack — font swap, optical sizing, weight standardisation, and the size-tied tracking table — into one Y-bump.

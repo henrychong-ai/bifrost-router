@@ -57,10 +57,53 @@ const app = new Hono<AppEnv>();
 app.use('*', logger());
 app.use(
   '*',
+  // 1 year max-age = HSTS-preload-eligible threshold. `includeSubDomains` is
+  // intentionally absent — forkers should run a per-subdomain HTTPS audit
+  // before adding it (and the `preload` directive).
   secureHeaders({
-    strictTransportSecurity: 'max-age=15552000',
+    strictTransportSecurity: 'max-age=31536000',
+    xFrameOptions: 'DENY',
   }),
 );
+
+// Permissions-Policy is not supported by Hono's secureHeaders() API, so attach
+// it via a separate global middleware. Denies every browser feature this Worker
+// and its dashboard don't use.
+const PERMISSIONS_POLICY = [
+  'accelerometer=()',
+  'ambient-light-sensor=()',
+  'autoplay=()',
+  'battery=()',
+  'camera=()',
+  'cross-origin-isolated=()',
+  'display-capture=()',
+  'encrypted-media=()',
+  'execution-while-not-rendered=()',
+  'execution-while-out-of-viewport=()',
+  'fullscreen=(self)',
+  'geolocation=()',
+  'gyroscope=()',
+  'keyboard-map=()',
+  'magnetometer=()',
+  'microphone=()',
+  'midi=()',
+  'navigation-override=()',
+  'payment=()',
+  'picture-in-picture=()',
+  'publickey-credentials-get=()',
+  'screen-wake-lock=()',
+  'sync-xhr=()',
+  'usb=()',
+  'web-share=()',
+  'xr-spatial-tracking=()',
+  'interest-cohort=()',
+  'attribution-reporting=()',
+].join(', ');
+
+app.use('*', async (c, next) => {
+  await next();
+  c.res.headers.set('Permissions-Policy', PERMISSIONS_POLICY);
+});
 
 // ============================================
 // SYSTEM ROUTES (not in KV)
