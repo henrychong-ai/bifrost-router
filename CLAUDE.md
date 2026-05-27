@@ -2,7 +2,7 @@
 
 Guidance for Claude Code when working with this repository.
 
-**Version:** 1.24.0 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.25.0 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Project Overview
 
@@ -347,6 +347,29 @@ Use the same "API Token - Workers Edit" token from 1Password, after adding Cache
 ### Rate Limiting
 
 Handled by **Cloudflare WAF**, not in Worker code. Worker-level middleware available at `src/middleware/rate-limit.ts` if needed.
+
+### Typography — four-font stack (v1.25.0+)
+
+The dashboard ships with a canonical four-font typography stack:
+
+| Family | Role | CSS token |
+|---|---|---|
+| **Inter Variable** (roman + italic) | Latin body, headings, UI | `--font-inter` |
+| **Maple Mono NL Variable** (roman + italic) | `<code>`/`<pre>`/`<kbd>`/`<samp>`/`.font-mono` | `--font-mono` |
+| **Noto Sans SC Variable** | Simplified Chinese (`[lang^="zh-Hans"]`) | `--font-sans-sc` |
+| **Noto Sans TC Variable** | Traditional Chinese (`[lang^="zh-Hant"]`) | `--font-sans-tc` |
+
+All four are **SIL OFL 1.1** licensed (free for any use including commercial / embedding / self-hosting / modification). The default CDN is `assets.fusang.co` — to use your own brand fonts, follow the comment block at the top of `admin/src/index.css` to swap the `@font-face` declarations and update the `--font-*` tokens in `@theme inline`.
+
+**Maple Mono NL feature settings** (already wired in `admin/src/index.css`):
+
+```css
+font-feature-settings: 'cv01' 1, 'cv32' 1, 'cv33' 1, 'cv34' 1, 'cv35' 1, 'cv36' 1, 'cv37' 1;
+```
+
+These engage the "engineering" Maple Mono variants — tame `@`, continuous-slash `$`, non-cursive italic letterforms. Without them, v7.9 renders the more decorative defaults the designer ships.
+
+**Test guardrail**: `admin/src/lib/typography.test.ts` asserts every `@font-face` URL, every family token, every feature setting, and the CJK locale scoping. Delete or update this test if you fork with different fonts.
 
 ### Service-Binding Fetch Resilience
 

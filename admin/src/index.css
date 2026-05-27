@@ -2,18 +2,24 @@
 @import "tw-animate-css";
 
 /*
- * Font face: the dashboard uses `font-inter` utility classes that resolve to
- * the `--font-inter` CSS variable (see @theme block below). By default, Inter
- * Variable v4.1 is loaded from a public CDN as a single woff2 file covering
- * all weights (100-900) via the `wght` axis AND optical sizes (14-32) via the
- * `opsz` axis. If the CDN is unreachable, the variable's fallback stack
- * (`ui-sans-serif, system-ui, sans-serif`) kicks in via `font-display: swap`.
+ * Canonical four-font stack (v1.25.0+):
  *
- * Inter v4.1 by Rasmus Andersson — SIL OFL 1.1 (free for any use).
- * Upstream: https://github.com/rsms/inter/releases/tag/v4.1
+ *   1. Inter Variable (roman + italic)  — Latin sans body
+ *   2. Maple Mono NL Variable (roman + italic)  — <code>/<pre>/<kbd>/<samp> and .font-mono utility
+ *   3. Noto Sans SC Variable  — Simplified Chinese ([lang^="zh-Hans"] scopes)
+ *   4. Noto Sans TC Variable  — Traditional Chinese ([lang^="zh-Hant"] scopes)
+ *
+ * All four are SIL OFL 1.1 licensed (free for any use, including commercial,
+ * embedding, self-hosting, modification). By default they load from a public
+ * CDN (`assets.fusang.co/fonts/`) as variable woff2 files. If the CDN is
+ * unreachable, each variable's fallback stack kicks in via `font-display: swap`.
+ *
+ *   - Inter v4.1 by Rasmus Andersson — https://github.com/rsms/inter
+ *   - Maple Mono NL by subframe7536 — https://github.com/subframe7536/maple-font
+ *   - Noto Sans CJK by Google + Adobe — https://github.com/notofonts/noto-cjk
  *
  * To use a custom brand font, self-host the file (or load from a CDN you
- * control) and replace the @font-face declaration below. Example:
+ * control) and replace the @font-face declarations below. Example:
  *
  *   @font-face {
  *     font-family: "YourBrandFont";
@@ -22,14 +28,69 @@
  *     font-display: swap;
  *   }
  *
- * Then update `--font-inter` in the @theme block below to reference it:
+ * Then update `--font-inter` (and/or `--font-mono` / `--font-sans-sc` /
+ * `--font-sans-tc`) in the @theme block below to reference it:
  *   --font-inter: "YourBrandFont", ui-sans-serif, system-ui, sans-serif;
+ *
+ * Maple Mono NL is the "No Ligatures" variant — coding ligatures are physically
+ * absent from the file, so operators (!=, ==, =>) always render literally. The
+ * mandatory `font-feature-settings` (cv01 + cv32-cv37) enable the "engineering"
+ * variants (tame @, continuous-slash $, non-cursive italic letterforms).
  */
 
-/* Inter v4 Variable (public CDN default) */
+/* Inter v4 Variable — roman. Single woff2 covering weights 100-900. */
 @font-face {
   font-family: "Inter";
   src: url("https://assets.fusang.co/fonts/inter/inter-variable.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Inter v4 Variable — italic. Renders <em> + true italic at any weight. */
+@font-face {
+  font-family: "Inter";
+  src: url("https://assets.fusang.co/fonts/inter/inter-variable-italic.woff2")
+    format("woff2-variations");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Maple Mono NL v7.9 — roman. */
+@font-face {
+  font-family: "Maple Mono NL";
+  src: url("https://assets.fusang.co/fonts/maple/maple-mono-nl.woff2") format("woff2-variations");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Maple Mono NL v7.9 — italic (true italic, separate file). */
+@font-face {
+  font-family: "Maple Mono NL";
+  src: url("https://assets.fusang.co/fonts/maple/maple-mono-nl-italic.woff2")
+    format("woff2-variations");
+  font-weight: 100 800;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Noto Sans SC Variable — Simplified Chinese. */
+@font-face {
+  font-family: "Noto Sans SC";
+  src: url("https://assets.fusang.co/fonts/noto-sans-sc/noto-sans-sc.woff2")
+    format("woff2-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Noto Sans TC Variable — Traditional Chinese. */
+@font-face {
+  font-family: "Noto Sans TC";
+  src: url("https://assets.fusang.co/fonts/noto-sans-tc/noto-sans-tc.woff2")
+    format("woff2-variations");
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
@@ -129,7 +190,18 @@
   --color-charcoal-950: #0c1928;
 
   /* Font family */
-  --font-inter: "Inter", ui-sans-serif, system-ui, sans-serif;
+  /* Font families — canonical four-font stack (v1.25.0+).
+     Single-layer fallback to system stack. */
+  --font-inter:
+    "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    sans-serif;
+  --font-mono: "Maple Mono NL", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-sans-sc:
+    "Inter", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", ui-sans-serif,
+    system-ui, sans-serif;
+  --font-sans-tc:
+    "Inter", "Noto Sans TC", "PingFang TC", "Hiragino Sans CNS", "Microsoft JhengHei",
+    ui-sans-serif, system-ui, sans-serif;
 
   /* Font sizes — Inter v4 tracking table.
      Letter-spacing tuned per size class per rsms.me/inter spec.
@@ -289,6 +361,39 @@
   h6 {
     font-family: var(--font-inter);
   }
+
+  /* Mono surfaces — code, pre, kbd, samp. Maple Mono NL with feature settings:
+       cv01     — tame `@` + continuous-slash `$`
+       cv32-cv37 — official "plain style" italic preset (non-cursive italic)
+     `letter-spacing: 0` overrides any Inter tracking inherited from body. */
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: var(--font-mono);
+    font-feature-settings:
+      "cv01" 1,
+      "cv32" 1,
+      "cv33" 1,
+      "cv34" 1,
+      "cv35" 1,
+      "cv36" 1,
+      "cv37" 1;
+    letter-spacing: 0;
+  }
+
+  /* CJK locale scoping — Latin chars stay in Inter, CJK chars take Noto. */
+  [lang^="zh-Hans"],
+  [lang="zh-CN"],
+  [lang="zh-SG"],
+  [lang="zh-MY"] {
+    font-family: var(--font-sans-sc);
+  }
+  [lang^="zh-Hant"],
+  [lang="zh-TW"],
+  [lang="zh-HK"] {
+    font-family: var(--font-sans-tc);
+  }
 }
 
 /* Respect user's motion preferences for accessibility */
@@ -307,6 +412,21 @@
 @layer utilities {
   .font-inter {
     font-family: var(--font-inter);
+  }
+
+  /* Explicit mono utility — for inline spans that aren't <code>/<pre>/<kbd>/<samp>
+     but still want the canonical mono treatment. */
+  .font-mono {
+    font-family: var(--font-mono);
+    font-feature-settings:
+      "cv01" 1,
+      "cv32" 1,
+      "cv33" 1,
+      "cv34" 1,
+      "cv35" 1,
+      "cv36" 1,
+      "cv37" 1;
+    letter-spacing: 0;
   }
 
   .gradient-gold {

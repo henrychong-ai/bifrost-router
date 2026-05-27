@@ -6,6 +6,47 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.25.0 (2026-05-27) — Canonical four-font typography stack
+
+Adds three font families to the dashboard's default typography stack — Inter italic (so `<em>` renders true italic instead of synthesised oblique), Maple Mono NL for code surfaces, and Noto Sans SC + TC for Chinese-language content. All four are SIL OFL 1.1 licensed and load from the same CDN as the existing Inter face.
+
+### What changes on the dashboard
+
+| Surface | Before (v1.24.0) | After (v1.25.0) |
+|---|---|---|
+| Latin body | Inter Variable (roman only) | Inter Variable (roman + italic) — `<em>` now renders true italic |
+| `<code>`/`<pre>`/`<kbd>`/`<samp>` | Tailwind 4 default mono (`ui-monospace, monospace`) — system mono per OS | Maple Mono NL Variable with `cv01` + `cv32`–`cv37` feature settings (engineering `@`, continuous-slash `$`, non-cursive italic) |
+| Inline mono utility | None | `.font-mono` utility class — applies Maple Mono NL + feature settings to non-semantic spans (e.g. R2 keys in `<span>` elements) |
+| Simplified Chinese (`[lang^="zh-Hans"]`, `lang="zh-CN/SG/MY"`) | Inter → system stack | Inter (Latin) → Noto Sans SC (CJK) → PingFang SC → Hiragino Sans GB → Microsoft YaHei |
+| Traditional Chinese (`[lang^="zh-Hant"]`, `lang="zh-TW/HK"`) | Inter → system stack | Inter (Latin) → Noto Sans TC (CJK) → PingFang TC → Hiragino Sans CNS → Microsoft JhengHei |
+
+### Implementation
+
+| File | Change |
+|---|---|
+| `admin/src/index.css` | Six `@font-face` declarations (Inter ×2, Maple ×2, Noto SC, Noto TC). `--font-mono`, `--font-sans-sc`, `--font-sans-tc` tokens added inside `@theme inline`. `code, pre, kbd, samp { font-family: var(--font-mono); font-feature-settings: 'cv01' 1, 'cv32'-'cv37' 1; letter-spacing: 0; }` in `@layer base`. CJK locale scoping via `[lang^="zh-Hans"]` / `[lang^="zh-Hant"]`. `.font-mono` utility class. Top-of-file comment block updated to document all four families and how to swap them for your own brand fonts. |
+| `admin/src/lib/typography.test.ts` | New regression suite (21 assertions): every `@font-face` URL, every family token, `font-optical-sizing: auto` on body, mono surfaces bind `--font-mono`, all seven Maple feature settings active, CJK locale scoping present, every face declaration carries `font-display: swap`. |
+| `admin/vitest.config.ts` | `test.css.include` enabled for `index.css` so `?raw` imports in tests resolve to real source (Vitest stubs CSS to empty strings by default). |
+
+### Forking note
+
+If you fork bifrost-router to use your own brand fonts, the canonical replacement pattern is:
+
+1. Self-host your font woff2 files (or use a CDN you control)
+2. Replace the six `@font-face` declarations at the top of `admin/src/index.css`
+3. Update the four `--font-*` tokens in `@theme inline` to reference your families
+4. Update or delete `admin/src/lib/typography.test.ts` — the URLs and family names are pinned to the default fonts
+
+### Performance characteristics
+
+- **Inter italic** (~120 KB): Lazy-loaded — only fetched on first `<em>` render.
+- **Maple Mono NL** (~120 KB roman + ~141 KB italic): Lazy-loaded — only fetched on first code-surface render.
+- **Noto Sans SC** (~7.4 MB) + **Noto Sans TC** (~5.2 MB): Lazy-loaded — only fetched on pages with `lang="zh-*"` scoping. English-only dashboards never trigger these.
+
+All five new face declarations carry `font-display: swap` so non-blocking; FCP is unchanged from v1.24.0.
+
+---
+
 ## v1.24.0 — Global security headers hardening + CI gate
 
 Tightens `secureHeaders()` and adds a closed-allowlist Permissions-Policy header on every response. Brings the open-source template in line with the production hardening baseline used by the parent Fusang deployment. Also closes a recursive-typecheck CI gap that hides root Worker type errors from the `check` chain.
