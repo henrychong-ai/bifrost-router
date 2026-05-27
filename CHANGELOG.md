@@ -6,6 +6,14 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.25.1 (2026-05-27) — Noto Sans R2 path consolidation
+
+Noto Sans SC + TC moved from two separate R2 prefixes (`/fonts/noto-sans-sc/` + `/fonts/noto-sans-tc/`) into a single consolidated `/fonts/noto-sans/` directory. Both `@font-face` declarations updated in `admin/src/index.css`; matching typography test assertions updated in `admin/src/lib/typography.test.ts`. Sanitised mirror of `bifrost-fusang` v1.37.1 and `bifrost-hc` v1.25.1.
+
+If you've forked bifrost-router and self-host your own brand fonts, this change does not affect you — your `@font-face` URLs are unaffected.
+
+---
+
 ## v1.25.0 (2026-05-27) — Canonical four-font typography stack
 
 Adds three font families to the dashboard's default typography stack — Inter italic (so `<em>` renders true italic instead of synthesised oblique), Maple Mono NL for code surfaces, and Noto Sans SC + TC for Chinese-language content. All four are SIL OFL 1.1 licensed and load from the same CDN as the existing Inter face.

@@ -24,8 +24,8 @@ describe('typography — four-font stack', () => {
     ['Inter Variable italic', 'https://assets.fusang.co/fonts/inter/inter-variable-italic.woff2'],
     ['Maple Mono NL roman', 'https://assets.fusang.co/fonts/maple/maple-mono-nl.woff2'],
     ['Maple Mono NL italic', 'https://assets.fusang.co/fonts/maple/maple-mono-nl-italic.woff2'],
-    ['Noto Sans SC variable', 'https://assets.fusang.co/fonts/noto-sans-sc/noto-sans-sc.woff2'],
-    ['Noto Sans TC variable', 'https://assets.fusang.co/fonts/noto-sans-tc/noto-sans-tc.woff2'],
+    ['Noto Sans SC variable', 'https://assets.fusang.co/fonts/noto-sans/noto-sans-sc.woff2'],
+    ['Noto Sans TC variable', 'https://assets.fusang.co/fonts/noto-sans/noto-sans-tc.woff2'],
   ])('@font-face declares %s', (_label, url) => {
     expect(cssText).toContain(url);
   });

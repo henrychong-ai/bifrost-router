@@ -76,11 +76,11 @@
   font-display: swap;
 }
 
-/* Noto Sans SC Variable — Simplified Chinese. */
+/* Noto Sans SC Variable — Simplified Chinese.
+   Path: /fonts/noto-sans/ (consolidated SC + TC dir since 2026-05-27). */
 @font-face {
   font-family: "Noto Sans SC";
-  src: url("https://assets.fusang.co/fonts/noto-sans-sc/noto-sans-sc.woff2")
-    format("woff2-variations");
+  src: url("https://assets.fusang.co/fonts/noto-sans/noto-sans-sc.woff2") format("woff2-variations");
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
@@ -89,8 +89,7 @@
 /* Noto Sans TC Variable — Traditional Chinese. */
 @font-face {
   font-family: "Noto Sans TC";
-  src: url("https://assets.fusang.co/fonts/noto-sans-tc/noto-sans-tc.woff2")
-    format("woff2-variations");
+  src: url("https://assets.fusang.co/fonts/noto-sans/noto-sans-tc.woff2") format("woff2-variations");
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
