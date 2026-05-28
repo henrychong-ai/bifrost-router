@@ -6,6 +6,74 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.25.2 (2026-05-28) — Dependency refresh + security hardening
+
+Routine minor/patch dependency bumps across the workspace, paired with `pnpm.overrides` additions that resolve every advisory currently flagged by `pnpm audit` (down from 7 → 0).
+
+### Direct dependency bumps (minor/patch only)
+
+| Package | From | To | Where |
+|---|---|---|---|
+| `hono` | `^4.12.18` | `^4.12.21` | root + slackbot (resolved to 4.12.23 via override) |
+| `wrangler` | `4.90.0` | `4.95.0` | root + slackbot |
+| `@cloudflare/workers-types` | `^4.20260507.1` | `^4.20260528.1` | root + slackbot |
+| `@biomejs/biome` | `^2.4.14` | `^2.4.16` | root |
+| `oxlint` / `eslint-plugin-oxlint` | `^1.63.0` | `^1.67.0` | root + admin |
+| `@types/node` | `^25.6.1` | `^25.9.1` | admin + shared + mcp + slackbot |
+| `@types/react` | `^19.2.14` | `^19.2.15` | admin |
+| `@tanstack/react-query` | `^5.100.9` | `^5.100.14` | admin |
+| `@hookform/resolvers` | `^5.2.2` | `^5.4.0` | admin |
+| `react-hook-form` | `^7.75.0` | `^7.76.1` | admin |
+| `react-router-dom` | `^7.15.0` | `^7.16.0` | admin |
+| `tailwindcss` / `@tailwindcss/vite` | `^4.2.4` | `^4.3.0` | admin |
+| `tailwind-merge` | `^3.5.0` | `^3.6.0` | admin |
+| `eslint` | `^10.3.0` | `^10.4.0` | admin |
+| `typescript-eslint` | `^8.59.2` | `^8.60.0` | admin |
+| `vitest` | `^4.1.4` | `^4.1.7` | admin + shared + mcp |
+
+### Transitive security overrides (pnpm.overrides additions)
+
+Each override pins a vulnerable transitive dependency to a patched version. After applying, `pnpm audit` reports **No known vulnerabilities found**.
+
+| Override | Advisory | Reach |
+|---|---|---|
+| `fast-uri@<=3.1.1` → `>=3.1.2` | GHSA-q3j6-qgpj-74h6 (path traversal), GHSA-v39h-62p7-jpjc (host confusion) | `mcp > @modelcontextprotocol/sdk > ajv > fast-uri` |
+| `postcss@<8.5.10` → `>=8.5.10` | GHSA-qx2v-qp2m-jg93 (XSS via `</style>`) | `vitest > vite > postcss` |
+| `ws@>=8.0.0 <8.20.1` → `>=8.20.1` | GHSA-58qx-3vcg-4xpx (uninitialized memory disclosure) | `@cloudflare/vitest-pool-workers > miniflare > ws` |
+| `esbuild@<=0.24.2` → `>=0.25.0` | GHSA-67mh-4wv8-2f99 (dev-server CSRF) | `drizzle-kit > @esbuild-kit/esm-loader > @esbuild-kit/core-utils > esbuild` |
+| `brace-expansion@>=4.0.0 <5.0.6` → `>=5.0.6` (tightened from `<5.0.5`) | GHSA-jxxr-4gwj-5jf2 (DoS) | `@vitest/coverage-v8 > test-exclude > minimatch > brace-expansion` |
+| `qs@>=6.11.1 <=6.15.1` → `>=6.15.2` | GHSA-q8mj-m7cp-5q26 (DoS) | `mcp > @modelcontextprotocol/sdk > express > qs` |
+
+### Intentionally deferred (major bumps)
+
+- `typescript` 5 → 6
+- `vite` 7 → 8
+- root + slackbot `vitest` 3 → 4 (paired with `@cloudflare/vitest-pool-workers` 0.12, whose supported peer range stops at vitest 3.2.x — wait for the 0.16 line)
+- `@vitest/coverage-v8` 3 → 4 (stays paired with root `vitest` 3)
+- `@vitejs/plugin-react` 5 → 6
+- `@cloudflare/vitest-pool-workers` 0.12 → 0.16
+- `lint-staged` 16 → 17
+- `lucide-react` 0.575 → 1.x
+
+### Version bump
+
+- `package.json` `1.25.1` → `1.25.2`
+- `admin/package.json` `1.25.1` → `1.25.2`
+- `wrangler.toml` `VERSION` `1.25.1` → `1.25.2`
+- `CLAUDE.md` header `1.25.1` → `1.25.2`
+
+### Validation
+
+- `pnpm install` — clean
+- `pnpm audit` — **No known vulnerabilities found** (7 → 0)
+- `pnpm run lint` + `pnpm -C admin run lint` + `pnpm run format:check` — clean
+- `pnpm run typecheck` + `pnpm run -r typecheck` — clean
+- `pnpm run test` (root) — **473 passed**
+- `pnpm run -r test` — shared + admin + mcp + slackbot all green
+- `pnpm -C admin build` — succeeded
+
+---
+
 ## v1.25.1 (2026-05-27) — Noto Sans R2 path consolidation
 
 Noto Sans SC + TC moved from two separate R2 prefixes (`/fonts/noto-sans-sc/` + `/fonts/noto-sans-tc/`) into a single consolidated `/fonts/noto-sans/` directory. Both `@font-face` declarations updated in `admin/src/index.css`; matching typography test assertions updated in `admin/src/lib/typography.test.ts`. Sanitised mirror of `bifrost-fusang` v1.37.1 and `bifrost-hc` v1.25.1.
