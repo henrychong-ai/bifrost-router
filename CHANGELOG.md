@@ -20,7 +20,7 @@ Self-hosters: create an R2 bucket and bind it as `FEEDBACK_BUCKET`, then apply m
 
 ## v1.25.1 (2026-05-27) — Noto Sans R2 path consolidation
 
-Noto Sans SC + TC moved from two separate R2 prefixes (`/fonts/noto-sans-sc/` + `/fonts/noto-sans-tc/`) into a single consolidated `/fonts/noto-sans/` directory. Both `@font-face` declarations updated in `admin/src/index.css`; matching typography test assertions updated in `admin/src/lib/typography.test.ts`. Sanitised mirror of `bifrost-fusang` v1.37.1 and `bifrost-hc` v1.25.1.
+Noto Sans SC + TC moved from two separate R2 prefixes (`/fonts/noto-sans-sc/` + `/fonts/noto-sans-tc/`) into a single consolidated `/fonts/noto-sans/` directory. Both `@font-face` declarations updated in `admin/src/index.css`; matching typography test assertions updated in `admin/src/lib/typography.test.ts`.
 
 If you've forked bifrost-router and self-host your own brand fonts, this change does not affect you — your `@font-face` URLs are unaffected.
 
@@ -69,7 +69,7 @@ All five new face declarations carry `font-display: swap` so non-blocking; FCP i
 
 ## v1.24.0 — Global security headers hardening + CI gate
 
-Tightens `secureHeaders()` and adds a closed-allowlist Permissions-Policy header on every response. Brings the open-source template in line with the production hardening baseline used by the parent Fusang deployment. Also closes a recursive-typecheck CI gap that hides root Worker type errors from the `check` chain.
+Tightens `secureHeaders()` and adds a closed-allowlist Permissions-Policy header on every response. Brings the template's security headers in line with a production hardening baseline. Also closes a recursive-typecheck CI gap that hides root Worker type errors from the `check` chain.
 
 ### `src/index.ts` — secureHeaders hardening
 
@@ -133,7 +133,7 @@ Replaces Gilroy with **Inter Variable v4.1** as the dashboard typeface. Single-p
 
 ### Font asset
 
-Public CDN default: `https://assets.fusang.co/fonts/inter/inter-variable.woff2` (matches the previous Gilroy hosting pattern). Forkers self-hosting their own font should update both the `@font-face` declaration in `admin/src/index.css` and the `<link rel="preload">` in `admin/index.html` — see comment block at the top of `index.css` for the substitution pattern.
+Public CDN default configured in `admin/src/index.css` (matches the previous Gilroy hosting pattern). Forkers self-hosting their own font should update both the `@font-face` declaration in `admin/src/index.css` and the `<link rel="preload">` in `admin/index.html` — see comment block at the top of `index.css` for the substitution pattern.
 
 ### Dashboard code changes
 
@@ -232,12 +232,12 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
   - `CHANGELOG.md` — collapsed v1.22.7–v1.22.10 narrative blocks; added an umbrella note at the top of the series.
   - `CLAUDE.md` — replaced the multi-paragraph "Service-Binding Fetch Resilience" subsection with a 2-line pointer to the helper JSDoc.
 
-  Pure cleanup. No behaviour change. Mirrors upstream personal repo v1.22.11.
+  Pure cleanup. No behaviour change. Mirrors upstream Bifrost v1.22.11.
 
 ---
 
 > **v1.22.7–v1.22.10 — scanner-resilience series.** Three releases mirroring
-> the upstream personal repo's `scriptThrewException` fix series for
+> upstream Bifrost's `scriptThrewException` fix series for
 > double-URL-encoded scanner paths. v1.22.7 enables observability,
 > v1.22.9 adds a tested `safeServiceFetch` helper around the service-binding
 > fallback (skipping v1.22.8 since the inline-wrap → helper-extraction
@@ -247,7 +247,7 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
 ## v1.22.10
 
 ### Changed
-- `safeServiceFetch` failure path now serves **503 instead of 404** — 404 conflated "URL doesn't exist" with "upstream is unavailable", hiding incidents and confusing CDN cache. One-line change in `src/index.ts`; helper unchanged. Mirrors upstream personal repo v1.22.10.
+- `safeServiceFetch` failure path now serves **503 instead of 404** — 404 conflated "URL doesn't exist" with "upstream is unavailable", hiding incidents and confusing CDN cache. One-line change in `src/index.ts`; helper unchanged. Mirrors upstream Bifrost v1.22.10.
 
 ---
 
@@ -279,7 +279,7 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
 ## v1.22.5
 
 ### Changed
-- **Restore Gilroy `@font-face` declarations (public CDN default)** — v1.22.4 removed the four `@font-face` blocks that loaded Gilroy from `https://assets.fusang.co/fonts/gilroy/...`, thinking it was a leak. The CDN bucket is in fact a public R2 bucket intended to serve the font publicly, so it's an appropriate default for this template. Restored the declarations in `admin/src/index.css` with an updated comment explaining that (a) the default loads from this public CDN, (b) the `font-display: swap` fallback stack handles CDN-unreachable cases gracefully, and (c) self-hosters can replace the blocks with their own font URLs. The rest of the v1.22.4 sanitisation sweep (personal `VITE_API_URL` default, `vps-2` comment, `/Users/henrychong/` paths, `fusang.co` JSDoc examples, `Fusang Bifrost` / `bifrost-hc` provenance references) remains unchanged.
+- **Restore Gilroy `@font-face` declarations (public CDN default)** — v1.22.4 removed the four `@font-face` blocks that loaded Gilroy from a public CDN, thinking it was a leak. The CDN bucket is in fact a public R2 bucket intended to serve the font publicly, so it's an appropriate default for this template. Restored the declarations in `admin/src/index.css` with an updated comment explaining that (a) the default loads from this public CDN, (b) the `font-display: swap` fallback stack handles CDN-unreachable cases gracefully, and (c) self-hosters can replace the blocks with their own font URLs. The rest of the v1.22.4 sanitisation sweep (the `VITE_API_URL` default, server comments, absolute-path examples, JSDoc host examples, and upstream provenance references) remains unchanged.
 
 ---
 
@@ -290,11 +290,11 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
   - **`VITE_API_URL` default** — `admin/Dockerfile`, `admin/Dockerfile.tailscale`, and `admin/.env.example` defaulted to a personal domain. Now defaults to `https://yourdomain.com` — self-hosters must set `VITE_API_URL` to their own Bifrost admin API origin at build time.
   - **Gilroy font `@font-face` blocks** — `admin/src/index.css` previously loaded the Gilroy typeface from a third-party CDN hard-coded into the template. Removed the four `@font-face` declarations; kept the `--font-gilroy` CSS variable with its `ui-sans-serif, system-ui, sans-serif` fallback stack so existing `font-gilroy` utility classes continue to resolve gracefully. Replaced with an inline comment documenting how self-hosters can supply their own brand font.
   - **"Blocktree" naming in dashboard CSS and JSDoc** — renamed to generic "Brand"/"Color Palette" labels in `admin/src/index.css` and `admin/src/lib/parse-changelog.ts`.
-  - **`"fusang.co"` JSDoc examples for `hostHeader`** — changed to `"example.com"` in `shared/src/types.ts`, `shared/src/tools.ts`, `src/types.ts` (4 occurrences).
+  - **`hostHeader` JSDoc examples** — changed to `"example.com"` in `shared/src/types.ts`, `shared/src/tools.ts`, `src/types.ts` (4 occurrences).
   - **`vps-2` comment in `admin/docker-compose.prod.yml`** — changed to generic "your server".
-  - **Personal-path example in `mcp/PLAN.md`** — `/Users/henrychong/repos/cloudflare-edge-router/mcp/dist/index.js` → `/path/to/bifrost-router/mcp/dist/index.js` (two occurrences).
-  - **`wrangler.henrychong.toml` excluded path in `.dockerignore`** — removed (file does not exist in this repo; was a leftover from upstream's personal multi-zone config).
-  - **`CHANGELOG.md` provenance references** — historical entries that credited the private upstream repo by internal name (`Fusang Bifrost`, `Fusang bifrost`, `fusang bifrost`, `bifrost-hc`) rewritten to the generic phrase "upstream Bifrost". No functional history was altered; only the wording that revealed private repo names.
+  - **Absolute-path example in `mcp/PLAN.md`** — changed to `/path/to/bifrost-router/mcp/dist/index.js` (two occurrences).
+  - **Stale excluded path in `.dockerignore`** — removed (file does not exist in this repo; was a leftover from an upstream multi-zone config).
+  - **`CHANGELOG.md` provenance references** — historical entries that credited the upstream repo by internal names rewritten to the generic phrase "upstream Bifrost". No functional history was altered; only the wording that revealed internal repo names.
 - **`CONTRIBUTING.md` GitHub Issues link** — kept as-is (`github.com/henrychong-ai/bifrost-router`). This is the canonical public-repo URL that contributors need to file issues against; the `henrychong-ai` GitHub org owns this public template.
 
 ---
@@ -940,7 +940,7 @@ Health endpoint returns version from `VERSION` environment variable in wrangler.
 ## v1.9.0 (2026-01-29)
 **Multi-R2 Bucket Support**
 
-R2 routes can serve from 8 buckets: files (default), assets, and 6 family-specific buckets.
+R2 routes can serve from 8 buckets: files (default), assets, and 6 additional buckets.
 
 ---
 
