@@ -53,7 +53,7 @@ describe('sanitizeFeedbackText', () => {
   });
 
   it('strips control chars but keeps tab/newline', () => {
-    expect(sanitizeFeedbackText('a bc', 100)).toBe('abc');
+    expect(sanitizeFeedbackText(`a${String.fromCharCode(8)}bc`, 100)).toBe('abc');
     expect(sanitizeFeedbackText('line1\nline2\tend', 100)).toBe('line1\nline2\tend');
   });
 

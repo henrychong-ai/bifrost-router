@@ -174,6 +174,18 @@ export function AuditPage() {
               <SelectItem value="r2_cache_purge" className="font-inter">
                 R2 Cache Purge
               </SelectItem>
+              <SelectItem value="r2_comment_update" className="font-inter">
+                R2 Comment
+              </SelectItem>
+              <SelectItem value="feedback_create" className="font-inter">
+                Feedback Create
+              </SelectItem>
+              <SelectItem value="feedback_triage" className="font-inter">
+                Feedback Triage
+              </SelectItem>
+              <SelectItem value="feedback_delete" className="font-inter">
+                Feedback Delete
+              </SelectItem>
             </SelectContent>
           </Select>
         </div>

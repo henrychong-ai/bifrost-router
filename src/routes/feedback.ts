@@ -363,7 +363,7 @@ feedbackRoutes.get('/export', async c => {
     );
     lines.push(`- submitter: ${it.submitterEmail ?? '—'} | created: ${it.createdAt}`);
     if (it.area) lines.push(`- area: ${it.area}`);
-    if (it.linkedPr) lines.push(`- linked PR: ${it.linkedPr}`);
+    if (it.linkedPr && /^https?:\/\//i.test(it.linkedPr)) lines.push(`- linked PR: ${it.linkedPr}`);
     lines.push('', it.description, '');
   }
   return c.text(lines.join('\n'), 200, { 'Content-Type': 'text/markdown; charset=utf-8' });

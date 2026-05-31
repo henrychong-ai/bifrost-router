@@ -166,6 +166,11 @@ const REDACTION_PATTERNS: readonly RegExp[] = [
   /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi,
   // session / session_jwt key=value or "key": "value".
   /session(?:_jwt)?["'\s]*[:=]["'\s]*[A-Za-z0-9._-]+/gi,
+  // Admin API key — x-admin-key header line.
+  /\bx-admin-key["'\s]*[:=][^\n\r]*/gi,
+  // Admin API key — admin_api_key / admin-api-key / admin_key / admin-key
+  // as key=value or "key": "value" (redact just the value).
+  /\badmin[_-](?:api[_-])?key["'\s]*[:=]["'\s]*[A-Za-z0-9._-]+/gi,
   // Authorization / Cookie / Set-Cookie header lines.
   /\b(?:authorization|cookie|set-cookie)["'\s]*[:=][^\n\r]*/gi,
   // Token-bearing URL query params — redact just the value, keep the key

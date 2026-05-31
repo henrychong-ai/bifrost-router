@@ -365,13 +365,17 @@ export function FeedbackDetailDialog({
             Delete
           </Button>
           <div className="flex gap-2">
-            {item?.linkedPr && (
+            {item?.linkedPr && /^https?:\/\//i.test(item.linkedPr) ? (
               <Button asChild variant="outline" className="font-inter">
                 <a href={item.linkedPr} target="_blank" rel="noopener noreferrer">
                   <ExternalLink className="mr-1.5 size-3.5" />
                   PR
                 </a>
               </Button>
+            ) : (
+              item?.linkedPr && (
+                <span className="font-inter text-sm text-muted-foreground">{item.linkedPr}</span>
+              )
             )}
             <Button
               type="button"

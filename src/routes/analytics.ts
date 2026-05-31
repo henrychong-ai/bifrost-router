@@ -98,6 +98,10 @@ const AuditListQuerySchema = z.object({
       'r2_move',
       'r2_replace',
       'r2_cache_purge',
+      'r2_comment_update',
+      'feedback_create',
+      'feedback_triage',
+      'feedback_delete',
     ])
     .optional(),
   actor: z.string().optional(),

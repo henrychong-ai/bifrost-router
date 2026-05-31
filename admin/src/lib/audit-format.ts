@@ -137,6 +137,12 @@ export function computeNavTargets(
   log: Pick<AuditLog, 'action' | 'domain' | 'path' | 'details'>,
 ): NavTarget[] {
   const details = parseDetailsObject(log.details);
+
+  // Feedback entries reference feedback shortIds, which are not routable — no nav target.
+  if (log.domain === 'feedback' || log.action.startsWith('feedback_')) {
+    return [];
+  }
+
   const isStorage = log.domain === 'storage' || log.action.startsWith('r2_');
 
   if (isStorage) {
