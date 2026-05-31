@@ -6,6 +6,18 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.26.0 (2026-05-31) — Audit UX + file comments + feedback work-queue
+
+Three new admin-dashboard features, all gated by the existing `ADMIN_API_KEY`.
+
+**Audit UX** — audit-log rows are clickable, opening a detail dialog with pretty-printed details, copy-raw-JSON, open-live-URL, and jump-to-route / jump-to-storage navigation.
+
+**File comments** — free-text note per R2 object, stored in a new `file_comments` D1 sidecar (PK `bucket`+`key`). Surfaced via a comment field in the storage edit dialog + an indicator in the object list; carried across rename/move; new `PUT /api/storage/:bucket/comment/:key` endpoint. Migration `0008_file_comments.sql`.
+
+**Feedback work-queue** — in-dashboard feedback (bug / feature / question / other) with typed taxonomy, human IDs `F-<n>` (via a `counters` table), screenshots + a redacted diagnostic capture bundle stored in a dedicated `FEEDBACK_BUCKET` R2 bucket, an admin triage queue, and a structured export. Trigger via header pill, global `⌘/`, sidebar, or the feedback page. Migration `0009_feedback.sql`. OpenAPI schema extended for API Shield.
+
+Self-hosters: create an R2 bucket and bind it as `FEEDBACK_BUCKET`, then apply migrations `0008`/`0009` per environment (not auto-applied by CI).
+
 ## v1.25.1 (2026-05-27) — Noto Sans R2 path consolidation
 
 Noto Sans SC + TC moved from two separate R2 prefixes (`/fonts/noto-sans-sc/` + `/fonts/noto-sans-tc/`) into a single consolidated `/fonts/noto-sans/` directory. Both `@font-face` declarations updated in `admin/src/index.css`; matching typography test assertions updated in `admin/src/lib/typography.test.ts`. Sanitised mirror of `bifrost-fusang` v1.37.1 and `bifrost-hc` v1.25.1.
