@@ -15,6 +15,7 @@ import {
   DownloadsPage,
   ProxyPage,
   AuditPage,
+  FeedbackPage,
   ChangelogPage,
 } from '@/pages';
 
@@ -34,6 +35,7 @@ function App() {
                 <Route path="/analytics/downloads" element={<DownloadsPage />} />
                 <Route path="/analytics/proxy" element={<ProxyPage />} />
                 <Route path="/audit" element={<AuditPage />} />
+                <Route path="/feedback" element={<FeedbackPage />} />
                 <Route path="/changelog" element={<ChangelogPage />} />
               </Route>
             </Routes>

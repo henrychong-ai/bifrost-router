@@ -543,6 +543,42 @@ paths:
         '413':
           description: Object too large for copy operation
 
+  /api/storage/{bucket}/comment/{key}:
+    put:
+      summary: Set or clear a file's free-text comment
+      description: >-
+        Sets or clears the single editable plain-text note attached to an R2
+        object. The note is stored in the D1 file_comments sidecar (not R2
+        metadata), so the edit is a single upsert with no object copy and works
+        regardless of file size. The `comment` field is required: send a string
+        to set, or null / empty string to clear.
+      tags: [Storage]
+      parameters:
+        - $ref: '#/components/parameters/BucketPath'
+        - $ref: '#/components/parameters/R2KeyPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [comment]
+              properties:
+                comment:
+                  type: string
+                  nullable: true
+                  maxLength: 1000
+                  description: Note text, or null / empty string to clear
+      responses:
+        '200':
+          description: Comment set or cleared
+        '400':
+          description: Invalid R2 key or comment (e.g. over the 1000-character limit)
+        '403':
+          description: Read-only bucket
+        '404':
+          description: Object not found
+
   /api/storage/{bucket}/purge-cache/{key}:
     post:
       summary: Purge CDN cache for R2 object
@@ -595,6 +631,230 @@ paths:
       responses:
         '200':
           description: Success
+
+  # Feedback work-queue
+  /api/feedback:
+    post:
+      summary: Submit feedback
+      description: >-
+        Submit a feedback item as multipart/form-data. Optional screenshots
+        (PNG/JPEG/WebP, up to 3, max 5 MB each) and an optional console/network
+        capture bundle are stored in the isolated bifrost-feedback R2 bucket.
+      tags: [Feedback]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [type, title, description]
+              properties:
+                type:
+                  type: string
+                  enum: [bug, feature, question, other]
+                severity:
+                  type: string
+                  enum: [low, medium, high, critical]
+                title:
+                  type: string
+                  maxLength: 200
+                description:
+                  type: string
+                  maxLength: 5000
+                steps:
+                  type: string
+                  maxLength: 2000
+                expected:
+                  type: string
+                  maxLength: 2000
+                actual:
+                  type: string
+                  maxLength: 2000
+                context:
+                  type: string
+                  description: JSON string of Tier-1 environment metadata
+                capture:
+                  type: string
+                  description: JSON string of the console/network/breadcrumb capture bundle
+                screenshot:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: Up to 3 screenshot files
+                submitterEmail:
+                  type: string
+                  maxLength: 320
+                submitterName:
+                  type: string
+                  maxLength: 320
+      responses:
+        '201':
+          description: Feedback created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/FeedbackItem'
+        '400':
+          description: Invalid submission (missing/invalid fields, bad screenshot type)
+        '413':
+          description: Submission, context, capture bundle, or a screenshot too large
+    get:
+      summary: List feedback
+      tags: [Feedback]
+      parameters:
+        - $ref: '#/components/parameters/FeedbackStatusQuery'
+        - $ref: '#/components/parameters/FeedbackTypeQuery'
+        - $ref: '#/components/parameters/FeedbackPriorityQuery'
+        - $ref: '#/components/parameters/FeedbackSinceQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/OffsetQuery'
+      responses:
+        '200':
+          description: Feedback listing
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      feedback:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FeedbackItem'
+                      total:
+                        type: integer
+
+  /api/feedback/export:
+    get:
+      summary: Export feedback
+      description: Admin export of feedback items as JSON or Markdown (capped at the first 200 items).
+      tags: [Feedback]
+      parameters:
+        - name: format
+          in: query
+          description: Export format
+          schema:
+            type: string
+            enum: [json, md]
+            default: json
+      responses:
+        '200':
+          description: Export (application/json or text/markdown depending on format)
+
+  /api/feedback/{id}:
+    get:
+      summary: Get single feedback item
+      tags: [Feedback]
+      parameters:
+        - $ref: '#/components/parameters/FeedbackIdPath'
+      responses:
+        '200':
+          description: Feedback item
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/FeedbackItem'
+        '404':
+          description: Feedback not found
+    patch:
+      summary: Triage feedback item
+      description: Apply a triage patch. All fields optional, but at least one must be provided.
+      tags: [Feedback]
+      parameters:
+        - $ref: '#/components/parameters/FeedbackIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriageFeedbackInput'
+      responses:
+        '200':
+          description: Feedback triaged
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/FeedbackItem'
+        '400':
+          description: Invalid or empty triage payload
+        '404':
+          description: Feedback not found
+    delete:
+      summary: Delete feedback item
+      description: Deletes the feedback row and cascades deletion of its R2 artifacts.
+      tags: [Feedback]
+      parameters:
+        - $ref: '#/components/parameters/FeedbackIdPath'
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      shortId:
+                        type: string
+        '404':
+          description: Feedback not found
+
+  /api/feedback/{id}/attachment/{key}:
+    get:
+      summary: Download a feedback attachment
+      description: >-
+        Serves a screenshot or capture-bundle byte stream owned by the feedback
+        item. The key must belong to the item (a screenshot key or its capture
+        key) — arbitrary bucket reads are rejected.
+      tags: [Feedback]
+      parameters:
+        - $ref: '#/components/parameters/FeedbackIdPath'
+        - name: key
+          in: path
+          required: true
+          description: Attachment R2 key (may contain slashes) owned by this item
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Attachment body
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            image/*:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Feedback or attachment not found
 
 components:
   securitySchemes:
@@ -725,6 +985,10 @@ components:
           - r2_replace
           - r2_metadata_update
           - r2_cache_purge
+          - r2_comment_update
+          - feedback_create
+          - feedback_triage
+          - feedback_delete
 
     SearchQuery:
       name: search
@@ -754,6 +1018,46 @@ components:
       name: actor
       in: query
       description: Filter by actor login
+      schema:
+        type: string
+
+    FeedbackIdPath:
+      name: id
+      in: path
+      required: true
+      description: Feedback item id (UUIDv7)
+      schema:
+        type: string
+
+    FeedbackStatusQuery:
+      name: status
+      in: query
+      description: Filter by triage status
+      schema:
+        type: string
+        enum: [new, triaged, in_progress, resolved, wontfix, duplicate]
+
+    FeedbackTypeQuery:
+      name: type
+      in: query
+      description: Filter by feedback type
+      schema:
+        type: string
+        enum: [bug, feature, question, other]
+
+    FeedbackPriorityQuery:
+      name: priority
+      in: query
+      description: Filter by triage priority (0 none, 1 urgent, 2 high, 3 medium, 4 low)
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 4
+
+    FeedbackSinceQuery:
+      name: since
+      in: query
+      description: Filter to items created at or after this timestamp
       schema:
         type: string
 
@@ -999,3 +1303,124 @@ components:
           type: object
         error:
           type: string
+
+    TriageFeedbackInput:
+      type: object
+      description: Triage patch. All fields optional; at least one must be provided.
+      minProperties: 1
+      properties:
+        status:
+          type: string
+          enum: [new, triaged, in_progress, resolved, wontfix, duplicate]
+        priority:
+          type: integer
+          minimum: 0
+          maximum: 4
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        type:
+          type: string
+          enum: [bug, feature, question, other]
+        labels:
+          type: string
+          nullable: true
+          maxLength: 2000
+        area:
+          type: string
+          nullable: true
+          maxLength: 2000
+        assignee:
+          type: string
+          nullable: true
+          maxLength: 2000
+        triageNotes:
+          type: string
+          nullable: true
+          maxLength: 2000
+        linkedPr:
+          type: string
+          nullable: true
+          maxLength: 2000
+        externalRef:
+          type: string
+          nullable: true
+          maxLength: 2000
+
+    FeedbackItem:
+      type: object
+      properties:
+        id:
+          type: string
+        shortId:
+          type: string
+          description: Human-quotable short id (F-<n>)
+        type:
+          type: string
+          enum: [bug, feature, question, other]
+        severity:
+          type: string
+          nullable: true
+          enum: [low, medium, high, critical]
+        priority:
+          type: integer
+          minimum: 0
+          maximum: 4
+        status:
+          type: string
+          enum: [new, triaged, in_progress, resolved, wontfix, duplicate]
+        title:
+          type: string
+        description:
+          type: string
+        steps:
+          type: string
+          nullable: true
+        expected:
+          type: string
+          nullable: true
+        actual:
+          type: string
+          nullable: true
+        context:
+          type: object
+          nullable: true
+          description: Tier-1 environment metadata
+        screenshotKeys:
+          type: array
+          items:
+            type: string
+        captureKey:
+          type: string
+          nullable: true
+        labels:
+          type: string
+          nullable: true
+        area:
+          type: string
+          nullable: true
+        assignee:
+          type: string
+          nullable: true
+        triageNotes:
+          type: string
+          nullable: true
+        linkedPr:
+          type: string
+          nullable: true
+        externalRef:
+          type: string
+          nullable: true
+        submitterEmail:
+          type: string
+          nullable: true
+        submitterName:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+        resolvedAt:
+          type: string
+          nullable: true

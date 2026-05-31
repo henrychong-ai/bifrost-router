@@ -537,6 +537,9 @@ export interface R2ObjectInfo {
     contentEncoding?: string;
   };
   customMetadata?: Record<string, string>;
+  comment?: string;
+  commentUpdatedBy?: string | null;
+  commentUpdatedAt?: number;
 }
 
 export interface R2ListResponse {
@@ -621,6 +624,9 @@ export const storageApi = {
                 })
                 .optional(),
               customMetadata: z.record(z.string(), z.string()).optional(),
+              comment: z.string().optional(),
+              commentUpdatedBy: z.string().nullable().optional(),
+              commentUpdatedAt: z.number().optional(),
             }),
           ),
           truncated: z.boolean(),
@@ -655,6 +661,9 @@ export const storageApi = {
             })
             .optional(),
           customMetadata: z.record(z.string(), z.string()).optional(),
+          comment: z.string().optional(),
+          commentUpdatedBy: z.string().nullable().optional(),
+          commentUpdatedAt: z.number().optional(),
         }),
       }),
     );
@@ -825,6 +834,49 @@ export const storageApi = {
   },
 
   /**
+   * Set or clear an object's free-text comment / note. Pass null (or '') to clear.
+   */
+  async setComment(
+    bucket: string,
+    key: string,
+    comment: string | null,
+  ): Promise<{
+    bucket: string;
+    key: string;
+    comment: string | null;
+    commentUpdatedBy: string | null;
+    commentUpdatedAt: number | null;
+  }> {
+    const response = await fetchApi(
+      `/api/storage/${encodeURIComponent(bucket)}/comment/${key}`,
+      z.object({
+        success: z.boolean(),
+        data: z
+          .object({
+            bucket: z.string(),
+            key: z.string(),
+            comment: z.string().nullable(),
+            commentUpdatedBy: z.string().nullable(),
+            commentUpdatedAt: z.number().nullable(),
+          })
+          .optional(),
+        error: z.string().optional(),
+      }),
+      {
+        method: 'PUT',
+        body: JSON.stringify({ comment }),
+      },
+    );
+    return response.data as {
+      bucket: string;
+      key: string;
+      comment: string | null;
+      commentUpdatedBy: string | null;
+      commentUpdatedAt: number | null;
+    };
+  },
+
+  /**
    * Purge CDN cache for an R2 object
    */
   async purgeCache(
@@ -851,6 +903,102 @@ export const storageApi = {
 };
 
 // =============================================================================
+// Feedback API
+// =============================================================================
+
+import type { FeedbackItem, FeedbackListParams, TriageFeedbackInput } from '@bifrost/shared';
+
+// FeedbackItem is a plain TS interface in @bifrost/shared (not a zod schema), so
+// the response is validated structurally (success/error) and the data passed
+// through — the same pattern storageApi uses for its R2 payloads.
+const FeedbackEnvelopeSchema = z.object({
+  success: z.boolean(),
+  data: z.unknown().optional(),
+  error: z.string().optional(),
+});
+
+export const feedbackApi = {
+  /** List feedback (the single admin sees all). */
+  async list(params?: FeedbackListParams): Promise<{ feedback: FeedbackItem[]; total: number }> {
+    const query = buildQueryString((params ?? {}) as Record<string, string | number | undefined>);
+    const response = await fetchApi(`/api/feedback${query}`, FeedbackEnvelopeSchema);
+    if (!response.success || !response.data) {
+      throw new ApiError(500, response.error || 'Failed to fetch feedback');
+    }
+    return response.data as { feedback: FeedbackItem[]; total: number };
+  },
+
+  /** Fetch a single feedback item. */
+  async get(id: string): Promise<FeedbackItem> {
+    const response = await fetchApi(
+      `/api/feedback/${encodeURIComponent(id)}`,
+      FeedbackEnvelopeSchema,
+    );
+    if (!response.success || !response.data) {
+      throw new ApiError(404, response.error || 'Feedback not found');
+    }
+    return response.data as FeedbackItem;
+  },
+
+  /** Submit feedback (multipart — screenshots + capture bundle + fields). */
+  async submit(formData: FormData): Promise<FeedbackItem> {
+    const url = new URL('/api/feedback', API_BASE);
+    const response = await fetch(url.toString(), {
+      method: 'POST',
+      headers: { 'X-Admin-Key': API_KEY },
+      body: formData,
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new ApiError(
+        response.status,
+        (error as { error?: string }).error || `HTTP ${response.status}`,
+      );
+    }
+    const data = await response.json();
+    return (data as { data: FeedbackItem }).data;
+  },
+
+  /** Apply a triage patch. */
+  async triage(id: string, patch: TriageFeedbackInput): Promise<FeedbackItem> {
+    const response = await fetchApi(
+      `/api/feedback/${encodeURIComponent(id)}`,
+      FeedbackEnvelopeSchema,
+      { method: 'PATCH', body: JSON.stringify(patch) },
+    );
+    if (!response.success || !response.data) {
+      throw new ApiError(400, response.error || 'Failed to update feedback');
+    }
+    return response.data as FeedbackItem;
+  },
+
+  /** Delete a feedback item (cascades its R2 artifacts). */
+  async remove(id: string): Promise<void> {
+    await fetchApi(
+      `/api/feedback/${encodeURIComponent(id)}`,
+      z.object({ success: z.boolean(), error: z.string().optional() }),
+      { method: 'DELETE' },
+    );
+  },
+
+  /** Download an item-owned attachment (screenshot or capture bundle) as a blob. */
+  async attachment(id: string, key: string): Promise<Blob> {
+    const url = new URL(`/api/feedback/${encodeURIComponent(id)}/attachment/${key}`, API_BASE);
+    const response = await fetch(url.toString(), {
+      headers: { 'X-Admin-Key': API_KEY },
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new ApiError(
+        response.status,
+        (error as { error?: string }).error || `HTTP ${response.status}`,
+      );
+    }
+    return response.blob();
+  },
+};
+
+// =============================================================================
 // Combined API Export
 // =============================================================================
 
@@ -860,6 +1008,7 @@ export const api = {
   backup: backupApi,
   metadata: metadataApi,
   storage: storageApi,
+  feedback: feedbackApi,
 };
 
 export { ApiError };

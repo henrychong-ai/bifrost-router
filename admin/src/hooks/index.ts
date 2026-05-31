@@ -68,3 +68,13 @@ export {
   CommandPaletteProvider,
   useCommandPalette,
 } from './use-command-palette';
+
+// Feedback hooks
+export {
+  feedbackKeys,
+  useFeedbackList,
+  useFeedbackItem,
+  useSubmitFeedback,
+  useTriageFeedback,
+  useDeleteFeedback,
+} from './use-feedback';

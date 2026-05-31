@@ -20,126 +20,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  ChevronLeft,
-  ChevronRight,
-  Plus,
-  Pencil,
-  Trash2,
-  ToggleLeft,
-  Layers,
-  ArrowRightLeft,
-  ArrowUpRight,
-  Upload,
-  FileEdit,
-  FolderEdit,
-  Replace,
-  RotateCcw,
-} from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { FilterToolbar, type FilterState } from '@/components/filters';
+import { ACTION_COLORS, parseDetails, formatDate, formatRelativeTime } from '@/lib/audit-format';
+import { AuditActionIcon } from '@/components/audit-action-icon';
+import { AuditDetailDialog } from '@/components/audit-detail-dialog';
 import type { AuditFilterState } from '@/context';
 import type { AuditAction, AuditLog } from '@/lib/schemas';
-
-function formatDate(timestamp: number): string {
-  return new Date(timestamp * 1000).toLocaleString();
-}
-
-function formatRelativeTime(timestamp: number): string {
-  const now = Date.now() / 1000;
-  const diff = now - timestamp;
-
-  if (diff < 60) return 'Just now';
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
-  return formatDate(timestamp);
-}
-
-const ACTION_COLORS: Record<AuditAction, string> = {
-  create: 'bg-green-100 text-green-800 border-green-200',
-  update: 'bg-blue-100 text-blue-800 border-blue-200',
-  delete: 'bg-red-100 text-red-800 border-red-200',
-  toggle: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-  seed: 'bg-purple-100 text-purple-800 border-purple-200',
-  migrate: 'bg-cyan-100 text-cyan-800 border-cyan-200',
-  r2_upload: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-  r2_delete: 'bg-red-100 text-red-800 border-red-200',
-  r2_rename: 'bg-cyan-100 text-cyan-800 border-cyan-200',
-  r2_move: 'bg-sky-100 text-sky-800 border-sky-200',
-  r2_replace: 'bg-amber-100 text-amber-800 border-amber-200',
-  r2_metadata_update: 'bg-blue-100 text-blue-800 border-blue-200',
-  transfer: 'bg-indigo-100 text-indigo-800 border-indigo-200',
-  r2_cache_purge: 'bg-orange-100 text-orange-800 border-orange-200',
-};
-
-const ACTION_ICONS: Record<AuditAction, React.ReactNode> = {
-  create: <Plus className="h-3 w-3" />,
-  update: <Pencil className="h-3 w-3" />,
-  delete: <Trash2 className="h-3 w-3" />,
-  toggle: <ToggleLeft className="h-3 w-3" />,
-  seed: <Layers className="h-3 w-3" />,
-  migrate: <ArrowRightLeft className="h-3 w-3" />,
-  r2_upload: <Upload className="h-3 w-3" />,
-  r2_delete: <Trash2 className="h-3 w-3" />,
-  r2_rename: <FolderEdit className="h-3 w-3" />,
-  r2_move: <ArrowRightLeft className="h-3 w-3" />,
-  r2_replace: <Replace className="h-3 w-3" />,
-  r2_metadata_update: <FileEdit className="h-3 w-3" />,
-  transfer: <ArrowUpRight className="h-3 w-3" />,
-  r2_cache_purge: <RotateCcw className="h-3 w-3" />,
-};
-
-function parseDetails(details: string | null): string {
-  if (!details) return '-';
-  try {
-    const parsed = JSON.parse(details);
-    // For toggle actions, show enabled status
-    if ('enabled' in parsed) {
-      return parsed.enabled ? 'Enabled' : 'Disabled';
-    }
-    // For seed actions, show count
-    if ('count' in parsed) {
-      return `${parsed.count} routes`;
-    }
-    // For migrate actions, show old -> new path
-    if ('oldPath' in parsed && 'newPath' in parsed) {
-      return `${parsed.oldPath} -> ${parsed.newPath}`;
-    }
-    // For R2 move actions, show source -> destination
-    if ('sourceBucket' in parsed && 'destinationBucket' in parsed) {
-      const destKey = parsed.destinationKey || parsed.key;
-      return `${parsed.sourceBucket}/${parsed.key} → ${parsed.destinationBucket}/${destKey}`;
-    }
-    // For R2 replace, show old and new size
-    if ('replaced' in parsed && parsed.replaced) {
-      const oldSize = parsed.replaced.size;
-      const newSize = parsed.size;
-      return `${parsed.bucket}/${parsed.key} (${oldSize} → ${newSize} bytes)`;
-    }
-    // For R2 rename, show old -> new key
-    if ('bucket' in parsed && 'oldKey' in parsed && 'newKey' in parsed) {
-      return `${parsed.oldKey} -> ${parsed.newKey}`;
-    }
-    // For R2 actions, show bucket/key info
-    if ('bucket' in parsed && 'key' in parsed) {
-      return `${parsed.bucket}/${parsed.key}`;
-    }
-    // For other actions, show a summary
-    if ('route' in parsed) {
-      return parsed.route?.target ? `Target: ${parsed.route.target}` : 'Route data';
-    }
-    if ('before' in parsed && 'after' in parsed) {
-      return 'Modified route';
-    }
-    return JSON.stringify(parsed).slice(0, 50);
-  } catch {
-    return details.slice(0, 50);
-  }
-}
 
 export function AuditPage() {
   const [offset, setOffset] = useState(0);
   const limit = 50;
+  const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
 
   // Filter state from context (persists during navigation)
   const { filters, setFilters } = useAuditFilters();
@@ -258,6 +150,9 @@ export function AuditPage() {
               <SelectItem value="migrate" className="font-inter">
                 Migrate
               </SelectItem>
+              <SelectItem value="transfer" className="font-inter">
+                Transfer
+              </SelectItem>
               <SelectItem value="r2_upload" className="font-inter">
                 R2 Upload
               </SelectItem>
@@ -275,6 +170,9 @@ export function AuditPage() {
               </SelectItem>
               <SelectItem value="r2_metadata_update" className="font-inter">
                 R2 Metadata
+              </SelectItem>
+              <SelectItem value="r2_cache_purge" className="font-inter">
+                R2 Cache Purge
               </SelectItem>
             </SelectContent>
           </Select>
@@ -328,7 +226,25 @@ export function AuditPage() {
                   </TableHeader>
                   <TableBody>
                     {data?.items.map((log: AuditLog) => (
-                      <TableRow key={log.id} className="hover:bg-gold-50/50 transition-colors">
+                      <TableRow
+                        key={log.id}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`View audit record ${log.id}`}
+                        onClick={() => setSelectedLog(log)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setSelectedLog(log);
+                          }
+                        }}
+                        className="
+                          cursor-pointer transition-colors
+                          hover:bg-gold-50/50
+                          focus-visible:ring-2 focus-visible:ring-gold-300
+                          focus-visible:outline-none
+                        "
+                      >
                         <TableCell
                           className="text-small font-inter whitespace-nowrap"
                           title={formatDate(log.createdAt)}
@@ -340,7 +256,7 @@ export function AuditPage() {
                             variant="outline"
                             className={`${ACTION_COLORS[log.action]} flex items-center gap-1 w-fit font-inter font-medium`}
                           >
-                            {ACTION_ICONS[log.action]}
+                            <AuditActionIcon action={log.action} />
                             {log.action}
                           </Badge>
                         </TableCell>
@@ -422,6 +338,8 @@ export function AuditPage() {
           )}
         </CardContent>
       </Card>
+
+      <AuditDetailDialog log={selectedLog} onClose={() => setSelectedLog(null)} />
     </div>
   );
 }

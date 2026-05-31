@@ -356,6 +356,18 @@ export interface R2ObjectInfo {
     contentEncoding?: string;
   };
   customMetadata?: Record<string, string>;
+
+  /**
+   * Free-text comment / note for this file, stored in the D1 `file_comments`
+   * sidecar keyed by (bucket, key). Present only when a comment exists.
+   */
+  comment?: string;
+
+  /** Actor identifier that last edited the comment (or null). */
+  commentUpdatedBy?: string | null;
+
+  /** Unix timestamp (seconds) of the last comment edit. */
+  commentUpdatedAt?: number;
 }
 
 /**

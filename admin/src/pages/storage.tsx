@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   useStorageBuckets,
   useStorageObjects,
@@ -10,6 +11,7 @@ import {
   useUpdateObjectMetadata,
   useRoutesByTarget,
   usePurgeCache,
+  storageKeys,
 } from '@/hooks';
 import { storageApi } from '@/lib/api-client';
 import type { R2ObjectInfo, R2MetadataUpdate, StorageListParams } from '@/lib/api-client';
@@ -84,6 +86,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { copyToClipboard } from '@/lib/utils';
+import { CommentTextarea, CommentIndicator } from '@/components/comment-field';
 
 const MAX_UPLOAD_SIZE = 100 * 1024 * 1024; // 100MB
 
@@ -347,6 +350,7 @@ function StorageEditDialog({
   allowedBuckets: string[];
 }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const rename = useRenameObject();
   const updateMeta = useUpdateObjectMetadata();
   const upload = useUploadObject();
@@ -370,6 +374,11 @@ function StorageEditDialog({
     object.httpMetadata?.contentDisposition || '',
   );
 
+  // Comment state
+  const [comment, setComment] = useState(object.comment || '');
+  const [commentSaving, setCommentSaving] = useState(false);
+  const commentChanged = comment !== (object.comment || '');
+
   // Replace file state
   const [replaceFile, setReplaceFile] = useState<File | null>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
@@ -389,6 +398,7 @@ function StorageEditDialog({
     setContentType(object.httpMetadata?.contentType || '');
     setCacheControl(object.httpMetadata?.cacheControl || '');
     setContentDisposition(object.httpMetadata?.contentDisposition || '');
+    setComment(object.comment || '');
     setReplaceFile(null);
   }, [object]);
 
@@ -415,6 +425,19 @@ function StorageEditDialog({
       toast.success('Metadata updated');
     } catch (err) {
       toast.error(`Update failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleCommentSave = async () => {
+    setCommentSaving(true);
+    try {
+      await storageApi.setComment(bucket, object.key, comment.trim() || null);
+      queryClient.invalidateQueries({ queryKey: storageKeys.all });
+      toast.success(comment.trim() ? 'Comment saved' : 'Comment cleared');
+    } catch (err) {
+      toast.error(`Comment save failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setCommentSaving(false);
     }
   };
 
@@ -603,6 +626,30 @@ function StorageEditDialog({
 
             {!readOnly && (
               <>
+                <div className="border-t border-charcoal-100" />
+
+                {/* Comment / Note */}
+                <div className="space-y-2">
+                  <h4 className="font-inter text-small font-semibold text-charcoal-700">
+                    Comment / Note
+                  </h4>
+                  <CommentTextarea
+                    id="edit-comment"
+                    value={comment}
+                    onChange={setComment}
+                    disabled={commentSaving}
+                    label=""
+                  />
+                  <Button
+                    size="sm"
+                    onClick={handleCommentSave}
+                    disabled={!commentChanged || commentSaving}
+                    className="bg-blue-950 font-inter hover:bg-blue-900"
+                  >
+                    {commentSaving ? 'Saving...' : 'Save Comment'}
+                  </Button>
+                </div>
+
                 <div className="border-t border-charcoal-100" />
 
                 {/* Replace File */}
@@ -1216,6 +1263,13 @@ export function StoragePage() {
                       <span className="flex items-center gap-2">
                         <File className="h-4 w-4 text-charcoal-400" />
                         {getBasename(obj.key)}
+                        {obj.comment && (
+                          <CommentIndicator
+                            comment={obj.comment}
+                            updatedBy={obj.commentUpdatedBy}
+                            updatedAt={obj.commentUpdatedAt}
+                          />
+                        )}
                       </span>
                     </TableCell>
                     <TableCell className="font-mono text-small text-charcoal-600">

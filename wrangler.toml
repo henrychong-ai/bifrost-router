@@ -59,6 +59,13 @@ bucket_name = "files-user6"
 binding = "BACKUP_BUCKET"
 bucket_name = "bifrost-backups"
 
+# Feedback artifacts — screenshots + capture bundles (v1.26.0). Isolated bucket,
+# NOT in any bucket group (reachable only via the scoped feedback-attachment
+# endpoint, which gates on ADMIN_API_KEY).
+[[r2_buckets]]
+binding = "FEEDBACK_BUCKET"
+bucket_name = "bifrost-feedback"
+
 # Service Bindings for Worker-to-Worker calls
 [[services]]
 binding = "EXAMPLE_SITE"

@@ -9,6 +9,7 @@ import {
   ClipboardList,
   HardDrive,
   ScrollText,
+  MessageSquarePlus,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -43,6 +44,11 @@ const navigationItems = [
     title: 'Audit',
     href: '/audit',
     icon: ClipboardList,
+  },
+  {
+    title: 'Feedback',
+    href: '/feedback',
+    icon: MessageSquarePlus,
   },
 ];
 

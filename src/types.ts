@@ -182,6 +182,11 @@ export type Bindings = {
   // R2 bucket for automated backups (KV routes)
   BACKUP_BUCKET?: R2Bucket;
 
+  // R2 bucket for feedback artifacts (screenshots + capture bundles, v1.26.0)
+  // Isolated — NOT in R2_BUCKETS / ALL_BUCKET_BINDINGS; reachable only via the
+  // scoped feedback-attachment endpoint.
+  FEEDBACK_BUCKET?: R2Bucket;
+
   // Cloudflare API token for Zone Cache Purge (optional, graceful degradation without it)
   CLOUDFLARE_API_TOKEN?: string;
 

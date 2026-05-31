@@ -5,9 +5,17 @@ import { ALL_BUCKET_BINDINGS } from '../types';
 import { validateR2Key } from '../utils/path-validation';
 import { purgeR2CacheForObject } from '../utils/cache';
 import { recordAuditLog } from '../db/analytics';
+import {
+  getFileComment,
+  listFileComments,
+  setFileComment,
+  deleteFileComment,
+  carryFileComment,
+  type FileCommentRecord,
+} from '../db/file-comments';
 import type { AuditAction } from '@bifrost/shared';
 import type { R2ObjectInfo, AllR2BucketName } from '@bifrost/shared';
-import { ALL_R2_BUCKETS, READ_ONLY_BUCKETS } from '@bifrost/shared';
+import { ALL_R2_BUCKETS, READ_ONLY_BUCKETS, CommentSchema } from '@bifrost/shared';
 
 const DEFAULT_R2_COPY_SIZE_LIMIT_MB = 100;
 
@@ -47,6 +55,19 @@ function toR2ObjectInfo(obj: R2Object): R2ObjectInfo {
 
 function isReadOnlyBucket(name: string): boolean {
   return (READ_ONLY_BUCKETS as readonly string[]).includes(name);
+}
+
+/**
+ * Attach a file comment record (if any) onto an R2ObjectInfo, in place.
+ * Centralises the field-copy so the list + meta handlers stay in sync.
+ */
+function attachComment(info: R2ObjectInfo, fc: FileCommentRecord | null): R2ObjectInfo {
+  if (fc) {
+    info.comment = fc.comment;
+    info.commentUpdatedBy = fc.updatedBy;
+    info.commentUpdatedAt = fc.updatedAt;
+  }
+  return info;
 }
 
 function getActorInfo(c: { req: { header: (name: string) => string | undefined } }): {
@@ -97,6 +118,17 @@ storageRoutes.get('/:bucket/objects', async c => {
 
   const objects: R2ObjectInfo[] = listed.objects.map(toR2ObjectInfo);
 
+  // Attach file comments (best-effort) so the listing can show an at-a-glance
+  // indicator. One batched D1 query keyed by this page's object keys.
+  const commentMap = await listFileComments(
+    c.env.DB,
+    bucketName,
+    objects.map(o => o.key),
+  );
+  for (const obj of objects) {
+    attachComment(obj, commentMap.get(obj.key) ?? null);
+  }
+
   return c.json({
     success: true,
     data: {
@@ -127,7 +159,13 @@ storageRoutes.get('/:bucket/meta/:key{.+}', async c => {
     throw new HTTPException(404, { message: `Object not found: ${validation.sanitizedKey}` });
   }
 
-  return c.json({ success: true, data: toR2ObjectInfo(obj) });
+  // Attach the file comment (best-effort) for the detail panel.
+  const info = attachComment(
+    toR2ObjectInfo(obj),
+    await getFileComment(c.env.DB, bucketName, validation.sanitizedKey),
+  );
+
+  return c.json({ success: true, data: info });
 });
 
 // GET /:bucket/objects/:key{.+} - Download object
@@ -175,6 +213,10 @@ storageRoutes.post('/:bucket/upload', async c => {
   const file = body['file'];
   const key = body['key'];
   const overwrite = body['overwrite'] === 'true';
+  // Optional free-text comment. Only touch the comment store when the field is
+  // present, so an overwrite that omits it preserves the existing note.
+  const commentsRaw = body['comments'];
+  const commentProvided = typeof commentsRaw === 'string';
 
   if (!file || !(file instanceof File)) {
     throw new HTTPException(400, { message: 'File is required' });
@@ -188,6 +230,19 @@ storageRoutes.post('/:bucket/upload', async c => {
     throw new HTTPException(400, { message: validation.error ?? 'Invalid R2 key' });
   }
 
+  // Validate an over-length comment before any side effect (parity with the
+  // dedicated comment endpoint — reject rather than silently truncate).
+  if (commentProvided) {
+    const parsedUploadComment = CommentSchema.safeParse(commentsRaw);
+    if (!parsedUploadComment.success) {
+      throw new HTTPException(400, {
+        message: `Invalid comment: ${
+          parsedUploadComment.error.issues[0]?.message ?? 'validation failed'
+        }`,
+      });
+    }
+  }
+
   const existing = await bucket.head(validation.sanitizedKey);
   if (existing && !overwrite) {
     return c.json(
@@ -199,6 +254,31 @@ storageRoutes.post('/:bucket/upload', async c => {
   const uploaded = await bucket.put(validation.sanitizedKey, file.stream(), {
     httpMetadata: { contentType: file.type },
   });
+
+  // Persist the file comment if one was supplied (best-effort — never fail the
+  // upload over a note). An omitted field leaves any existing comment untouched.
+  let commentValue: string | null = null;
+  if (commentProvided) {
+    try {
+      const commentActor = getActorInfo(c);
+      commentValue = await setFileComment(c.env.DB, {
+        bucket: bucketName,
+        key: validation.sanitizedKey,
+        comment: commentsRaw,
+        updatedBy: commentActor.login,
+      });
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          message: 'Failed to set file comment on upload',
+          error: err instanceof Error ? err.message : String(err),
+          bucket: bucketName,
+          key: validation.sanitizedKey,
+        }),
+      );
+    }
+  }
 
   const auditAction: AuditAction = existing ? 'r2_replace' : 'r2_upload';
 
@@ -218,6 +298,7 @@ storageRoutes.post('/:bucket/upload', async c => {
           contentType: file.type,
           overwrite,
           ...(existing && { replaced: { size: existing.size, etag: existing.etag } }),
+          ...(commentProvided && { comment: commentValue }),
         }),
         ipAddress: c.req.header('CF-Connecting-IP') || null,
       }),
@@ -259,6 +340,9 @@ storageRoutes.delete('/:bucket/objects/:key{.+}', async c => {
   }
 
   await bucket.delete(validation.sanitizedKey);
+
+  // Remove any comment row so it doesn't orphan / resurrect under a reused key.
+  await deleteFileComment(c.env.DB, bucketName, validation.sanitizedKey);
 
   try {
     const actor = getActorInfo(c);
@@ -349,6 +433,14 @@ storageRoutes.post('/:bucket/rename', async c => {
   });
 
   await bucket.delete(oldValidation.sanitizedKey);
+
+  // Carry the comment to the new key (best-effort).
+  await carryFileComment(c.env.DB, {
+    fromBucket: bucketName,
+    fromKey: oldValidation.sanitizedKey,
+    toBucket: bucketName,
+    toKey: newValidation.sanitizedKey,
+  });
 
   try {
     const actor = getActorInfo(c);
@@ -474,6 +566,14 @@ storageRoutes.post('/:bucket/move', async c => {
 
   await sourceBucket.delete(keyValidation.sanitizedKey);
 
+  // Carry the comment to the destination bucket/key (best-effort).
+  await carryFileComment(c.env.DB, {
+    fromBucket: sourceBucketName,
+    fromKey: keyValidation.sanitizedKey,
+    toBucket: destBucketName,
+    toKey: destKeyValidation.sanitizedKey,
+  });
+
   try {
     const actor = getActorInfo(c);
     c.executionCtx.waitUntil(
@@ -583,6 +683,95 @@ storageRoutes.put('/:bucket/metadata/:key{.+}', async c => {
   return c.json({
     success: true,
     data: updated ? toR2ObjectInfo(updated) : { key: validation.sanitizedKey },
+  });
+});
+
+// PUT /:bucket/comment/:key{.+} - Set or clear a file's free-text comment
+//
+// JSON body: { comment: string | null }
+//
+// The note is stored in the D1 `file_comments` sidecar — NOT in R2 metadata —
+// so the edit is a single UPSERT with no object copy. Unlike the metadata
+// endpoint, this works regardless of file size (no copy-size guard) and an
+// empty/null comment clears the note.
+storageRoutes.put('/:bucket/comment/:key{.+}', async c => {
+  const bucketName = c.req.param('bucket');
+  if (isReadOnlyBucket(bucketName)) {
+    return c.json({ success: false, error: `Bucket is read-only: ${bucketName}` }, 403);
+  }
+
+  const key = c.req.param('key');
+  const bucket = getBucket(c.env, bucketName);
+  if (!bucket) {
+    throw new HTTPException(404, { message: `Bucket not found: ${bucketName}` });
+  }
+
+  const validation = validateR2Key(key);
+  if (!validation.valid) {
+    throw new HTTPException(400, { message: validation.error ?? 'Invalid R2 key' });
+  }
+
+  const requestBody = await c.req.json<{ comment?: string | null }>();
+  // The `comment` field is required (send null or '' to clear). A missing field
+  // is rejected rather than silently clearing the note — that keeps this
+  // explicit-set endpoint from contradicting the "absent = preserve" semantics
+  // the upload path uses.
+  const parsedComment = CommentSchema.nullable().safeParse(requestBody.comment);
+  if (!parsedComment.success) {
+    throw new HTTPException(400, {
+      message: `Invalid comment (send a string, or null/'' to clear): ${
+        parsedComment.error.issues[0]?.message ?? 'validation failed'
+      }`,
+    });
+  }
+
+  // The object must exist — don't create comment rows for non-existent keys.
+  const head = await bucket.head(validation.sanitizedKey);
+  if (!head) {
+    throw new HTTPException(404, { message: `Object not found: ${validation.sanitizedKey}` });
+  }
+
+  const before = await getFileComment(c.env.DB, bucketName, validation.sanitizedKey);
+  const actor = getActorInfo(c);
+  const updatedBy = actor.login;
+  // setFileComment throws on a D1 failure → surfaces as 500 so the caller knows
+  // the note did not save (unlike the best-effort lifecycle helpers).
+  const after = await setFileComment(c.env.DB, {
+    bucket: bucketName,
+    key: validation.sanitizedKey,
+    comment: parsedComment.data ?? null,
+    updatedBy,
+  });
+
+  try {
+    c.executionCtx.waitUntil(
+      recordAuditLog(c.env.DB, {
+        domain: 'storage',
+        action: 'r2_comment_update' as AuditAction,
+        actorLogin: actor.login,
+        actorName: actor.name,
+        path: `${bucketName}/${validation.sanitizedKey}`,
+        details: JSON.stringify({
+          bucket: bucketName,
+          key: validation.sanitizedKey,
+          comment: { before: before?.comment ?? null, after },
+        }),
+        ipAddress: c.req.header('CF-Connecting-IP') || null,
+      }),
+    );
+  } catch {
+    // executionCtx not available in tests
+  }
+
+  return c.json({
+    success: true,
+    data: {
+      bucket: bucketName,
+      key: validation.sanitizedKey,
+      comment: after,
+      commentUpdatedBy: after === null ? null : updatedBy,
+      commentUpdatedAt: after === null ? null : Math.floor(Date.now() / 1000),
+    },
   });
 });
 

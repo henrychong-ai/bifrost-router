@@ -71,6 +71,60 @@ export {
   type R2DeleteObjectInput,
 } from './schemas.js';
 
+// File comments (v1.26.0)
+export {
+  COMMENT_MAX_LENGTH,
+  sanitizeComment,
+  isCommentEmpty,
+  CommentSchema,
+  CommentFieldSchema,
+} from './comment.js';
+
+// Feedback work-queue (v1.26.0)
+export {
+  FEEDBACK_TITLE_MAX_LENGTH,
+  FEEDBACK_DESCRIPTION_MAX_LENGTH,
+  FEEDBACK_FIELD_MAX_LENGTH,
+  FEEDBACK_TRIAGE_FIELD_MAX_LENGTH,
+  FEEDBACK_SUBMITTER_FIELD_MAX_LENGTH,
+  FEEDBACK_MAX_SCREENSHOTS,
+  FEEDBACK_SCREENSHOT_MAX_BYTES,
+  FEEDBACK_CAPTURE_BUNDLE_MAX_BYTES,
+  FEEDBACK_RATE_LIMIT_PER_MINUTE,
+  FEEDBACK_TYPES,
+  FEEDBACK_SEVERITIES,
+  FEEDBACK_STATUSES,
+  FEEDBACK_PRIORITY_MIN,
+  FEEDBACK_PRIORITY_MAX,
+  FEEDBACK_AREAS,
+  FEEDBACK_SHORT_ID_PREFIX,
+  REDACTION_PLACEHOLDER,
+  sanitizeFeedbackText,
+  uuidv7,
+  formatFeedbackShortId,
+  redactSensitive,
+  redactCaptureBundle,
+  FeedbackTypeSchema,
+  FeedbackSeveritySchema,
+  FeedbackStatusSchema,
+  FeedbackPrioritySchema,
+  CreateFeedbackSchema,
+  TriageFeedbackSchema,
+  TriageFeedbackRequestSchema,
+  type FeedbackType,
+  type FeedbackSeverity,
+  type FeedbackStatus,
+  type FeedbackConsoleEntry,
+  type FeedbackNetworkEntry,
+  type FeedbackBreadcrumb,
+  type FeedbackCaptureBundle,
+  type FeedbackContext,
+  type CreateFeedbackInput,
+  type TriageFeedbackInput,
+  type FeedbackItem,
+  type FeedbackListParams,
+} from './feedback.js';
+
 // Client
 export {
   EdgeRouterClient,

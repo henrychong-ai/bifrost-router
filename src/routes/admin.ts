@@ -20,6 +20,7 @@ import { validateApiKey } from '../utils/crypto';
 import { cors } from '../middleware/cors';
 import { analyticsRoutes } from './analytics';
 import { storageRoutes } from './storage';
+import { feedbackRoutes } from './feedback';
 import { recordAuditLog } from '../db/analytics';
 import type { AuditAction } from '../db/analytics';
 import { checkBackupHealth } from '../backup/health';
@@ -996,3 +997,10 @@ adminRoutes.route('/storage', storageRoutes);
  * Inherits domain restriction, CORS, and auth from parent middleware
  */
 adminRoutes.route('/analytics', analyticsRoutes);
+
+/**
+ * Feedback work-queue API routes (v1.26.0)
+ * Mounted at /api/feedback/*
+ * Inherits domain restriction, CORS, and ADMIN_API_KEY auth from parent middleware
+ */
+adminRoutes.route('/feedback', feedbackRoutes);

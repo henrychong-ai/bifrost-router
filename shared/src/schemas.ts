@@ -424,6 +424,10 @@ export const AuditActionSchema = z.enum([
   'r2_move',
   'r2_replace',
   'r2_cache_purge',
+  'r2_comment_update',
+  'feedback_create',
+  'feedback_triage',
+  'feedback_delete',
 ]);
 export type AuditAction = z.infer<typeof AuditActionSchema>;
 
