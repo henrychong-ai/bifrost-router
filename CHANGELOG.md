@@ -6,6 +6,15 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.26.1 (2026-06-01) — Dependency maintenance + security patches
+
+Security + routine dependency refresh; no functional changes. `pnpm run check` green.
+
+- **Security (transitive overrides):** `qs` ≥6.15.2 (CVE-2026-8723 DoS), `fast-uri` ≥3.1.2 (CVE-2026-6321/6322 — two HIGH: path-traversal + host-confusion, via the MCP SDK's ajv), `postcss` ≥8.5.10 (dev), `ws` ≥8.20.1, `brace-expansion` ≥5.0.6 (corrected a stale override key range).
+- **In-major refresh:** hono 4.12.23, @tanstack/react-query, react-hook-form, react-router-dom, @hookform/resolvers, tailwind-merge, @biomejs/biome 2.4.16, @types/react + @types/node, eslint 10.4.1, oxlint + eslint-plugin-oxlint 1.67.0, typescript-eslint, vitest 4.1.7, @tailwindcss/vite + tailwindcss, @cloudflare/workers-types, wrangler 4.95.0.
+- **Accepted (dev-only):** esbuild GHSA-67mh-4wv8-2f99 — drizzle-kit's deprecated @esbuild-kit chain; a dev-server-only advisory, never invoked (drizzle-kit one-shot-transpiles its config), so zero runtime exposure.
+- **Deferred (breaking majors):** typescript 6, vitest 4 stack, vite 8 / @vitejs/plugin-react 6, lint-staged 17, lucide-react 1.
+
 ## v1.26.0 (2026-05-31) — Audit UX + file comments + feedback work-queue
 
 Three new admin-dashboard features, all gated by the existing `ADMIN_API_KEY`.
