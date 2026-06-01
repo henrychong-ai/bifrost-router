@@ -6,6 +6,13 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.26.2 (2026-06-01) — Feedback attachment input hardening
+
+Defense-in-depth follow-up to v1.26.1 (no functional change to valid flows). `pnpm run check` green.
+
+- `feedback-dialog.tsx`: both attachment paths (auto screenshot + file picker) now route through a `makeAttachment()` helper that validates the blob MIME type against the accepted-image set and asserts the `URL.createObjectURL()` result uses the `blob:` scheme before storing it.
+- Belt-and-braces for the CodeQL `js/xss-through-dom` alert, which was dismissed as a false positive after a GPT-5.5 data-flow review (`a.url` is always an opaque local `blob:` URL used only as an `<img src>`, never interpreted as HTML).
+
 ## v1.26.1 (2026-06-01) — Dependency maintenance + security patches
 
 Security + routine dependency refresh; no functional changes. `pnpm run check` green.

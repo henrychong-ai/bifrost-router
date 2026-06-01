@@ -70,6 +70,24 @@ interface Attachment {
   name: string;
 }
 
+const ACCEPTED_IMAGE_TYPE_SET = new Set(ACCEPTED_IMAGE_TYPES.split(','));
+
+/**
+ * Build an Attachment from a Blob/File: reject anything whose MIME type is not
+ * in the accepted-image set, then assert the generated object URL uses the
+ * `blob:` scheme before storing it. Defense-in-depth — the file input's
+ * `accept=` is only a picker hint, not validation. Returns null if rejected.
+ */
+function makeAttachment(blob: Blob, auto: boolean, name: string): Attachment | null {
+  if (!ACCEPTED_IMAGE_TYPE_SET.has(blob.type)) return null;
+  const url = URL.createObjectURL(blob);
+  if (!url.startsWith('blob:')) {
+    URL.revokeObjectURL(url);
+    return null;
+  }
+  return { blob, url, auto, name };
+}
+
 export function FeedbackDialog() {
   const location = useLocation();
   const submit = useSubmitFeedback();
@@ -105,9 +123,8 @@ export function FeedbackDialog() {
       reset();
       if (detail?.screenshot) {
         const blob = detail.screenshot;
-        setAttachments([
-          { blob, url: URL.createObjectURL(blob), auto: true, name: 'page-screenshot.png' },
-        ]);
+        const screenshot = makeAttachment(blob, true, 'page-screenshot.png');
+        if (screenshot) setAttachments([screenshot]);
       }
       setType('bug');
       setOpen(true);
@@ -149,12 +166,10 @@ export function FeedbackDialog() {
     const files = Array.from(e.target.files ?? []);
     setAttachments(prev => {
       const room = FEEDBACK_MAX_SCREENSHOTS - prev.length;
-      const added = files.slice(0, Math.max(room, 0)).map(f => ({
-        blob: f,
-        url: URL.createObjectURL(f),
-        auto: false,
-        name: f.name,
-      }));
+      const added = files
+        .slice(0, Math.max(room, 0))
+        .map(f => makeAttachment(f, false, f.name))
+        .filter((a): a is Attachment => a !== null);
       return [...prev, ...added];
     });
     if (fileInputRef.current) fileInputRef.current.value = '';
