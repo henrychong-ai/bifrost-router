@@ -10,6 +10,8 @@ This repo is **public**. Keep every file fully sanitised at all times — `CLAUD
 
 **Allowed exception:** `assets.fusang.co` references (fonts, logos, brand assets) may remain — it is a public R2 CDN bucket that exists precisely to serve those assets publicly, and is the documented default font/asset host for this template.
 
+**No `plans/` directory:** do not create a `plans/` dir or commit planning / design / strategy docs in this repo — planning artefacts are kept out of this public template. (Reference docs that ship with the product belong in `docs/`; the existing `mcp/PLAN.md` is a sanitised package design note, not a planning dir.)
+
 ## Project Overview
 
 **Bifrost** is an edge router built on Cloudflare Workers with the Hono framework. Dynamic routing via KV, supporting redirects, reverse proxying, and R2 bucket serving.
