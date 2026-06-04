@@ -17,6 +17,11 @@ Routine in-major dependency refresh across the workspace. No source changes; all
 - **mcp / shared:** `vitest` 4.1.7 → 4.1.8
 - **slackbot:** `@cloudflare/workers-types` 4.20260601.1 → 4.20260604.1, `wrangler` 4.95.0 → 4.98.0
 
+### Security
+
+- **Resolved moderate `esbuild` advisory (GHSA-67mh-4wv8-2f99)** — the deprecated `@esbuild-kit/core-utils` loader nested in `drizzle-kit` pinned `esbuild@0.18.20` (`<=0.24.2`). Added scoped pnpm override `"@esbuild-kit/core-utils>esbuild": ">=0.25.0"`; `drizzle-kit` still runs (`db:generate`). Dev-only / transitive.
+- **Critical `vitest` advisory (GHSA-5xrq-8626-4rwp, `<4.1.0`) NOT resolved on root + slackbot** — patched range is `>=4.1.0`, a major bump blocked by the `@cloudflare/vitest-pool-workers` 2.0.x–3.2.x peer constraint (see Deferred). admin/mcp/shared are already on `vitest` 4.1.8 (patched). The advisory only applies when the Vitest **UI server** is listening (`--ui`); this repo runs `vitest run` with no UI in dev or CI, so exposure is nil.
+
 ### Deferred (major — not applied)
 
 - **Dependabot PR #18** — `vitest` 3.2.4 → 4.1.0 (root + slackbot): major bump, deferred. Root/slackbot stay on `vitest` 3.2.4 and `@vitest/coverage-v8` 3.2.4 because `@cloudflare/vitest-pool-workers` requires the `vitest` 2.0.x–3.2.x peer range; moving to vitest 4 needs a coordinated pool-workers major bump.
