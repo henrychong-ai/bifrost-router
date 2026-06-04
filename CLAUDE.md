@@ -2,7 +2,7 @@
 
 Guidance for Claude Code when working with this repository.
 
-**Version:** 1.27.0 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.27.1 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Public repository — sanitisation (MANDATORY)
 
