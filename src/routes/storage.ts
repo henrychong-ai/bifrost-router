@@ -15,7 +15,7 @@ import {
 } from '../db/file-comments';
 import type { AuditAction } from '@bifrost/shared';
 import type { R2ObjectInfo, AllR2BucketName } from '@bifrost/shared';
-import { ALL_R2_BUCKETS, READ_ONLY_BUCKETS, CommentSchema } from '@bifrost/shared';
+import { ALL_R2_BUCKETS, READ_ONLY_BUCKETS, CommentSchema, normalizeR2Key } from '@bifrost/shared';
 
 const DEFAULT_R2_COPY_SIZE_LIMIT_MB = 100;
 
@@ -225,7 +225,21 @@ storageRoutes.post('/:bucket/upload', async c => {
     throw new HTTPException(400, { message: 'Key is required' });
   }
 
-  const validation = validateR2Key(key);
+  // Key normalization (v1.27.0, flag-gated) — a NEW-key site. Normalize to
+  // lowercase-kebab when R2_KEY_NORMALIZE === 'sanitize'.
+  // Replace-keeps-existing-key: when OVERWRITING and the normalized key would
+  // differ from an EXISTING object stored at the raw key, keep the raw key so
+  // the overwrite hits that object instead of orphaning it under a new key.
+  let normalizeKey = c.env.R2_KEY_NORMALIZE === 'sanitize'; // gitleaks:allow
+  if (normalizeKey && overwrite) {
+    const raw = validateR2Key(key);
+    if (raw.valid && normalizeR2Key(raw.sanitizedKey) !== raw.sanitizedKey) {
+      const existingAtRaw = await bucket.head(raw.sanitizedKey);
+      if (existingAtRaw) normalizeKey = false;
+    }
+  }
+
+  const validation = validateR2Key(key, { normalize: normalizeKey });
   if (!validation.valid) {
     throw new HTTPException(400, { message: validation.error ?? 'Invalid R2 key' });
   }
@@ -391,7 +405,11 @@ storageRoutes.post('/:bucket/rename', async c => {
     throw new HTTPException(400, { message: `Invalid oldKey: ${oldValidation.error}` });
   }
 
-  const newValidation = validateR2Key(newKey);
+  // NEW-key site → normalize the destination (v1.27.0, flag-gated). The source
+  // (oldKey) references an existing object and is NOT normalized.
+  const newValidation = validateR2Key(newKey, {
+    normalize: c.env.R2_KEY_NORMALIZE === 'sanitize',
+  });
   if (!newValidation.valid) {
     throw new HTTPException(400, { message: `Invalid newKey: ${newValidation.error}` });
   }
@@ -519,8 +537,11 @@ storageRoutes.post('/:bucket/move', async c => {
   }
 
   const finalDestKey = destinationKey ?? keyValidation.sanitizedKey;
+  // NEW-key site → normalize the destination (v1.27.0, flag-gated). The source
+  // key references an existing object and is NOT normalized; an absent
+  // destinationKey keeps the existing key (move to another bucket, same key).
   const destKeyValidation = destinationKey
-    ? validateR2Key(destinationKey)
+    ? validateR2Key(destinationKey, { normalize: c.env.R2_KEY_NORMALIZE === 'sanitize' })
     : { valid: true as const, sanitizedKey: finalDestKey };
   if (!destKeyValidation.valid) {
     throw new HTTPException(400, { message: `Invalid destinationKey: ${destKeyValidation.error}` });

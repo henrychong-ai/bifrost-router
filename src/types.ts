@@ -157,6 +157,15 @@ export type Bindings = {
   // The admin API is only accessible from this domain
   ADMIN_API_DOMAIN?: string;
 
+  /**
+   * R2 object-key normalization mode (v1.27.0). `'sanitize'` → new keys
+   * (upload/rename/move targets) are normalized to lowercase-kebab server-side;
+   * anything else (incl. unset) → no normalization. Existing objects + read/
+   * delete/metadata paths are never normalized. Dashboard normalizes its own
+   * keys client-side regardless; this flag governs programmatic callers.
+   */
+  R2_KEY_NORMALIZE?: string;
+
   // Unified KV namespace for all routes (key format: {domain}:{path})
   ROUTES: KVNamespace;
 

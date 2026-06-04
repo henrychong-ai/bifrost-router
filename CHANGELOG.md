@@ -6,6 +6,28 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.27.0 (2026-06-04) — R2 key normalization + storage rename UX + typography DRY
+
+### R2 object-key normalization (lowercase + kebab-case)
+
+NEW R2 keys are normalized to lowercase-kebab, fixing the R2 case-sensitivity footgun (`Report.pdf` ≠ `report.pdf` → a route target with the wrong case 404s) and `%20` URL noise. **Write-time-only — existing objects + their live URLs are untouched** (no forced migration).
+
+- **Shared normalizer:** `normalizeR2Key()` (`shared/src/r2-key.ts`) — per-segment slugify (lowercase; NFKD-transliterate accents → `cafe`; whitespace + URL-noisy specials → `-`; collapse/trim) preserving `/` (subdir) and the extension dot. Idempotent. Single source shared by the worker + dashboard.
+- **Server (flag-gated `R2_KEY_NORMALIZE`):** `validateR2Key(key, { normalize })` applies it at the NEW-key sites only — upload, rename-target, move-dest (`src/routes/storage.ts`). Read/delete/metadata/comment/purge reference EXISTING keys and are never normalized. The dangerous-pattern REJECT still runs first (security pre-gate). Replace-keeps-existing-key guard on overwrite; collision → existing 409.
+- **Default `R2_KEY_NORMALIZE = "sanitize"`** in `wrangler.toml [vars]` (both envs). The dashboard normalizes its own keys client-side regardless; the flag governs programmatic callers (API/MCP). 90s rollback: flip to `"off"`.
+- **Dashboard:** the upload + rename dialogs clean the OS-filename auto-fill, show a live **"Saved as: …"** preview, and submit the normalized key (kebab placeholder + helper). Route path inputs carry the same kebab hint.
+
+### Storage rename modal: surface key normalization
+
+The **Edit Object → Rename** flow now always explains the Rename button's state instead of going silently dead when uppercase/spaces normalize back to the current key. Always-on preview (red error → grey "Normalizes to the current name — nothing to rename" no-op → "Saved as `<normalized>`" → amber "Key will change") + a disabled-reason tooltip. Frontend-only; the empty-input guard mirrors the submit guard (button-enabled ⟺ the rename fires).
+
+### Typography DRY (`--mono-features`)
+
+Behaviour-preserving cleanup of `admin/src/index.css`: the duplicated Maple Mono `font-feature-settings` (cv01 + cv32–cv37) are hoisted into a single `--mono-features` `@theme` custom property, referenced via `var()` on both mono surfaces (`code,pre,kbd,samp` + `.font-mono`). Zero visual change. Test guardrail added in `typography.test.ts`.
+
+- **Dependency posture:** `pnpm.overrides` reviewed — already current; no change.
+- **Tests:** +`normalizeR2Key` suite (`shared/src/r2-key.test.ts`); +`validateR2Key({ normalize })` cases; +route-level upload/rename normalization.
+
 ## v1.26.2 (2026-06-01) — Feedback attachment input hardening
 
 Defense-in-depth follow-up to v1.26.1 (no functional change to valid flows). `pnpm run check` green.

@@ -202,6 +202,12 @@
     "Inter", "Noto Sans TC", "PingFang TC", "Hiragino Sans CNS", "Microsoft JhengHei",
     ui-sans-serif, system-ui, sans-serif;
 
+  /* Maple Mono NL feature settings — defined ONCE here and referenced via
+     var(--mono-features) by BOTH the base code/pre/kbd/samp rule and the
+     .font-mono utility, so the two copies can't drift. cv01 tames `@` +
+     continuous-slash `$`; cv32-cv37 = official "plain style" non-cursive italic. */
+  --mono-features: "cv01" 1, "cv32" 1, "cv33" 1, "cv34" 1, "cv35" 1, "cv36" 1, "cv37" 1;
+
   /* Font sizes — Inter v4 tracking table.
      Letter-spacing tuned per size class per rsms.me/inter spec.
      Pairs with `font-optical-sizing: auto` for full Inter v4 compliance.
@@ -370,14 +376,7 @@
   kbd,
   samp {
     font-family: var(--font-mono);
-    font-feature-settings:
-      "cv01" 1,
-      "cv32" 1,
-      "cv33" 1,
-      "cv34" 1,
-      "cv35" 1,
-      "cv36" 1,
-      "cv37" 1;
+    font-feature-settings: var(--mono-features);
     letter-spacing: 0;
   }
 
@@ -417,14 +416,7 @@
      but still want the canonical mono treatment. */
   .font-mono {
     font-family: var(--font-mono);
-    font-feature-settings:
-      "cv01" 1,
-      "cv32" 1,
-      "cv33" 1,
-      "cv34" 1,
-      "cv35" 1,
-      "cv36" 1,
-      "cv37" 1;
+    font-feature-settings: var(--mono-features);
     letter-spacing: 0;
   }
 

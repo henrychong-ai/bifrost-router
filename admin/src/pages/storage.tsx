@@ -17,6 +17,7 @@ import { storageApi } from '@/lib/api-client';
 import type { R2ObjectInfo, R2MetadataUpdate, StorageListParams } from '@/lib/api-client';
 import { formatBytes } from '@/lib/utils';
 import { getR2ObjectUrl } from '@/lib/constants';
+import { normalizeR2Key } from '@bifrost/shared';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -175,7 +176,16 @@ function UploadDialog({
   const [overwrite, setOverwrite] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const keyError = key ? validateObjectKey(key) : null;
+  // Normalize to lowercase-kebab (v1.27.0). The dashboard always submits the
+  // normalized key (the live "Saved as" preview shows it), so dashboard uploads
+  // are clean on every environment; the server R2_KEY_NORMALIZE flag governs
+  // programmatic callers. Validate the normalized form (what's actually sent).
+  const normalizedKey = key ? normalizeR2Key(key) : '';
+  const keyError = key
+    ? !normalizedKey
+      ? 'Key is empty after normalization'
+      : validateObjectKey(normalizedKey)
+    : null;
 
   const isSubmitDisabled = !file || !key || !!keyError || upload.isPending;
 
@@ -198,7 +208,8 @@ function UploadDialog({
     }
     setFile(selected);
     if (!key) {
-      setKey(prefix + selected.name);
+      // Clean the OS filename (caps + spaces) at the source.
+      setKey(normalizeR2Key(prefix + selected.name));
     }
   };
 
@@ -210,10 +221,10 @@ function UploadDialog({
       await upload.mutateAsync({
         bucket,
         file,
-        key,
+        key: normalizedKey,
         options: { overwrite },
       });
-      toast.success(`Uploaded ${getBasename(key)}`);
+      toast.success(`Uploaded ${getBasename(normalizedKey)}`);
       onOpenChange(false);
       setFile(null);
       setKey('');
@@ -275,15 +286,19 @@ function UploadDialog({
               id="upload-key"
               value={key}
               onChange={e => setKey(e.target.value)}
-              placeholder={`${prefix}filename.ext`}
+              placeholder={`${prefix}my-file.ext`}
               required
               className="font-mono"
             />
-            {key && validateObjectKey(key) ? (
-              <p className="font-inter text-tiny text-destructive">{validateObjectKey(key)}</p>
+            {keyError ? (
+              <p className="font-inter text-tiny text-destructive">{keyError}</p>
+            ) : key && normalizedKey !== key ? (
+              <p className="font-inter text-tiny text-muted-foreground">
+                Saved as <code className="font-mono text-blue-600">{normalizedKey}</code>
+              </p>
             ) : (
               <p className="font-inter text-tiny text-muted-foreground">
-                Full path within the bucket
+                lowercase, hyphens not spaces; use / for folders
               </p>
             )}
           </div>
@@ -363,9 +378,38 @@ function StorageEditDialog({
   const isPdf = objectContentType === 'application/pdf';
 
   // Rename state
+  // Rename state. The dashboard renames to the NORMALIZED key (v1.27.0); the
+  // live "Saved as" preview shows it. `keyChanged` compares the RAW field to the
+  // current key so merely opening the dialog never auto-renames a mixed-case
+  // object — only an actual edit does.
   const [newKey, setNewKey] = useState(object.key);
+  const normalizedNewKey = newKey ? normalizeR2Key(newKey) : '';
   const keyChanged = newKey !== object.key;
-  const keyError = newKey ? validateObjectKey(newKey) : null;
+  const keyError = newKey
+    ? !normalizedNewKey
+      ? 'Key is empty after normalization'
+      : validateObjectKey(normalizedNewKey)
+    : null;
+  // Mirror the upload dialog: the Rename button must always explain why it is
+  // disabled instead of going silently dead — the dominant case is caps/spaces
+  // that normalize back to the current key (a genuine no-op rename).
+  const renameDisabled =
+    !keyChanged ||
+    !!keyError ||
+    !normalizedNewKey ||
+    normalizedNewKey === object.key ||
+    rename.isPending;
+  const renameDisabledReason = rename.isPending
+    ? 'Rename in progress'
+    : !keyChanged
+      ? 'Edit the name to rename'
+      : keyError
+        ? keyError
+        : !normalizedNewKey
+          ? 'Object key is required'
+          : normalizedNewKey === object.key
+            ? 'Normalized name matches the current name'
+            : null;
 
   // Metadata state
   const [contentType, setContentType] = useState(object.httpMetadata?.contentType || '');
@@ -403,10 +447,12 @@ function StorageEditDialog({
   }, [object]);
 
   const handleRename = async () => {
-    if (!keyChanged || keyError) return;
+    // Skip when nothing changed, on error, or when the normalized target equals
+    // the current key (renaming to itself).
+    if (!keyChanged || keyError || !normalizedNewKey || normalizedNewKey === object.key) return;
     try {
-      await rename.mutateAsync({ bucket, oldKey: object.key, newKey });
-      toast.success(`Renamed to ${getBasename(newKey)}`);
+      await rename.mutateAsync({ bucket, oldKey: object.key, newKey: normalizedNewKey });
+      toast.success(`Renamed to ${getBasename(normalizedNewKey)}`);
       onOpenChange(false);
     } catch (err) {
       toast.error(`Rename failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -693,22 +739,53 @@ function StorageEditDialog({
                     onChange={e => setNewKey(e.target.value)}
                     className="font-mono"
                   />
-                  {keyError && <p className="font-inter text-tiny text-destructive">{keyError}</p>}
-                  {keyChanged && !keyError && (
+                  {/* Always-on feedback (mirrors the upload dialog) so caps/spaces
+                      never fail silently. Order matters: untouched/empty input is
+                      checked first (so a cleared field shows the neutral hint, not a
+                      contradictory "to ``" amber line beside a disabled button), then
+                      the no-op case before "Saved as" so a name that normalizes back
+                      to the current key shows the no-op hint, not "Saved as". By the
+                      final amber branch the key is a genuine, non-empty rename. */}
+                  {keyError ? (
+                    <p className="font-inter text-tiny text-destructive">{keyError}</p>
+                  ) : !keyChanged || !normalizedNewKey ? (
+                    <p className="font-inter text-tiny text-muted-foreground">
+                      lowercase, hyphens not spaces; use / for folders
+                    </p>
+                  ) : normalizedNewKey === object.key ? (
+                    <p className="font-inter text-tiny text-muted-foreground">
+                      Normalizes to the current name{' '}
+                      <code className="font-mono text-blue-600">{getBasename(object.key)}</code> —
+                      nothing to rename
+                    </p>
+                  ) : normalizedNewKey !== newKey ? (
+                    <p className="font-inter text-tiny text-muted-foreground">
+                      Saved as <code className="font-mono text-blue-600">{normalizedNewKey}</code>
+                    </p>
+                  ) : (
                     <p className="font-inter text-tiny text-amber-600">
                       Key will change from{' '}
                       <code className="font-mono">{getBasename(object.key)}</code> to{' '}
-                      <code className="font-mono">{getBasename(newKey)}</code>
+                      <code className="font-mono">{getBasename(normalizedNewKey)}</code>
                     </p>
                   )}
-                  <Button
-                    size="sm"
-                    onClick={handleRename}
-                    disabled={!keyChanged || !!keyError || rename.isPending}
-                    className="bg-blue-950 font-inter hover:bg-blue-900"
-                  >
-                    {rename.isPending ? 'Renaming...' : 'Rename'}
-                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex">
+                        <Button
+                          size="sm"
+                          onClick={handleRename}
+                          disabled={renameDisabled}
+                          className="bg-blue-950 font-inter hover:bg-blue-900"
+                        >
+                          {rename.isPending ? 'Renaming...' : 'Rename'}
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    {renameDisabledReason && (
+                      <TooltipContent>{renameDisabledReason}</TooltipContent>
+                    )}
+                  </Tooltip>
                 </div>
 
                 {/* Move to Bucket */}

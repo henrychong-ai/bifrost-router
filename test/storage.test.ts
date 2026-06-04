@@ -323,6 +323,76 @@ describe('storage routes', () => {
     });
   });
 
+  describe('R2 key normalization (v1.27.0, flag-gated)', () => {
+    const sanitizeEnv = { ...testEnv, R2_KEY_NORMALIZE: 'sanitize' };
+
+    async function uploadWithEnv(
+      app: ReturnType<typeof createApp>,
+      bucket: string,
+      key: string,
+      runEnv: typeof testEnv,
+    ) {
+      const formData = new FormData();
+      formData.append('file', new File(['x'], 'f.txt', { type: 'text/plain' }));
+      formData.append('key', key);
+      return app.fetch(
+        new Request(`http://example.com/api/storage/${bucket}/upload`, {
+          method: 'POST',
+          headers: authHeaders,
+          body: formData,
+        }),
+        runEnv,
+      );
+    }
+
+    it('normalizes the upload key to lowercase-kebab when R2_KEY_NORMALIZE=sanitize', async () => {
+      const app = createApp();
+      const response = await uploadWithEnv(app, 'files', 'My Report.PDF', sanitizeEnv);
+      expect(response.status).toBe(201);
+      const data = await response.json();
+      expect(data.data.key).toBe('my-report.pdf');
+    });
+
+    it('does NOT normalize the upload key when R2_KEY_NORMALIZE is off', async () => {
+      const app = createApp();
+      const response = await uploadWithEnv(app, 'files', 'Keep-Case.PDF', testEnv);
+      expect(response.status).toBe(201);
+      const data = await response.json();
+      expect(data.data.key).toBe('Keep-Case.PDF');
+    });
+
+    it('normalizes the rename target (source untouched) when sanitize', async () => {
+      const app = createApp();
+      await uploadFile(app, 'files', 'rename-norm-source.txt', 'content');
+
+      const response = await app.fetch(
+        new Request('http://example.com/api/storage/files/rename', {
+          method: 'POST',
+          headers: { ...authHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ oldKey: 'rename-norm-source.txt', newKey: 'My Renamed File.TXT' }),
+        }),
+        sanitizeEnv,
+      );
+      expect(response.status).toBe(200);
+
+      // Source gone, normalized target present.
+      const oldMeta = await app.fetch(
+        new Request('http://example.com/api/storage/files/meta/rename-norm-source.txt', {
+          headers: authHeaders,
+        }),
+        testEnv,
+      );
+      expect(oldMeta.status).toBe(404);
+      const newMeta = await app.fetch(
+        new Request('http://example.com/api/storage/files/meta/my-renamed-file.txt', {
+          headers: authHeaders,
+        }),
+        testEnv,
+      );
+      expect(newMeta.status).toBe(200);
+    });
+  });
+
   describe('DELETE /storage/:bucket/objects/:key', () => {
     it('deletes an existing object', async () => {
       const app = createApp();

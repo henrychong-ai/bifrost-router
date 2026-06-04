@@ -60,6 +60,21 @@ describe('typography — four-font stack', () => {
     expect(cssText).toMatch(pattern);
   });
 
+  test('Maple Mono feature settings are DRY via --mono-features (defined once with the full cv set, referenced on both surfaces)', () => {
+    // Defined exactly once, carrying the FULL cv set — a truncation regression
+    // (e.g. dropping cv32-cv37) must fail here, not slip through on the cv01 token
+    // appearing elsewhere in the file.
+    const defs = cssText.match(/--mono-features:[^;]*;/g) ?? [];
+    expect(defs).toHaveLength(1);
+    for (const cv of ['cv01', 'cv32', 'cv33', 'cv34', 'cv35', 'cv36', 'cv37']) {
+      expect(defs[0]).toContain(`"${cv}" 1`);
+    }
+    // ...and applied via var() on BOTH mono surfaces (base code/pre/kbd/samp rule and
+    // the .font-mono utility) so the two can't drift.
+    const refs = cssText.match(/font-feature-settings:\s*var\(--mono-features\)/g) ?? [];
+    expect(refs.length).toBeGreaterThanOrEqual(2);
+  });
+
   test('CJK locale scoping is present', () => {
     expect(cssText).toMatch(/\[lang\^="zh-Hans"\]/);
     expect(cssText).toMatch(/\[lang\^="zh-Hant"\]/);

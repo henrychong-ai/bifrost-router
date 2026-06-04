@@ -4,6 +4,8 @@
  * Prevents path traversal attacks by rejecting R2 object keys with dangerous patterns
  */
 
+import { normalizeR2Key } from '@bifrost/shared';
+
 /* eslint-disable no-control-regex */
 const DANGEROUS_PATTERNS = [
   /\.\./, // Parent directory traversal
@@ -46,7 +48,7 @@ export interface R2KeyValidationResult {
   error?: string;
 }
 
-export function validateR2Key(key: string): R2KeyValidationResult {
+export function validateR2Key(key: string, opts?: { normalize?: boolean }): R2KeyValidationResult {
   if (!key || key.trim() === '') {
     return { valid: false, sanitizedKey: '', error: 'R2 key cannot be empty' };
   }
@@ -69,6 +71,24 @@ export function validateR2Key(key: string): R2KeyValidationResult {
       error: 'R2 key contains invalid characters or path components',
     };
   }
+
+  // Optional key normalization (v1.27.0) — lowercase + kebab-case. Applied only
+  // when the caller opts in (write-time NEW-key sites under R2_KEY_NORMALIZE),
+  // NEVER for references to existing objects. This is an ACCEPTED transform (the
+  // dangerous-pattern REJECT above is the security gate; case/space are not
+  // confused-deputy vectors). The returned sanitizedKey is the canonical key.
+  if (opts?.normalize) {
+    const normalized = normalizeR2Key(sanitizedKey);
+    if (!normalized) {
+      return {
+        valid: false,
+        sanitizedKey: '',
+        error: 'R2 key is empty after normalization',
+      };
+    }
+    return { valid: true, sanitizedKey: normalized };
+  }
+
   return { valid: true, sanitizedKey };
 }
 

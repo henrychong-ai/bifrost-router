@@ -98,9 +98,15 @@ persist = true
 
 [vars]
 ENVIRONMENT = "production"
-VERSION = "1.26.2"  # IMPORTANT: Keep in sync with package.json version
+VERSION = "1.27.0"  # IMPORTANT: Keep in sync with package.json version
 ADMIN_API_DOMAIN = "bifrost.example.com"   # Domain that serves admin API at /api/*
 R2_COPY_SIZE_LIMIT_MB = "100"              # Max object size (MB) for rename/metadata copy ops
+
+# R2 object-key normalization (v1.27.0). 'sanitize' → new keys (upload/rename/
+# move targets) are normalized to lowercase-kebab server-side; 'off' → no-op.
+# The dashboard normalizes its own keys client-side regardless; this flag governs
+# programmatic callers (API/MCP). 90s rollback: flip to 'off'.
+R2_KEY_NORMALIZE = "sanitize"
 
 # Cron trigger for daily backups
 # Runs at 8 PM UTC (4 AM SGT) daily
@@ -117,3 +123,4 @@ name = "bifrost-worker-dev"
 [env.dev.vars]
 ENVIRONMENT = "development"
 ADMIN_API_DOMAIN = "bifrost.example.com"
+R2_KEY_NORMALIZE = "sanitize"

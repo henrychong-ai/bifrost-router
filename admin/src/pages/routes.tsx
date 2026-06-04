@@ -362,13 +362,13 @@ function RouteForm(props: RouteFormProps) {
           id="path"
           value={formData.path}
           onChange={e => setFormData({ ...formData, path: e.target.value.toLowerCase() })}
-          placeholder="/example"
+          placeholder="/my-route"
           required
           className="font-mono"
         />
         {mode === 'create' && (
           <p className="text-tiny text-muted-foreground font-inter">
-            Must start with / — paths are automatically lowercased
+            Must start with / — lowercased automatically; use hyphens not spaces (kebab-case)
           </p>
         )}
         {mode === 'edit' && formData.path !== route.path && (

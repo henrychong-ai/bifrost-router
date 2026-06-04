@@ -7,6 +7,10 @@
 // MIME detection
 export { EXTENSION_MIME_MAP, getContentTypeFromKey } from './mime.js';
 
+// R2 key normalization (v1.27.0) — lowercase + kebab-case, shared by the worker
+// (write-time enforcement) and the dashboard (clean default + live preview).
+export { normalizeR2Key, isNormalizedR2Key } from './r2-key.js'; // gitleaks:allow
+
 // Types
 export * from './types.js';
 
