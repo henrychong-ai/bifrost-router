@@ -6,6 +6,29 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.27.1 (2026-06-04) — dependency maintenance (minor/patch)
+
+Routine in-major dependency refresh across the workspace. No source changes; all checks green (lint + format + typecheck + test, 515 + 117 + 80 + 158 + 104 tests passing).
+
+### Bumps
+
+- **Root:** `@cloudflare/workers-types` 4.20260601.1 → 4.20260604.1, `oxlint` 1.67.0 → 1.68.0, `wrangler` 4.95.0 → 4.98.0
+- **admin:** `@tanstack/react-query` 5.100.14 → 5.101.0, `react` + `react-dom` 19.2.6 → 19.2.7, `react-router-dom` 7.16.0 → 7.17.0, `@types/react` 19.2.15 → 19.2.16, `eslint-plugin-oxlint` 1.67.0 → 1.68.0, `typescript-eslint` 8.60.0 → 8.60.1, `vitest` 4.1.7 → 4.1.8
+- **mcp / shared:** `vitest` 4.1.7 → 4.1.8
+- **slackbot:** `@cloudflare/workers-types` 4.20260601.1 → 4.20260604.1, `wrangler` 4.95.0 → 4.98.0
+
+### Security
+
+- **Resolved moderate `esbuild` advisory (GHSA-67mh-4wv8-2f99)** — the deprecated `@esbuild-kit/core-utils` loader nested in `drizzle-kit` pinned `esbuild@0.18.20` (`<=0.24.2`). Added scoped pnpm override `"@esbuild-kit/core-utils>esbuild": ">=0.25.0"`; `drizzle-kit` still runs (`db:generate`). Dev-only / transitive.
+- **Critical `vitest` advisory (GHSA-5xrq-8626-4rwp, `<4.1.0`) NOT resolved on root + slackbot** — patched range is `>=4.1.0`, a major bump blocked by the `@cloudflare/vitest-pool-workers` 2.0.x–3.2.x peer constraint (see Deferred). admin/mcp/shared are already on `vitest` 4.1.8 (patched). The advisory only applies when the Vitest **UI server** is listening (`--ui`); this repo runs `vitest run` with no UI in dev or CI, so exposure is nil.
+
+### Deferred (major — not applied)
+
+- **Dependabot PR #18** — `vitest` 3.2.4 → 4.1.0 (root + slackbot): major bump, deferred. Root/slackbot stay on `vitest` 3.2.4 and `@vitest/coverage-v8` 3.2.4 because `@cloudflare/vitest-pool-workers` requires the `vitest` 2.0.x–3.2.x peer range; moving to vitest 4 needs a coordinated pool-workers major bump.
+- Other majors held: `@vitejs/plugin-react` 6.x, `lint-staged` 17.x, `typescript` 6.x, `vite` 8.x, `@cloudflare/vitest-pool-workers` 0.16.x, `lucide-react` 1.x.
+
+---
+
 ## v1.27.0 (2026-06-04) — R2 key normalization + storage rename UX + typography DRY
 
 ### R2 object-key normalization (lowercase + kebab-case)
