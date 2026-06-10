@@ -56,7 +56,7 @@
     "lint-staged": "^16.4.0",
     "oxlint": "^1.68.0",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4",
+    "vitest": "^3.2.6",
     "wrangler": "4.98.0"
   },
   "pnpm": {
