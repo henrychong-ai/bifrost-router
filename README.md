@@ -279,7 +279,9 @@ Add to your Claude Code config (`~/.claude.json`):
 }
 ```
 
-See `mcp/README.md` for Claude Desktop setup and available tools.
+For Claude Desktop, add the same entry (with full executable paths) to `~/Library/Application Support/Claude/claude_desktop_config.json` and restart the app. Or open this repo in Claude Code and ask it to **"install mcp"** — it will configure both surfaces for you.
+
+See [`mcp/README.md`](./mcp/README.md) for full setup and the 22-tool reference.
 
 ### Optional: Slackbot
 

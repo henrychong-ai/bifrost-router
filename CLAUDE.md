@@ -264,6 +264,17 @@ Config in `~/.claude.json`:
 }
 ```
 
+### Installing the MCP for a user ("install mcp" trigger)
+
+When the user asks to **"install mcp"** (or to connect bifrost to their Claude surfaces), install the **stdio** server on both surfaces — this repo ships no remote OAuth `/mcp` endpoint, so Desktop's Settings → Connectors UI (remote servers only) does not apply:
+
+1. **Build first** if `mcp/dist/index.js` is missing: `pnpm install && pnpm -C shared build && pnpm -C mcp build`
+2. **Ask the user** for their deployment URL (`EDGE_ROUTER_URL`), default domain, and how they want to supply `EDGE_ROUTER_API_KEY` (plaintext vs `op run` 1Password injection — prefer the latter).
+3. **Claude Code** — add the entry above to `~/.claude.json` `mcpServers`. Verify with `claude mcp list`.
+4. **Claude Desktop** — add the same entry to `~/Library/Application Support/Claude/claude_desktop_config.json`, with **full executable paths** (Desktop does not inherit shell PATH). Back up the file before editing. Tell the user to fully restart Claude Desktop (Cmd+Q); if using `op run`, 1Password must be unlocked at launch.
+
+Full user-facing instructions + tool reference: `mcp/README.md`.
+
 ## Feedback Work-Queue (v1.26.0)
 
 In-dashboard feedback (bug / feature / question / other). Each submission is a structured D1 row (`feedback` table + `counters` for the `F-<n>` short-id) with screenshots + a credential-redacted console/network capture bundle in the R2 bucket bound as `FEEDBACK_BUCKET`. **API** (`src/routes/feedback.ts`, mounted under `adminRoutes` → all endpoints `ADMIN_API_KEY`-gated): `POST /api/feedback` (submit), `GET /api/feedback` (list), `GET /api/feedback/export`, `GET /api/feedback/:id`, `GET /api/feedback/:id/attachment/:key`, `PATCH /api/feedback/:id` (triage), `DELETE /api/feedback/:id`. Migration `drizzle/0009_feedback.sql` applies per environment (CI does not auto-migrate). Dashboard: the **Feedback** page (header pill + global ⌘/ open the dialog). Feature files: `shared/src/feedback.ts`, `src/db/feedback.ts`, `admin/src/components/feedback-dialog.tsx` + `feedback-detail-dialog.tsx`, `admin/src/pages/feedback.tsx`, `admin/src/hooks/use-feedback.ts`.

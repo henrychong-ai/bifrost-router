@@ -1,38 +1,36 @@
 # @bifrost/mcp
 
-MCP (Model Context Protocol) server for bifrost. Provides AI-powered route management through Claude Code, Claude Desktop, and other MCP-compatible clients.
+MCP (Model Context Protocol) server for bifrost. Provides AI-powered route, analytics, and R2 storage management through Claude Code, Claude Desktop, and other MCP-compatible clients.
 
 ## Features
 
-- **11 Tools** for complete route and analytics management
+- **22 tools** for route management, analytics, and R2 storage
 - **Multi-domain support** for managing multiple domains through a single interface
-- **Stdio transport** for seamless Claude Code/Desktop integration
+- **Stdio transport** with API-key auth for Claude Code/Desktop integration
 - **Type-safe** with Zod validation for all inputs
 
-## Installation
+## Install
+
+> **Tip:** if you have this repo open in Claude Code, just ask it to **"install mcp"** — `CLAUDE.md` carries the instructions and it will configure both surfaces for you.
+
+### Build
 
 ```bash
 # From the monorepo root
 pnpm install
+pnpm -C shared build
 pnpm -C mcp build
 ```
 
-## Configuration
-
-### Required Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `EDGE_ROUTER_API_KEY` | Admin API key for authentication |
-
-### Optional Environment Variables
+### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `EDGE_ROUTER_URL` | `https://example.com` | Base URL of the edge router |
-| `EDGE_ROUTER_DOMAIN` | - | Default domain for operations |
+| `EDGE_ROUTER_API_KEY` | — | Admin API key (required) |
+| `EDGE_ROUTER_URL` | `https://example.com` | Base URL of your deployed edge router |
+| `EDGE_ROUTER_DOMAIN` | — | Default domain for operations |
 
-## Claude Code Integration
+### Claude Code
 
 Add to your `~/.claude.json`:
 
@@ -40,11 +38,12 @@ Add to your `~/.claude.json`:
 {
   "mcpServers": {
     "bifrost": {
+      "type": "stdio",
       "command": "node",
-      "args": ["/path/to/bifrost/mcp/dist/index.js"],
+      "args": ["/absolute/path/to/bifrost-router/mcp/dist/index.js"],
       "env": {
         "EDGE_ROUTER_API_KEY": "your-api-key",
-        "EDGE_ROUTER_URL": "https://example.com",
+        "EDGE_ROUTER_URL": "https://bifrost.example.com",
         "EDGE_ROUTER_DOMAIN": "links.example.com"
       }
     }
@@ -52,23 +51,28 @@ Add to your `~/.claude.json`:
 }
 ```
 
-### With 1Password Secrets
+Verify with `claude mcp list` — expect `bifrost … ✔ Connected`.
+
+#### With 1Password Secrets
+
+Avoid a plaintext API key by injecting it via `op run`:
 
 ```json
 {
   "mcpServers": {
     "bifrost": {
+      "type": "stdio",
       "command": "op",
       "args": [
         "run",
         "--account", "your-1password-account",
         "--",
         "node",
-        "/path/to/bifrost/mcp/dist/index.js"
+        "/absolute/path/to/bifrost-router/mcp/dist/index.js"
       ],
       "env": {
         "EDGE_ROUTER_API_KEY": "op://Your-Vault/Cloudflare/ADMIN_API_KEY",
-        "EDGE_ROUTER_URL": "https://example.com",
+        "EDGE_ROUTER_URL": "https://bifrost.example.com",
         "EDGE_ROUTER_DOMAIN": "links.example.com"
       }
     }
@@ -76,7 +80,7 @@ Add to your `~/.claude.json`:
 }
 ```
 
-## Claude Desktop Integration
+### Claude Desktop
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
@@ -85,10 +89,10 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "bifrost": {
       "command": "/usr/local/bin/node",
-      "args": ["/path/to/bifrost/mcp/dist/index.js"],
+      "args": ["/absolute/path/to/bifrost-router/mcp/dist/index.js"],
       "env": {
         "EDGE_ROUTER_API_KEY": "your-api-key",
-        "EDGE_ROUTER_URL": "https://example.com",
+        "EDGE_ROUTER_URL": "https://bifrost.example.com",
         "EDGE_ROUTER_DOMAIN": "links.example.com"
       }
     }
@@ -96,11 +100,14 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
-**Note:** Claude Desktop requires full executable paths (e.g., `/usr/local/bin/node` instead of `node`).
+**Notes:**
+- Claude Desktop requires **full executable paths** (e.g. `/usr/local/bin/node` or `/opt/homebrew/bin/node` instead of `node`) — it does not inherit the shell PATH.
+- Fully restart Claude Desktop (Cmd+Q on macOS) after editing — stdio servers load at app launch.
+- Desktop's **Settings → Connectors** UI is for remote (HTTP/OAuth) MCP servers only and does not apply to this stdio server. `claude_desktop_config.json` is the stdio path.
 
-## Available Tools
+## Available Tools (22)
 
-### Route Management (7 tools)
+### Route Management (8 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -110,7 +117,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 | `update_route` | Update an existing route |
 | `delete_route` | Delete a route permanently |
 | `toggle_route` | Enable or disable a route |
-| `migrate_route` | Migrate a route to a new path |
+| `migrate_route` | Migrate a route to a new path (preserves createdAt) |
+| `transfer_route` | Transfer a route to a different domain |
 
 ### Analytics (4 tools)
 
@@ -121,29 +129,30 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 | `get_views` | Get paginated list of page views |
 | `get_slug_stats` | Get detailed stats for a specific slug |
 
-## Usage Examples
+### R2 Storage (10 tools)
 
-### List Routes
+| Tool | Description |
+|------|-------------|
+| `list_buckets` | List available R2 buckets |
+| `list_objects` | List objects in a bucket (prefix, cursor, limit) |
+| `get_object` | Download an object |
+| `get_object_meta` | Get object metadata |
+| `upload_object` | Upload a file (optional route creation) |
+| `rename_object` | Rename an object within a bucket |
+| `move_object` | Move an object to a different bucket |
+| `delete_object` | Delete an object |
+| `update_object_metadata` | Update HTTP metadata on an object |
+| `purge_cache` | Purge the CDN cache for an object globally |
+
+> Feedback-queue triage has no MCP tools — use the REST API or the dashboard Feedback page (see `CLAUDE.md`).
+
+## Usage Examples
 
 ```
 "List all routes for links.example.com"
-```
-
-### Create a Redirect
-
-```
 "Create a redirect from /twitter to https://twitter.com/example"
-```
-
-### View Analytics
-
-```
+"Upload this PDF to the files bucket and create a route for it"
 "Show me the analytics summary for the last 7 days"
-```
-
-### Check Link Performance
-
-```
 "Get detailed statistics for the /linkedin link"
 ```
 
@@ -168,12 +177,12 @@ pnpm -C mcp test:watch
 ```
 mcp/
 ├── src/
-│   ├── index.ts           # MCP server entry point
+│   ├── index.ts           # MCP server entry point (stdio)
 │   └── tools/
 │       ├── routes.ts      # Route management handlers
-│       ├── routes.test.ts # Route handler tests
 │       ├── analytics.ts   # Analytics handlers
-│       └── analytics.test.ts # Analytics tests
+│       ├── storage.ts     # R2 storage handlers
+│       └── *.test.ts      # Handler tests
 ├── package.json
 ├── tsconfig.json
 └── README.md
@@ -181,17 +190,12 @@ mcp/
 
 ## Supported Domains
 
-The MCP server can manage routes for any domain configured in bifrost:
-
-- `links.example.com` - Short link service
-- `example.com` - Personal domain
-- `secondary.example.net` - Personal domain
-- Additional domains as configured
+The MCP server can manage routes for any domain configured in `shared/src/types.ts` `SUPPORTED_DOMAINS` — tool schemas are generated from that list, so rebuild `shared/` after changing it (`pnpm -C shared build`).
 
 ## Security
 
 - API key is required for all operations
-- Supports 1Password secret injection
+- Supports 1Password secret injection (`op run`) to keep the key out of config files
 - All inputs validated with Zod schemas
 - Rate limiting handled by Cloudflare WAF
 
@@ -203,4 +207,4 @@ The MCP server can manage routes for any domain configured in bifrost:
 
 ## License
 
-Private - Internal use only
+MIT — see [LICENSE](../LICENSE)
