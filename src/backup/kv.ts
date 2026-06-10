@@ -1,5 +1,6 @@
 import { SUPPORTED_DOMAINS } from '../types';
 import { gzipCompress } from './compress';
+import { BACKUP_DAILY_PREFIX } from './constants';
 import type { KVBackupResult } from './types';
 
 /**
@@ -43,7 +44,7 @@ export async function backupKV(
   const ndjson = allRoutes.map(r => JSON.stringify(r)).join('\n');
   const compressed = await gzipCompress(ndjson);
 
-  const filename = `daily/${date}/kv-routes.ndjson.gz`;
+  const filename = `${BACKUP_DAILY_PREFIX}${date}/kv-routes.ndjson.gz`;
   await bucket.put(filename, compressed, {
     customMetadata: {
       date,

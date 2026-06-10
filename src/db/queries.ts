@@ -1,6 +1,7 @@
 import { sql, count, countDistinct, desc, gte, eq, and, isNotNull, like } from 'drizzle-orm';
 import type { Database } from './index';
 import { linkClicks, pageViews, fileDownloads, proxyRequests, auditLogs } from './schema';
+import type { AuditSource } from '@bifrost/shared';
 
 /**
  * Query options for analytics endpoints
@@ -732,6 +733,8 @@ export interface AuditQueryOptions {
   actor?: string;
   /** Search by path */
   path?: string;
+  /** Filter by source pipeline (v1.28.0): bifrost | r2_event | cf_audit */
+  source?: AuditSource;
   /** Time range in days (default: 30) */
   days?: number;
   /** Results per page (default: 100, max: 1000) */
@@ -747,7 +750,7 @@ export async function getAuditLogs(
   db: Database,
   options: AuditQueryOptions = {},
 ): Promise<PaginatedResponse<typeof auditLogs.$inferSelect>> {
-  const { domain, action, actor, path, days = 30, limit = 100, offset = 0 } = options;
+  const { domain, action, actor, path, source, days = 30, limit = 100, offset = 0 } = options;
   const startTime = getDaysAgoTimestamp(days);
 
   // Build where conditions
@@ -756,6 +759,7 @@ export async function getAuditLogs(
   if (action) conditions.push(eq(auditLogs.action, action));
   if (actor) conditions.push(eq(auditLogs.actorLogin, actor));
   if (path) conditions.push(like(auditLogs.path, `%${path}%`));
+  if (source) conditions.push(eq(auditLogs.source, source));
 
   // Get total count and items in parallel
   const [countResult, items] = await Promise.all([

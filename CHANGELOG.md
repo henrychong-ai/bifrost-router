@@ -6,6 +6,18 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.28.0 (2026-06-10) — External R2 operations audit capture (optional, ships dormant)
+
+Closes the audit blind spot for self-hosters who want it: R2 operations made **outside Bifrost** (Cloudflare dashboard, Wrangler, direct S3/REST API keys) can now land in the same `audit_logs` table and dashboard audit page, labelled by a new `source` column (`bifrost` | `r2_event` | `cf_audit`). Ported from the internal Bifrost deployments' hardened releases (multi-reviewer synthesis + live verification upstream).
+
+- **[feature] Layer 1 — R2 event consumer** (`src/queue/r2-events.ts`, `queue()` export): R2 event notifications → Cloudflare Queue (60s delivery delay) → consumer with exact structured correlation dedup (events explained by Bifrost's own audit rows are dropped — never substring matching; one create + one delete slot per row via `r2_event_correlations`), at-least-once idempotency via `r2_event_seen` fingerprints written in the same atomic D1 batch, and STRICT inserts (failure → retry → DLQ, never ack-and-lose). Backup-cron writes system-attributed; feedback-bucket writes always recorded with pipeline attribution. **Requires Workers Paid (Queues).**
+- **[feature] Layer 2 — CF account audit-log poller** (`src/audit/cf-audit-poll.ts`, new `*/30 * * * *` cron): records R2/queue-scoped control-plane changes **with the real Cloudflare actor** — and tamper-protects Layer 1 (rule deletion is itself captured). Watermark cursor with 60s overlap re-query + exact `json_extract` idempotency. **Works on the free plan.**
+- **[feature] Surface**: migration `drizzle/0010_external_audit_capture.sql` (`source` column + 3 tables + indexes), 3 new audit actions (18→21), `?source=` API filter, admin UI Source filter + per-row source badges + detail-dialog Source field, API Shield schema updated (new enum values + `source` param).
+- **[config] Dormant by default / free-plan graceful degradation**: both flags ship `"off"`, the queue consumer block ships commented out (an active block would break `wrangler deploy` for free-plan upgraders), the poller no-ops loudly-logged when unconfigured, and the new `*/30` cron is free-plan-safe. Full setup + the two Cloudflare API-token traps (account-owned `cfat_` tokens rejected; no dedicated audit-logs permission — use Account Settings: Read): README → "External R2 operations audit capture". Plan-gating contract: CLAUDE.md.
+- **[fix] Audit action filter** now derives from the canonical shared `AuditActionSchema` (was an inline copy) — the three new actions are filterable and the list can never drift again. `computeNavTargets` skips `cf_config_change` rows (their `path` is `resource.type/resource.id`, not a real bucket/key — previously produced a dead-end "View file in storage" link; regression-tested).
+
+Rollback: flip `R2_EVENT_AUDIT` / `CF_AUDIT_POLL` to `"off"` + redeploy. The migration is additive (`source` defaults `'bifrost'`).
+
 ## v1.27.1 (2026-06-04) — dependency maintenance (minor/patch)
 
 Routine in-major dependency refresh across the workspace. No source changes; all checks green (lint + format + typecheck + test, 515 + 117 + 80 + 158 + 104 tests passing).

@@ -428,8 +428,26 @@ export const AuditActionSchema = z.enum([
   'feedback_create',
   'feedback_triage',
   'feedback_delete',
+  // v1.28.0 — external R2 operations audit capture. Kept separate from the
+  // semantic r2_* actions above because R2 event notifications cannot
+  // distinguish upload vs replace vs move; the raw event action lives in
+  // `details`.
+  'r2_object_create',
+  'r2_object_delete',
+  'cf_config_change',
 ]);
 export type AuditAction = z.infer<typeof AuditActionSchema>;
+
+/**
+ * Which pipeline recorded an audit entry (v1.28.0):
+ *  - 'bifrost'  — Bifrost dashboard/MCP/API write sites (default)
+ *  - 'r2_event' — R2 event notification consumer (external object mutations;
+ *    no actor identity available at platform level)
+ *  - 'cf_audit' — Cloudflare account audit-log poller (control-plane changes
+ *    with the real Cloudflare actor)
+ */
+export const AuditSourceSchema = z.enum(['bifrost', 'r2_event', 'cf_audit']);
+export type AuditSource = z.infer<typeof AuditSourceSchema>;
 
 /**
  * Audit log entry schema
@@ -443,5 +461,6 @@ export const AuditLogSchema = z.object({
   path: z.string().nullable(),
   details: z.string().nullable(),
   ipAddress: z.string().nullable(),
+  source: AuditSourceSchema,
   createdAt: z.number(),
 });

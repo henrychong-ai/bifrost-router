@@ -1,4 +1,4 @@
-import type { AuditAction, AuditLog } from '@/lib/schemas';
+import type { AuditAction, AuditLog, AuditSource } from '@/lib/schemas';
 
 export function formatDate(timestamp: number): string {
   return new Date(timestamp * 1000).toLocaleString();
@@ -34,12 +34,42 @@ export const ACTION_COLORS: Record<AuditAction, string> = {
   feedback_create: 'bg-green-100 text-green-800 border-green-200',
   feedback_triage: 'bg-blue-100 text-blue-800 border-blue-200',
   feedback_delete: 'bg-red-100 text-red-800 border-red-200',
+  r2_object_create: 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200',
+  r2_object_delete: 'bg-red-100 text-red-800 border-red-200',
+  cf_config_change: 'bg-slate-100 text-slate-800 border-slate-200',
+};
+
+/**
+ * Source pipeline badges. 'bifrost' renders no badge (the default,
+ * uninteresting case); external pipelines get a visible marker.
+ */
+export const SOURCE_LABELS: Record<AuditSource, string> = {
+  bifrost: 'Bifrost',
+  r2_event: 'External',
+  cf_audit: 'Cloudflare',
+};
+
+export const SOURCE_COLORS: Record<AuditSource, string> = {
+  bifrost: 'bg-charcoal-100 text-charcoal-700 border-charcoal-200',
+  r2_event: 'bg-orange-100 text-orange-800 border-orange-200',
+  cf_audit: 'bg-blue-100 text-blue-800 border-blue-200',
 };
 
 export function parseDetails(details: string | null): string {
   if (!details) return '-';
   try {
     const parsed = JSON.parse(details);
+    // CF audit-log poller entries: show the control-plane action type.
+    if ('cf_audit_id' in parsed) {
+      const resource = parsed.resource?.type
+        ? ` on ${parsed.resource.type}${parsed.resource.id ? `/${parsed.resource.id}` : ''}`
+        : '';
+      return `${parsed.actionType || 'config change'}${resource}`;
+    }
+    // R2 event consumer entries: show raw R2 action + object.
+    if ('r2Action' in parsed) {
+      return `${parsed.r2Action}: ${parsed.bucket}/${parsed.key}`;
+    }
     // For toggle actions, show enabled status
     if ('enabled' in parsed) {
       return parsed.enabled ? 'Enabled' : 'Disabled';
@@ -136,6 +166,13 @@ function isNonEmptyString(value: unknown): value is string {
 export function computeNavTargets(
   log: Pick<AuditLog, 'action' | 'domain' | 'path' | 'details'>,
 ): NavTarget[] {
+  // cf_config_change rows live under domain='storage' but their path is
+  // `resource.type/resource.id` (e.g. "queue/bifrost-r2-events"), not a real
+  // bucket/key — a storage nav target would dead-end on a non-existent bucket.
+  if (log.action === 'cf_config_change') {
+    return [];
+  }
+
   const details = parseDetailsObject(log.details);
 
   // Feedback entries reference feedback shortIds, which are not routable — no nav target.

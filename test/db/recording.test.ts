@@ -124,6 +124,7 @@ async function createTables(db: D1Database) {
       path TEXT,
       details TEXT,
       ip_address TEXT,
+      source TEXT NOT NULL DEFAULT 'bifrost',
       created_at INTEGER DEFAULT (unixepoch()) NOT NULL
     )
   `)

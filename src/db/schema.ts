@@ -299,6 +299,14 @@ export const auditLogs = sqliteTable('audit_logs', {
   /** Client IP address from CF-Connecting-IP header */
   ipAddress: text('ip_address'),
 
+  /**
+   * Which pipeline recorded the entry (v1.28.0):
+   *  - 'bifrost'  — Bifrost dashboard/MCP/API write sites (default)
+   *  - 'r2_event' — R2 event notification consumer (external object mutations)
+   *  - 'cf_audit' — Cloudflare account audit-log poller (control-plane changes)
+   */
+  source: text('source').notNull().default('bifrost'),
+
   /** Unix timestamp (seconds since epoch) */
   createdAt: integer('created_at').notNull().default(sql`(unixepoch())`),
 });
@@ -312,6 +320,63 @@ export type NewAuditLog = typeof auditLogs.$inferInsert;
  * Type for selecting an audit log
  */
 export type AuditLog = typeof auditLogs.$inferSelect;
+
+/**
+ * R2 event correlation markers (v1.28.0)
+ *
+ * Consumption markers for the R2 event-notification dedup: each Bifrost-sourced
+ * audit row can absorb at most ONE object-create and ONE object-delete event
+ * (rename/move = one of each). The PK makes the claim atomic under concurrent
+ * queue batches; audit rows themselves stay immutable.
+ */
+export const r2EventCorrelations = sqliteTable(
+  'r2_event_correlations',
+  {
+    /** audit_logs.id of the Bifrost-sourced row that explains the event */
+    auditId: integer('audit_id').notNull(),
+
+    /** 'create' | 'delete' — which event slot this claim consumes */
+    eventKind: text('event_kind').notNull(),
+
+    /** Event time (unix seconds) from the R2 event payload */
+    eventTime: integer('event_time').notNull(),
+
+    /** Unix timestamp (seconds since epoch) */
+    createdAt: integer('created_at').notNull().default(sql`(unixepoch())`),
+  },
+  table => ({
+    pk: primaryKey({ columns: [table.auditId, table.eventKind] }),
+  }),
+);
+
+/**
+ * R2 event fingerprints (v1.28.0, migration 0010) — event-level idempotency
+ * for the at-least-once queue. One row per processed R2 event; a redelivery
+ * hits the PK and is acked without re-processing. Pruned opportunistically by
+ * the consumer (correlation window is ±120s, so rows >7 days are dead).
+ */
+export const r2EventSeen = sqliteTable('r2_event_seen', {
+  /** Stable event fingerprint: action|bucket|key|eventTime|eTag */
+  fingerprint: text('fingerprint').primaryKey(),
+
+  /** Unix timestamp (seconds since epoch) */
+  createdAt: integer('created_at').notNull().default(sql`(unixepoch())`),
+});
+
+/**
+ * Named poll cursors (v1.28.0) — watermark state for incremental pollers
+ * (cf-audit-poll). Kept in D1 rather than the ROUTES KV namespace.
+ */
+export const pollCursors = sqliteTable('poll_cursors', {
+  /** Cursor name (e.g. 'cf-audit-poll') */
+  name: text('name').primaryKey(),
+
+  /** JSON-encoded cursor value */
+  value: text('value').notNull(),
+
+  /** Unix timestamp (seconds since epoch) */
+  updatedAt: integer('updated_at').notNull().default(sql`(unixepoch())`),
+});
 
 /**
  * File comments table

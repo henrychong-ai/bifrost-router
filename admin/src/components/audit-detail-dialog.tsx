@@ -13,6 +13,8 @@ import {
 } from '@/components/ui/dialog';
 import {
   ACTION_COLORS,
+  SOURCE_COLORS,
+  SOURCE_LABELS,
   computeNavTargets,
   formatDate,
   formatRelativeTime,
@@ -79,6 +81,11 @@ export function AuditDetailDialog({
                   <AuditActionIcon action={log.action} />
                   {log.action}
                 </Badge>
+                {log.source !== 'bifrost' && (
+                  <Badge variant="outline" className={`${SOURCE_COLORS[log.source]} font-inter`}>
+                    {SOURCE_LABELS[log.source]}
+                  </Badge>
+                )}
               </div>
               <DialogDescription className="font-inter">
                 {log.actorName ?? log.actorLogin ?? 'Unknown'} · {formatDate(log.createdAt)} ·{' '}
@@ -114,6 +121,9 @@ export function AuditDetailDialog({
               </Field>
               <Field label="Record ID">
                 <span className="font-mono">#{log.id}</span>
+              </Field>
+              <Field label="Source">
+                <span className="font-inter">{SOURCE_LABELS[log.source]}</span>
               </Field>
             </div>
 

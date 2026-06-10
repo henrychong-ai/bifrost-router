@@ -10,6 +10,7 @@ import type {
   HealthCheckConfig,
 } from './health-schemas';
 import { DEFAULT_HEALTH_CONFIG } from './health-schemas';
+import { BACKUP_DAILY_PREFIX } from './constants';
 
 /**
  * Expected backup files for a given date
@@ -22,8 +23,8 @@ const EXPECTED_FILES = ['manifest.json', 'kv-routes.ndjson.gz'] as const;
 async function findLatestBackup(
   bucket: R2Bucket,
 ): Promise<{ date: string; timestamp: string } | null> {
-  // List objects with prefix 'daily/' to find backup directories
-  const list = await bucket.list({ prefix: 'daily/', delimiter: '/' });
+  // List objects with the daily-backup prefix to find backup directories
+  const list = await bucket.list({ prefix: BACKUP_DAILY_PREFIX, delimiter: '/' });
 
   if (!list.delimitedPrefixes || list.delimitedPrefixes.length === 0) {
     return null;
@@ -31,7 +32,7 @@ async function findLatestBackup(
 
   // Extract dates and sort descending to get most recent
   const dates = list.delimitedPrefixes
-    .map(p => p.replace('daily/', '').replace('/', ''))
+    .map(p => p.replace(BACKUP_DAILY_PREFIX, '').replace('/', ''))
     .filter(d => /^\d{8}$/.test(d))
     .sort((a, b) => b.localeCompare(a));
 
@@ -53,7 +54,7 @@ async function findLatestBackup(
  */
 async function fetchManifest(bucket: R2Bucket, date: string): Promise<BackupManifest | null> {
   try {
-    const obj = await bucket.get(`daily/${date}/manifest.json`);
+    const obj = await bucket.get(`${BACKUP_DAILY_PREFIX}${date}/manifest.json`);
     if (!obj) return null;
     return (await obj.json()) as BackupManifest;
   } catch {
@@ -80,7 +81,7 @@ function manifestToSummary(manifest: BackupManifest): ManifestSummary {
 async function checkBackupFiles(bucket: R2Bucket, date: string): Promise<BackupFileStatus[]> {
   const results = await Promise.all(
     EXPECTED_FILES.map(async filename => {
-      const key = `daily/${date}/${filename}`;
+      const key = `${BACKUP_DAILY_PREFIX}${date}/${filename}`;
       const obj = await bucket.head(key);
       return {
         key,

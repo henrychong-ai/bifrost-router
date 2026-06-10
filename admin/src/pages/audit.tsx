@@ -22,11 +22,19 @@ import {
 } from '@/components/ui/select';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { FilterToolbar, type FilterState } from '@/components/filters';
-import { ACTION_COLORS, parseDetails, formatDate, formatRelativeTime } from '@/lib/audit-format';
+import {
+  ACTION_COLORS,
+  SOURCE_COLORS,
+  SOURCE_LABELS,
+  parseDetails,
+  formatDate,
+  formatRelativeTime,
+} from '@/lib/audit-format';
 import { AuditActionIcon } from '@/components/audit-action-icon';
 import { AuditDetailDialog } from '@/components/audit-detail-dialog';
 import type { AuditFilterState } from '@/context';
-import type { AuditAction, AuditLog } from '@/lib/schemas';
+import { AuditSourceSchema } from '@/lib/schemas';
+import type { AuditAction, AuditLog, AuditSource } from '@/lib/schemas';
 
 export function AuditPage() {
   const [offset, setOffset] = useState(0);
@@ -49,8 +57,18 @@ export function AuditPage() {
       action: filters.action || undefined,
       actor: filters.actor || undefined,
       path: debouncedSearch || undefined,
+      source: filters.source || undefined,
     }),
-    [limit, offset, filters.domain, filters.days, filters.action, filters.actor, debouncedSearch],
+    [
+      limit,
+      offset,
+      filters.domain,
+      filters.days,
+      filters.action,
+      filters.actor,
+      filters.source,
+      debouncedSearch,
+    ],
   );
 
   const { data, isLoading, error } = useAuditLogs(queryParams);
@@ -72,6 +90,17 @@ export function AuditPage() {
     }
   };
 
+  // Handle source filter change — which pipeline recorded the entry
+  const handleSourceChange = (value: string) => {
+    setOffset(0);
+    if (value === 'all') {
+      const { source: _, ...rest } = filters;
+      setFilters(rest);
+    } else {
+      setFilters({ ...filters, source: value as AuditSource });
+    }
+  };
+
   // Handle reset - reset pagination (FilterToolbar handles filter reset via onFiltersChange)
   const handleResetPagination = () => {
     setOffset(0);
@@ -84,6 +113,7 @@ export function AuditPage() {
     filters.domain ||
     filters.action ||
     filters.actor ||
+    filters.source ||
     (filters.days && filters.days !== 30)
   );
 
@@ -186,6 +216,37 @@ export function AuditPage() {
               <SelectItem value="feedback_delete" className="font-inter">
                 Feedback Delete
               </SelectItem>
+              <SelectItem value="r2_object_create" className="font-inter">
+                R2 Object Create (ext)
+              </SelectItem>
+              <SelectItem value="r2_object_delete" className="font-inter">
+                R2 Object Delete (ext)
+              </SelectItem>
+              <SelectItem value="cf_config_change" className="font-inter">
+                CF Config Change
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Source filter (v1.28.0) — which pipeline recorded the entry */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-small font-inter text-charcoal-600">Source</label>
+          <Select value={filters.source || 'all'} onValueChange={handleSourceChange}>
+            <SelectTrigger className="w-[140px] font-inter">
+              <SelectValue placeholder="Source" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="font-inter">
+                All Sources
+              </SelectItem>
+              {/* Derived from the shared enum — a new source value appears here
+                  automatically with its badge label (no hand-kept list). */}
+              {AuditSourceSchema.options.map(s => (
+                <SelectItem key={s} value={s} className="font-inter">
+                  {SOURCE_LABELS[s]}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -264,13 +325,23 @@ export function AuditPage() {
                           {formatRelativeTime(log.createdAt)}
                         </TableCell>
                         <TableCell>
-                          <Badge
-                            variant="outline"
-                            className={`${ACTION_COLORS[log.action]} flex items-center gap-1 w-fit font-inter font-medium`}
-                          >
-                            <AuditActionIcon action={log.action} />
-                            {log.action}
-                          </Badge>
+                          <div className="flex flex-wrap items-center gap-1">
+                            <Badge
+                              variant="outline"
+                              className={`${ACTION_COLORS[log.action]} flex items-center gap-1 w-fit font-inter font-medium`}
+                            >
+                              <AuditActionIcon action={log.action} />
+                              {log.action}
+                            </Badge>
+                            {log.source !== 'bifrost' && (
+                              <Badge
+                                variant="outline"
+                                className={`${SOURCE_COLORS[log.source]} w-fit font-inter font-medium`}
+                              >
+                                {SOURCE_LABELS[log.source]}
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="font-mono text-small whitespace-nowrap text-charcoal-600">
                           {log.domain}

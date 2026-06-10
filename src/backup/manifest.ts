@@ -1,3 +1,4 @@
+import { BACKUP_DAILY_PREFIX } from './constants';
 import type { BackupManifest, KVBackupResult } from './types';
 
 /**
@@ -29,7 +30,7 @@ export async function writeManifest(
     kv: kvResult,
   };
 
-  const filename = `daily/${date}/manifest.json`;
+  const filename = `${BACKUP_DAILY_PREFIX}${date}/manifest.json`;
   await bucket.put(filename, JSON.stringify(manifest, null, 2), {
     customMetadata: {
       date,

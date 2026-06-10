@@ -1,6 +1,6 @@
 import { createDb } from './index';
 import { linkClicks, pageViews, fileDownloads, proxyRequests, auditLogs } from './schema';
-import type { AuditAction } from '@bifrost/shared';
+import type { AuditAction, AuditSource } from '@bifrost/shared';
 
 /**
  * Data for recording a link click
@@ -383,6 +383,47 @@ export interface AuditLogData {
   details?: string | null;
   /** Client IP address */
   ipAddress?: string | null;
+  /**
+   * Which pipeline recorded the entry (v1.28.0). Omitted by the existing
+   * Bifrost write sites (defaults to 'bifrost'); the R2 event consumer passes
+   * 'r2_event' and the CF audit-log poller passes 'cf_audit'.
+   */
+  source?: AuditSource;
+}
+
+/**
+ * Insert an audit log entry — STRICT path (v1.28.0).
+ *
+ * Throws on insert failure. Used by the durable capture pipelines (R2 event
+ * consumer, CF audit-log poller) where a swallowed failure would permanently
+ * lose the event: the queue consumer must retry/DLQ the message, and the
+ * poller must NOT advance its watermark past an unrecorded entry. Request-path
+ * callers use recordAuditLog (the swallowing waitUntil wrapper) instead.
+ */
+export async function insertAuditLog(db: D1Database, data: AuditLogData): Promise<void> {
+  const drizzleDb = createDb(db);
+
+  await drizzleDb.insert(auditLogs).values({
+    domain: data.domain,
+    action: data.action,
+    actorLogin: data.actorLogin ?? null,
+    actorName: data.actorName ?? null,
+    path: data.path ?? null,
+    details: data.details ?? null,
+    ipAddress: data.ipAddress ?? null,
+    source: data.source ?? 'bifrost',
+  });
+
+  console.log(
+    JSON.stringify({
+      level: 'info',
+      message: 'Audit log recorded',
+      domain: data.domain,
+      action: data.action,
+      actor: data.actorLogin,
+      path: data.path,
+    }),
+  );
 }
 
 /**
@@ -397,28 +438,7 @@ export interface AuditLogData {
  */
 export async function recordAuditLog(db: D1Database, data: AuditLogData): Promise<void> {
   try {
-    const drizzleDb = createDb(db);
-
-    await drizzleDb.insert(auditLogs).values({
-      domain: data.domain,
-      action: data.action,
-      actorLogin: data.actorLogin ?? null,
-      actorName: data.actorName ?? null,
-      path: data.path ?? null,
-      details: data.details ?? null,
-      ipAddress: data.ipAddress ?? null,
-    });
-
-    console.log(
-      JSON.stringify({
-        level: 'info',
-        message: 'Audit log recorded',
-        domain: data.domain,
-        action: data.action,
-        actor: data.actorLogin,
-        path: data.path,
-      }),
-    );
+    await insertAuditLog(db, data);
   } catch (error) {
     // Log error but don't throw - audit logging should never break main functionality
     console.error(

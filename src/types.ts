@@ -199,6 +199,32 @@ export type Bindings = {
   // Cloudflare API token for Zone Cache Purge (optional, graceful degradation without it)
   CLOUDFLARE_API_TOKEN?: string;
 
+  /**
+   * Feature flag for the R2 event-notification audit consumer (v1.28.0).
+   * "on" — queue messages are correlated/recorded into audit_logs.
+   * Anything else — the consumer acks and discards (90s rollback; the R2
+   * notification rules can stay attached).
+   */
+  R2_EVENT_AUDIT?: string;
+
+  /**
+   * Feature flag for the Cloudflare account audit-log poller (v1.28.0).
+   * "on" — the *\/30 cron polls /accounts/{id}/audit_logs and records
+   * R2-scoped control-plane changes as source='cf_audit' rows.
+   * Anything else — the cron no-ops. Requires CF_AUDIT_API_TOKEN + CF_ACCOUNT_ID.
+   */
+  CF_AUDIT_POLL?: string;
+
+  /**
+   * Dedicated least-privilege CF API token for the audit-log poller (secret):
+   * Account → Account Audit Logs: Read ONLY. Deliberately separate from
+   * CLOUDFLARE_API_TOKEN (cache-purge scope) for independent rotation.
+   */
+  CF_AUDIT_API_TOKEN?: string;
+
+  /** Cloudflare account id for the audit-log poller (identifier, not a secret) */
+  CF_ACCOUNT_ID?: string;
+
   // Slack webhook URL for backup health alerts (optional)
   SLACK_BACKUP_WEBHOOK?: string;
 

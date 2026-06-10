@@ -628,6 +628,7 @@ paths:
         - $ref: '#/components/parameters/ActionQuery'
         - $ref: '#/components/parameters/ActorQuery'
         - $ref: '#/components/parameters/PathFilterQuery'
+        - $ref: '#/components/parameters/SourceQuery'
       responses:
         '200':
           description: Success
@@ -989,6 +990,20 @@ components:
           - feedback_create
           - feedback_triage
           - feedback_delete
+          - r2_object_create
+          - r2_object_delete
+          - cf_config_change
+
+    SourceQuery:
+      name: source
+      in: query
+      description: Filter by audit source pipeline (v1.28.0)
+      schema:
+        type: string
+        enum:
+          - bifrost
+          - r2_event
+          - cf_audit
 
     SearchQuery:
       name: search

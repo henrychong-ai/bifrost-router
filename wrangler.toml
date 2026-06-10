@@ -98,7 +98,7 @@ persist = true
 
 [vars]
 ENVIRONMENT = "production"
-VERSION = "1.27.1"  # IMPORTANT: Keep in sync with package.json version
+VERSION = "1.28.0"  # IMPORTANT: Keep in sync with package.json version
 ADMIN_API_DOMAIN = "bifrost.example.com"   # Domain that serves admin API at /api/*
 R2_COPY_SIZE_LIMIT_MB = "100"              # Max object size (MB) for rename/metadata copy ops
 
@@ -108,10 +108,40 @@ R2_COPY_SIZE_LIMIT_MB = "100"              # Max object size (MB) for rename/met
 # programmatic callers (API/MCP). 90s rollback: flip to 'off'.
 R2_KEY_NORMALIZE = "sanitize"
 
-# Cron trigger for daily backups
-# Runs at 8 PM UTC (4 AM SGT) daily
+# ── External R2 operations audit capture (v1.28.0) — OPTIONAL, ships DORMANT ──
+# Captures R2 operations made OUTSIDE this Worker (Cloudflare dashboard,
+# Wrangler, direct S3/REST keys) into the audit log. Full setup: README.md →
+# "External R2 operations audit capture".
+#
+# Layer 1 (R2 event notifications → Queue → consumer) REQUIRES WORKERS PAID
+# (Cloudflare Queues). Layer 2 (CF account audit-log poller) works on ANY plan.
+# Both default "off" — a deploy with these defaults never references a queue
+# and never changes behaviour.
+R2_EVENT_AUDIT = "off"   # "on" after creating the queues + uncommenting the consumer below
+CF_AUDIT_POLL = "off"    # "on" after setting CF_ACCOUNT_ID + the CF_AUDIT_API_TOKEN secret
+
+# Your Cloudflare account id (dash → Workers & Pages → right sidebar). Used by
+# the Layer-2 audit-log poller. An identifier, not a secret.
+CF_ACCOUNT_ID = "your-cloudflare-account-id"
+
+# Layer-1 queue consumer — UNCOMMENT after creating the queues (README steps):
+#   wrangler queues create bifrost-r2-events --delivery-delay-secs 60
+#   wrangler queues create bifrost-r2-events-dlq
+# (Leaving this commented keeps `wrangler deploy` working on the Workers Free
+# plan, where Queues are unavailable.)
+# [[queues.consumers]]
+# queue = "bifrost-r2-events"
+# max_batch_size = 25
+# max_batch_timeout = 10
+# max_retries = 3
+# dead_letter_queue = "bifrost-r2-events-dlq"
+
+# Cron triggers:
+# - "0 20 * * *"   daily KV backup at 8 PM UTC (4 AM SGT)
+# - "*/30 * * * *" CF account audit-log poller (v1.28.0; no-ops unless CF_AUDIT_POLL="on" —
+#                  cron triggers are available on every plan, so this is free-plan safe)
 [triggers]
-crons = ["0 20 * * *"]
+crons = ["0 20 * * *", "*/30 * * * *"]
 
 # Admin API key for route management
 # Set via: wrangler secret put ADMIN_API_KEY

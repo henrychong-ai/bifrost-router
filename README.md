@@ -311,6 +311,41 @@ A GitHub Actions template is provided at `.github/workflows/ci-cd.yml.example`.
 
 The active CI pipeline (`.github/workflows/ci.yml`) runs lint, typecheck, and tests on every PR.
 
+### Optional: External R2 operations audit capture (v1.28.0)
+
+By default, the audit log only records operations made *through* Bifrost. This optional feature also captures R2 changes made **outside** it — Cloudflare dashboard uploads, Wrangler commands, direct S3/REST API keys — into the same audit page, labelled by source. It ships **dormant** (both flags `"off"`); enabling it is a two-layer opt-in:
+
+**Layer 1 — object-level capture (requires the Workers Paid plan).** Cloudflare Queues are paid-plan-only. On the free plan, `wrangler queues create` fails with a payment-required error — that is the expected gate, not breakage; skip to Layer 2, which works on any plan.
+
+```bash
+# 1. Create the queues (60s delivery delay is load-bearing — do not omit it)
+wrangler queues create bifrost-r2-events --delivery-delay-secs 60
+wrangler queues create bifrost-r2-events-dlq
+
+# 2. Attach notification rules to each bucket you want monitored
+wrangler r2 bucket notification create <bucket> \
+  --event-types object-create object-delete --queue bifrost-r2-events
+
+# 3. Uncomment the [[queues.consumers]] block in wrangler.toml
+
+# 4. Apply the migration (once per environment)
+wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0010_external_audit_capture.sql
+
+# 5. Set R2_EVENT_AUDIT = "on" in wrangler.toml [vars] and deploy
+```
+
+External writes then appear on the audit page within ~2 minutes as **External (unattributed)** — Cloudflare's event payloads carry no actor identity on any plan, so *what/when/where* is captured but *who* is not (that's what Layer 2 adds for config changes).
+
+**Layer 2 — config-change capture with real actor attribution (works on the free plan).** A `*/30` cron polls your account's audit logs for R2/queue-scoped changes (bucket settings, notification rules, token changes) and records them **with the actor's email/IP** — it also tamper-protects Layer 1, since deleting the notification rules is itself a captured change.
+
+1. Create a Cloudflare API token — **two non-obvious traps here**:
+   - It must be a **user-level token** (My Profile → API Tokens → Create Custom Token). Account-owned tokens (created from the account-level API Tokens page, `cfat_` prefix) are *rejected* by the audit-logs endpoint even when valid.
+   - There is **no dedicated "audit logs" permission**. The permission you need is **Account → Account Settings → Read** ("Access: Audit Logs Read" is the Zero Trust product's login logs — the wrong one).
+2. `wrangler secret put CF_AUDIT_API_TOKEN` (paste the token), set `CF_ACCOUNT_ID` in `[vars]`.
+3. Apply the migration (step 4 above, if you haven't), set `CF_AUDIT_POLL = "on"`, deploy.
+
+Rollback for either layer: flip its flag to `"off"` and redeploy (~90s). Notification rules and queues can stay.
+
 ## Usage
 
 ### Add a Redirect

@@ -191,6 +191,18 @@ describe('prettyPrintDetails', () => {
 // =============================================================================
 
 describe('computeNavTargets', () => {
+  it('cf_config_change: emits NO targets (path is resource.type/resource.id, not bucket/key)', () => {
+    const targets = computeNavTargets(
+      makeLog({
+        action: 'cf_config_change',
+        domain: 'storage',
+        path: 'queue/bifrost-r2-events',
+        details: JSON.stringify({ cf_audit_id: 'abc', actionType: 'update' }),
+      }),
+    );
+    expect(targets).toEqual([]);
+  });
+
   it('create: emits a single route target labelled "Open route"', () => {
     const targets = computeNavTargets(
       makeLog({ action: 'create', domain: 'links.example.com', path: '/github' }),

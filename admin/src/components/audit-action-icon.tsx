@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   FileEdit,
   FolderEdit,
+  Globe,
   Layers,
   type LucideIcon,
   MessageSquare,
@@ -11,6 +12,7 @@ import {
   Plus,
   Replace,
   RotateCcw,
+  Settings,
   ToggleLeft,
   Trash2,
   Upload,
@@ -36,6 +38,9 @@ const ACTION_ICONS: Record<AuditAction, LucideIcon> = {
   feedback_create: MessageSquarePlus,
   feedback_triage: Pencil,
   feedback_delete: Trash2,
+  r2_object_create: Globe,
+  r2_object_delete: Globe,
+  cf_config_change: Settings,
 };
 
 export function AuditActionIcon({

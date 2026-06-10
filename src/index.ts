@@ -15,6 +15,8 @@ import {
   recordProxyRequest,
 } from './db/analytics';
 import { handleScheduled } from './backup';
+import { pollCfAuditLogs } from './audit/cf-audit-poll';
+import { handleR2EventBatch, type R2EventMessage } from './queue/r2-events';
 
 /**
  * Cloudflare request cf properties we use for analytics
@@ -380,21 +382,53 @@ export default {
   fetch: app.fetch,
 
   /**
-   * Scheduled event handler for cron-triggered backups
-   * Runs daily at 8 PM UTC (4 AM SGT)
+   * Scheduled event handler — explicit cron dispatch (v1.28.0). The literals
+   * MUST match the crons array in wrangler.toml ([triggers]):
+   *  - "*\/30 * * * *" → Cloudflare account audit-log poller (Layer 2 of the
+   *    external R2 audit capture; no-ops unless CF_AUDIT_POLL="on")
+   *  - "0 20 * * *" → daily KV backup (8 PM UTC / 4 AM SGT). An empty cron
+   *    (manual trigger / `wrangler dev --test-scheduled`) also runs the backup,
+   *    preserving the pre-v1.28.0 manual-test behaviour.
+   *  - anything else → loud warning, NO handler. Falling through to the backup
+   *    here would silently run it at the unknown cron's cadence (e.g. 48×/day
+   *    after a poller-cadence retune) while the intended handler never fires.
    */
-  scheduled: async (_event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) => {
-    ctx.waitUntil(
-      handleScheduled(env).then(result => {
-        if (result.success) {
-          console.log(
-            `[Scheduled] Backup completed in ${result.duration}ms - ` +
-              `${result.manifest?.kv.totalRoutes} routes`,
-          );
-        } else {
-          console.error(`[Scheduled] Backup failed: ${result.error}`);
-        }
+  scheduled: async (event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) => {
+    if (event.cron === '*/30 * * * *') {
+      ctx.waitUntil(pollCfAuditLogs(env));
+      return;
+    }
+    if (event.cron === '0 20 * * *' || !event.cron) {
+      ctx.waitUntil(
+        handleScheduled(env).then(result => {
+          if (result.success) {
+            console.log(
+              `[Scheduled] Backup completed in ${result.duration}ms - ` +
+                `${result.manifest?.kv.totalRoutes} routes`,
+            );
+          } else {
+            console.error(`[Scheduled] Backup failed: ${result.error}`);
+          }
+        }),
+      );
+      return;
+    }
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        message: 'scheduled-unknown-cron',
+        cron: event.cron,
+        hint: 'No handler mapped — update the dispatch in src/index.ts to match wrangler.toml crons',
       }),
     );
+  },
+
+  /**
+   * Queue consumer for R2 event notifications (v1.28.0) — external R2
+   * operations audit capture. Flag-gated by R2_EVENT_AUDIT ("on" to record;
+   * anything else acks and discards).
+   */
+  queue: async (batch: MessageBatch<R2EventMessage>, env: Bindings, _ctx: ExecutionContext) => {
+    await handleR2EventBatch(batch, env);
   },
 };

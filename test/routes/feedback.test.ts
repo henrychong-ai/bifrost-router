@@ -34,6 +34,7 @@ describe('feedback API - auth + lifecycle', () => {
         id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
         domain TEXT NOT NULL, action TEXT NOT NULL, path TEXT,
         actor_login TEXT, actor_name TEXT, details TEXT, ip_address TEXT,
+        source TEXT NOT NULL DEFAULT 'bifrost',
         created_at INTEGER DEFAULT (unixepoch()) NOT NULL
       )`).run();
     await env.DB.prepare(`

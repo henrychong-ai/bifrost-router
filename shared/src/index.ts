@@ -30,6 +30,7 @@ export {
   SlugStatsQuerySchema,
   // Audit log schemas
   AuditActionSchema,
+  AuditSourceSchema,
   AuditLogSchema,
   // Routes list query
   RoutesListQuerySchema,
@@ -65,6 +66,7 @@ export {
   type GetViewsInput,
   type GetSlugStatsInput,
   type AuditAction,
+  type AuditSource,
   type RoutesListQuery,
   type R2ListObjectsInput,
   type R2UploadInput,

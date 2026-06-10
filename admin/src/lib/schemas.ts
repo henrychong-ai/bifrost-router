@@ -4,9 +4,11 @@ import {
   SUPPORTED_DOMAINS,
   AuditActionSchema,
   AuditLogSchema,
+  AuditSourceSchema,
   type R2BucketName,
   type SupportedDomain,
   type AuditAction,
+  type AuditSource,
 } from '@bifrost/shared';
 
 // Re-export for convenience
@@ -334,8 +336,8 @@ export const ProxyStatsResponseSchema = ApiResponseSchema(ProxyStatsSchema);
 // =============================================================================
 
 // Re-export for convenience
-export { AuditActionSchema, AuditLogSchema };
-export type { AuditAction };
+export { AuditActionSchema, AuditLogSchema, AuditSourceSchema };
+export type { AuditAction, AuditSource };
 export type AuditLog = z.infer<typeof AuditLogSchema>;
 
 export const AuditLogsListResponseSchema = z.object({
@@ -374,6 +376,8 @@ export interface AuditQueryParams {
   action?: AuditAction;
   actor?: string;
   path?: string;
+  /** Source pipeline filter: bifrost | r2_event | cf_audit */
+  source?: AuditSource;
 }
 
 // =============================================================================

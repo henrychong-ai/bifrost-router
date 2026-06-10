@@ -13,6 +13,7 @@ import {
   getProxyStats,
   getAuditLogs,
 } from '../db/queries';
+import { AuditActionSchema, AuditSourceSchema } from '@bifrost/shared';
 
 /**
  * Analytics API routes
@@ -82,30 +83,15 @@ const ProxyListQuerySchema = z.object({
  */
 const AuditListQuerySchema = z.object({
   domain: z.string().optional(),
-  action: z
-    .enum([
-      'create',
-      'update',
-      'delete',
-      'toggle',
-      'seed',
-      'migrate',
-      'transfer',
-      'r2_upload',
-      'r2_delete',
-      'r2_rename',
-      'r2_metadata_update',
-      'r2_move',
-      'r2_replace',
-      'r2_cache_purge',
-      'r2_comment_update',
-      'feedback_create',
-      'feedback_triage',
-      'feedback_delete',
-    ])
-    .optional(),
+  // Single source: the canonical 21-value enum from @bifrost/shared. Was an
+  // inline copy — a pattern that has drifted before (a stale inline list makes
+  // filtering by the missing actions 400 at the edge), so the filter now
+  // derives from the shared schema and can never fall behind.
+  action: AuditActionSchema.optional(),
   actor: z.string().optional(),
   path: z.string().optional(),
+  // Source pipeline filter (v1.28.0): bifrost | r2_event | cf_audit.
+  source: AuditSourceSchema.optional(),
   days: z.coerce.number().min(1).max(365).default(30),
   limit: z.coerce.number().min(1).max(1000).default(100),
   offset: z.coerce.number().min(0).default(0),
@@ -643,9 +629,10 @@ analyticsRoutes.get('/proxy/:path{.+}', async c => {
  *
  * Query params:
  * - domain: Filter by domain (optional)
- * - action: Filter by action type: create, update, delete, toggle, seed (optional)
+ * - action: Filter by action type — any canonical AuditActionSchema value (optional)
  * - actor: Filter by actor login (optional)
  * - path: Search by path (optional)
+ * - source: Filter by source pipeline: bifrost, r2_event, cf_audit (optional)
  * - days: Time range in days (default: 30, max: 365)
  * - limit: Results per page (default: 100, max: 1000)
  * - offset: Pagination offset (default: 0)
@@ -656,6 +643,7 @@ analyticsRoutes.get('/audit', async c => {
     action: c.req.query('action'),
     actor: c.req.query('actor'),
     path: c.req.query('path'),
+    source: c.req.query('source'),
     days: c.req.query('days'),
     limit: c.req.query('limit'),
     offset: c.req.query('offset'),

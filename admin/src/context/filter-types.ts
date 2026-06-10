@@ -1,5 +1,5 @@
 import type { FilterState } from '@/components/filters';
-import type { AuditAction } from '@/lib/schemas';
+import type { AuditAction, AuditSource } from '@/lib/schemas';
 
 /**
  * Supported domains for route management
@@ -34,6 +34,8 @@ export interface RoutesFilterState {
 export interface AuditFilterState extends FilterState {
   action?: AuditAction;
   actor?: string;
+  /** Source pipeline filter: bifrost | r2_event | cf_audit */
+  source?: AuditSource;
 }
 
 /**
