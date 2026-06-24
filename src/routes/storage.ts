@@ -94,7 +94,27 @@ storageRoutes.get('/buckets', async c => {
   });
 });
 
+/**
+ * Max direct entries (folders + files) materialised in one offset-mode list.
+ * Storage lists with delimiter='/', so this bounds a single folder, not the
+ * whole bucket. Set to the R2 per-call ceiling (1000) so offset mode is always a
+ * SINGLE `bucket.list` call — no cursor loop. Folders larger than this surface
+ * `capped:true` and an honest "first N" disclosure in the dashboard.
+ */
+const LIST_MATERIALISE_CAP = 1000;
+
 // GET /:bucket/objects - List objects
+//
+// Two pagination modes, selected by which query param is present:
+//  - Offset mode (dashboard, default): `offset?` + `limit?`. The folder-scoped
+//    listing (delimiter='/') is materialised in ONE capped R2 list call, a
+//    `total` is synthesised (R2 has no count API), and the COMBINED folders-first
+//    list is sliced [offset, offset+limit]. Returns `meta:{total,count,offset,
+//    limit,hasMore}` plus `capped:true` when the folder exceeds the cap. Powers
+//    the Storage tab's prev/next + page-size pagination.
+//  - Cursor mode (MCP / programmatic, back-compat): when no `offset` is supplied,
+//    a single R2 list returns {objects, truncated, cursor, delimitedPrefixes}
+//    exactly as before — no `meta`. Unchanged for MCP callers.
 storageRoutes.get('/:bucket/objects', async c => {
   const bucketName = c.req.param('bucket');
   const bucket = getBucket(c.env, bucketName);
@@ -106,36 +126,98 @@ storageRoutes.get('/:bucket/objects', async c => {
   const cursor = c.req.query('cursor') || undefined;
   const delimiter = c.req.query('delimiter') ?? '/';
   const limitParam = c.req.query('limit');
+  const offsetParam = c.req.query('offset');
   const limit = Math.min(Math.max(Number(limitParam) || 100, 1), 1000);
+
+  // Attach D1 file comments (best-effort) for a page's objects.
+  const withComments = async (objs: R2ObjectInfo[]): Promise<R2ObjectInfo[]> => {
+    const commentMap = await listFileComments(
+      c.env.DB,
+      bucketName,
+      objs.map(o => o.key),
+    );
+    for (const obj of objs) {
+      attachComment(obj, commentMap.get(obj.key) ?? null);
+    }
+    return objs;
+  };
+
+  // --- Legacy / cursor mode (default; MCP + programmatic callers) ---
+  // Selected whenever no `offset` is supplied. Unchanged: a single R2 list
+  // (optionally with a cursor) returning the legacy shape and no `meta`. MCP
+  // forward-cursor pagination keeps working — its first call has no offset, so it
+  // still gets a cursor.
+  const offsetProvided = offsetParam !== undefined && offsetParam !== '';
+  if (!offsetProvided) {
+    const listed = await bucket.list({
+      prefix,
+      cursor,
+      limit,
+      delimiter: delimiter || undefined,
+      include: ['httpMetadata', 'customMetadata'],
+    } as R2ListOptions & { include: string[] });
+
+    const objects = await withComments(listed.objects.map(toR2ObjectInfo));
+
+    return c.json({
+      success: true,
+      data: {
+        objects,
+        truncated: listed.truncated,
+        cursor: listed.truncated ? listed.cursor : undefined,
+        delimitedPrefixes: listed.delimitedPrefixes,
+      },
+    });
+  }
+
+  // --- Offset mode (dashboard) ---
+  // Materialise the folder-scoped listing in ONE capped call, synthesise a total,
+  // and slice the COMBINED folders-first list [offset, offset+limit].
+  // Coerce offset to a finite, non-negative integer (NaN/negative → 0; reject
+  // Infinity which would serialise meta.offset as null).
+  const offsetNum = Number(offsetParam);
+  const offset = Number.isFinite(offsetNum) ? Math.max(Math.floor(offsetNum), 0) : 0;
 
   const listed = await bucket.list({
     prefix,
-    cursor,
-    limit,
+    limit: LIST_MATERIALISE_CAP,
     delimiter: delimiter || undefined,
     include: ['httpMetadata', 'customMetadata'],
   } as R2ListOptions & { include: string[] });
 
-  const objects: R2ObjectInfo[] = listed.objects.map(toR2ObjectInfo);
+  const allFolders = listed.delimitedPrefixes;
+  const allObjects: R2ObjectInfo[] = listed.objects.map(toR2ObjectInfo);
+  const folderCount = allFolders.length;
+  const total = folderCount + allObjects.length;
+  // More direct entries than we materialised — total is a floor, not exact.
+  const capped = listed.truncated;
 
-  // Attach file comments (best-effort) so the listing can show an at-a-glance
-  // indicator. One batched D1 query keyed by this page's object keys.
-  const commentMap = await listFileComments(
-    c.env.DB,
-    bucketName,
-    objects.map(o => o.key),
+  // Slice the combined [folders ++ objects] window so a page can straddle the
+  // folder/file boundary while preserving folders-first order.
+  const pageEnd = offset + limit;
+  const pageFolders = allFolders.slice(
+    Math.min(offset, folderCount),
+    Math.min(pageEnd, folderCount),
   );
-  for (const obj of objects) {
-    attachComment(obj, commentMap.get(obj.key) ?? null);
-  }
+  const pageObjects = await withComments(
+    allObjects.slice(Math.max(offset - folderCount, 0), Math.max(pageEnd - folderCount, 0)),
+  );
 
   return c.json({
     success: true,
     data: {
-      objects,
-      truncated: listed.truncated,
-      cursor: listed.truncated ? listed.cursor : undefined,
-      delimitedPrefixes: listed.delimitedPrefixes,
+      objects: pageObjects,
+      delimitedPrefixes: pageFolders,
+      // Keep `truncated` meaningful for any non-cursor reader: true iff capped.
+      truncated: capped,
+      capped,
+      meta: {
+        total,
+        count: pageFolders.length + pageObjects.length,
+        offset,
+        limit,
+        hasMore: pageEnd < total,
+      },
     },
   });
 });

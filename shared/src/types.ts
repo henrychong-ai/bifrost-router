@@ -378,6 +378,22 @@ export interface R2ListResponse {
   truncated: boolean;
   cursor?: string;
   delimitedPrefixes: string[];
+  /**
+   * Offset-pagination metadata — present when listed in offset mode (no cursor).
+   * Lets the dashboard reuse the shared PaginationControls. Absent in cursor mode.
+   */
+  meta?: {
+    total: number;
+    count: number;
+    offset: number;
+    limit: number;
+    hasMore: boolean;
+  };
+  /**
+   * Offset mode only: the folder has more direct entries than the materialise
+   * cap, so `meta.total` is a floor (first N) rather than the exact count.
+   */
+  capped?: boolean;
 }
 
 /**
@@ -404,6 +420,8 @@ export interface R2UploadResponse extends R2ObjectInfo {
 export interface R2ListObjectsParams {
   prefix?: string;
   cursor?: string;
+  /** Offset-mode pagination; mutually exclusive with cursor. */
+  offset?: number;
   limit?: number;
   delimiter?: string;
 }

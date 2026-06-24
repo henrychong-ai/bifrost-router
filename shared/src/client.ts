@@ -422,6 +422,7 @@ export class EdgeRouterClient {
         params: {
           prefix: params?.prefix,
           cursor: params?.cursor,
+          offset: params?.offset,
           limit: params?.limit,
           delimiter: params?.delimiter,
         },

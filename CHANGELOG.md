@@ -6,6 +6,12 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.29.0 (2026-06-24) — Storage-tab pagination + proxy preserveQuery fix
+
+- **[feature] Storage-tab offset pagination.** The Storage tab can now page through a folder beyond 100 items — prev/next + page-size selector + total count. `GET /api/storage/:bucket/objects` gains an **offset mode** (triggered by an explicit `offset` query param): one capped `bucket.list` (`LIST_MATERIALISE_CAP = 1000`, a single call), a synthesised `total`, and a combined folders-first slice, returning `meta:{total,count,offset,limit,hasMore}` + `capped`. **Cursor/legacy mode (no `offset`) is preserved** so the MCP server's forward-cursor pagination is unaffected. Files: `src/routes/storage.ts`, `shared/src/{types,client}.ts`, `admin/src/lib/api-client.ts`, `admin/src/pages/storage.tsx`, `openapi/bifrost-api.yaml`, `test/storage.test.ts`.
+- **[fix] Proxy routes honour `preserveQuery`.** `handleProxy` now drops the query string upstream when a route sets `preserveQuery=false` (was unconditional; redirect routes already honoured it). `src/handlers/proxy.ts`.
+- **[test] Deterministic audit-poller test.** Froze the clock in `test/audit/cf-audit-poll.test.ts` to remove a wall-clock dependency in the watermark assertion (assertion unchanged).
+
 ## v1.28.0 (2026-06-10) — External R2 operations audit capture (optional, ships dormant)
 
 Closes the audit blind spot for self-hosters who want it: R2 operations made **outside Bifrost** (Cloudflare dashboard, Wrangler, direct S3/REST API keys) can now land in the same `audit_logs` table and dashboard audit page, labelled by a new `source` column (`bifrost` | `r2_event` | `cf_audit`). Ported from the internal Bifrost deployments' hardened releases (multi-reviewer synthesis + live verification upstream).

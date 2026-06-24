@@ -547,11 +547,23 @@ export interface R2ListResponse {
   truncated: boolean;
   cursor?: string;
   delimitedPrefixes: string[];
+  /** Offset-mode pagination metadata (v1.29.0) — present when offset is sent. */
+  meta?: {
+    total: number;
+    count: number;
+    offset: number;
+    limit: number;
+    hasMore: boolean;
+  };
+  /** Offset mode: folder exceeds the materialise cap; total is a floor (first N). */
+  capped?: boolean;
 }
 
 export interface StorageListParams {
   prefix?: string;
   cursor?: string;
+  /** Offset-mode pagination (v1.29.0); mutually exclusive with cursor. */
+  offset?: number;
   limit?: number;
   delimiter?: string;
 }
@@ -600,6 +612,7 @@ export const storageApi = {
     const query = buildQueryString({
       prefix: params?.prefix,
       cursor: params?.cursor,
+      offset: params?.offset,
       limit: params?.limit,
       delimiter: params?.delimiter,
     });
@@ -632,6 +645,18 @@ export const storageApi = {
           truncated: z.boolean(),
           cursor: z.string().optional(),
           delimitedPrefixes: z.array(z.string()),
+          // Offset-mode pagination metadata (v1.29.0). Must be declared or Zod
+          // strips it from the parsed result, leaving the dashboard with no meta.
+          meta: z
+            .object({
+              total: z.number(),
+              count: z.number(),
+              offset: z.number(),
+              limit: z.number(),
+              hasMore: z.boolean(),
+            })
+            .optional(),
+          capped: z.boolean().optional(),
         }),
       }),
     );

@@ -16,7 +16,8 @@ import {
 import { storageApi } from '@/lib/api-client';
 import type { R2ObjectInfo, R2MetadataUpdate, StorageListParams } from '@/lib/api-client';
 import { formatBytes } from '@/lib/utils';
-import { getR2ObjectUrl } from '@/lib/constants';
+import { getR2ObjectUrl, getPersistedPageSize, persistPageSize } from '@/lib/constants';
+import { PaginationControls } from '@/components/pagination-controls';
 import { normalizeR2Key } from '@bifrost/shared';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -1028,14 +1029,43 @@ export function StoragePage() {
   const readOnly = buckets?.find(b => b.name === selectedBucket)?.access === 'read-only';
   const writableBuckets = (buckets || []).filter(b => b.access !== 'read-only').map(b => b.name);
 
+  // Offset pagination, mirroring the Routes tab (server materialises the
+  // folder-scoped listing → total → slice; we reuse the shared PaginationControls).
+  const [offset, setOffset] = useState(0);
+  const [limit, setLimit] = useState(() => getPersistedPageSize());
+
   const params: StorageListParams = {
     prefix: prefix || undefined,
     delimiter: '/',
-    limit: 100,
+    limit,
+    offset,
   };
 
   const { data, isLoading, error } = useStorageObjects(selectedBucket, params);
   const deleteObject = useDeleteObject();
+  const meta = data?.meta;
+
+  const handleLimitChange = (newLimit: number) => {
+    setLimit(newLimit);
+    setOffset(0);
+    persistPageSize(newLimit);
+  };
+
+  // Reset to the first page whenever the listing scope changes (bucket switch or
+  // prefix navigation), mirroring the Routes tab's offset reset on filter change.
+  useEffect(() => {
+    setOffset(0);
+  }, [selectedBucket, prefix]);
+
+  // Auto-clamp the offset when it falls out of range (e.g. items deleted on a
+  // high page). PaginationControls also clamps in render, but it early-returns at
+  // total===0 before doing so; this effect is the robust path.
+  const metaTotal = meta?.total;
+  useEffect(() => {
+    if (metaTotal !== undefined && offset >= metaTotal && metaTotal > 0) {
+      setOffset(Math.max(0, Math.floor((metaTotal - 1) / limit) * limit));
+    }
+  }, [metaTotal, offset, limit]);
 
   const [uploadOpen, setUploadOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<R2ObjectInfo | null>(null);
@@ -1089,22 +1119,32 @@ export function StoragePage() {
     setPrefixSearch(keyPrefix);
   }, [openKey]);
 
-  // Auto-open object edit dialog from URL search params
+  // Auto-open object edit dialog from URL search params (cross-page deep links).
+  // Fetch the object's metadata DIRECTLY rather than scanning the current page —
+  // with pagination the target may live on a later page, so a page-scoped search
+  // would falsely report "not found" and consume the link.
   useEffect(() => {
-    if (!openKey || openConsumed.current || !data?.objects) return;
-    // Wait for correct bucket to be selected before searching
+    if (!openKey || openConsumed.current) return;
+    // Wait for the correct bucket to be selected before resolving.
     if (openBucket && selectedBucket !== openBucket) return;
-    const target = data.objects.find(obj => obj.key === openKey);
-    if (target) {
-      setEditTarget(target);
-      openConsumed.current = true;
-      setSearchParams({}, { replace: true });
-    } else if (!isLoading) {
-      toast.error(`Object "${openKey}" not found in storage`);
-      openConsumed.current = true;
-      setSearchParams({}, { replace: true });
-    }
-  }, [openKey, openBucket, selectedBucket, data?.objects, isLoading, setSearchParams]);
+    openConsumed.current = true;
+    let cancelled = false;
+    storageApi
+      .getObjectMeta(selectedBucket, openKey)
+      .then(obj => {
+        if (cancelled) return;
+        setEditTarget(obj);
+        setSearchParams({}, { replace: true });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        toast.error(`Object "${openKey}" not found in storage`);
+        setSearchParams({}, { replace: true });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [openKey, openBucket, selectedBucket, setSearchParams]);
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -1282,7 +1322,7 @@ export function StoragePage() {
           <CardDescription className="font-inter">
             {isLoading
               ? 'Loading...'
-              : `${(data?.delimitedPrefixes.length ?? 0) + (data?.objects.length ?? 0)} items${prefix ? ` in ${prefix}` : ''}`}
+              : `${meta?.total ?? (data?.delimitedPrefixes.length ?? 0) + (data?.objects.length ?? 0)}${data?.capped ? '+' : ''} items${prefix ? ` in ${prefix}` : ''}`}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -1479,10 +1519,21 @@ export function StoragePage() {
             </Table>
           )}
 
-          {data?.truncated && (
+          {meta && (
+            <PaginationControls
+              offset={offset}
+              limit={limit}
+              total={meta.total}
+              hasMore={meta.hasMore}
+              onOffsetChange={setOffset}
+              onLimitChange={handleLimitChange}
+            />
+          )}
+
+          {data?.capped && (
             <p className="mt-4 text-center font-inter text-tiny text-muted-foreground">
-              Showing {(data.delimitedPrefixes.length ?? 0) + (data.objects.length ?? 0)} of many
-              objects. Use a more specific prefix to narrow results.
+              This folder has more than {meta?.total} items — showing the first {meta?.total}. Use a
+              more specific prefix to see the rest.
             </p>
           )}
         </CardContent>

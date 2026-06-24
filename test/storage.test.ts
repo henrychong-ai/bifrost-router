@@ -175,6 +175,89 @@ describe('storage routes', () => {
       }
     });
 
+    // --- Offset pagination mode (v1.29.0, mirrors the Routes tab) ---
+
+    it('offset mode returns pagination meta and slices the page', async () => {
+      const app = createApp();
+      for (let i = 0; i < 5; i++) {
+        await uploadFile(app, 'files', `offset-page/file${i}.txt`, `x${i}`);
+      }
+
+      const page1 = await app.fetch(
+        new Request(
+          'http://example.com/api/storage/files/objects?prefix=offset-page/&delimiter=/&limit=2&offset=0',
+          { headers: authHeaders },
+        ),
+        testEnv,
+      );
+      const d1 = await page1.json();
+      expect(d1.data.meta).toBeDefined();
+      expect(d1.data.meta.total).toBe(5);
+      expect(d1.data.meta.offset).toBe(0);
+      expect(d1.data.meta.limit).toBe(2);
+      expect(d1.data.meta.hasMore).toBe(true);
+      expect(d1.data.objects).toHaveLength(2);
+      expect(d1.data.capped).toBe(false);
+
+      const last = await app.fetch(
+        new Request(
+          'http://example.com/api/storage/files/objects?prefix=offset-page/&delimiter=/&limit=2&offset=4',
+          { headers: authHeaders },
+        ),
+        testEnv,
+      );
+      const dl = await last.json();
+      expect(dl.data.objects).toHaveLength(1);
+      expect(dl.data.meta.hasMore).toBe(false);
+    });
+
+    it('offset mode paginates folders before files (folders-first)', async () => {
+      const app = createApp();
+      await uploadFile(app, 'files', 'offset-mix/sub-a/x.txt', 'x');
+      await uploadFile(app, 'files', 'offset-mix/sub-b/y.txt', 'y');
+      await uploadFile(app, 'files', 'offset-mix/a-file.txt', 'a');
+      await uploadFile(app, 'files', 'offset-mix/b-file.txt', 'b');
+
+      const p1 = await app.fetch(
+        new Request(
+          'http://example.com/api/storage/files/objects?prefix=offset-mix/&delimiter=/&limit=2&offset=0',
+          { headers: authHeaders },
+        ),
+        testEnv,
+      );
+      const r1 = await p1.json();
+      expect(r1.data.meta.total).toBe(4);
+      expect(r1.data.delimitedPrefixes).toHaveLength(2);
+      expect(r1.data.objects).toHaveLength(0);
+
+      const p2 = await app.fetch(
+        new Request(
+          'http://example.com/api/storage/files/objects?prefix=offset-mix/&delimiter=/&limit=2&offset=2',
+          { headers: authHeaders },
+        ),
+        testEnv,
+      );
+      const r2 = await p2.json();
+      expect(r2.data.delimitedPrefixes).toHaveLength(0);
+      expect(r2.data.objects).toHaveLength(2);
+    });
+
+    it('legacy mode (no offset) returns no pagination meta', async () => {
+      const app = createApp();
+      await uploadFile(app, 'files', 'offset-legacy/one.txt', '1');
+      const response = await app.fetch(
+        new Request(
+          'http://example.com/api/storage/files/objects?prefix=offset-legacy/&delimiter=/',
+          { headers: authHeaders },
+        ),
+        testEnv,
+      );
+      const data = await response.json();
+      expect(data.data.objects).toHaveLength(1);
+      expect(data.data.meta).toBeUndefined();
+      expect(data.data.capped).toBeUndefined();
+    });
+
     it('returns 404 for invalid bucket name', async () => {
       const app = createApp();
 

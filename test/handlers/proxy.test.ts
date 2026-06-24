@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { Hono } from 'hono';
 import { env } from 'cloudflare:test';
 import { handleProxy } from '../../src/handlers/proxy';
@@ -190,6 +190,50 @@ describe('handleProxy', () => {
 
       // Route without hostHeader should be valid
       expect(route.hostHeader).toBeUndefined();
+    });
+  });
+
+  describe('query string forwarding (preserveQuery)', () => {
+    const capturedUrl = (route: KVRouteConfig, requestUrl: string) => {
+      const app = new Hono<AppEnv>();
+      app.get('/svc', c => handleProxy(c, route));
+      let captured = '';
+      const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+        captured =
+          typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+        return new Response('ok', { status: 200 });
+      });
+      return app
+        .fetch(new Request(requestUrl), env)
+        .then(() => captured)
+        .finally(() => spy.mockRestore());
+    };
+
+    it('forwards the query string by default', async () => {
+      const route: KVRouteConfig = {
+        path: '/svc',
+        type: 'proxy',
+        target: 'https://api.example.com/up',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      const captured = await capturedUrl(route, 'http://localhost/svc?a=1&b=2');
+      expect(captured).toContain('a=1');
+      expect(captured).toContain('b=2');
+    });
+
+    it('drops the query string when preserveQuery is false', async () => {
+      const route: KVRouteConfig = {
+        path: '/svc',
+        type: 'proxy',
+        target: 'https://api.example.com/up',
+        preserveQuery: false,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      const captured = await capturedUrl(route, 'http://localhost/svc?file=../../etc/passwd');
+      expect(captured).not.toContain('file=');
+      expect(captured).not.toContain('..');
     });
   });
 });

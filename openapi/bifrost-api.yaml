@@ -397,9 +397,10 @@ paths:
           schema:
             type: string
             default: /
+        - $ref: '#/components/parameters/OffsetQuery'
       responses:
         '200':
-          description: Object listing
+          description: Object listing (offset mode adds meta + capped)
 
   /api/storage/{bucket}/meta/{key}:
     get:

@@ -98,9 +98,13 @@ export async function handleProxy(
     targetUrl.pathname = existingPath + targetPath;
   }
 
-  // Preserve query string
+  // Preserve query string from original request (default: true). When a route
+  // sets preserveQuery=false, drop ALL incoming query params so they never reach
+  // the upstream (honours the dashboard toggle — previously ignored for proxy
+  // routes — and lets an operator stop traversal/LFI-shaped query probes being
+  // forwarded on routes that don't need a query string).
   const requestUrl = new URL(c.req.url);
-  if (requestUrl.search) {
+  if (route.preserveQuery !== false && requestUrl.search) {
     targetUrl.search = requestUrl.search;
   }
   const fullTargetUrl = targetUrl.toString();

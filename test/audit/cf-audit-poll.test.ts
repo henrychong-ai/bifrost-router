@@ -16,7 +16,7 @@
  * stub hygiene is local to this file: beforeEach unstubs between tests and a
  * file-level afterAll restores globals so nothing leaks into other suites.
  */
-import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { pollCfAuditLogs } from '../../src/audit/cf-audit-poll';
 import type { Bindings } from '../../src/types';
@@ -104,6 +104,16 @@ describe('pollCfAuditLogs', () => {
     await env.DB.prepare('DELETE FROM audit_logs').run();
     await env.DB.prepare('DELETE FROM poll_cursors').run();
     vi.unstubAllGlobals();
+    // Freeze the clock just after the stubbed entries' `when` (2026-06-10T08:00Z)
+    // so the poller's first-run lookback window (now − 24h) always contains them.
+    // Keeps the watermark assertions deterministic — de-pins a former wall-clock
+    // dependency. Fakes Date only, leaving real timers so async is unaffected.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-06-10T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   // No shared test/setup.ts in this repo — restore the fetch stub at file end
