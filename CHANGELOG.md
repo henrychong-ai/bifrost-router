@@ -6,6 +6,16 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.29.1 (2026-06-25) — Dependency security maintenance
+
+Security-only dependency maintenance for current audit advisories; no major-version updates or behavioural changes intended.
+
+- **[security] Patched direct vulnerable dev/runtime packages.** `hono` is constrained to `>=4.12.25`, `vitest` / `@vitest/coverage-v8` to `>=3.2.6`, and admin `vite` to `>=7.3.5`.
+- **[security] Patched vulnerable transitive ranges.** Added scoped pnpm overrides for `undici` 7.x/8.x, `ws` 8.x, `esbuild` 0.x, and `@babel/core` 7.x advisory ranges.
+- **[version] Bumped Bifrost to v1.29.1.** Updated package metadata, `wrangler.toml`, and repo instructions.
+
+---
+
 ## v1.29.0 (2026-06-24) — Storage-tab pagination + proxy preserveQuery fix
 
 - **[feature] Storage-tab offset pagination.** The Storage tab can now page through a folder beyond 100 items — prev/next + page-size selector + total count. `GET /api/storage/:bucket/objects` gains an **offset mode** (triggered by an explicit `offset` query param): one capped `bucket.list` (`LIST_MATERIALISE_CAP = 1000`, a single call), a synthesised `total`, and a combined folders-first slice, returning `meta:{total,count,offset,limit,hasMore}` + `capped`. **Cursor/legacy mode (no `offset`) is preserved** so the MCP server's forward-cursor pagination is unaffected. Files: `src/routes/storage.ts`, `shared/src/{types,client}.ts`, `admin/src/lib/api-client.ts`, `admin/src/pages/storage.tsx`, `openapi/bifrost-api.yaml`, `test/storage.test.ts`.
