@@ -6,6 +6,21 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.29.1 (2026-07-03) — dependency security patches
+
+Security dependency maintenance only. No major-version bumps; no behavioural changes expected.
+
+### Security updates
+
+- `hono` `^4.12.23` -> `^4.12.27` in the root Worker and Slackbot, plus the workspace override minimum to `>=4.12.25`, to satisfy Hono middleware and adapter advisories patched in 4.12.25.
+- `vitest` / `@vitest/coverage-v8` `^3.2.4` -> `^3.2.6` for the root Worker and Slackbot test stack to pick up the Vitest UI/API arbitrary file read and execution fix.
+- `vite` `^7.3.2` -> `^7.3.5` in the admin app, with range-scoped overrides for vulnerable Vite 7.x and 8.x transitive lines.
+- Added current-major transitive overrides for `undici`, `ws`, `esbuild`, and `@babel/core` to force patched lockfile resolutions for the open GitHub/npm advisories.
+
+### Deferred
+
+- Dependabot PR #18 (`vitest` 3.x -> 4.x in root/Slackbot) remains deferred because it is a major test-stack upgrade and would need a coordinated `@cloudflare/vitest-pool-workers` compatibility change.
+
 ## v1.29.0 (2026-06-24) — Storage-tab pagination + proxy preserveQuery fix
 
 - **[feature] Storage-tab offset pagination.** The Storage tab can now page through a folder beyond 100 items — prev/next + page-size selector + total count. `GET /api/storage/:bucket/objects` gains an **offset mode** (triggered by an explicit `offset` query param): one capped `bucket.list` (`LIST_MATERIALISE_CAP = 1000`, a single call), a synthesised `total`, and a combined folders-first slice, returning `meta:{total,count,offset,limit,hasMore}` + `capped`. **Cursor/legacy mode (no `offset`) is preserved** so the MCP server's forward-cursor pagination is unaffected. Files: `src/routes/storage.ts`, `shared/src/{types,client}.ts`, `admin/src/lib/api-client.ts`, `admin/src/pages/storage.tsx`, `openapi/bifrost-api.yaml`, `test/storage.test.ts`.
