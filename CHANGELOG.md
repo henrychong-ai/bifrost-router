@@ -6,6 +6,16 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.29.1 (2026-07-23) — dependency maintenance (minor/patch)
+
+Routine in-major dependency refresh across the workspace. No source changes; all checks green (lint + format + typecheck + test — 544 + 117 + 80 + 159 + 104 tests passing; shared/mcp/admin builds clean).
+
+- **[deps] Root Worker**: `hono` 4.12.23 → 4.12.31 (also bumped the pnpm `overrides` floor `>=4.12.18` → `>=4.12.31` so the pin actually resolves forward), `wrangler` 4.98.0 → 4.114.0, `oxlint` 1.68.0 → 1.75.0, `@biomejs/biome` 2.4.16 → 2.5.5, `vitest` 3.2.4 → 3.2.7 + `@vitest/coverage-v8` 3.2.4 → 3.2.7 (incorporates Dependabot PR #20's vitest security-group patch backport).
+- **[deps] Slackbot**: `hono` 4.12.23 → 4.12.31, `wrangler` 4.98.0 → 4.114.0, `vitest` 3.2.4 → 3.2.7.
+- **[deps] shared / mcp**: `vitest` 4.1.8 → 4.1.10.
+- **[deps] Dashboard (admin)**: Radix UI primitives (`react-alert-dialog`/`react-dialog` 1.1.15 → 1.1.21, `react-dropdown-menu` 2.1.16 → 2.1.22, `react-label` 2.1.8 → 2.1.13, `react-select` 2.2.6 → 2.3.5, `react-separator` 1.1.8 → 1.1.13, `react-slot` 1.2.4 → 1.3.1, `react-switch` 1.2.6 → 1.3.5, `react-tabs` 1.1.13 → 1.1.19, `react-tooltip` 1.2.8 → 1.2.14), `react`/`react-dom` 19.2.7 → 19.2.8, `react-hook-form` 7.77.0 → 7.82.0, `react-router-dom` 7.17.0 → 7.18.1, `recharts` 3.8.1 → 3.10.0, `@tanstack/react-query` 5.101.0 → 5.101.4, `@types/react` 19.2.16 → 19.2.17, `tailwindcss` + `@tailwindcss/vite` 4.3.0 → 4.3.3, `eslint` 10.4.1 → 10.7.0, `eslint-plugin-oxlint` 1.68.0 → 1.75.0, `eslint-plugin-react-refresh` 0.5.2 → 0.5.3, `typescript-eslint` 8.60.1 → 8.65.0, `vitest` 4.1.8 → 4.1.10.
+- **[deps] Held back (major — out of scope)**: `typescript` 5→7, `vitest`/`@vitest/coverage-v8` 3→4 (root/slackbot; Dependabot PR #18 skipped), `@cloudflare/vitest-pool-workers` 0.12→0.18 (couples to vitest 4), `@cloudflare/workers-types` 4→5, `lint-staged` 16→17, `@vitejs/plugin-react` 5→6, `vite` 7→8, `lucide-react` 0→1, `@types/node` 25→26.
+
 ## v1.29.0 (2026-06-24) — Storage-tab pagination + proxy preserveQuery fix
 
 - **[feature] Storage-tab offset pagination.** The Storage tab can now page through a folder beyond 100 items — prev/next + page-size selector + total count. `GET /api/storage/:bucket/objects` gains an **offset mode** (triggered by an explicit `offset` query param): one capped `bucket.list` (`LIST_MATERIALISE_CAP = 1000`, a single call), a synthesised `total`, and a combined folders-first slice, returning `meta:{total,count,offset,limit,hasMore}` + `capped`. **Cursor/legacy mode (no `offset`) is preserved** so the MCP server's forward-cursor pagination is unaffected. Files: `src/routes/storage.ts`, `shared/src/{types,client}.ts`, `admin/src/lib/api-client.ts`, `admin/src/pages/storage.tsx`, `openapi/bifrost-api.yaml`, `test/storage.test.ts`.
