@@ -52,12 +52,24 @@ const QR_ID_MAX_LENGTH = 32;
  * rather than this function inventing padding.
  */
 export function normalizeQrId(input: string): string {
+  return normalizeQrIdInput(input).replace(/-+$/, '');
+}
+
+/**
+ * Typing-friendly variant for CONTROLLED INPUTS (v1.58.8 fix): identical to
+ * {@link normalizeQrId} except it does NOT strip a trailing hyphen. A
+ * controlled input that re-bases on the fully-normalised value eats the
+ * hyphen the moment it is typed (the end of the string is exactly where a
+ * user types kebab-case), making hyphens impossible to enter. Use this on
+ * every keystroke; apply the full normalizeQrId on blur and at submit so the
+ * stored id never carries a trailing separator.
+ */
+export function normalizeQrIdInput(input: string): string {
   return input
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+/, '')
-    .slice(0, QR_ID_MAX_LENGTH)
-    .replace(/-+$/, '');
+    .slice(0, QR_ID_MAX_LENGTH);
 }
 /** Max number of tags per QR code. */
 export const QR_MAX_TAGS = 10;

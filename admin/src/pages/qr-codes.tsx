@@ -17,6 +17,7 @@ import {
   QR_LOGO_MAX_BYTES,
   deriveBrandForDomain,
   normalizeQrId,
+  normalizeQrIdInput,
   qrContrastRatio,
   renderQrSvg,
   serializePayload,
@@ -263,7 +264,11 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
 
   const submit = () => {
     const input: Record<string, unknown> = {
-      ...(mode === 'create' ? { type: s.type, ...(s.id.trim() ? { id: s.id.trim() } : {}) } : {}),
+      ...(mode === 'create'
+        ? // Full normalisation at submit — the typing-friendly input normaliser
+          // permits a trailing hyphen that QR_ID_REGEX would reject server-side.
+          { type: s.type, ...(normalizeQrId(s.id) ? { id: normalizeQrId(s.id) } : {}) }
+        : {}),
       payload: payloadFromState(s),
       design: designFromState(s),
       // Always submit description — an explicit '' clears it server-side (codex F7).
@@ -307,7 +312,9 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
                 value={s.id}
                 // Normalise on the way IN, so what you see is what is stored —
                 // the same doctrine as route paths and R2 keys.
-                onChange={e => set({ id: normalizeQrId(e.target.value), idTouched: true })}
+                onChange={e => set({ id: normalizeQrIdInput(e.target.value), idTouched: true })}
+                // Trailing separators are allowed WHILE typing; tidy them on blur.
+                onBlur={() => set({ id: normalizeQrId(s.id) })}
               />
             </div>
           </div>

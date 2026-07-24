@@ -190,6 +190,7 @@ export {
   serializePayload,
   generateQrId,
   normalizeQrId,
+  normalizeQrIdInput,
   type QRType,
   type QRDesign,
   type QRCode,

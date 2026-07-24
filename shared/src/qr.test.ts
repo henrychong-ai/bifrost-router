@@ -18,6 +18,7 @@ import {
   serializePayload,
   generateQrId,
   normalizeQrId,
+  normalizeQrIdInput,
 } from './qr.js';
 
 /** Build a base64 data URI whose decoded size is exactly `bytes`. */
@@ -712,5 +713,27 @@ describe('logoDataUri attribute-breakout hardening', () => {
       QRDesignSchema.safeParse({ ...base, logoDataUri: 'data:image/png;base64,iVBORw0KGgo=' })
         .success,
     ).toBe(true);
+  });
+
+  describe('normalizeQrIdInput (v1.58.8 — typing-friendly controlled-input variant)', () => {
+    it('preserves a trailing hyphen while typing (the controlled-input hyphen-eating fix)', () => {
+      // Keystroke sequence 'office' -> '-' -> 'w': the input normaliser must
+      // keep the trailing hyphen so the next character lands after it.
+      expect(normalizeQrIdInput('office-')).toBe('office-');
+      expect(normalizeQrIdInput('office-w')).toBe('office-w');
+    });
+
+    it('still collapses separator runs, strips leading separators, lowercases, and caps', () => {
+      expect(normalizeQrIdInput('office--')).toBe('office-');
+      expect(normalizeQrIdInput('-office')).toBe('office');
+      expect(normalizeQrIdInput('Office WiFi ')).toBe('office-wifi-');
+      expect(normalizeQrIdInput('x'.repeat(40)).length).toBe(32);
+    });
+
+    it('normalizeQrId is exactly the input variant plus the trailing trim', () => {
+      for (const raw of ['office-', 'Office WiFi ', '-a-', 'a--b--', 'x'.repeat(40)]) {
+        expect(normalizeQrId(raw)).toBe(normalizeQrIdInput(raw).replace(/-+$/, ''));
+      }
+    });
   });
 });

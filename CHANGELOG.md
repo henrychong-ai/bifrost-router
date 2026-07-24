@@ -6,6 +6,10 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.30.2 (2026-07-24) — fix: Reference field eats typed hyphens (controlled-input trailing-trim)
+
+**[fix] Hyphens are now typeable in the QR "Reference" field.** The controlled input re-based on the fully-normalised value on EVERY keystroke, and `normalizeQrId()`'s final step strips trailing hyphens — but the end of the string is exactly where kebab-case hyphens are typed, so each one vanished the moment it was entered (`office` → type `-` → field snapped back to `office` → next char produced `officew`). Pasted values and interior separators survived, which made the loss look intermittent. Fix: new `normalizeQrIdInput()` (identical chain WITHOUT the trailing trim) runs on keystrokes; the full `normalizeQrId()` now applies on blur AND at submit (the submit previously sent the raw value, so a trailing hyphen would also have 400'd against `QR_ID_REGEX`). Regression tests cover the keystroke sequence, separator-run collapse, and the exact input-variant+trim equivalence.
+
 ## v1.30.0 (2026-07-24) — QR codes, in-dashboard User Guide, and file-comment MCP writes
 
 The largest feature port to date, carried over from the internal Bifrost deployments' hardened releases and shipped generic for self-hosters.
