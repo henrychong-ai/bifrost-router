@@ -12,6 +12,7 @@ import {
   Plus,
   Replace,
   RotateCcw,
+  QrCode,
   Settings,
   ToggleLeft,
   Trash2,
@@ -41,6 +42,9 @@ const ACTION_ICONS: Record<AuditAction, LucideIcon> = {
   r2_object_create: Globe,
   r2_object_delete: Globe,
   cf_config_change: Settings,
+  qr_create: QrCode,
+  qr_update: QrCode,
+  qr_delete: QrCode,
 };
 
 export function AuditActionIcon({

@@ -104,3 +104,48 @@ export type UpdateRouteInput = z.infer<typeof UpdateRouteSchema>;
  * Current schema version for migrations
  */
 export const SCHEMA_VERSION = '2.0.0';
+
+// =============================================================================
+// QR code keys (v1.30.0 — ported from upstream v1.54.0)
+// =============================================================================
+
+/**
+ * Namespace prefix separating QR records from route keys in the shared KV
+ * namespace. Route keys are `{domain}:{path}` and domains never contain ':',
+ * so `qr:`-prefixed keys cannot collide with any route key — but full-namespace
+ * scanners (getAllRoutesAllDomains, backups) must be aware of them.
+ */
+export const QR_KV_NAMESPACE = 'qr:';
+
+/**
+ * Build a KV key for a QR code record
+ * @param domain - The domain the QR belongs to (e.g., "links.example.com")
+ * @param id - The QR id (generated 12-char hex or user slug)
+ */
+export function qrKey(domain: string, id: string): string {
+  return `${QR_KV_NAMESPACE}${domain}:${id}`;
+}
+
+/**
+ * Parse a QR KV key into domain and id
+ * @param key - The KV key (e.g., "qr:links.example.com:office-wifi")
+ * @returns [domain, id] tuple
+ */
+export function parseQRKey(key: string): [string, string] {
+  if (!key.startsWith(QR_KV_NAMESPACE)) {
+    throw new Error(`Invalid QR key format: ${key}`);
+  }
+  const rest = key.substring(QR_KV_NAMESPACE.length);
+  const colonIndex = rest.indexOf(':');
+  if (colonIndex === -1) {
+    throw new Error(`Invalid QR key format: ${key}`);
+  }
+  return [rest.substring(0, colonIndex), rest.substring(colonIndex + 1)];
+}
+
+/**
+ * Build a prefix for listing all QR codes for a domain
+ */
+export function qrDomainPrefix(domain: string): string {
+  return `${QR_KV_NAMESPACE}${domain}:`;
+}

@@ -6,6 +6,36 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.30.0 (2026-07-24) — QR codes, in-dashboard User Guide, and file-comment MCP writes
+
+The largest feature port to date, carried over from the internal Bifrost deployments' hardened releases and shipped generic for self-hosters.
+
+### QR codes
+
+- **Unified QR resource** with optional route linking: URL / text / Wi-Fi / vCard payloads, KV-persisted under `qr:{domain}:{id}` in the existing ROUTES namespace (full-namespace scanners skip the prefix), CRUD at `/api/qr` + ephemeral `GET /api/qr/from-route`, authed-only SVG serving (`Cache-Control: private, no-store` — Wi-Fi payloads can carry credentials). Route-linked codes encode the SHORT URL: re-point the route, never reprint.
+- **Neutral by default, preset-ready**: the template ships no branded presets — every code defaults to black-on-white with full custom colour/logo fields. Add your own presets to `shared/src/qr-brand-presets.ts`; a drift-guard test forces every SUPPORTED_DOMAIN to be either branded or deliberately neutral, so new domains can never ship with an undecided design.
+- **Editor**: live preview with contrast warnings, Wi-Fi security categories (WPA universal / Enterprise 802.1X / Open / WEP) with credential redaction in audit rows, SVG + PNG downloads (canvas raster, wide-logo support), a Reference field with kebab normalisation + payload-derived prefill, field tooltips, and a Routes-page quick-QR action.
+- **API + audit**: plain-Hono routes under the admin chain (byte-budget payload cap, same-domain link guard, type immutability); new audit actions `qr_create` / `qr_update` / `qr_delete` (dashboard filters/icons derive automatically); OpenAPI spec gains the four QR path templates (seven operations) + enum values.
+- **MCP**: 6 new tools (`list_qrs`, `get_qr`, `create_qr`, `update_qr`, `delete_qr`, `get_route_qr`) — catalog 22 → 29 tools.
+
+### `update_object_comment` MCP tool
+
+File comments (readable via object list/meta responses) are now writable via MCP: input `{bucket, key, comment}` with comment REQUIRED — `null`/`''` clears, absence is a 400 (never a silent clear) — riding the existing `PUT /api/storage/:bucket/comment/:key` endpoint. Storage tools 10 → 11. Nullable-boundary regression tests included.
+
+### User Guide + Resources group
+
+- **In-dashboard User Guide** (`/guide`, lazy-loaded): 11 task-first sections covering the whole platform for a self-hosted single-operator deployment, with a coverage parity test (every sidebar page must be documented or CI fails) and a first-visit **welcome dialog** (localStorage once-per-browser, never re-prompts).
+- **MCP tab** (`/integrations/mcp`): tool catalog derived live from the shared definitions + stdio install instructions for Claude Code / Claude Desktop.
+- **Sidebar Resources group** (User Guide → MCP → Changelog, order pinned by test) via a new `layout/nav-items.ts` module; Cmd+K palette gains QR Codes / User Guide / MCP entries; contextual `?` help icons deep-link into guide sections.
+- **Changelog release dates**: version headers now carry dates rendered on the Changelog page; all undated historical headers were backfilled from git history (80/80 dated).
+
+**Review round (codex GPT-5.6 + code review + security review, converged in 1 iteration):** security CLEAN (auth-chain inheritance, SVG injection surfaces, KV keying, audit redaction all verified). Applied in-loop: `backupKV` now includes `qr:{domain}:` keys (QR records were silently absent from daily backups) + regression test; MCP tab snippets corrected to `EDGE_ROUTER_API_KEY` (the variable the stdio server actually reads); the Routes-row "QR Code" action (preview/downloads + Save-as-QR route linking with dedup guard) added so the dynamic-QR workflow is reachable from the dashboard; `@vitest/coverage-v8` realigned to the vitest-3 root graph (admin carries its own v4 pin); mcp/README tool tables completed + catalog count pins in tests; guide prose corrected; deep sanitisation pass on fixtures/comments (generic names, example-family domains); 9 QR route integration tests added. **Known considerations (deferred):** admin API errors are plain-text `HTTPException` responses repo-wide (the dashboard shows a generic message rather than the server detail); stored-QR dashboard previews always encode the short URL (the Worker's image endpoint additionally falls back to the stored payload if a linked route was deleted); MCP `clearLinkedRoute` expects a real boolean.
+
+### Internals & chores
+
+- `src/routes/request-context.ts` extracted from admin.ts (shared domain/actor helpers for the admin sub-routers); dialog `feedbackTrigger` prop (in-dialog feedback button); `qrcode-svg` dependency (shared).
+- Dependency refresh: within-range `pnpm update -r` + `@vitest/coverage-v8` 3.x → 4.1.10 (vitest 4 peer), audit clean. Includes the 2026-07-10 security-advisory patches.
+
 ## v1.29.0 (2026-06-24) — Storage-tab pagination + proxy preserveQuery fix
 
 - **[feature] Storage-tab offset pagination.** The Storage tab can now page through a folder beyond 100 items — prev/next + page-size selector + total count. `GET /api/storage/:bucket/objects` gains an **offset mode** (triggered by an explicit `offset` query param): one capped `bucket.list` (`LIST_MATERIALISE_CAP = 1000`, a single call), a synthesised `total`, and a combined folders-first slice, returning `meta:{total,count,offset,limit,hasMore}` + `capped`. **Cursor/legacy mode (no `offset`) is preserved** so the MCP server's forward-cursor pagination is unaffected. Files: `src/routes/storage.ts`, `shared/src/{types,client}.ts`, `admin/src/lib/api-client.ts`, `admin/src/pages/storage.tsx`, `openapi/bifrost-api.yaml`, `test/storage.test.ts`.
@@ -146,7 +176,7 @@ All five new face declarations carry `font-display: swap` so non-blocking; FCP i
 
 ---
 
-## v1.24.0 — Global security headers hardening + CI gate
+## v1.24.0 (2026-05-27) — Global security headers hardening + CI gate
 
 Tightens `secureHeaders()` and adds a closed-allowlist Permissions-Policy header on every response. Brings the template's security headers in line with a production hardening baseline. Also closes a recursive-typecheck CI gap that hides root Worker type errors from the `check` chain.
 
@@ -200,7 +230,7 @@ Single-commit revert per file. No data migration, no schema, no state.
 
 ---
 
-## v1.23.0 — Dashboard typography: Gilroy → Inter Variable (full Inter v4 spec)
+## v1.23.0 (2026-05-26) — Dashboard typography: Gilroy → Inter Variable (full Inter v4 spec)
 
 Replaces Gilroy with **Inter Variable v4.1** as the dashboard typeface. Single-pass migration consolidating the full Inter v4 design-system stack — font swap, optical sizing, weight standardisation, and the size-tied tracking table — into one Y-bump.
 
@@ -280,7 +310,7 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
 
 ---
 
-## v1.22.12
+## v1.22.12 (2026-05-07)
 
 ### Changed
 - **Bump minor/patch dependencies** — routine refresh + security pickups:
@@ -303,7 +333,7 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
 
 ---
 
-## v1.22.11
+## v1.22.11 (2026-05-07)
 
 ### Changed
 - Trimmed verbosity introduced by the v1.22.7–v1.22.10 series:
@@ -323,28 +353,28 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
 > happened in lockstep upstream), v1.22.10 corrects the failure status
 > code from 404 to 503 per Codex review.
 
-## v1.22.10
+## v1.22.10 (2026-05-07)
 
 ### Changed
 - `safeServiceFetch` failure path now serves **503 instead of 404** — 404 conflated "URL doesn't exist" with "upstream is unavailable", hiding incidents and confusing CDN cache. One-line change in `src/index.ts`; helper unchanged. Mirrors upstream Bifrost v1.22.10.
 
 ---
 
-## v1.22.9
+## v1.22.9 (2026-05-07)
 
 ### Added
 - `safeServiceFetch` helper for service-binding fetch resilience — `src/utils/safe-service-fetch.ts` exports `safeServiceFetch(service, req, ctx) → Promise<Response | null>` which wraps `service.fetch(new Request(req))` in `try/catch`. URL-parse errors (e.g. `/%252fmaster%252f.env` from scanners) and binding failures return `null` + `warn` log instead of `scriptThrewException`. The service-fallback branch in `src/index.ts` calls the helper. 8 unit tests in `test/utils/safe-service-fetch.test.ts`.
 
 ---
 
-## v1.22.7
+## v1.22.7 (2026-05-06)
 
 ### Fixed
 - Added `enabled = true` to the top-level `[observability]` block in `wrangler.toml`. Without the parent flag, Cloudflare retains no Workers Logs or Traces — child flags alone don't persist.
 
 ---
 
-## v1.22.6
+## v1.22.6 (2026-04-15)
 
 ### Changed
 - **Bump minor/patch dependencies** — routine dev-tooling refresh:
@@ -355,14 +385,14 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
 
 ---
 
-## v1.22.5
+## v1.22.5 (2026-04-15)
 
 ### Changed
 - **Restore Gilroy `@font-face` declarations (public CDN default)** — v1.22.4 removed the four `@font-face` blocks that loaded Gilroy from a public CDN, thinking it was a leak. The CDN bucket is in fact a public R2 bucket intended to serve the font publicly, so it's an appropriate default for this template. Restored the declarations in `admin/src/index.css` with an updated comment explaining that (a) the default loads from this public CDN, (b) the `font-display: swap` fallback stack handles CDN-unreachable cases gracefully, and (c) self-hosters can replace the blocks with their own font URLs. The rest of the v1.22.4 sanitisation sweep (the `VITE_API_URL` default, server comments, absolute-path examples, JSDoc host examples, and upstream provenance references) remains unchanged.
 
 ---
 
-## v1.22.4
+## v1.22.4 (2026-04-15)
 
 ### Changed
 - **Sanitisation sweep for public distribution** — remove or genericise residual references to personal/team infrastructure that had leaked into the public template:
@@ -378,7 +408,7 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
 
 ---
 
-## v1.22.3
+## v1.22.3 (2026-04-15)
 
 ### Changed
 - **Docker build cache optimisations — `admin/Dockerfile.tailscale` + `.dockerignore`** — bundle of six changes that move the build-cache hit rate on typical release-tag builds from ~16% (baseline) to ~40–60%, and skip `pnpm install` / vite build entirely on source-only commits:
@@ -392,7 +422,7 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
 
 ---
 
-## v1.22.2
+## v1.22.2 (2026-04-14)
 
 ### Added
 - **Drift-detection test for `SUPPORTED_DOMAINS`** — `test/supported-domains-consistency.test.ts` asserts that all three hardcoded copies (`src/types.ts`, `shared/src/types.ts`, `admin/src/context/filter-types.ts`) plus the OpenAPI `DomainQuery` enum contain identical domain lists. Self-hosters adding new domains will get a CI failure if they miss any of the 4 locations.
@@ -402,14 +432,14 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
 
 ---
 
-## v1.22.1
+## v1.22.1 (2026-04-14)
 
 ### Changed
 - **Use `routeKey()` helper in normalize-case endpoint** — `POST /api/routes/normalize-case` now uses the existing `routeKey(domain, path)` helper from `src/kv/schema.ts` instead of hand-constructing keys. Refactor-only; no behaviour change.
 
 ---
 
-## v1.22.0
+## v1.22.0 (2026-04-14)
 
 **Case-insensitive routing + dependency bumps**
 
@@ -425,14 +455,14 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
 
 ---
 
-## v1.21.2
+## v1.21.2 (2026-04-12)
 
 ### Fixed
 - Add `sharp` to `pnpm.onlyBuiltDependencies` — resolves "Ignored build scripts" warning during install
 
 ---
 
-## v1.21.1
+## v1.21.1 (2026-04-11)
 
 **Security patches — dependabot advisories resolved**
 
@@ -448,7 +478,7 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
 
 ---
 
-## v1.21.0
+## v1.21.0 (2026-03-27)
 
 ### Added
 - **Copy target URL** — Copy icon next to destination URL in route edit dialog (redirect/proxy targets and R2 file URLs)
@@ -461,7 +491,7 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
 
 ---
 
-## v1.20.0
+## v1.20.0 (2026-03-27)
 
 **Duplicate target detection — real-time cross-domain route conflict awareness**
 
@@ -471,7 +501,7 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
 
 ---
 
-## v1.19.0
+## v1.19.0 (2026-03-26)
 
 **Copy Link — one-click URL sharing for routes and files**
 
@@ -485,7 +515,7 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
 
 ---
 
-## v1.18.3
+## v1.18.3 (2026-03-26)
 
 ### Dependencies
 - wrangler 4.73.0 → 4.77.0, hono 4.12.7 → 4.12.9, @biomejs/biome 2.4.6 → 2.4.9
@@ -494,14 +524,14 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
 
 ---
 
-## v1.18.2
+## v1.18.2 (2026-04-12)
 
 ### Fixed
 - **Docker build** — Add `CHANGELOG.md` to Dockerfile COPY step and `.dockerignore` whitelist so the changelog dashboard page can resolve `?raw` import during container build
 
 ---
 
-## v1.18.0
+## v1.18.0 (2026-03-26)
 
 ### Added
 - **Changelog dashboard** — New `/changelog` page with searchable version history, section badges, current version highlighting, and inline code rendering. Synced from upstream Bifrost v1.25.0.
@@ -512,21 +542,21 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
 
 ---
 
-## v1.17.2
+## v1.17.2 (2026-03-26)
 
 ### Fixed
 - **Security** — Patch 6 Dependabot alerts (all dev-only): picomatch ReDoS + method injection (→2.3.2/4.0.4), yaml stack overflow (→2.8.3), flatted prototype pollution (→3.4.2)
 
 ---
 
-## v1.17.1
+## v1.17.1 (2026-03-26)
 
 ### Fixed
 - **Audit logging** — Fix typecheck errors in transfer route and cache purge handlers using non-existent `actor` property instead of `actorLogin`/`actorName`
 
 ---
 
-## v1.17.0
+## v1.17.0 (2026-03-26)
 
 ### Changed
 - **Backup system** — Removed D1 analytics backup; D1 is now covered by Cloudflare Time Travel (automatic 30-day PITR). Backup system now backs up KV routes only (~8KB/day).
@@ -540,14 +570,14 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
 
 ---
 
-## v1.16.4
+## v1.16.4 (2026-03-15)
 
 ### Fixed
 - **Storage cross-nav** — Fix race condition where auto-open fired against cached data from wrong bucket before bucket selection completed
 
 ---
 
-## v1.16.3
+## v1.16.3 (2026-03-15)
 
 ### Added
 - **Storage dialog** — "View in Routes" clickable rows for associated routes, navigates to routes tab and auto-opens route's edit dialog
@@ -555,21 +585,21 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
 
 ---
 
-## v1.16.2
+## v1.16.2 (2026-03-15)
 
 ### Added
 - **Routes dialog** — "View in Storage" button for R2 routes, navigates to storage tab and auto-opens the file's edit dialog
 
 ---
 
-## v1.16.1
+## v1.16.1 (2026-03-13)
 
 ### Fixed
 - **Storage dialog** — Aligned popup width to match routes dialog (`sm:max-w-xl lg:max-w-2xl`)
 
 ---
 
-## v1.16.0
+## v1.16.0 (2026-03-13)
 
 **Sync upstream v1.24.1–v1.24.3: Route preview + standalone target links**
 

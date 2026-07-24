@@ -21,92 +21,17 @@ import { cors } from '../middleware/cors';
 import { analyticsRoutes } from './analytics';
 import { storageRoutes } from './storage';
 import { feedbackRoutes } from './feedback';
+import { qrRoutes } from './qr';
 import { recordAuditLog } from '../db/analytics';
 import type { AuditAction } from '../db/analytics';
 import { checkBackupHealth } from '../backup/health';
 import { parseOpenGraph, SSRFBlockedError, ResponseTooLargeError } from '../utils/og-parser';
 import { RoutesListQuerySchema } from '@bifrost/shared';
-
-/**
- * Result of parsing domain from request
- */
-type DomainParseResult =
-  | { valid: true; domain: string | undefined }
-  | { valid: false; error: string; domain?: undefined };
-
-/**
- * Get target domain from request (for listing routes)
- * Priority: X-Domain header > ?domain query param > undefined (all domains)
- * Returns validation result including whether an invalid domain was provided
- */
-function getDomainFromRequest(c: {
-  req: {
-    header: (name: string) => string | undefined;
-    query: (name: string) => string | undefined;
-  };
-}): DomainParseResult {
-  // Check X-Domain header first
-  const domainHeader = c.req.header('X-Domain');
-  if (domainHeader) {
-    if (isValidDomain(domainHeader)) {
-      return { valid: true, domain: domainHeader };
-    }
-    return { valid: false, error: `Invalid domain: ${domainHeader}` };
-  }
-
-  // Check query parameter
-  const domainQuery = c.req.query('domain');
-  if (domainQuery) {
-    if (isValidDomain(domainQuery)) {
-      return { valid: true, domain: domainQuery };
-    }
-    return { valid: false, error: `Invalid domain: ${domainQuery}` };
-  }
-
-  // Return undefined for "all domains" mode
-  return { valid: true, domain: undefined };
-}
-
-/**
- * Result of parsing required domain from request
- */
-type RequiredDomainParseResult =
-  | { valid: true; domain: string }
-  | { valid: false; error: string; domain?: undefined };
-
-/**
- * Get target domain from request (required for mutations)
- * Priority: X-Domain header > ?domain query param > ADMIN_API_DOMAIN env var > example.com fallback
- * Returns validation result - if invalid domain provided, returns validation failure
- */
-function getRequiredDomainFromRequest(c: {
-  req: {
-    header: (name: string) => string | undefined;
-    query: (name: string) => string | undefined;
-  };
-  env: { ADMIN_API_DOMAIN?: string };
-}): RequiredDomainParseResult {
-  const result = getDomainFromRequest(c);
-  if (!result.valid) {
-    // Invalid domain provided - caller should return 400
-    return result;
-  }
-  // Default to ADMIN_API_DOMAIN from env, or 'example.com' as fallback
-  const defaultDomain = c.env.ADMIN_API_DOMAIN || 'example.com';
-  return { valid: true, domain: result.domain ?? defaultDomain };
-}
-
-/**
- * Get actor info from Tailscale headers
- */
-function getActorInfo(c: { req: { header: (name: string) => string | undefined } }): {
-  login: string;
-  name: string | null;
-} {
-  const login = c.req.header('Tailscale-User-Login') || 'api-key';
-  const name = c.req.header('Tailscale-User-Name') || null;
-  return { login, name };
-}
+import {
+  getDomainFromRequest,
+  getRequiredDomainFromRequest,
+  getActorInfo,
+} from './request-context';
 
 /**
  * Admin API routes for route management
@@ -1004,3 +929,10 @@ adminRoutes.route('/analytics', analyticsRoutes);
  * Inherits domain restriction, CORS, and ADMIN_API_KEY auth from parent middleware
  */
 adminRoutes.route('/feedback', feedbackRoutes);
+
+/**
+ * QR code API routes (v1.30.0 — ported from upstream v1.54.0)
+ * Mounted at /api/qr/*
+ * Inherits domain restriction, CORS, and ADMIN_API_KEY auth from parent middleware
+ */
+adminRoutes.route('/qr', qrRoutes);

@@ -5,6 +5,8 @@ import {
   AuditActionSchema,
   AuditLogSchema,
   AuditSourceSchema,
+  QRCodeSchema,
+  type QRCode,
   type R2BucketName,
   type SupportedDomain,
   type AuditAction,
@@ -12,8 +14,8 @@ import {
 } from '@bifrost/shared';
 
 // Re-export for convenience
-export { R2_BUCKETS, SUPPORTED_DOMAINS };
-export type { R2BucketName, SupportedDomain };
+export { R2_BUCKETS, SUPPORTED_DOMAINS, QRCodeSchema };
+export type { R2BucketName, SupportedDomain, QRCode };
 
 // =============================================================================
 // R2 Bucket Configuration (imported from @bifrost/shared)

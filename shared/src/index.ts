@@ -156,3 +156,84 @@ export type {
   JsonSchemaObject,
   JsonSchemaProperty,
 } from './tools.js';
+
+// QR codes (v1.30.0 — ported from upstream v1.54.0) — the QR contract shared
+// by the Worker backend, the MCP server, and the admin dashboard: the type
+// enum, per-type payload schemas, design schema, stored-record +
+// create/update/list schemas, the WIFI:/MECARD: serializers, and id helpers.
+export {
+  QR_TYPES,
+  QR_ID_REGEX,
+  QR_DESCRIPTION_MAX_LENGTH,
+  QR_MAX_TAGS,
+  QR_TAG_MAX_LENGTH,
+  MAX_QR_PAYLOAD_LENGTH,
+  QR_LOGO_MAX_BYTES,
+  base64DecodedBytes,
+  QRTypeSchema,
+  UrlPayloadSchema,
+  TextPayloadSchema,
+  WifiAuthSchema,
+  WifiEapMethodSchema,
+  WifiPhase2Schema,
+  WifiPayloadSchema,
+  VcardPayloadSchema,
+  QRPayloadSchema,
+  QR_PAYLOAD_SCHEMAS,
+  QRDesignSchema,
+  QRLinkedRouteSchema,
+  QRCodeSchema,
+  CreateQRInputSchema,
+  UpdateQRInputSchema,
+  QRListQuerySchema,
+  escapeMecard,
+  serializePayload,
+  generateQrId,
+  normalizeQrId,
+  type QRType,
+  type QRDesign,
+  type QRCode,
+  type CreateQRInput,
+  type UpdateQRInput,
+  type QRListQuery,
+  type QRUrlPayload,
+  type QRTextPayload,
+  type QRWifiPayload,
+  type QRVcardPayload,
+  type QRPayload,
+  // MCP tool input schemas
+  ListQrsInputSchema,
+  GetQrInputSchema,
+  CreateQrToolInputSchema,
+  UpdateQrToolInputSchema,
+  DeleteQrInputSchema,
+  GetRouteQrInputSchema,
+  type ListQrsInput,
+  type GetQrInput,
+  type CreateQrToolInput,
+  type UpdateQrToolInput,
+  type DeleteQrInput,
+  type GetRouteQrInput,
+} from './qr.js';
+
+// Shared QR renderer (ported from upstream v1.54.0) — one renderer, three
+// consumers (Worker image endpoint, MCP base64 SVG, dashboard preview and
+// downloads). Pure string SVG output; runs identically in Worker + browser.
+export {
+  renderQrSvg,
+  qrContrastRatio,
+  LOGO_SIZE_RATIO,
+  WIDE_LOGO_MIN_RATIO,
+  WIDE_LOGO_WIDTH_RATIO,
+} from './qr-render.js';
+
+// QR design presets (v1.30.0) — neutral by default (self-hosters add their
+// own), drift-guarded against SUPPORTED_DOMAINS.
+export {
+  QR_BRAND_PRESETS,
+  QR_NEUTRAL_DOMAINS,
+  NEUTRAL_QR_DESIGN,
+  deriveBrandForDomain,
+  uncoveredDomains,
+  type QrBrandPreset,
+} from './qr-brand-presets.js';

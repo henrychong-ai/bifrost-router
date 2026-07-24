@@ -14,12 +14,18 @@ export interface ChangelogSection {
 
 export interface ChangelogVersion {
   version: string;
+  /** Release date (YYYY-MM-DD) from the heading — optional: never fabricated. */
+  date?: string;
   subtitle?: string;
   sections: ChangelogSection[];
 }
 
-// Regex patterns hoisted to module scope to avoid recompilation per line
-const RE_VERSION = /^## v([\d.]+)/;
+// Regex patterns hoisted to module scope to avoid recompilation per line.
+// Version heading shapes (all three historical formats):
+//   ## v1.58.0 (2026-07-24) — feat: subtitle   (newest — subtitle in heading)
+//   ## v1.20.0 (2026-02-25)                    (older — bold subtitle line follows)
+//   ## v1.11.4                                  (oldest — bare; date backfilled v1.58.1)
+const RE_VERSION = /^## v([\d.]+)(?:\s+\((\d{4}-\d{2}-\d{2})\))?(?:\s*[—–-]\s*(.+))?$/;
 const RE_SECTION = /^### (.+)$/;
 const RE_BOLD_DASH = /^\*\*(.+?)\*\*\s*[—–-]\s*(.+)$/;
 const RE_BOLD = /^\*\*(.+?)\*\*(.*)$/;
@@ -47,10 +53,17 @@ export function parseChangelog(raw: string): ChangelogVersion[] {
       continue;
     }
 
-    // Version header: ## v1.24.6 or ## v1.21.0 (2026-03-02)
+    // Version header — all three shapes (see RE_VERSION). The em-dash heading
+    // subtitle (group 3) is the card subtitle FALLBACK; a bold first line
+    // (older format) still takes precedence via the expectSubtitle branch.
     const versionMatch = trimmed.match(RE_VERSION);
     if (versionMatch) {
-      current = { version: versionMatch[1], sections: [] };
+      current = {
+        version: versionMatch[1],
+        ...(versionMatch[2] ? { date: versionMatch[2] } : {}),
+        ...(versionMatch[3] ? { subtitle: versionMatch[3].trim() } : {}),
+        sections: [],
+      };
       versions.push(current);
       currentSection = null;
       expectSubtitle = true;

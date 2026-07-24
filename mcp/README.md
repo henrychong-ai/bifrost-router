@@ -4,7 +4,7 @@ MCP (Model Context Protocol) server for bifrost. Provides AI-powered route, anal
 
 ## Features
 
-- **22 tools** for route management, analytics, and R2 storage
+- **29 tools** for route management, analytics, R2 storage, and QR codes
 - **Multi-domain support** for managing multiple domains through a single interface
 - **Stdio transport** with API-key auth for Claude Code/Desktop integration
 - **Type-safe** with Zod validation for all inputs
@@ -105,7 +105,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 - Fully restart Claude Desktop (Cmd+Q on macOS) after editing — stdio servers load at app launch.
 - Desktop's **Settings → Connectors** UI is for remote (HTTP/OAuth) MCP servers only and does not apply to this stdio server. `claude_desktop_config.json` is the stdio path.
 
-## Available Tools (22)
+## Available Tools (29)
 
 ### Route Management (8 tools)
 
@@ -129,7 +129,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 | `get_views` | Get paginated list of page views |
 | `get_slug_stats` | Get detailed stats for a specific slug |
 
-### R2 Storage (10 tools)
+### R2 Storage (11 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -142,7 +142,20 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 | `move_object` | Move an object to a different bucket |
 | `delete_object` | Delete an object |
 | `update_object_metadata` | Update HTTP metadata on an object |
+| `update_object_comment` | Set or clear the free-text comment on an object (null/'' clears) |
 | `purge_cache` | Purge the CDN cache for an object globally |
+
+### QR Codes (6 tools)
+
+| Tool | Description |
+|------|-------------|
+| `list_qrs` | List QR codes for a domain (filter by type/tag/search, paginated) |
+| `get_qr` | Get a QR code record (payload, design, linked route) |
+| `create_qr` | Create a QR code (url/text/vcard/wifi; url may link a route for dynamic-QR semantics) |
+| `update_qr` | Update description/tags/payload/design/route link (type is immutable) |
+| `delete_qr` | Delete a QR code (hard delete; the audit log preserves the record) |
+| `get_route_qr` | Render an ephemeral QR SVG for an existing route |
+
 
 > Feedback-queue triage has no MCP tools — use the REST API or the dashboard Feedback page (see `CLAUDE.md`).
 

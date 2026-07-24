@@ -1,10 +1,12 @@
 export { DashboardPage } from './dashboard';
 export { RoutesPage } from './routes';
 export { StoragePage } from './storage';
+export { QrCodesPage } from './qr-codes';
 export { RedirectsPage } from './redirects';
 export { ViewsPage } from './views';
 export { DownloadsPage } from './downloads';
 export { ProxyPage } from './proxy';
 export { AuditPage } from './audit';
 export { ChangelogPage } from './changelog';
+export { McpPage } from './mcp';
 export { FeedbackPage } from './feedback';

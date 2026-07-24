@@ -2,7 +2,7 @@
 
 Guidance for Claude Code when working with this repository.
 
-**Version:** 1.29.0 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.30.0 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Public repository — sanitisation (MANDATORY)
 
@@ -246,7 +246,7 @@ If the domain is missing from this list, the binding was never created.
 
 ## MCP Server
 
-**Package:** `@bifrost/mcp` - 22 tools (8 route + 4 analytics + 10 storage)
+**Package:** `@bifrost/mcp` - 29 tools (8 route + 4 analytics + 11 storage + 6 QR)
 
 Config in `~/.claude.json`:
 ```json
@@ -313,6 +313,14 @@ Cloudflare **Queues require Workers Paid**; everything else the feature uses (cr
 | The only hard failure is loud + documented | `wrangler queues create` on the free plan fails with Cloudflare's payment-required error — README states the prerequisite up front and shows the expected error |
 
 Contributors/ports must preserve all four rows — do not ship an uncommented consumer block, a default-on flag, or a poller that throws when unconfigured.
+
+## QR Codes (v1.30.0)
+
+Unified QR resource with optional route linking. Feature files: `shared/src/qr.ts` (contract) + `qr-render.ts` (SVG renderer) + `qr-brand-presets.ts` (ships NEUTRAL — self-hosters add presets; a drift-guard test forces every SUPPORTED_DOMAIN to be branded or deliberately neutral), `src/kv/qr.ts` (KV under `qr:{domain}:{id}` in the ROUTES namespace — full scans skip the prefix), `src/routes/qr.ts` (CRUD + `/from-route` + `/:id/image`, authed-only serving, `private, no-store` — Wi-Fi payloads can carry credentials), `admin/src/pages/qr-codes.tsx` + `lib/qr-form-state.ts` + `lib/qr-brand-logo.ts`, `mcp/src/tools/qr.ts` (6 tools). Audit actions `qr_create`/`qr_update`/`qr_delete` (Wi-Fi credentials redacted in audit projections). The record `id` is surfaced as "Reference", normalised by `normalizeQrId()`, prefilled from the type's payload field only (never the description); type is immutable post-create.
+
+## User Guide + Resources (v1.30.0)
+
+In-dashboard guide at `/guide` (lazy-loaded, 11 sections + first-visit welcome dialog), MCP tab at `/integrations/mcp` (stdio install + live tool catalog), sidebar Resources group (User Guide → MCP → Changelog — order pinned by `guide-coverage.test.ts`, which also fails CI when a sidebar page ships without guide coverage; items in `layout/nav-items.ts`). Changelog headers carry release dates rendered on the Changelog page. **Release step: update the User Guide when a release adds/changes user-facing behaviour.**
 
 ## Backup System
 

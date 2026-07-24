@@ -40,7 +40,9 @@ A lightweight, high-performance edge router and URL shortener built on Cloudflar
 - **KV-Powered** — Route changes propagate globally in seconds
 - **Admin API** — Full CRUD operations with API key authentication, search, and pagination
 - **Admin Dashboard** — React SPA with Command Palette (Cmd+K), filters, analytics, R2 Storage browser with file preview (images, PDFs) and standalone target links
-- **MCP Server** — AI-powered route and R2 storage management via Claude Code/Desktop (22 tools)
+- **MCP Server** — AI-powered route and R2 storage management via Claude Code/Desktop (29 tools)
+- **QR Codes** (v1.30.0) — unified QR resource (URL / text / Wi-Fi / vCard) with optional route linking (re-point, never reprint), a preset registry for your own branding, live preview, SVG + PNG export, and authed-only image serving
+- **User Guide** (v1.30.0) — in-dashboard guide (11 task-first sections) with a first-visit welcome dialog, contextual ? help links, an MCP integration tab, and dated changelog
 - **Analytics** — D1-powered click and page view tracking
 - **Wildcard Patterns** — Support for path patterns like `/blog/*`
 - **R2 Storage Management** — Browse, upload, download, rename, move, and delete R2 objects via API and dashboard
@@ -281,7 +283,7 @@ Add to your Claude Code config (`~/.claude.json`):
 
 For Claude Desktop, add the same entry (with full executable paths) to `~/Library/Application Support/Claude/claude_desktop_config.json` and restart the app. Or open this repo in Claude Code and ask it to **"install mcp"** — it will configure both surfaces for you.
 
-See [`mcp/README.md`](./mcp/README.md) for full setup and the 22-tool reference.
+See [`mcp/README.md`](./mcp/README.md) for full setup and the 29-tool reference.
 
 ### Optional: Slackbot
 

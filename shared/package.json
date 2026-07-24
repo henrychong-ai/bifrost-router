@@ -25,11 +25,12 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "qrcode-svg": "^1.1.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^25.9.1",
+    "@types/node": "^25.9.5",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.10"
   }
 }

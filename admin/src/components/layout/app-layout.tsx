@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
+import { WelcomeDialog } from '@/components/welcome-dialog';
 import { MessageSquarePlus } from 'lucide-react';
 import { SidebarProvider, SidebarTrigger, SidebarInset } from '@/components/ui/sidebar';
 import { AppSidebar } from './app-sidebar';
@@ -47,6 +48,7 @@ export function AppLayout() {
         </header>
         <main className="flex-1 overflow-auto p-6">
           <Outlet />
+          <WelcomeDialog />
         </main>
       </SidebarInset>
 

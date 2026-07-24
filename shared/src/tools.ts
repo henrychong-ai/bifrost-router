@@ -11,7 +11,8 @@ import { SUPPORTED_DOMAINS, R2_BUCKETS, ALL_R2_BUCKETS } from './types.js';
  * JSON Schema property definition
  */
 export interface JsonSchemaProperty {
-  type: string;
+  /** JSON Schema type — a string, or an array for nullable fields (v1.30.0). */
+  type: string | string[];
   description?: string;
   enum?: (string | number)[];
   default?: unknown;
@@ -617,6 +618,31 @@ export const toolDefinitions: ToolDefinition[] = [
     },
   },
   {
+    name: 'update_object_comment',
+    description:
+      'Set or clear the free-text comment/note on an existing R2 object (D1 sidecar — no object copy, any file size). The comment field is required: pass null or an empty string to clear the note.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        bucket: {
+          type: 'string',
+          description: `R2 bucket name. Available: ${R2_BUCKETS.join(', ')}`,
+          enum: [...R2_BUCKETS],
+        },
+        key: {
+          type: 'string',
+          description: 'Object key (path) to set the comment on',
+        },
+        comment: {
+          type: ['string', 'null'],
+          description:
+            'Free-text note/comment for the file (max 1000 chars). Pass null or an empty string to clear.',
+        },
+      },
+      required: ['bucket', 'key', 'comment'],
+    },
+  },
+  {
     name: 'purge_cache',
     description:
       'Purge CDN cache globally for an R2 object. Invalidates all Cloudflare edge PoPs for both Bifrost route URLs and R2 custom domain URLs serving this file.',
@@ -634,6 +660,131 @@ export const toolDefinitions: ToolDefinition[] = [
         },
       },
       required: ['bucket', 'key'],
+    },
+  },
+  // ===========================================================================
+  // QR Codes (v1.54.0)
+  // ===========================================================================
+  {
+    name: 'list_qrs',
+    description:
+      'List QR codes for a domain. Filter by type (url/text/vcard/wifi), exact tag, or a description/id substring; recency-sorted with offset/limit pagination.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        domain: domainProperty,
+        type: {
+          type: 'string',
+          description: 'Filter by QR type: url, text, vcard, or wifi',
+          enum: ['url', 'text', 'vcard', 'wifi'],
+        },
+        tag: { type: 'string', description: 'Filter by exact tag' },
+        search: {
+          type: 'string',
+          description: 'Case-insensitive substring over description and id',
+        },
+        limit: { type: 'number', description: 'Page size (1-1000)' },
+        offset: { type: 'number', description: 'Page offset' },
+      },
+    },
+  },
+  {
+    name: 'get_qr',
+    description: 'Get a QR code record by id (payload, design, linked route, timestamps).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'QR code id' },
+        domain: domainProperty,
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'create_qr',
+    description:
+      'Create a QR code. Types: url (any URI incl. mailto:/tel:/https:), text, vcard (contact card), wifi (scan-to-join). A url QR may link to a Bifrost route (linkedRoute) so the image encodes the short URL — re-point the route later without reprinting (dynamic QR).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        domain: domainProperty,
+        type: { type: 'string', description: 'QR type', enum: ['url', 'text', 'vcard', 'wifi'] },
+        payload: {
+          type: 'object',
+          description:
+            'Type-shaped payload: url {url}; text {text}; wifi {ssid, auth: WPA|WEP|nopass|WPA2-EAP, password, hidden?, eapMethod? PEAP|TTLS|TLS|PWD, phase2? MSCHAPV2|GTC|PAP, identity?, anonymousIdentity? — enterprise fields WPA2-EAP only}; vcard {name, phone?, email?, org?, title?, url?}',
+        },
+        id: {
+          type: 'string',
+          description: 'Optional slug (^[a-z0-9][a-z0-9-]{2,31}$); generated when omitted',
+        },
+        description: {
+          type: 'string',
+          description: 'Description shown in list views (max 100 chars)',
+        },
+        tags: { type: 'array', description: 'Up to 10 tags (max 30 chars each)' },
+        design: {
+          type: 'object',
+          description:
+            'Design overrides: fg/bg (#rrggbb), size (128-2048), margin (0-16), errorCorrection (L|M|Q|H), logoDataUri (<=100KB data URI), logoAspectRatio (w/h, >2 = wide wordmark window)',
+        },
+        linkedRoute: {
+          type: 'object',
+          description:
+            'url-type only: { domain, path } of the Bifrost route to encode as a short URL',
+        },
+      },
+      required: ['type', 'payload'],
+    },
+  },
+  {
+    name: 'update_qr',
+    description:
+      'Update a QR code: description, tags, payload (validated against the existing type — type itself is immutable), design, or route link (set clearLinkedRoute: true to unlink).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'QR code id' },
+        domain: domainProperty,
+        description: { type: 'string', description: 'New description' },
+        tags: { type: 'array', description: 'Replacement tag list' },
+        payload: { type: 'object', description: 'Replacement payload (same type as the record)' },
+        design: {
+          type: 'object',
+          description: 'FULL design replacement — omitted design fields reset to defaults',
+        },
+        linkedRoute: { type: 'object', description: 'url-type only: { domain, path } to link' },
+        clearLinkedRoute: { type: 'boolean', description: 'Set true to unlink the route' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'delete_qr',
+    description: 'Delete a QR code (hard delete; the audit log preserves the record).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'QR code id' },
+        domain: domainProperty,
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'get_route_qr',
+    description:
+      "Render an ephemeral QR SVG encoding an existing route's short URL (https://{domain}{path}). Writes nothing — use create_qr with linkedRoute to persist. Returns the SVG source.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        domain: domainProperty,
+        path: { type: 'string', description: 'Route path to encode (e.g., "/linkedin")' },
+        fg: { type: 'string', description: 'Foreground colour (#rrggbb)' },
+        bg: { type: 'string', description: 'Background colour (#rrggbb)' },
+        size: { type: 'number', description: 'SVG size in px (128-2048)' },
+      },
+      required: ['path'],
     },
   },
 ];
@@ -673,7 +824,7 @@ export function toClaudeTools(): Array<{
 /**
  * Map of tool names to their categories
  */
-export const toolCategories: Record<string, 'route' | 'analytics' | 'storage'> = {
+export const toolCategories: Record<string, 'route' | 'analytics' | 'storage' | 'qr'> = {
   list_routes: 'route',
   get_route: 'route',
   create_route: 'route',
@@ -695,13 +846,22 @@ export const toolCategories: Record<string, 'route' | 'analytics' | 'storage'> =
   rename_object: 'storage',
   move_object: 'storage',
   update_object_metadata: 'storage',
+  update_object_comment: 'storage',
   purge_cache: 'storage',
+  list_qrs: 'qr',
+  get_qr: 'qr',
+  create_qr: 'qr',
+  update_qr: 'qr',
+  delete_qr: 'qr',
+  get_route_qr: 'qr',
 };
 
 /**
  * Get tools by category
  */
-export function getToolsByCategory(category: 'route' | 'analytics' | 'storage'): ToolDefinition[] {
+export function getToolsByCategory(
+  category: 'route' | 'analytics' | 'storage' | 'qr',
+): ToolDefinition[] {
   return toolDefinitions.filter(tool => toolCategories[tool.name] === category);
 }
 
@@ -719,3 +879,8 @@ export const analyticsTools = getToolsByCategory('analytics');
  * Storage tools
  */
 export const storageTools = getToolsByCategory('storage');
+
+/**
+ * QR code tools (v1.30.0)
+ */
+export const qrTools = getToolsByCategory('qr');

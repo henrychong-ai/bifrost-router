@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  R2UpdateCommentInputSchema,
   DomainSchema,
   RouteTypeSchema,
   RedirectStatusCodeSchema,
@@ -204,5 +205,55 @@ describe('schemas', () => {
     it('rejects slug not starting with /', () => {
       expect(GetSlugStatsInputSchema.safeParse({ slug: 'linkedin' }).success).toBe(false);
     });
+  });
+});
+
+describe('R2UpdateCommentInputSchema (v1.30.0 — nullable-boundary semantics)', () => {
+  it('accepts a comment string', () => {
+    expect(
+      R2UpdateCommentInputSchema.safeParse({
+        bucket: 'files',
+        key: 'docs/report.pdf',
+        comment: 'Q2 pack — final',
+      }).success,
+    ).toBe(true);
+  });
+
+  it('accepts null and empty string (both mean clear)', () => {
+    expect(
+      R2UpdateCommentInputSchema.safeParse({ bucket: 'files', key: 'a.pdf', comment: null })
+        .success,
+    ).toBe(true);
+    expect(
+      R2UpdateCommentInputSchema.safeParse({ bucket: 'files', key: 'a.pdf', comment: '' }).success,
+    ).toBe(true);
+  });
+
+  it('keeps the literal string "null" as text, not a clear', () => {
+    const result = R2UpdateCommentInputSchema.safeParse({
+      bucket: 'files',
+      key: 'a.pdf',
+      comment: 'null',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.comment).toBe('null');
+    }
+  });
+
+  it('rejects an omitted comment field (explicit-set semantics — absence is never a clear)', () => {
+    expect(R2UpdateCommentInputSchema.safeParse({ bucket: 'files', key: 'a.pdf' }).success).toBe(
+      false,
+    );
+  });
+
+  it('rejects comments over the 1000-char cap', () => {
+    expect(
+      R2UpdateCommentInputSchema.safeParse({
+        bucket: 'files',
+        key: 'a.pdf',
+        comment: 'x'.repeat(1001),
+      }).success,
+    ).toBe(false);
   });
 });

@@ -1,79 +1,17 @@
 import { Link, useLocation } from 'react-router-dom';
 import {
-  ArrowUpRight,
-  Eye,
-  Download,
-  Globe,
-  Route,
-  LayoutDashboard,
-  ClipboardList,
-  HardDrive,
-  ScrollText,
-  MessageSquarePlus,
-} from 'lucide-react';
-import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
+  SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarHeader,
-  SidebarFooter,
 } from '@/components/ui/sidebar';
-
-const navigationItems = [
-  {
-    title: 'Dashboard',
-    href: '/',
-    icon: LayoutDashboard,
-  },
-  {
-    title: 'Routes',
-    href: '/routes',
-    icon: Route,
-  },
-  {
-    title: 'Storage',
-    href: '/storage',
-    icon: HardDrive,
-  },
-  {
-    title: 'Audit',
-    href: '/audit',
-    icon: ClipboardList,
-  },
-  {
-    title: 'Feedback',
-    href: '/feedback',
-    icon: MessageSquarePlus,
-  },
-];
-
-const analyticsItems = [
-  {
-    title: 'Redirects',
-    href: '/analytics/redirects',
-    icon: ArrowUpRight,
-  },
-  {
-    title: 'Views',
-    href: '/analytics/views',
-    icon: Eye,
-  },
-  {
-    title: 'Downloads',
-    href: '/analytics/downloads',
-    icon: Download,
-  },
-  {
-    title: 'Proxy',
-    href: '/analytics/proxy',
-    icon: Globe,
-  },
-];
+import { analyticsItems, navigationItems, resourceItems } from './nav-items';
 
 export function AppSidebar() {
   const location = useLocation();
@@ -149,22 +87,27 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-        {/* Changelog — pinned to bottom of sidebar content */}
+        {/* Resources — pinned to bottom of sidebar content */}
         <SidebarGroup className="mt-auto">
+          <SidebarGroupLabel className="text-sidebar-foreground/50 font-inter uppercase text-tiny tracking-wider">
+            Resources
+          </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isActive('/changelog')}
-                  className="font-inter transition-all duration-200 hover:translate-x-1"
-                >
-                  <Link to="/changelog" className="group/link">
-                    <ScrollText className="size-4 transition-transform duration-200 group-hover/link:scale-110" />
-                    <span>Changelog</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              {resourceItems.map(item => (
+                <SidebarMenuItem key={item.href}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={isActive(item.href)}
+                    className="font-inter transition-all duration-200"
+                  >
+                    <Link to={item.href}>
+                      <item.icon className="h-4 w-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

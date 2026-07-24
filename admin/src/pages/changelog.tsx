@@ -13,6 +13,16 @@ import changelogRaw from '../../../CHANGELOG.md?raw';
 
 const allVersions = parseChangelog(changelogRaw);
 
+/** "2026-06-24" → "24 Jun 2026" (en-GB, UTC-pinned so the date never shifts). */
+function formatReleaseDate(isoDate: string): string {
+  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
 function matchesSearch(version: ChangelogVersion, lowerQuery: string): boolean {
   if (version.version.toLowerCase().includes(lowerQuery)) return true;
   if (version.subtitle?.toLowerCase().includes(lowerQuery)) return true;
@@ -93,6 +103,11 @@ export function ChangelogPage() {
                     <CardTitle className="font-inter text-large font-semibold text-blue-950">
                       v{version.version}
                     </CardTitle>
+                    {version.date && (
+                      <span className="font-inter text-sm text-muted-foreground">
+                        {formatReleaseDate(version.date)}
+                      </span>
+                    )}
                     {isCurrent && (
                       <Badge className="border-transparent bg-gold-100 font-inter text-tiny text-gold-600 hover:scale-100">
                         Current

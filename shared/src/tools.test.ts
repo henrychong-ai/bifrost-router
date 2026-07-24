@@ -9,13 +9,14 @@ import {
   routeTools,
   analyticsTools,
   storageTools,
+  qrTools,
 } from './tools.js';
 
 describe('tools', () => {
   describe('toolDefinitions', () => {
     it('contains all route, analytics, and storage tools', () => {
       expect(toolDefinitions.length).toBe(
-        routeTools.length + analyticsTools.length + storageTools.length,
+        routeTools.length + analyticsTools.length + storageTools.length + qrTools.length,
       );
     });
 
@@ -163,7 +164,7 @@ describe('tools', () => {
 
   describe('storageTools', () => {
     it('contains all storage tools', () => {
-      expect(storageTools.length).toBe(10);
+      expect(storageTools.length).toBe(11);
       for (const tool of storageTools) {
         expect(toolCategories[tool.name]).toBe('storage');
       }
@@ -181,6 +182,31 @@ describe('tools', () => {
       expect(names).toContain('move_object');
       expect(names).toContain('update_object_metadata');
       expect(names).toContain('purge_cache');
+    });
+  });
+
+  describe('v1.30.0 catalog pins', () => {
+    it('exposes exactly 29 tools (8 route + 4 analytics + 11 storage + 6 qr)', () => {
+      expect(toolDefinitions.length).toBe(29);
+      expect(routeTools.length).toBe(8);
+      expect(analyticsTools.length).toBe(4);
+      expect(storageTools.length).toBe(11);
+      expect(qrTools.length).toBe(6);
+    });
+
+    it('names the new v1.30.0 tools explicitly', () => {
+      const names = toolDefinitions.map(t => t.name);
+      expect(names).toContain('update_object_comment');
+      for (const qrTool of [
+        'list_qrs',
+        'get_qr',
+        'create_qr',
+        'update_qr',
+        'delete_qr',
+        'get_route_qr',
+      ]) {
+        expect(names).toContain(qrTool);
+      }
     });
   });
 });

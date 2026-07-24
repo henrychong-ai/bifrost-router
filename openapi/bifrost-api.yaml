@@ -858,6 +858,153 @@ paths:
         '404':
           description: Feedback or attachment not found
 
+  /api/qr:
+    get:
+      summary: List QR codes for a domain (filtered, recency-sorted, paginated)
+      tags: [QR Codes]
+      parameters:
+        - $ref: '#/components/parameters/DomainQuery'
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [url, text, vcard, wifi]
+        - name: tag
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: QR codes for the domain
+    post:
+      summary: Create a QR code
+      tags: [QR Codes]
+      parameters:
+        - $ref: '#/components/parameters/DomainQuery'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: QR code created
+        '409':
+          description: QR code already exists
+
+  /api/qr/from-route:
+    get:
+      summary: Render an ephemeral QR SVG for an existing route (writes nothing)
+      tags: [QR Codes]
+      parameters:
+        - $ref: '#/components/parameters/DomainQuery'
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: fg
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: bg
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: QR code SVG for the short URL
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+        '404':
+          description: No route at that path
+
+  /api/qr/{id}:
+    get:
+      summary: Get a QR code record
+      tags: [QR Codes]
+      parameters:
+        - $ref: '#/components/parameters/QrIdPath'
+        - $ref: '#/components/parameters/DomainQuery'
+      responses:
+        '200':
+          description: The QR code record
+        '404':
+          description: QR code not found
+    put:
+      summary: Update a QR code (type is immutable)
+      tags: [QR Codes]
+      parameters:
+        - $ref: '#/components/parameters/QrIdPath'
+        - $ref: '#/components/parameters/DomainQuery'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: QR code updated
+        '404':
+          description: QR code not found
+    delete:
+      summary: Delete a QR code (hard delete; the audit log preserves the record)
+      tags: [QR Codes]
+      parameters:
+        - $ref: '#/components/parameters/QrIdPath'
+        - $ref: '#/components/parameters/DomainQuery'
+      responses:
+        '200':
+          description: QR code deleted
+        '404':
+          description: QR code not found
+
+  /api/qr/{id}/image:
+    get:
+      summary: Render the QR code SVG (resolves linked route at render time)
+      tags: [QR Codes]
+      parameters:
+        - $ref: '#/components/parameters/QrIdPath'
+        - $ref: '#/components/parameters/DomainQuery'
+      responses:
+        '200':
+          description: QR code SVG
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+        '404':
+          description: QR code not found
+
+
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -866,6 +1013,13 @@ components:
       name: X-Admin-Key
 
   parameters:
+    QrIdPath:
+      name: id
+      in: path
+      required: true
+      description: QR code id (lowercase slug or generated hex)
+      schema:
+        type: string
     PathQuery:
       name: path
       in: query
@@ -994,6 +1148,9 @@ components:
           - r2_object_create
           - r2_object_delete
           - cf_config_change
+          - qr_create
+          - qr_update
+          - qr_delete
 
     SourceQuery:
       name: source

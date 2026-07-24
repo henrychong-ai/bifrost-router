@@ -16,6 +16,7 @@ import {
   renameObject,
   moveObject,
   updateObjectMetadata,
+  updateObjectComment,
 } from './storage.js';
 
 describe('Storage tool handlers', () => {
@@ -41,6 +42,7 @@ describe('Storage tool handlers', () => {
       renameObject: vi.fn(),
       moveObject: vi.fn(),
       updateObjectMetadata: vi.fn(),
+      updateObjectComment: vi.fn(),
     } as unknown as EdgeRouterClient;
   });
 
@@ -665,6 +667,86 @@ describe('Storage tool handlers', () => {
       });
 
       expect(result).toContain('Error updating metadata');
+      expect(result).toContain('Object not found');
+    });
+  });
+  describe('updateObjectComment (v1.30.0)', () => {
+    it('returns success message with the new comment and attribution', async () => {
+      vi.mocked(mockClient.updateObjectComment).mockResolvedValue({
+        bucket: 'files',
+        key: 'documents/report.pdf',
+        comment: 'Q2 pack — final',
+        commentUpdatedBy: 'operator',
+        commentUpdatedAt: 1784860000,
+      });
+
+      const result = await updateObjectComment(mockClient, {
+        bucket: 'files',
+        key: 'documents/report.pdf',
+        comment: 'Q2 pack — final',
+      });
+
+      expect(result).toContain('Comment updated on files/documents/report.pdf');
+      expect(result).toContain('Q2 pack — final');
+      expect(result).toContain('operator');
+      expect(mockClient.updateObjectComment).toHaveBeenCalledWith(
+        'files',
+        'documents/report.pdf',
+        'Q2 pack — final',
+      );
+    });
+
+    it('passes an empty string through unchanged (endpoint collapses it to a clear)', async () => {
+      vi.mocked(mockClient.updateObjectComment).mockResolvedValue({
+        bucket: 'files',
+        key: 'documents/report.pdf',
+        comment: null,
+        commentUpdatedBy: null,
+        commentUpdatedAt: null,
+      });
+
+      const result = await updateObjectComment(mockClient, {
+        bucket: 'files',
+        key: 'documents/report.pdf',
+        comment: '',
+      });
+
+      expect(mockClient.updateObjectComment).toHaveBeenCalledWith(
+        'files',
+        'documents/report.pdf',
+        '',
+      );
+      expect(result).toContain('Comment cleared on files/documents/report.pdf');
+    });
+
+    it('reports a cleared comment when null is passed', async () => {
+      vi.mocked(mockClient.updateObjectComment).mockResolvedValue({
+        bucket: 'files',
+        key: 'documents/report.pdf',
+        comment: null,
+        commentUpdatedBy: null,
+        commentUpdatedAt: null,
+      });
+
+      const result = await updateObjectComment(mockClient, {
+        bucket: 'files',
+        key: 'documents/report.pdf',
+        comment: null,
+      });
+
+      expect(result).toContain('Comment cleared on files/documents/report.pdf');
+    });
+
+    it('handles errors gracefully', async () => {
+      vi.mocked(mockClient.updateObjectComment).mockRejectedValue(new Error('Object not found'));
+
+      const result = await updateObjectComment(mockClient, {
+        bucket: 'files',
+        key: 'missing.pdf',
+        comment: 'note',
+      });
+
+      expect(result).toContain('Error updating comment');
       expect(result).toContain('Object not found');
     });
   });

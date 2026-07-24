@@ -23,7 +23,18 @@ import type {
   R2UploadResponse,
   R2BucketsResponse,
   R2UpdateMetadataParams,
+  R2CommentUpdateResult,
 } from './types.js';
+import type { QRCode } from './qr.js';
+
+/** Pagination meta returned by the QR list endpoint (mirrors the routes meta). */
+export interface QRListMeta {
+  total: number;
+  count: number;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
+}
 
 /**
  * Type for fetch function
@@ -545,6 +556,110 @@ export class EdgeRouterClient {
       'POST',
       `/api/storage/${encodeURIComponent(bucket)}/purge-cache/${encodedKey}`,
     );
+  }
+
+  /**
+   * Set or clear the free-text comment on an R2 object (v1.30.0, ported from
+   * upstream v1.58.7). Writes the D1 `file_comments` sidecar — no object
+   * copy, works at any file size. Pass `null` (or an empty string) to clear.
+   */
+  async updateObjectComment(
+    bucket: string,
+    key: string,
+    comment: string | null,
+  ): Promise<R2CommentUpdateResult> {
+    return this.request<R2CommentUpdateResult>(
+      'PUT',
+      `/api/storage/${encodeURIComponent(bucket)}/comment/${encodeURIComponent(key)}`,
+      {
+        body: { comment },
+      },
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // QR codes (v1.30.0 — ported from upstream v1.54.0)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * List QR codes for a domain with optional filters + pagination.
+   * Returns { items, meta } (paginated envelope unwrap).
+   */
+  async listQrs(
+    options: {
+      domain?: string;
+      type?: string;
+      tag?: string;
+      search?: string;
+      limit?: number;
+      offset?: number;
+    } = {},
+  ): Promise<{ items: QRCode[]; meta: QRListMeta }> {
+    return this.request<{ items: QRCode[]; meta: QRListMeta }>('GET', '/api/qr', {
+      params: {
+        domain: this.getDomain(options.domain),
+        type: options.type,
+        tag: options.tag,
+        search: options.search,
+        limit: options.limit,
+        offset: options.offset,
+      },
+    });
+  }
+
+  /** Get a single QR code record. */
+  async getQr(id: string, domain?: string): Promise<QRCode> {
+    return this.request<QRCode>('GET', `/api/qr/${encodeURIComponent(id)}`, {
+      params: { domain: this.getDomain(domain) },
+    });
+  }
+
+  /** Create a QR code. The API validates with the strict discriminated schemas. */
+  async createQr(input: Record<string, unknown>, domain?: string): Promise<QRCode> {
+    return this.request<QRCode>('POST', '/api/qr', {
+      params: { domain: this.getDomain(domain) },
+      body: input,
+    });
+  }
+
+  /** Update a QR code (type is immutable server-side). */
+  async updateQr(id: string, input: Record<string, unknown>, domain?: string): Promise<QRCode> {
+    return this.request<QRCode>('PUT', `/api/qr/${encodeURIComponent(id)}`, {
+      params: { domain: this.getDomain(domain) },
+      body: input,
+    });
+  }
+
+  /** Delete a QR code (hard delete; the audit log preserves the record). */
+  async deleteQr(id: string, domain?: string): Promise<{ deleted: true; id: string }> {
+    return this.request<{ deleted: true; id: string }>(
+      'DELETE',
+      `/api/qr/${encodeURIComponent(id)}`,
+      { params: { domain: this.getDomain(domain) } },
+    );
+  }
+
+  /** Fetch the rendered QR SVG source for a stored record. */
+  async getQrImageSvg(id: string, domain?: string): Promise<string> {
+    const response = await this.requestRaw('GET', `/api/qr/${encodeURIComponent(id)}/image`, {
+      domain: this.getDomain(domain),
+    });
+    return response.text();
+  }
+
+  /** Render an ephemeral QR SVG for an existing route (persists nothing). */
+  async getRouteQrSvg(
+    path: string,
+    options: { domain?: string; fg?: string; bg?: string; size?: number } = {},
+  ): Promise<string> {
+    const response = await this.requestRaw('GET', '/api/qr/from-route', {
+      domain: this.getDomain(options.domain),
+      path,
+      fg: options.fg,
+      bg: options.bg,
+      size: options.size,
+    });
+    return response.text();
   }
 }
 

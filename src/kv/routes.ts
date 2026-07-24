@@ -4,6 +4,7 @@ import {
   routeKey,
   domainPrefix,
   parseRouteKey,
+  QR_KV_NAMESPACE,
   SCHEMA_VERSION,
   type CreateRouteInput,
 } from './schema';
@@ -111,6 +112,13 @@ export async function getAllRoutesAllDomains(kv: KVNamespace): Promise<KVRouteCo
       // Fetch route values and parse domain from key
       const routePromises = result.keys.map(async key => {
         try {
+          // QR records share this KV namespace under `qr:{domain}:{id}` keys
+          // (v1.30.0) — they would otherwise parse as domain "qr" and be
+          // discarded by the supported-domain filter; skip them explicitly.
+          if (key.name.startsWith(QR_KV_NAMESPACE)) {
+            return null;
+          }
+
           // Parse domain from key (format: "domain:/path")
           const [domain] = parseRouteKey(key.name);
 

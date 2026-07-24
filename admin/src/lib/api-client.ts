@@ -4,6 +4,8 @@ import {
   type Route,
   type RouteWithDomain,
   RouteWithDomainSchema,
+  type QRCode,
+  QRCodeSchema,
   type CreateRouteInput,
   type UpdateRouteInput,
   type AnalyticsSummary,
@@ -1024,6 +1026,113 @@ export const feedbackApi = {
 };
 
 // =============================================================================
+// QR codes API (v1.30.0 — ported from upstream v1.54.0)
+// =============================================================================
+// Response schemas live here (not lib/schemas.ts) because they are thin
+// envelope wrappers around the shared QRCodeSchema — the record shape itself
+// stays single-sourced in @bifrost/shared.
+
+const QRItemResponseSchema = z.object({
+  success: z.boolean(),
+  data: QRCodeSchema.optional(),
+  error: z.string().optional(),
+});
+
+const QRListResponseSchema = z.object({
+  success: z.boolean(),
+  data: z.array(QRCodeSchema).optional(),
+  error: z.string().optional(),
+  meta: z
+    .object({
+      total: z.number(),
+      count: z.number(),
+      offset: z.number(),
+      limit: z.number(),
+      hasMore: z.boolean(),
+    })
+    .optional(),
+});
+
+export interface QrQueryParams {
+  domain?: string;
+  type?: string;
+  tag?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface QRListMeta {
+  total: number;
+  count: number;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
+}
+
+export const qrApi = {
+  async list(params: QrQueryParams = {}): Promise<{ items: QRCode[]; meta: QRListMeta }> {
+    const response = await fetchApi(
+      `/api/qr${buildQueryString({ ...params })}`,
+      QRListResponseSchema,
+    );
+    if (!response.success || !response.data || !response.meta) {
+      throw new ApiError(500, response.error || 'Failed to fetch QR codes');
+    }
+    return { items: response.data, meta: response.meta };
+  },
+
+  async get(id: string, domain?: string): Promise<QRCode> {
+    const response = await fetchApi(
+      `/api/qr/${encodeURIComponent(id)}${buildQueryString({ domain })}`,
+      QRItemResponseSchema,
+    );
+    if (!response.success || !response.data) {
+      throw new ApiError(404, response.error || 'QR code not found');
+    }
+    return response.data;
+  },
+
+  async create(input: Record<string, unknown>, domain?: string): Promise<QRCode> {
+    const response = await fetchApi(
+      `/api/qr${buildQueryString({ domain })}`,
+      QRItemResponseSchema,
+      {
+        method: 'POST',
+        body: JSON.stringify(input),
+      },
+    );
+    if (!response.success || !response.data) {
+      throw new ApiError(400, response.error || 'Failed to create QR code');
+    }
+    return response.data;
+  },
+
+  async update(id: string, input: Record<string, unknown>, domain?: string): Promise<QRCode> {
+    const response = await fetchApi(
+      `/api/qr/${encodeURIComponent(id)}${buildQueryString({ domain })}`,
+      QRItemResponseSchema,
+      {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      },
+    );
+    if (!response.success || !response.data) {
+      throw new ApiError(400, response.error || 'Failed to update QR code');
+    }
+    return response.data;
+  },
+
+  async delete(id: string, domain?: string): Promise<void> {
+    await fetchApi(
+      `/api/qr/${encodeURIComponent(id)}${buildQueryString({ domain })}`,
+      z.object({ success: z.boolean() }),
+      { method: 'DELETE' },
+    );
+  },
+};
+
+// =============================================================================
 // Combined API Export
 // =============================================================================
 
@@ -1034,6 +1143,7 @@ export const api = {
   metadata: metadataApi,
   storage: storageApi,
   feedback: feedbackApi,
+  qr: qrApi,
 };
 
 export { ApiError };

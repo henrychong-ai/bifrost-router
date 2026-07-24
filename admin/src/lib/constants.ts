@@ -36,3 +36,33 @@ export function getR2ObjectUrl(bucket: string, key: string): string | null {
   const encodedPath = key.split('/').map(encodeURIComponent).join('/');
   return `https://${domain}/${encodedPath}`;
 }
+
+// -----------------------------------------------------------------------------
+// First-visit welcome (v1.30.0 — ported from the internal deployments' v1.56.0)
+// -----------------------------------------------------------------------------
+
+export const WELCOME_SEEN_STORAGE_KEY = 'bifrost-welcome-seen-v1';
+
+export function getWelcomeSeen(): boolean {
+  try {
+    if (localStorage.getItem(WELCOME_SEEN_STORAGE_KEY) !== null) return true;
+    // Probe writeability: if persisting "seen" later would fail (quota,
+    // some private-browsing modes), report seen now — the dialog must never
+    // reappear on every visit because its flag cannot stick.
+    const probe = `${WELCOME_SEEN_STORAGE_KEY}-probe`;
+    localStorage.setItem(probe, '1');
+    localStorage.removeItem(probe);
+    return false;
+  } catch {
+    // localStorage unavailable → treat as seen (never-nag over always-show).
+    return true;
+  }
+}
+
+export function persistWelcomeSeen(): void {
+  try {
+    localStorage.setItem(WELCOME_SEEN_STORAGE_KEY, new Date().toISOString());
+  } catch {
+    // localStorage not available
+  }
+}

@@ -35,8 +35,10 @@ import {
   renameObject,
   moveObject,
   updateObjectMetadata,
+  updateObjectComment,
   handlePurgeCache,
 } from './tools/storage.js';
+import { listQrs, getQr, createQr, updateQr, deleteQr, getRouteQr } from './tools/qr.js';
 
 /**
  * Main entry point
@@ -310,6 +312,17 @@ async function main(): Promise<void> {
           );
           break;
 
+        case 'update_object_comment':
+          result = await updateObjectComment(
+            client,
+            args as {
+              bucket: string;
+              key: string;
+              comment: string | null;
+            },
+          );
+          break;
+
         case 'purge_cache':
           result = await handlePurgeCache(
             client,
@@ -317,6 +330,43 @@ async function main(): Promise<void> {
               bucket: string;
               key: string;
             },
+          );
+          break;
+
+        case 'list_qrs':
+          result = await listQrs(
+            client,
+            args as {
+              domain?: string;
+              type?: string;
+              tag?: string;
+              search?: string;
+              limit?: number;
+              offset?: number;
+            },
+          );
+          break;
+
+        case 'get_qr':
+          result = await getQr(client, args as { id: string; domain?: string });
+          break;
+
+        case 'create_qr':
+          result = await createQr(client, args as Parameters<typeof createQr>[1]);
+          break;
+
+        case 'update_qr':
+          result = await updateQr(client, args as Parameters<typeof updateQr>[1]);
+          break;
+
+        case 'delete_qr':
+          result = await deleteQr(client, args as { id: string; domain?: string });
+          break;
+
+        case 'get_route_qr':
+          result = await getRouteQr(
+            client,
+            args as { path: string; domain?: string; fg?: string; bg?: string; size?: number },
           );
           break;
 

@@ -78,3 +78,6 @@ export {
   useTriageFeedback,
   useDeleteFeedback,
 } from './use-feedback';
+
+// QR code hooks (v1.30.0 — ported from upstream v1.54.0)
+export { qrKeys, useQrCodes, useCreateQr, useUpdateQr, useDeleteQr } from './use-qr-codes';

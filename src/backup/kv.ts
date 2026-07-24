@@ -21,23 +21,30 @@ export async function backupKV(
 ): Promise<KVBackupResult> {
   const allRoutes: Array<{ key: string; value: unknown }> = [];
 
-  // Iterate through all supported domains
+  // Iterate through all supported domains. Route keys are `{domain}:{path}`;
+  // QR records (v1.30.0) live under `qr:{domain}:{id}` in the SAME namespace,
+  // so each domain is backed up under BOTH prefixes — without the second
+  // prefix every QR code (incl. Wi-Fi payloads) would be silently absent from
+  // the backup and unrecoverable after a namespace loss. Restore routing is
+  // key-shape based: `qr:`-prefixed entries are QR records, everything else
+  // is a route.
   for (const domain of SUPPORTED_DOMAINS) {
-    const prefix = `${domain}:`;
-    let cursor: string | undefined;
+    for (const prefix of [`${domain}:`, `qr:${domain}:`]) {
+      let cursor: string | undefined;
 
-    do {
-      const result = await kv.list({ prefix, cursor, limit: 1000 });
+      do {
+        const result = await kv.list({ prefix, cursor, limit: 1000 });
 
-      for (const key of result.keys) {
-        const value = await kv.get(key.name, 'json');
-        if (value) {
-          allRoutes.push({ key: key.name, value });
+        for (const key of result.keys) {
+          const value = await kv.get(key.name, 'json');
+          if (value) {
+            allRoutes.push({ key: key.name, value });
+          }
         }
-      }
 
-      cursor = result.list_complete ? undefined : result.cursor;
-    } while (cursor);
+        cursor = result.list_complete ? undefined : result.cursor;
+      } while (cursor);
+    }
   }
 
   // Convert to NDJSON (newline-delimited JSON)

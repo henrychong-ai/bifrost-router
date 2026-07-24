@@ -14,6 +14,10 @@ import {
 } from '@/hooks';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRoutesFilters, SUPPORTED_DOMAINS, type SupportedDomain } from '@/context';
+import { QRDesignSchema, renderQrSvg, type QRDesign } from '@bifrost/shared';
+import { QrPreview } from '@/components/qr-preview';
+import { useCreateQr, useQrCodes } from '@/hooks';
+import { downloadPng, downloadSvg } from '@/lib/svg-to-png';
 import type { Route, CreateRouteInput, UpdateRouteInput, R2BucketName } from '@/lib/schemas';
 import { R2_BUCKETS } from '@/lib/schemas';
 import { PaginationControls } from '@/components/pagination-controls';
@@ -79,6 +83,7 @@ import {
   Search,
   X,
   Info,
+  QrCode,
 } from 'lucide-react';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
@@ -648,6 +653,27 @@ export function RoutesPage() {
   const [pageSize, setPageSize] = useState(getPersistedPageSize);
   const [offset, setOffset] = useState(0);
 
+  // QR dialog (v1.30.0, ported from upstream v1.54.0/v1.58.0): per-row
+  // preview/downloads + optional save-as-QR. Dedup guard: while the dialog is
+  // open, look up the domain's url-type QRs for one already linking this
+  // route — soft guard only (the API allows duplicates by design).
+  const navigate = useNavigate();
+  const [qrRoute, setQrRoute] = useState<(Route & { domain?: string }) | null>(null);
+  const createQrMutation = useCreateQr();
+  const qrGuardDomain = qrRoute
+    ? qrRoute.domain || filters.domain || SUPPORTED_DOMAINS[0]
+    : undefined;
+  const { data: qrGuardList } = useQrCodes(
+    { domain: qrGuardDomain, type: 'url', limit: 1000 },
+    { enabled: !!qrRoute },
+  );
+  const existingLinkedQr =
+    qrRoute && qrGuardList
+      ? qrGuardList.items.find(
+          q => q.linkedRoute?.domain === qrGuardDomain && q.linkedRoute?.path === qrRoute.path,
+        )
+      : undefined;
+
   // Reset offset when search or filters change
   const handleFilterChange = useCallback(
     (newFilters: typeof filters) => {
@@ -1124,6 +1150,13 @@ export function RoutesPage() {
                             <Copy className="mr-2 size-4" />
                             Copy Link
                           </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => setQrRoute(route)}
+                            className="font-inter"
+                          >
+                            <QrCode className="mr-2 size-4" />
+                            QR Code
+                          </DropdownMenuItem>
                           {route.type === 'redirect' && (
                             <DropdownMenuItem asChild className="font-inter">
                               <a href={route.target} target="_blank" rel="noopener noreferrer">
@@ -1194,6 +1227,92 @@ export function RoutesPage() {
       </Card>
 
       {/* Edit Dialog */}
+      <Dialog open={!!qrRoute} onOpenChange={open => !open && setQrRoute(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-inter font-semibold text-blue-950">
+              QR code for {qrRoute?.path}
+            </DialogTitle>
+            <DialogDescription className="font-inter">
+              Encodes the short URL — re-point the route later and printed copies keep working.
+            </DialogDescription>
+          </DialogHeader>
+          {qrRoute &&
+            (() => {
+              const qrDomain = qrRoute.domain || filters.domain || SUPPORTED_DOMAINS[0];
+              const shortUrl = `https://${qrDomain}${qrRoute.path}`;
+              const design = QRDesignSchema.parse({}) as QRDesign;
+              return (
+                <div className="flex flex-col items-center gap-4">
+                  <QrPreview content={shortUrl} design={design} />
+                  <p className="font-mono text-sm text-muted-foreground">{shortUrl}</p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        downloadSvg(renderQrSvg(shortUrl, design), qrRoute.path.slice(1) || 'qr')
+                      }
+                    >
+                      Download SVG
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        downloadPng(
+                          renderQrSvg(shortUrl, design),
+                          design.size,
+                          qrRoute.path.slice(1) || 'qr',
+                        )
+                      }
+                    >
+                      Download PNG
+                    </Button>
+                    {existingLinkedQr && (
+                      <Button
+                        onClick={() => {
+                          setQrRoute(null);
+                          navigate('/qr-codes');
+                        }}
+                      >
+                        View QR
+                      </Button>
+                    )}
+                    {!existingLinkedQr && (
+                      <Button
+                        disabled={createQrMutation.isPending}
+                        onClick={() =>
+                          createQrMutation.mutate(
+                            {
+                              input: {
+                                type: 'url',
+                                payload: { url: shortUrl },
+                                description: `Route ${qrRoute.path}`,
+                                linkedRoute: { domain: qrDomain, path: qrRoute.path },
+                              },
+                              domain: qrDomain,
+                            },
+                            {
+                              onSuccess: qr => {
+                                toast.success(`Saved as QR code: ${qr.id}`);
+                                setQrRoute(null);
+                                navigate('/qr-codes');
+                              },
+                              onError: e =>
+                                toast.error(e instanceof Error ? e.message : 'Save failed'),
+                            },
+                          )
+                        }
+                      >
+                        Save as QR Code
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!editRoute} onOpenChange={() => setEditRoute(null)}>
         <DialogContent className="sm:max-w-xl lg:max-w-2xl">
           <DialogHeader>

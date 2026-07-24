@@ -402,3 +402,33 @@ export async function handlePurgeCache(
     return `Error purging cache: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
+
+/**
+ * Set or clear the free-text comment on an R2 object (v1.30.0, ported from
+ * upstream v1.58.7)
+ */
+export async function updateObjectComment(
+  client: EdgeRouterClient,
+  args: {
+    bucket: string;
+    key: string;
+    comment: string | null;
+  },
+): Promise<string> {
+  try {
+    const result = await client.updateObjectComment(args.bucket, args.key, args.comment);
+
+    if (result.comment === null) {
+      return `Comment cleared on ${args.bucket}/${result.key}.`;
+    }
+    return [
+      `Comment updated on ${args.bucket}/${result.key}:`,
+      '',
+      result.comment,
+      '',
+      `Updated by: ${result.commentUpdatedBy ?? 'unknown'}`,
+    ].join('\n');
+  } catch (error) {
+    return `Error updating comment: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}

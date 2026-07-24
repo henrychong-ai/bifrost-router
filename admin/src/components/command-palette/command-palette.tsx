@@ -14,6 +14,9 @@ import {
   FileText,
   Loader2,
   HardDrive,
+  QrCode,
+  BookOpen,
+  Bot,
 } from 'lucide-react';
 import { useCommandPalette } from '@/hooks/use-command-palette';
 import { useKeyboardShortcut, getModifierKey } from '@/hooks/use-keyboard-shortcuts';
@@ -113,10 +116,31 @@ export function CommandPalette() {
         group: 'navigation',
       },
       {
+        id: 'qr-codes',
+        label: 'QR Codes',
+        icon: QrCode,
+        action: () => navigate('/qr-codes'),
+        group: 'navigation',
+      },
+      {
         id: 'audit',
         label: 'Audit',
         icon: ClipboardList,
         action: () => navigate('/audit'),
+        group: 'navigation',
+      },
+      {
+        id: 'guide',
+        label: 'User Guide',
+        icon: BookOpen,
+        action: () => navigate('/guide'),
+        group: 'navigation',
+      },
+      {
+        id: 'mcp',
+        label: 'MCP',
+        icon: Bot,
+        action: () => navigate('/integrations/mcp'),
         group: 'navigation',
       },
       {

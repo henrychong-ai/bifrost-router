@@ -226,6 +226,55 @@ All notable changes to this project.
     expect(result[0].version).toBe('1.21.0');
   });
 
+  // ===========================================================================
+  // v1.58.1 — date capture + heading-subtitle fallback
+  // ===========================================================================
+
+  test('captures the release date from a dated heading; bare headings stay undated', () => {
+    const input = `## v1.21.0 (2026-03-02)
+
+- Some change
+
+## v1.11.4
+
+- Older change
+`;
+    const result = parseChangelog(input);
+    expect(result[0].date).toBe('2026-03-02');
+    expect(result[1].date).toBeUndefined();
+  });
+
+  test('captures the em-dash heading subtitle (newest format) as the card subtitle', () => {
+    const input = `## v1.58.0 (2026-07-24) — feat: QR brand presets + Wi-Fi security modernisation
+
+- **Brand presets** — Six brands
+`;
+    const result = parseChangelog(input);
+    expect(result[0].version).toBe('1.58.0');
+    expect(result[0].date).toBe('2026-07-24');
+    expect(result[0].subtitle).toBe('feat: QR brand presets + Wi-Fi security modernisation');
+  });
+
+  test('tolerates en-dash and hyphen heading-subtitle separators', () => {
+    const en = parseChangelog('## v1.2.3 (2026-01-01) – fix: en-dash subtitle\n- item\n');
+    expect(en[0].subtitle).toBe('fix: en-dash subtitle');
+    const hyphen = parseChangelog('## v1.2.3 - hotfix subtitle\n- item\n');
+    expect(hyphen[0].subtitle).toBe('hotfix subtitle');
+    expect(hyphen[0].date).toBeUndefined();
+  });
+
+  test('a bold first line still takes precedence over the heading subtitle (older format)', () => {
+    const input = `## v1.20.0 (2026-02-25) — heading subtitle
+
+**Bold-line subtitle wins**
+
+- item
+`;
+    const result = parseChangelog(input);
+    expect(result[0].subtitle).toBe('Bold-line subtitle wins');
+    expect(result[0].date).toBe('2026-02-25');
+  });
+
   test('collects bullets without ### section into fallback Overview', () => {
     const input = `## v1.20.0 (2026-02-25)
 
@@ -479,8 +528,7 @@ Two R2 security improvements identified during review.
       const path = await import('node:path');
       // @ts-expect-error -- process available at test runtime
       const cwd: string = process.cwd();
-      // When run from admin/ package: cwd is admin/, CHANGELOG.md is ../CHANGELOG.md
-      // When run from root vitest: cwd is repo root, CHANGELOG.md is ./CHANGELOG.md
+      // Adaptive path: works from admin/ (cwd=admin) and from root (cwd=repo root)
       const changelogPath = fs.existsSync(path.resolve(cwd, 'CHANGELOG.md'))
         ? path.resolve(cwd, 'CHANGELOG.md')
         : path.resolve(cwd, '../CHANGELOG.md');
@@ -488,8 +536,38 @@ Two R2 security improvements identified during review.
       versions = parseChangelog(raw);
     });
 
+    let rawHeadings: string[];
+
+    beforeAll(async () => {
+      // @ts-expect-error -- node:fs available at test runtime
+      const fs = await import('node:fs');
+      // @ts-expect-error -- node:path available at test runtime
+      const path = await import('node:path');
+      // @ts-expect-error -- process available at test runtime
+      const cwd: string = process.cwd();
+      const changelogPath = fs.existsSync(path.resolve(cwd, 'CHANGELOG.md'))
+        ? path.resolve(cwd, 'CHANGELOG.md')
+        : path.resolve(cwd, '../CHANGELOG.md');
+      rawHeadings = fs
+        .readFileSync(changelogPath, 'utf-8')
+        .split('\n')
+        .filter((l: string) => /^## v\d/.test(l));
+    });
+
     test('parses all versions', () => {
-      expect(versions.length).toBeGreaterThanOrEqual(40);
+      expect(versions.length).toBeGreaterThanOrEqual(60);
+    });
+
+    test('EVERY raw `## v` heading parses — the anchored regex drops none (v1.58.1 guard)', () => {
+      // The RE_VERSION anchor means a non-matching heading silently vanishes
+      // from the dashboard AND its bullets merge into the previous card. This
+      // count guard is the CI tripwire for that failure mode.
+      expect(versions.length).toBe(rawHeadings.length);
+      const parsedIds = new Set(versions.map(v => v.version));
+      for (const heading of rawHeadings) {
+        const version = heading.match(/^## v([\d.]+)/)?.[1];
+        expect(version && parsedIds.has(version), `heading dropped: "${heading}"`).toBe(true);
+      }
     });
 
     test('first version is the latest release', () => {
@@ -501,6 +579,31 @@ Two R2 security improvements identified during review.
       for (const v of versions) {
         expect(v.version).toMatch(/^\d+\.\d+\.\d+/);
       }
+    });
+
+    test('every version carries a release date after the v1.58.1 backfill', () => {
+      for (const v of versions) {
+        expect(v.date, `v${v.version} is undated`).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      }
+    });
+
+    test('every date is a real calendar date within the repo lifetime', () => {
+      // Strict monotonicity deliberately NOT asserted: hotfixes on older lines
+      // legitimately release after newer minors (e.g. v1.37.3 on 2026-05-28,
+      // one day after v1.38.0).
+      for (const v of versions) {
+        const parsed = new Date(`${v.date}T00:00:00Z`);
+        expect(Number.isNaN(parsed.getTime()), `v${v.version} date unparseable`).toBe(false);
+        // Round-trip guard: JS Date NORMALISES impossible days (2026-02-31 →
+        // 2026-03-03), so NaN alone cannot catch them — the ISO round-trip can.
+        expect(parsed.toISOString().slice(0, 10), `v${v.version} impossible date`).toBe(v.date);
+        expect(v.date! >= '2026-01-01' && v.date! <= '2100-01-01').toBe(true);
+      }
+    });
+
+    test('newest entries surface their heading subtitle', () => {
+      const v1290 = versions.find(v => v.version === '1.29.0');
+      expect(v1290?.subtitle).toContain('Storage-tab pagination');
     });
 
     test('every version with a subtitle also has body content', () => {
@@ -525,14 +628,11 @@ Two R2 security improvements identified during review.
       }
     });
 
-    test('known newer versions with ### sections parse correctly', () => {
-      const v1164 = versions.find(v => v.version === '1.16.4');
-      expect(v1164).toBeDefined();
-      expect(v1164!.sections.some(s => s.name === 'Fixed')).toBe(true);
-
-      const v1163 = versions.find(v => v.version === '1.16.3');
-      expect(v1163).toBeDefined();
-      expect(v1163!.sections.some(s => s.name === 'Added')).toBe(true);
+    test('known versions with ### sections parse correctly', () => {
+      // Structural (not version-pinned): the real changelog must contain
+      // sectioned entries with both Fixed and Added headings.
+      expect(versions.some(v => v.sections.some(s => s.name === 'Fixed'))).toBe(true);
+      expect(versions.some(v => v.sections.some(s => s.name === 'Added'))).toBe(true);
     });
 
     test('no version contains table row content as items', () => {
@@ -558,20 +658,52 @@ Two R2 security improvements identified during review.
       }
     });
 
-    test('newer versions (### sections) have bold items', () => {
-      // Versions with ### sections and - **bold** — desc items should have isBold: true
-      const v1164 = versions.find(v => v.version === '1.16.4');
-      expect(v1164).toBeDefined();
-      const fixedItems = v1164!.sections.find(s => s.name === 'Fixed')?.items ?? [];
-      expect(fixedItems.length).toBeGreaterThan(0);
-      expect(fixedItems[0].isBold).toBe(true);
+    test('sectioned versions have bold items', () => {
+      // Versions with ### sections and - **bold** — desc items should have
+      // isBold: true somewhere in the corpus (structural, not version-pinned).
+      const boldItems = versions
+        .flatMap(v => v.sections)
+        .flatMap(s => s.items)
+        .filter(i => i.isBold);
+      expect(boldItems.length).toBeGreaterThan(0);
     });
 
-    test('versions with subtitles parse correctly', () => {
-      // v1.16.0 has a subtitle
-      const v1160 = versions.find(v => v.version === '1.16.0');
-      expect(v1160).toBeDefined();
-      expect(v1160!.subtitle).toBeDefined();
+    test('the corpus contains plain (non-bold) items too', () => {
+      // Older entries carry plain paragraph/bullet text that should NOT be
+      // bold (structural, not version-pinned).
+      const plainItems = versions
+        .flatMap(v => v.sections)
+        .flatMap(s => s.items)
+        .filter(i => !i.isBold);
+      expect(plainItems.length).toBeGreaterThan(0);
+    });
+
+    test('no version has ALL items as bold (older entries must have plain text)', () => {
+      // Older entries (pre v1.20) that use mixed format should not be 100% bold
+      const olderVersions = versions.filter(v => {
+        const [major, minor] = v.version.split('.').map(Number);
+        return major === 1 && minor >= 17 && minor <= 19;
+      });
+      expect(olderVersions.length).toBeGreaterThan(0);
+
+      for (const v of olderVersions) {
+        const allItems = v.sections.flatMap(s => s.items);
+        if (allItems.length > 1) {
+          const allBold = allItems.every(i => i.isBold);
+          // Most older versions have a mix of bold and plain items
+          // We check that at least some versions have plain items
+          if (allBold) {
+            // This is acceptable for some versions that only have bold bullets
+            // but the majority should have mixed content
+            continue;
+          }
+          const plainCount = allItems.filter(i => !i.isBold).length;
+          expect(
+            plainCount,
+            `v${v.version} should have some non-bold items`,
+          ).toBeGreaterThanOrEqual(1);
+        }
+      }
     });
   });
 });

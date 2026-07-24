@@ -1,7 +1,9 @@
 import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { XIcon } from 'lucide-react';
+import { MessageSquarePlus, XIcon } from 'lucide-react';
 
+import { Button } from '@/components/ui/button';
+import { openFeedbackDialog } from '@/lib/feedback-dialog';
 import { cn } from '@/lib/utils';
 
 function Dialog({ ...props }: React.ComponentProps<typeof DialogPrimitive.Root>) {
@@ -40,9 +42,12 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  feedbackTrigger = false,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
+  /** Render an in-dialog "Feedback" button (ported from upstream v1.42.2). */
+  feedbackTrigger?: boolean;
 }) {
   return (
     <DialogPortal data-slot="dialog-portal">
@@ -56,6 +61,21 @@ function DialogContent({
         {...props}
       >
         {children}
+        {feedbackTrigger && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-feedback-exclude
+            onClick={() => void openFeedbackDialog('dialog')}
+            aria-label="Send feedback about this"
+            title="Send feedback about this"
+            className="absolute top-4 right-12 gap-1.5"
+          >
+            <MessageSquarePlus className="size-4" />
+            <span className="hidden sm:inline">Feedback</span>
+          </Button>
+        )}
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"

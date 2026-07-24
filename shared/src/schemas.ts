@@ -7,6 +7,7 @@
 
 import { z } from 'zod';
 import { SUPPORTED_DOMAINS, R2_BUCKETS, ALL_R2_BUCKETS } from './types.js';
+import { CommentSchema } from './comment.js';
 
 // =============================================================================
 // Domain Schema
@@ -356,6 +357,23 @@ export const R2UpdateMetadataInputSchema = z.object({
   content_disposition: z.string().optional().describe('New Content-Disposition'),
 });
 
+/**
+ * update_object_comment tool input schema (v1.30.0, ported from upstream
+ * v1.58.7). The `comment` field is REQUIRED — send null (or an empty string)
+ * to clear the note. Mirrors the explicit-set semantics of
+ * PUT /api/storage/:bucket/comment/:key, which rejects a missing field rather
+ * than treating absence as "clear".
+ */
+export const R2UpdateCommentInputSchema = z.object({
+  bucket: R2BucketSchema.describe('R2 bucket name (read-write only)'),
+  key: z.string().min(1).describe('Object key (path) to set the comment on'),
+  comment: CommentSchema.nullable().describe(
+    'Free-text note/comment for the file (max 1000 chars). Pass null or an empty string to clear.',
+  ),
+});
+
+export type R2UpdateCommentInput = z.infer<typeof R2UpdateCommentInputSchema>;
+
 export const R2ObjectKeyInputSchema = z.object({
   bucket: AllR2BucketSchema.describe('R2 bucket name'),
   key: z.string().min(1).describe('Object key (path) within the bucket'),
@@ -428,6 +446,10 @@ export const AuditActionSchema = z.enum([
   'feedback_create',
   'feedback_triage',
   'feedback_delete',
+  // v1.30.0 — QR codes (ported from upstream v1.54.0)
+  'qr_create',
+  'qr_update',
+  'qr_delete',
   // v1.28.0 — external R2 operations audit capture. Kept separate from the
   // semantic r2_* actions above because R2 event notifications cannot
   // distinguish upload vs replace vs move; the raw event action lives in

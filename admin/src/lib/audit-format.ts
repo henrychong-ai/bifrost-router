@@ -37,6 +37,9 @@ export const ACTION_COLORS: Record<AuditAction, string> = {
   r2_object_create: 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200',
   r2_object_delete: 'bg-red-100 text-red-800 border-red-200',
   cf_config_change: 'bg-slate-100 text-slate-800 border-slate-200',
+  qr_create: 'bg-blue-100 text-blue-800 border-blue-200',
+  qr_update: 'bg-blue-100 text-blue-800 border-blue-200',
+  qr_delete: 'bg-red-100 text-red-800 border-red-200',
 };
 
 /**
