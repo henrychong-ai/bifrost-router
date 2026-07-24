@@ -15,7 +15,7 @@ import { getAllRoutesAllDomains, createRoute } from '../../src/kv/routes';
 import { backupKV } from '../../src/backup/kv';
 import type { AppEnv } from '../../src/types';
 
-const VALID_KEY = 'test-api-key-12345';
+const VALID_KEY = 'test-api-key-12345'; // gitleaks:allow — test placeholder, not a credential
 const DOMAIN = 'example.com';
 const OTHER_DOMAIN = 'secondary.example.net';
 const BASE = `http://${DOMAIN}/api/qr`;
