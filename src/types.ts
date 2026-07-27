@@ -149,6 +149,9 @@ export function encodeR2KeyAsPath(key: string): string {
  * Cloudflare Worker bindings for the edge router
  */
 export type Bindings = {
+  /** RFC 9116 security contact address served at /.well-known/security.txt. */
+  SECURITY_CONTACT_EMAIL?: string;
+
   // Environment variables
   ENVIRONMENT: 'development' | 'production';
   VERSION: string;

@@ -8,6 +8,7 @@ import { matchRoute } from './kv/lookup';
 import { handleRedirect, handleProxy, handleR2, CACHE_STATUS_HEADER } from './handlers';
 import { adminRoutes } from './routes/admin';
 import { safeServiceFetch } from './utils/safe-service-fetch';
+import { denySensitivePaths } from './middleware/sensitive-paths';
 import {
   recordClick,
   recordPageView,
@@ -57,6 +58,11 @@ const app = new Hono<AppEnv>();
 // ============================================
 
 app.use('*', logger());
+
+// Return 404 for build-system / source-tree paths and query-string
+// path-traversal probes, before the KV catch-all can answer them.
+// See docs/cloudflare-waf.md for the companion edge rules.
+app.use('*', denySensitivePaths());
 app.use(
   '*',
   // 1 year max-age = HSTS-preload-eligible threshold. `includeSubDomains` is
@@ -114,6 +120,43 @@ app.use('*', async (c, next) => {
 /**
  * Health check endpoint
  */
+/**
+ * RFC 9116 security contact (`/.well-known/security.txt`).
+ *
+ * Served before the KV catch-all so it always responds, regardless of any
+ * per-domain route configuration, and on every supported domain — the point of
+ * an RFC 9116 contact is to be discoverable everywhere.
+ *
+ * SELF-HOSTERS: set SECURITY_CONTACT_EMAIL in wrangler.toml [vars] to your own
+ * address. Without it this serves a placeholder, which is worse than useless —
+ * a researcher who finds something real needs a mailbox that exists.
+ *
+ * `Expires` is 365 days from REQUEST time rather than build time; a build-time
+ * value silently ages out between deploys, and RFC 9116 says an expired file
+ * should be ignored.
+ */
+app.get('/.well-known/security.txt', c => {
+  const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .replace(/\.\d{3}Z$/, 'Z');
+
+  const contact = c.env.SECURITY_CONTACT_EMAIL ?? 'security@example.com';
+  const url = new URL(c.req.url);
+
+  const body = [
+    `Contact: mailto:${contact}`,
+    `Expires: ${expiresAt}`,
+    'Preferred-Languages: en',
+    `Canonical: https://${url.hostname}/.well-known/security.txt`,
+    '',
+  ].join('\n');
+
+  return c.text(body, 200, {
+    'Content-Type': 'text/plain; charset=utf-8',
+    'Cache-Control': 'public, max-age=86400',
+  });
+});
+
 app.get('/health', c => {
   const url = new URL(c.req.url);
   const isDomainSupported = isValidDomain(url.hostname);

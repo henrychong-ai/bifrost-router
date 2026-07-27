@@ -6,6 +6,20 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.30.4 (2026-07-27) — security: sensitive-path hardening, security.txt, WAF guidance
+
+**[security] New `denySensitivePaths` middleware** (`src/middleware/sensitive-paths.ts`). Returns **404** for build-system and source-tree paths (`/wrangler.toml`, `/package.json`, `/src/*`, `/.git/*`, `/node_modules/*`, …, case-insensitively) and for **query-string path traversal** on the admin host, across up to three URL-decode passes so single-, double- and triple-encoded probes (`?file=../../etc`, `..%2f`, `%2e%2e%2f`, …) are all caught. Mounted before the KV catch-all. 29 tests.
+
+Deliberately **not** denied: `/docs`, `/admin`, `/backup`, `/swagger`, `/openapi.json` — these are plausible KV short-link names an operator may legitimately register, and since an unmatched path returns the same response as any random string they disclose nothing. Denying them would break a real feature to satisfy a scanner.
+
+**[security] RFC 9116 `security.txt`** served at `/.well-known/security.txt` on every supported domain. Set `SECURITY_CONTACT_EMAIL` in `wrangler.toml` `[vars]` to your own address — the default is a placeholder, which is worse than useless. `Expires` is 365 days from **request** time, not build time, so it cannot silently age out between deploys.
+
+**[docs] New `docs/cloudflare-waf.md`** — the WAF Custom Rules a self-hoster should deploy, with expressions, plan constraints (all rules use `contains`/`eq` only, so they work on Free and Pro — `matches`/regex needs Business+), false-positive analysis, and smoke tests including a must-NOT-block case. A Worker cannot configure its own zone, so this layer was previously undocumented and every deployment shipped without it.
+
+**Verification:** `pnpm run check` green — 582 root tests (up from 553), 206 shared / 202 admin / 104 slackbot / 92 mcp, typechecks, both runtime-types gates.
+
+---
+
 ## v1.30.3 (2026-07-27) — security: sharp advisory; runtime-types migration; Vite 8; vitest 4
 
 **[security] Closed an open Dependabot HIGH alert.** Added `pnpm` override `"sharp": ">=0.35.0"` — GHSA-f88m-g3jw-g9cj (sharp inherited libvips vulnerabilities, vulnerable `<0.35.0`). `pnpm audit` 2 high -> 1 high.
