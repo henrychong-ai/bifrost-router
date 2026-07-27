@@ -1,4 +1,7 @@
-import type { R2Bucket } from '@cloudflare/workers-types';
+// R2Bucket is an ambient global from the generated runtime types
+// (worker-configuration.d.ts, produced by `wrangler types` against
+// compatibility_date) — no import needed since the migration off
+// @cloudflare/workers-types.
 import type { BackupManifest } from './types';
 import type {
   BackupHealthResponse,

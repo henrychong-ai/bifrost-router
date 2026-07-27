@@ -66,5 +66,17 @@ jobs:
       - name: Test
         run: pnpm run -r test
 
+      # Runtime-types freshness gate: `wrangler types --check` asserts the committed
+      # worker-configuration.d.ts still matches each Worker's wrangler.toml
+      # (compatibility_date + flags). A compat-date bump or binding change that is not
+      # regenerated fails HERE rather than silently typechecking against a stale runtime
+      # surface. Listed explicitly because this job enumerates commands inline and does
+      # NOT invoke `pnpm run check`.
+      - name: Runtime types check (root)
+        run: pnpm run types:check
+
+      - name: Runtime types check (slackbot)
+        run: pnpm -C slackbot run types:check
+
       - name: Build admin dashboard
         run: pnpm -C admin build

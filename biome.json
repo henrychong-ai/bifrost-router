@@ -52,7 +52,8 @@
       "!**/pnpm-lock.yaml",
       "!**/*.min.js",
       "!**/*.bundle.js",
-      "!**/.pnpm-store/**"
+      "!**/.pnpm-store/**",
+      "!**/worker-configuration.d.ts"
     ]
   }
 }

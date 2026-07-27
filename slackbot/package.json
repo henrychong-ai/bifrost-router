@@ -14,7 +14,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "tail": "wrangler tail"
+    "tail": "wrangler tail",
+    "types:generate": "wrangler types --include-env=false",
+    "types:check": "wrangler types --include-env=false --check"
   },
   "dependencies": {
     "@bifrost/shared": "workspace:*",
@@ -23,7 +25,6 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.12.21",
-    "@cloudflare/workers-types": "^4.20260702.1",
     "@types/node": "^25.9.5",
     "typescript": "^5.9.3",
     "vitest": "^3.2.7",
