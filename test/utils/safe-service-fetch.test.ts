@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { safeServiceFetch } from '../../src/utils/safe-service-fetch';
 
 /**
@@ -14,6 +14,13 @@ describe('safeServiceFetch', () => {
 
   beforeEach(() => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    // vitest-pool-workers 0.13+ isolates per test FILE, not per test, so a
+    // spy left installed stacks on the next beforeEach and accumulates
+    // its call history — restore after each test.
+    consoleLogSpy.mockRestore();
   });
 
   describe('success path', () => {

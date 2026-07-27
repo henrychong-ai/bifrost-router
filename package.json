@@ -50,14 +50,14 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.5",
-    "@cloudflare/vitest-pool-workers": "^0.12.21",
-    "@vitest/coverage-v8": "^3.2.7",
+    "@cloudflare/vitest-pool-workers": "^0.18.8",
+    "@vitest/coverage-v8": "^4.1.10",
     "drizzle-kit": "^0.31.10",
     "husky": "^9.1.7",
     "lint-staged": "^17.2.0",
     "oxlint": "^1.75.0",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.7",
+    "vitest": "^4.1.10",
     "wrangler": "4.114.0"
   },
   "pnpm": {

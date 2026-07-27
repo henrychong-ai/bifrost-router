@@ -1,10 +1,18 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import { env } from 'cloudflare:test';
 import { adminRoutes } from '../../src/routes/admin';
 import type { AppEnv } from '../../src/types';
+import { clearAllRoutes } from '../helpers';
 
 describe('admin routes', () => {
+  // vitest-pool-workers 0.13+ isolates storage per test FILE (the <=0.12
+  // per-test rollback is gone). This file's tests each seed their own routes
+  // and assert exact counts, so start every test from a clean KV.
+  beforeEach(async () => {
+    await clearAllRoutes();
+  });
+
   const validApiKey = 'test-api-key-12345';
 
   // Create test env with ADMIN_API_DOMAIN set to enable domain restriction
