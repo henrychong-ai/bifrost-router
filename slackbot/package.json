@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@bifrost/shared": "workspace:*",
-    "hono": "^4.12.31",
+    "hono": "^4.12.32",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -27,6 +27,6 @@
     "@types/node": "^25.9.5",
     "typescript": "^5.9.3",
     "vitest": "^3.2.7",
-    "wrangler": "4.98.0"
+    "wrangler": "4.114.0"
   }
 }
