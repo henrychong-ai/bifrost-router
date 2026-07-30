@@ -1,5 +1,5 @@
 /* eslint-disable */
-// Runtime types generated with workerd@1.20260722.1 2025-01-01 
+// Runtime types generated with workerd@1.20260730.1 2025-01-01 
 // Begin runtime types
 /*! *****************************************************************************
 Copyright (c) Cloudflare. All rights reserved.
