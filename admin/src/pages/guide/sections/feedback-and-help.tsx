@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { getModifierKey } from '@/hooks';
 import { GUIDE_SECTIONS } from '../guide-registry';
 import { GuideSection, Shortcut, Tip } from '../guide-primitives';

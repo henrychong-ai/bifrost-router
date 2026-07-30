@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: 'npm'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+    open-pull-requests-limit: 10
+    groups:
+      # One combined PR per bucket for minor/patch bumps.
+      # Majors intentionally ungrouped — each gets its own PR and review.
+      dev-dependencies:
+        dependency-type: 'development'
+        update-types: ['minor', 'patch']
+      prod-dependencies:
+        dependency-type: 'production'
+        update-types: ['minor', 'patch']
+
+  # No github-actions ecosystem: the only workflow file is ci-cd.yml.example,
+  # which Dependabot does not scan. Add the ecosystem if a real workflow lands.

@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { ArrowRight } from 'lucide-react';
 import { toolDefinitions } from '@bifrost/shared';
 import { GUIDE_SECTIONS } from '../guide-registry';

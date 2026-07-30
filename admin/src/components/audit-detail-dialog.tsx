@@ -1,5 +1,5 @@
 import { Copy, ExternalLink } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { AuditActionIcon } from '@/components/audit-action-icon';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';

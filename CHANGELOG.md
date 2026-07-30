@@ -6,6 +6,19 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.30.5 (2026-07-29) — security: react-router v8 migration (CSRF advisory); Dependabot groups
+
+**[security] admin: react-router-dom 7.18.1 -> react-router 8.3.0.** Clears HIGH advisory
+GHSA-qwww-vcr4-c8h2 (RSC Mode CSRF bypass). No 7.x patch exists and react-router-dom has
+no v8 line — in v8 you import from `react-router` directly, so this is a package swap +
+import rewrite (all 8 APIs used are unchanged declarative-mode exports). The advisory was
+not exploitable here (the dashboard is a Vite SPA; RSC Mode is unused) but the migration
+clears the alert.
+
+**[ci] `.github/dependabot.yml` added**: weekly npm updates grouped into dev/prod bucket
+PRs (majors stay individual). No github-actions ecosystem — the only workflow file is
+`ci-cd.yml.example`, which Dependabot does not scan.
+
 ## v1.30.4 (2026-07-27) — security: sensitive-path hardening, security.txt, WAF guidance
 
 **[security] New `denySensitivePaths` middleware** (`src/middleware/sensitive-paths.ts`). Returns **404** for build-system and source-tree paths (`/wrangler.toml`, `/package.json`, `/src/*`, `/.git/*`, `/node_modules/*`, …, case-insensitively) and for **query-string path traversal** on the admin host, across up to three URL-decode passes so single-, double- and triple-encoded probes (`?file=../../etc`, `..%2f`, `%2e%2e%2f`, …) are all caught. Mounted before the KV catch-all. 29 tests.
