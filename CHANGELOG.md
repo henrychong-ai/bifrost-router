@@ -6,6 +6,47 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.30.6 (2026-07-30) — chore: routine minor/patch dependency maintenance
+
+**[deps] Workspace-wide minor/patch bumps.** No majors, no code changes. `pnpm audit` and
+`pnpm audit --prod` both report **no known vulnerabilities** before and after — this is
+routine currency maintenance, not an advisory response.
+
+Root / slackbot (dev): `@biomejs/biome` 2.5.5 → 2.5.6, `@cloudflare/vitest-pool-workers`
+0.18.8 → 0.19.1, `oxlint` 1.75.0 → 1.76.0, `wrangler` 4.114.0 → 4.116.0.
+Root / slackbot (prod): `hono` 4.12.31 → 4.12.32.
+`mcp/`: `@modelcontextprotocol/sdk` 1.29.0 → 1.30.0.
+`admin/` (prod): `@hookform/resolvers` 5.4.0 → 5.5.7, eleven `@radix-ui/*` primitives
+(patch-level), `react-hook-form` 7.82.0 → 7.83.0, `recharts` 3.10.0 → 3.10.1.
+`admin/` (dev): `eslint` 10.7.0 → 10.8.0, `eslint-plugin-oxlint` 1.75.0 → 1.76.0,
+`@vitejs/plugin-react` 6.0.4 → 6.0.5, `vite` 8.1.5 → 8.2.0.
+
+**[deps] Stale override floor raised: `hono` `>=4.12.28` → `>=4.12.32`.** An override is a
+*pin*, not a *minimum guarantee* — pnpm will not float past whatever the lockfile already
+holds. The stale floor was keeping `hono` at 4.12.31 even though every manifest already
+declared `^4.12.32`. Same class of landmine as the `postcss` floor documented in
+CLAUDE.md → "Dependency Maintenance". Every other override in the block was re-checked
+against its resolved version; all are current and correctly bounded.
+
+**[chore] `worker-configuration.d.ts` regenerated** (root + `slackbot/`) for
+workerd 1.20260730.1, which ships with wrangler 4.116.0. Header-comment change only — no
+binding or runtime-surface delta. The `wrangler types --check` freshness gate in CI is
+what forces this.
+
+**[chore] Version-drift fix.** `admin/package.json` was left at 1.30.4 when the rest of the
+tree moved to 1.30.5; it and the CLAUDE.md header are realigned to 1.30.6.
+
+**[fix] `lint-staged` pre-commit hook no longer fails on generated `.d.ts` files.** Both
+Biome steps now pass `--no-errors-on-unmatched`. `worker-configuration.d.ts` matches the
+`*.{ts,tsx,js,jsx}` lint-staged glob but is ignored by `biome.json`, so staging it made
+`biome format --write` exit non-zero with "No files were processed in the specified paths"
+and abort the commit. This would have recurred on every wrangler bump that regenerates the
+runtime types.
+
+**Majors deliberately not taken** (out of scope for a patch-level maintenance pass, and no
+advisory forces any of them): `typescript` 5.9.3 → 7.0.2, `@types/node` 25.x → 26.x,
+`lucide-react` 0.575.0 → 1.28.0.
+
 ## v1.30.5 (2026-07-29) — security: react-router v8 migration (CSRF advisory); Dependabot groups
 
 **[security] admin: react-router-dom 7.18.1 -> react-router 8.3.0.** Clears HIGH advisory
