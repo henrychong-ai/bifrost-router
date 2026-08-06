@@ -2,7 +2,7 @@
 
 Guidance for Claude Code when working with this repository.
 
-**Version:** 1.30.4 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.30.6 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Public repository — sanitisation (MANDATORY)
 
@@ -458,6 +458,30 @@ The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `sr
 **Disabled Oxlint rules (intentional):**
 - `vitest/require-mock-type-parameters` — `vi.fn()` calls in tests are typed via `as unknown as Type` casts; adding type params is redundant
 - `react/hook-use-state` — `sidebar.tsx` uses `[_open, _setOpen]` (shadcn/ui internal state pattern); `filter-context.tsx` uses `[filters, setFiltersState]` to distinguish raw setter from wrapped API
+
+### Dependency maintenance — `pnpm.overrides` are pins, not floors
+
+The `pnpm.overrides` block in the root `package.json` is the repo's main lever for closing
+transitive advisories. Two rules keep it honest:
+
+- **A stale floor actively holds a package back.** An override *replaces* the dependency
+  spec, so pnpm will not float past whatever the lockfile already holds. `postcss: ">=8.5.10"`
+  kept postcss pinned at a vulnerable 8.5.22 long after 8.5.23 shipped the fix. When a new
+  advisory names a package you already override, **raise the floor** — never assume the
+  existing entry covers it.
+- **Bound every override.** An unbounded `">=X"` can silently drag a transitive across a
+  major boundary its parent never expected. Prefer `">=X <MAJOR+1"`, or a version-selector
+  key (`"pkg@>=7.0.0 <7.29.0": "7.29.0"`) when you only mean to patch one line.
+
+`miniflare` pins `undici` at an exact version, so the `undici` override deliberately shadows
+an upstream exact pin — that is validated by the full Workers test suite, which runs entirely
+on miniflare. `wrangler` is pinned exactly (root + `slackbot/`) to match the exact pin inside
+`@cloudflare/vitest-pool-workers`; bump the two together or you get two copies of wrangler.
+
+After any override change, regenerate the lockfile and confirm with
+`pnpm install --frozen-lockfile` — `pnpm update` alone leaves drift that `pnpm run check`
+does not catch. Note also that `pnpm -C shared build` is a prerequisite for a clean
+`pnpm run typecheck` on a fresh clone: the root Worker imports `@bifrost/shared` from `dist`.
 
 ### Dashboard architecture (not Workers Static Assets)
 
