@@ -6,6 +6,75 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.30.6 (2026-08-06) — routine dependency maintenance; `pnpm audit` back to zero
+
+Minor/patch bumps across the root Worker and all four workspace packages, plus six
+`pnpm.overrides` refreshed to close every open advisory. **`pnpm audit`: 12 findings
+(4 high / 8 moderate) -> "No known vulnerabilities found".** No majors taken.
+
+**[security] Advisories closed (12).**
+
+| Package | Was | Now | Advisory |
+|---|---|---|---|
+| `hono` | 4.12.31 | 4.13.0 | GHSA-8j4g-w8fx-2239 — ReDoS in CORS middleware via `Access-Control-Request-Headers` (moderate) |
+| `undici` (dev, via `@cloudflare/vitest-pool-workers` -> `miniflare`) | 7.28.0 | 7.29.0 | GHSA-m8rv-5g2x-5cg5, GHSA-jr45-8vmc-qm54, GHSA-v3r7-h72x-cjcm + retry-interceptor desync + private-cache-directive disclosure (1 high, 4 moderate) |
+| `postcss` (dev, via `vitest` -> `vite`) | 8.5.22 | 8.5.26 | GHSA follow-up to GHSA-6g55-p6wh-862q — `sourceMappingURL` arbitrary `.map` read (moderate) |
+| `fast-uri` (via MCP SDK -> `ajv`) | 4.1.1 | 4.1.2 | host confusion via backslash authority introducer (high) |
+| `ip-address` (via MCP SDK -> `express-rate-limit`) | 10.2.0 | 10.4.0 | leading-zero octet SSRF bypass (high) + CIDR-suffix and IPv4-mapped/NAT64 misclassification (2 moderate) |
+| `brace-expansion` (dev, via `eslint` -> `minimatch`) | 5.0.8 | 5.0.9 | DoS via unbounded intermediate arrays (high) |
+
+**[chore] Override hygiene — stale floors raised, unbounded floors bounded.** Four of the
+six overrides above were *already present* but had gone stale: an override is a **pin**,
+not a minimum guarantee — pnpm will not float past whatever the lockfile already holds, so
+`postcss: ">=8.5.10"`, `fast-uri: ">=3.1.2"`, `ip-address@<=10.1.0` and `hono: ">=4.12.28"`
+were actively holding those packages *below* their patched versions. When a new advisory
+names a package you already override, raise the floor. Every touched override also gained an
+upper bound (`<5`, `<9`, `<11`, `<6`) so it can no longer silently drag a transitive across
+a major boundary.
+
+**[chore] Version bumps.**
+
+- Root: `hono` ^4.12.32 -> ^4.13.0; `@biomejs/biome` ^2.5.5 -> ^2.5.7; `lint-staged`
+  ^17.2.0 -> ^17.3.0; `oxlint` ^1.75.0 -> ^1.77.0
+- `slackbot/`: `hono` ^4.12.32 -> ^4.13.0
+- `mcp/`: `@modelcontextprotocol/sdk` ^1.29.0 -> ^1.30.0
+- `admin/`: `@hookform/resolvers` ^5.4.0 -> ^5.7.1; `react-hook-form` ^7.82.0 -> ^7.84.0;
+  `recharts` ^3.10.0 -> ^3.10.1; all eleven `@radix-ui/*` primitives to current patch;
+  `@types/react` ^19.2.17 -> ^19.2.18; `@types/react-dom` ^19.2.3 -> ^19.2.4;
+  `@vitejs/plugin-react` ^6.0.4 -> ^6.0.5; `eslint` ^10.7.0 -> ^10.8.0;
+  `eslint-plugin-oxlint` ^1.75.0 -> ^1.77.0 (its peer is `oxlint ~1.77.0`, so it moves in
+  lockstep with the root `oxlint`); `typescript-eslint` ^8.65.0 -> ^8.66.0;
+  `vite` ^8.1.5 -> ^8.2.1
+
+**[chore] Majors deliberately skipped.**
+
+- **`typescript` 5.9.3 -> 7.0.2 — blocked.** `typescript-eslint@8.66.0` declares peer
+  `typescript >=4.8.4 <6.1.0`; TS 7 makes it refuse to load, taking `admin`'s ESLint layer
+  (and therefore `pnpm run check`) with it. Revisit when typescript-eslint ships TS 7
+  support. A scoped pnpm override cannot work around this — `typescript` is a
+  *peerDependency*, and overrides do not control peer resolution.
+- **`lucide-react` 0.575.0 -> 1.29.0** — icon-library major with renamed/removed exports;
+  needs a deliberate icon audit, not a maintenance bump.
+- **`@tanstack/react-table` 8.21.3 -> 9.0.0** — major API rework; the routes/storage/audit
+  tables would need rewriting.
+- **`@types/node` 25.9.5 -> 26.1.2** — new lib majors surface fresh type errors across five
+  packages; keep in step with a deliberate Node/TS move.
+- **`@cloudflare/vitest-pool-workers` 0.18.8 -> 0.20.2** — a `0.x` minor is a semver-major.
+  0.20.x also pulls `miniflare@5.x-alpha`, and it does **not** fix the `undici` chain
+  (miniflare pins `undici` exactly, at 7.28.0, on every published line including v5-alpha),
+  so it buys nothing the bounded override does not already deliver.
+- **`wrangler` stays pinned at exactly `4.114.0`** (root + `slackbot/`) to match the exact
+  pin inside `@cloudflare/vitest-pool-workers@0.18.8`. Floating it to 4.119.0 would install
+  a second copy of wrangler for no security benefit; it moves when the test pool moves.
+
+**Verification:** `pnpm run check` green — 582 root / 206 shared / 202 admin / 104 slackbot /
+92 mcp tests (1,186 total), oxlint + admin oxlint/ESLint, Biome format, five typechecks, both
+`wrangler types --check` gates. Plus `pnpm -C shared build`, `pnpm -C admin build`,
+`pnpm install --frozen-lockfile`, and `test/supported-domains-consistency.test.ts` (3/3).
+
+**[docs] `admin/package.json` and the `CLAUDE.md` header were both still on 1.30.4** while
+`package.json` / `wrangler.toml` had moved to 1.30.5 — all four are realigned on 1.30.6.
+
 ## v1.30.5 (2026-07-29) — security: react-router v8 migration (CSRF advisory); Dependabot groups
 
 **[security] admin: react-router-dom 7.18.1 -> react-router 8.3.0.** Clears HIGH advisory
