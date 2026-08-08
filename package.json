@@ -49,16 +49,16 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.5",
-    "@cloudflare/vitest-pool-workers": "^0.18.8",
+    "@biomejs/biome": "^2.5.7",
+    "@cloudflare/vitest-pool-workers": "^0.20.2",
     "@vitest/coverage-v8": "^4.1.10",
     "drizzle-kit": "^0.31.10",
     "husky": "^9.1.7",
-    "lint-staged": "^17.2.0",
-    "oxlint": "^1.75.0",
+    "lint-staged": "^17.3.0",
+    "oxlint": "^1.77.0",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10",
-    "wrangler": "4.114.0"
+    "wrangler": "4.119.0"
   },
   "pnpm": {
     "overrides": {
