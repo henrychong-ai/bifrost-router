@@ -29,7 +29,9 @@ export default defineConfig({
     setupFiles: ['./test/setup.ts'],
     exclude: ['node_modules', 'admin', 'shared', 'mcp', 'slackbot'],
     coverage: {
-      provider: 'v8',
+      // The Workers pool runs in workerd, which does not expose V8's inspector
+      // coverage API. Cloudflare requires instrumented Istanbul coverage here.
+      provider: 'istanbul',
       reporter: ['text', 'json', 'html'],
       exclude: ['node_modules/**', 'test/**', '**/*.test.ts', 'vitest.config.ts'],
     },

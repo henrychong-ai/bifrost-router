@@ -4,7 +4,7 @@ info:
   description: Edge router management API for route configuration and analytics
   version: 1.15.2
   contact:
-    name: Henry Chong
+    name: Bifrost Maintainers
     url: https://example.com
 
 servers:

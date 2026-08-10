@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { normalizePath, getWildcardCandidates, getWildcardRemainder } from '../../src/kv/lookup';
+import {
+  normalizePath,
+  getWildcardCandidates,
+  getWildcardRemainder,
+  matchRoute,
+} from '../../src/kv/lookup';
+import { routeKey } from '../../src/kv/schema';
+import type { KVRouteConfig } from '../../src/types';
 
 describe('normalizePath', () => {
   describe('query strings and hashes', () => {
@@ -107,5 +114,71 @@ describe('getWildcardRemainder', () => {
   it('returns empty string for non-wildcard routes', () => {
     expect(getWildcardRemainder('/blog', '/blog')).toBe('');
     expect(getWildcardRemainder('/api/v1', '/api/v1')).toBe('');
+  });
+});
+
+describe('matchRoute wildcard lookup', () => {
+  const domain = 'lookup.example.com';
+  const deepPath = '/a/b/c/d/e/f/g/h';
+
+  const wildcardRoute = (path: string, enabled = true): KVRouteConfig => ({
+    path,
+    type: 'redirect',
+    target: `https://example.com${path}`,
+    enabled,
+    createdAt: 0,
+    updatedAt: 0,
+  });
+
+  const createKv = (routes: ReadonlyMap<string, KVRouteConfig>): KVNamespace =>
+    ({
+      get: async (key: string) => routes.get(key) ?? null,
+    }) as unknown as KVNamespace;
+
+  it('preserves most-specific wildcard precedence regardless of completion order', async () => {
+    const specific = wildcardRoute('/a/b/*');
+    const root = wildcardRoute('/*');
+    const kv = {
+      async get(key: string) {
+        if (key === routeKey(domain, '/a/b/*')) {
+          await scheduler.wait(5);
+          return specific;
+        }
+        return key === routeKey(domain, '/*') ? root : null;
+      },
+    } as unknown as KVNamespace;
+
+    await expect(matchRoute(kv, domain, deepPath)).resolves.toBe(specific);
+  });
+
+  it('falls through a disabled specific wildcard to the next enabled candidate', async () => {
+    const disabled = wildcardRoute('/a/b/*', false);
+    const root = wildcardRoute('/*');
+    const kv = createKv(
+      new Map([
+        [routeKey(domain, '/a/b/*'), disabled],
+        [routeKey(domain, '/*'), root],
+      ]),
+    );
+
+    await expect(matchRoute(kv, domain, deepPath)).resolves.toBe(root);
+  });
+
+  it('loads wildcard candidates concurrently after an exact miss', async () => {
+    let activeReads = 0;
+    let maxActiveReads = 0;
+    const kv = {
+      async get(key: string) {
+        if (key === routeKey(domain, deepPath)) return null;
+        activeReads += 1;
+        maxActiveReads = Math.max(maxActiveReads, activeReads);
+        await scheduler.wait(5);
+        activeReads -= 1;
+        return null;
+      },
+    } as unknown as KVNamespace;
+
+    await expect(matchRoute(kv, domain, deepPath)).resolves.toBeNull();
+    expect(maxActiveReads).toBe(getWildcardCandidates(deepPath).length);
   });
 });

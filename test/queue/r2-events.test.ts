@@ -1,6 +1,6 @@
 /**
  * Unit tests for the R2 event-notification audit consumer (v1.28.0, ported
- * from Fusang bifrost v1.51.0).
+ * from the hardened upstream implementation).
  *
  * Layer 1 of the external R2 operations audit capture
  * (see README.md "External R2 operations audit capture"), hardened per the
@@ -19,8 +19,8 @@
  *
  * Real miniflare D1 harness (env.DB) + hand-authored DDL mirroring
  * drizzle/0010 (audit_logs.source, r2_event_correlations, r2_event_seen).
- * Path matching is exact-only in this deployment — dev binds the same actual
- * buckets, so Fusang's shared-dev-bucket key-suffix matching was dropped.
+ * Path matching is exact-only in this deployment because each environment
+ * binds its own buckets; no shared-bucket suffix matching is required.
  */
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
@@ -135,7 +135,7 @@ async function insertBifrostAudit(
 ): Promise<number> {
   const result = await env.DB.prepare(
     `INSERT INTO audit_logs (domain, action, actor_login, path, details, source)
-     VALUES (?1, ?2, 'henry@example.com', ?3, ?4, 'bifrost') RETURNING id`,
+     VALUES (?1, ?2, 'admin@example.com', ?3, ?4, 'bifrost') RETURNING id`,
   )
     .bind(domain, action, path, details ? JSON.stringify(details) : null)
     .first<{ id: number }>();
@@ -346,7 +346,7 @@ describe('handleR2EventBatch', () => {
       const staleTime = Math.floor(Date.now() / 1000) - 3600; // 1h ago
       await env.DB.prepare(
         `INSERT INTO audit_logs (domain, action, actor_login, path, source, created_at)
-         VALUES ('storage', 'r2_upload', 'henry@example.com', 'files/docs/report.pdf', 'bifrost', ?1)`,
+         VALUES ('storage', 'r2_upload', 'admin@example.com', 'files/docs/report.pdf', 'bifrost', ?1)`,
       )
         .bind(staleTime)
         .run();

@@ -89,9 +89,17 @@ export async function matchRoute(
   // 2. Try wildcard matches (longest prefix wins)
   const wildcardCandidates = getWildcardCandidates(path);
 
-  for (const wildcardPath of wildcardCandidates) {
-    const wildcardKey = routeKey(domain, wildcardPath);
-    const wildcard = await kv.get<KVRouteConfig>(wildcardKey, 'json');
+  // Candidate precedence is positional, not temporal. Load all fallbacks in
+  // parallel, then inspect the results from most-specific to least-specific.
+  // A deep root-wildcard hit or miss therefore pays one wildcard KV round trip
+  // instead of one round trip per path segment.
+  const wildcardRoutes = await Promise.all(
+    wildcardCandidates.map(wildcardPath =>
+      kv.get<KVRouteConfig>(routeKey(domain, wildcardPath), 'json'),
+    ),
+  );
+
+  for (const wildcard of wildcardRoutes) {
     if (wildcard && wildcard.enabled !== false) {
       return wildcard;
     }

@@ -1,6 +1,6 @@
 /**
- * QR design presets (v1.30.0 — ported from the internal Bifrost deployments'
- * v1.58.0 preset system, shipped NEUTRAL for the public template).
+ * QR design presets (v1.30.0 — ported from a hardened upstream preset system
+ * and shipped NEUTRAL for the public template).
  *
  * This template ships no branded presets: every QR defaults to the neutral
  * black-on-white design, and the editor's colour/logo fields cover ad-hoc

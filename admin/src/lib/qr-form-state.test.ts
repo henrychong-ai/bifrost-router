@@ -135,7 +135,7 @@ describe('stateFromQr — edit round-trip', () => {
       expect(suggestQrId(base({ type: 'url', url: 'https://www.example.com/listings' }))).toBe(
         'example-com',
       );
-      expect(suggestQrId(base({ type: 'vcard', name: 'Henry Chong' }))).toBe('henry-chong');
+      expect(suggestQrId(base({ type: 'vcard', name: 'Example User' }))).toBe('example-user');
       expect(suggestQrId(base({ type: 'text', text: 'Meeting room 3' }))).toBe('meeting-room-3');
     });
 
