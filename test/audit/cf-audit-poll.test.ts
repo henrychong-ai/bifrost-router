@@ -1,6 +1,6 @@
 /**
  * Unit tests for the Cloudflare account audit-log poller (v1.28.0, ported
- * from Fusang bifrost v1.51.0).
+ * from the hardened upstream implementation).
  *
  * Layer 2 of the external R2 operations audit capture
  * (see README.md "External R2 operations audit capture"). Exercises:
@@ -55,7 +55,7 @@ function cfEntry(overrides: Record<string, unknown> = {}): Record<string, unknow
   return {
     id: 'cf-entry-1',
     action: { type: 'update', result: true },
-    actor: { id: 'actor-1', email: 'henry@example.com', type: 'user', ip: '1.2.3.4' },
+    actor: { id: 'actor-1', email: 'admin@example.com', type: 'user', ip: '1.2.3.4' },
     resource: { type: 'r2.bucket', id: 'files' },
     interface: 'UI',
     metadata: { zone: 'none' },
@@ -148,7 +148,7 @@ describe('pollCfAuditLogs', () => {
       expect(rows).toHaveLength(1);
       expect(rows[0].action).toBe('cf_config_change');
       expect(rows[0].source).toBe('cf_audit');
-      expect(rows[0].actor_login).toBe('henry@example.com');
+      expect(rows[0].actor_login).toBe('admin@example.com');
       expect(rows[0].ip_address).toBe('1.2.3.4');
       expect(rows[0].path).toBe('r2.bucket/files');
       const details = JSON.parse(rows[0].details ?? '{}');

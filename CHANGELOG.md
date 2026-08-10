@@ -6,6 +6,39 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.31.0 (2026-08-10) — performance: concurrent wildcard lookup and route-level chunks
+
+**[performance] Wildcard route lookup now parallelises fallback KV reads.** The
+exact key remains first, while wildcard results are inspected in deterministic
+most-specific-first order after concurrent loading. With the repository's 2 ms
+KV latency model, an eight-segment root-wildcard hit improved from 19.9804 ms to
+4.6129 ms (4.33x), and a full miss from 20.0000 ms to 4.6129 ms (4.34x).
+
+**[performance] Every dashboard page is now a static route-level dynamic import.**
+The shared shell stays eager and a common Suspense fallback covers navigation.
+The production build's initial JavaScript fell from 959.61 kB to 241.45 kB raw
+and from 280.85 kB to 75.53 kB gzip (73.11% smaller). A source-level regression
+test protects all 13 page boundaries.
+
+**[security] The dependency audit baseline is clear.** Updated Hono and exact
+transitive resolutions for `undici`, `fast-uri`, `ip-address`, `brace-expansion`,
+`nanoid`, and `postcss`; `pnpm audit` moved from 16 advisories (5 high) to zero.
+
+**[security] The distributed tree received a fresh public-sanitisation pass.**
+Private-origin comments, personal example data, and a machine-local Miniflare
+UUID were replaced with generic examples or runtime discovery. Gitleaks now has
+an exact allowlist for four documented public placeholders/test fixtures without
+excluding any paths or weakening the default rules.
+
+**[docs/test]** Added `PERFORMANCE.md`, a reproducible routing benchmark,
+wildcard concurrency/precedence coverage, route-splitting coverage, and Istanbul
+coverage for the Workers pool. Deployment docs now match the repository's active
+CI-only workflow; the CI/CD file remains an opt-in example.
+
+**Verification:** `pnpm run check`, `pnpm run test:coverage`,
+`pnpm -C admin run build`, `pnpm install --frozen-lockfile`, `pnpm audit`,
+Gitleaks, and Wrangler dry-run.
+
 ## v1.30.5 (2026-07-29) — security: react-router v8 migration (CSRF advisory); Dependabot groups
 
 **[security] admin: react-router-dom 7.18.1 -> react-router 8.3.0.** Clears HIGH advisory
@@ -59,7 +92,7 @@ Deliberately **not** denied: `/docs`, `/admin`, `/backup`, `/swagger`, `/openapi
 
 ## v1.30.0 (2026-07-24) — QR codes, in-dashboard User Guide, and file-comment MCP writes
 
-The largest feature port to date, carried over from the internal Bifrost deployments' hardened releases and shipped generic for self-hosters.
+The largest feature port to date, carried over from hardened upstream releases and shipped generic for self-hosters.
 
 ### QR codes
 
@@ -95,7 +128,7 @@ File comments (readable via object list/meta responses) are now writable via MCP
 
 ## v1.28.0 (2026-06-10) — External R2 operations audit capture (optional, ships dormant)
 
-Closes the audit blind spot for self-hosters who want it: R2 operations made **outside Bifrost** (Cloudflare dashboard, Wrangler, direct S3/REST API keys) can now land in the same `audit_logs` table and dashboard audit page, labelled by a new `source` column (`bifrost` | `r2_event` | `cf_audit`). Ported from the internal Bifrost deployments' hardened releases (multi-reviewer synthesis + live verification upstream).
+Closes the audit blind spot for self-hosters who want it: R2 operations made **outside Bifrost** (Cloudflare dashboard, Wrangler, direct S3/REST API keys) can now land in the same `audit_logs` table and dashboard audit page, labelled by a new `source` column (`bifrost` | `r2_event` | `cf_audit`). Ported from hardened upstream releases (multi-reviewer synthesis + live verification upstream).
 
 - **[feature] Layer 1 — R2 event consumer** (`src/queue/r2-events.ts`, `queue()` export): R2 event notifications → Cloudflare Queue (60s delivery delay) → consumer with exact structured correlation dedup (events explained by Bifrost's own audit rows are dropped — never substring matching; one create + one delete slot per row via `r2_event_correlations`), at-least-once idempotency via `r2_event_seen` fingerprints written in the same atomic D1 batch, and STRICT inserts (failure → retry → DLQ, never ack-and-lose). Backup-cron writes system-attributed; feedback-bucket writes always recorded with pipeline attribution. **Requires Workers Paid (Queues).**
 - **[feature] Layer 2 — CF account audit-log poller** (`src/audit/cf-audit-poll.ts`, new `*/30 * * * *` cron): records R2/queue-scoped control-plane changes **with the real Cloudflare actor** — and tamper-protects Layer 1 (rule deletion is itself captured). Watermark cursor with 60s overlap re-query + exact `json_extract` idempotency. **Works on the free plan.**
@@ -449,9 +482,9 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
 - **Sanitisation sweep for public distribution** — remove or genericise residual references to personal/team infrastructure that had leaked into the public template:
   - **`VITE_API_URL` default** — `admin/Dockerfile`, `admin/Dockerfile.tailscale`, and `admin/.env.example` defaulted to a personal domain. Now defaults to `https://yourdomain.com` — self-hosters must set `VITE_API_URL` to their own Bifrost admin API origin at build time.
   - **Gilroy font `@font-face` blocks** — `admin/src/index.css` previously loaded the Gilroy typeface from a third-party CDN hard-coded into the template. Removed the four `@font-face` declarations; kept the `--font-gilroy` CSS variable with its `ui-sans-serif, system-ui, sans-serif` fallback stack so existing `font-gilroy` utility classes continue to resolve gracefully. Replaced with an inline comment documenting how self-hosters can supply their own brand font.
-  - **"Blocktree" naming in dashboard CSS and JSDoc** — renamed to generic "Brand"/"Color Palette" labels in `admin/src/index.css` and `admin/src/lib/parse-changelog.ts`.
+  - **Private brand naming in dashboard CSS and JSDoc** — renamed to generic "Brand"/"Color Palette" labels in `admin/src/index.css` and `admin/src/lib/parse-changelog.ts`.
   - **`hostHeader` JSDoc examples** — changed to `"example.com"` in `shared/src/types.ts`, `shared/src/tools.ts`, `src/types.ts` (4 occurrences).
-  - **`vps-2` comment in `admin/docker-compose.prod.yml`** — changed to generic "your server".
+  - **Server-specific comment in `admin/docker-compose.prod.yml`** — changed to generic "your server".
   - **Absolute-path example in `mcp/PLAN.md`** — changed to `/path/to/bifrost-router/mcp/dist/index.js` (two occurrences).
   - **Stale excluded path in `.dockerignore`** — removed (file does not exist in this repo; was a leftover from an upstream multi-zone config).
   - **`CHANGELOG.md` provenance references** — historical entries that credited the upstream repo by internal names rewritten to the generic phrase "upstream Bifrost". No functional history was altered; only the wording that revealed internal repo names.

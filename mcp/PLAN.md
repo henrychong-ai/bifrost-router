@@ -92,12 +92,12 @@ Every tool accepts an optional `domain` parameter:
 |--------|-------------|
 | `links.example.com` | Short link service |
 | `example.com` | Main domain (151 routes) |
-| `secondary.example.net` | Personal domain (4 routes) |
-| `user1.example.com` | David Chong domain |
-| `user2.example.com` | Sonja Chong domain |
-| `user3.example.com` | Anja Chong domain |
-| `couple.example.com` | Kit Kat Couple domain |
-| `user5.example.com` | Valerie Hung domain |
+| `secondary.example.net` | Secondary domain (4 routes) |
+| `user1.example.com` | User One domain |
+| `user2.example.com` | User Two domain |
+| `user3.example.com` | User Three domain |
+| `couple.example.com` | Shared domain |
+| `user5.example.com` | User Five domain |
 
 ### Response Domain Labeling
 
@@ -371,7 +371,7 @@ An `admin` user automatically has `edit` and `read` permissions.
 ```json
 {
   "user_id": "U1234567890",
-  "user_name": "Henry Chong",
+  "user_name": "Example Admin",
   "permissions": {
     "links.example.com": "admin",
     "example.com": "admin",
@@ -442,7 +442,7 @@ id = "..." # Create via: wrangler kv namespace create slack-permissions
 [[d1_databases]]
 binding = "DB"
 database_name = "cloudflare-edge-router-analytics"
-database_id = "5d3b1430-3405-451a-a165-f497e178a838"
+database_id = "your-d1-database-id"
 
 [vars]
 EDGE_ROUTER_URL = "https://example.com"
@@ -973,7 +973,7 @@ pnpm run deploy
 # Add yourself as admin
 wrangler kv key put --binding SLACK_PERMISSIONS "U1234567890" '{
   "user_id": "U1234567890",
-  "user_name": "Henry Chong",
+  "user_name": "Example Admin",
   "permissions": {
     "links.example.com": "admin",
     "example.com": "admin",

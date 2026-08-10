@@ -427,8 +427,8 @@ async function seedTestData(db: D1Database) {
     .bind(
       'links.example.com',
       'create',
-      'henry@example.com',
-      'Henry Chong',
+      'operator@example.com',
+      'Example Operator',
       '/github',
       '{"target":"https://github.com"}',
       '10.0.0.1',
@@ -439,8 +439,8 @@ async function seedTestData(db: D1Database) {
     .bind(
       'links.example.com',
       'update',
-      'henry@example.com',
-      'Henry Chong',
+      'operator@example.com',
+      'Example Operator',
       '/linkedin',
       '{"before":"old","after":"new"}',
       '10.0.0.1',
@@ -463,8 +463,8 @@ async function seedTestData(db: D1Database) {
     .bind(
       'links.example.com',
       'toggle',
-      'henry@example.com',
-      'Henry Chong',
+      'operator@example.com',
+      'Example Operator',
       '/old-toggle',
       null,
       '10.0.0.1',
@@ -1047,10 +1047,10 @@ describe('query functions', () => {
     });
 
     it('filters by actor', async () => {
-      const result = await getAuditLogs(db, { actor: 'henry@example.com' });
+      const result = await getAuditLogs(db, { actor: 'operator@example.com' });
 
       for (const item of result.items) {
-        expect(item.actorLogin).toBe('henry@example.com');
+        expect(item.actorLogin).toBe('operator@example.com');
       }
       expect(result.items.length).toBe(2); // create + update within 30 days
     });

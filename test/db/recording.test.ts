@@ -529,8 +529,8 @@ describe('recording functions', () => {
       const data: AuditLogData = {
         domain: 'example.com',
         action: 'update',
-        actorLogin: 'henry@example.com',
-        actorName: 'Henry Chong',
+        actorLogin: 'admin@example.com',
+        actorName: 'Example Admin',
         path: '/linkedin',
         details: JSON.stringify({ before: { target: 'old' }, after: { target: 'new' } }),
         ipAddress: '10.0.0.5',
@@ -541,15 +541,15 @@ describe('recording functions', () => {
       const result = await env.DB.prepare(
         "SELECT * FROM audit_logs WHERE action = 'update' AND actor_login = ?",
       )
-        .bind('henry@example.com')
+        .bind('admin@example.com')
         .all();
 
       expect(result.results.length).toBe(1);
       const row = result.results[0];
       expect(row.domain).toBe('example.com');
       expect(row.action).toBe('update');
-      expect(row.actor_login).toBe('henry@example.com');
-      expect(row.actor_name).toBe('Henry Chong');
+      expect(row.actor_login).toBe('admin@example.com');
+      expect(row.actor_name).toBe('Example Admin');
       expect(row.path).toBe('/linkedin');
       expect(row.details).toBe(
         JSON.stringify({ before: { target: 'old' }, after: { target: 'new' } }),

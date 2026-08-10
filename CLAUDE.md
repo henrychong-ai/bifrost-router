@@ -2,11 +2,11 @@
 
 Guidance for Claude Code when working with this repository.
 
-**Version:** 1.30.4 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.31.0 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Public repository — sanitisation (MANDATORY)
 
-This repo is **public**. Keep every file fully sanitised at all times — `CLAUDE.md`, `README.md`, `CHANGELOG.md`, and all `docs/*.md`: no Fusang/HC-internal specifics, real Cloudflare account/zone/KV/D1 IDs, internal hostnames, personal filesystem paths, or private repo names. Use generic placeholders (`example.com`, `your-cloudflare-account-id`, `your-1password-account`, etc.). Re-check on every commit.
+This repo is **public**. Keep every file fully sanitised at all times — `CLAUDE.md`, `README.md`, `CHANGELOG.md`, and all `docs/*.md`: no organisation-internal specifics, real Cloudflare account/zone/KV/D1 IDs, internal hostnames, personal filesystem paths, or private repo names. Use generic placeholders (`example.com`, `your-cloudflare-account-id`, `your-1password-account`, etc.). Re-check on every commit.
 
 **Allowed exception:** `assets.fusang.co` references (fonts, logos, brand assets) may remain — it is a public R2 CDN bucket that exists precisely to serve those assets publicly, and is the documented default font/asset host for this template.
 
@@ -45,6 +45,8 @@ pnpm run dev          # Local dev (localhost:8787)
 pnpm run deploy       # Deploy to production
 pnpm run deploy:dev   # Deploy to dev environment
 pnpm run test         # Run tests
+pnpm run test:coverage # Root Worker coverage (Istanbul under workerd)
+pnpm run benchmark:routing # Reproducible route-lookup benchmark
 pnpm run lint         # Lint (oxlint)
 pnpm run format       # Format (biome)
 pnpm run format:check # Format check (CI)
@@ -76,15 +78,17 @@ CLOUDFLARE_ACCOUNT_ID="your-cloudflare-account-id" \
 pnpm run deploy
 ```
 
-### CI/CD (GitHub Actions)
+### GitHub Actions
 
 | Trigger | Actions |
 |---------|---------|
-| Push to any branch / PR | Lint → Format → Typecheck → Test |
-| Version tag (`v*`) | Lint → Format → Typecheck → Test → Deploy Worker → Upload API Shield → Build & Deploy Dashboard |
-| Manual dispatch | Same as version tag |
+| Push to any branch / PR | Gitleaks → Lint → Format → Typecheck → Test → Runtime types → Dashboard build |
+| Version tag (`v*`) | Same CI checks; no deployment is enabled by default |
+| Manual dispatch | Same CI checks |
 
-**Required Secrets:** `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_ZONE_ID`, `ADMIN_API_KEY`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`
+The only active workflow is `.github/workflows/ci.yml`, which is CI-only. The
+repository includes `.github/workflows/ci-cd.yml.example` as an opt-in template;
+self-hosters must review, configure, and enable it for their own infrastructure.
 
 ### Cloudflare Resources
 
@@ -202,12 +206,14 @@ interface KVRouteConfig {
 
 ## API Shield
 
-**Status:** Active (block mode) on `example.com` zone
+**Status:** Optional, configured by each self-hoster
 **Schema:** `openapi/bifrost-api.yaml` (OpenAPI 3.0.3)
 
-The pipeline **automatically uploads** the OpenAPI schema to API Shield after every production deploy via `scripts/upload-api-shield.mjs`. The upload is non-fatal — if it fails, the Worker is already deployed and the schema can be uploaded manually.
+The active CI workflow validates the repository but does not upload this schema.
+The opt-in CI/CD example contains a commented upload step for self-hosters who
+configure Cloudflare API Shield.
 
-**To update:** Edit schema → Validate → Tag and push (CI/CD deploys Worker + uploads schema)
+**To update:** Edit schema → validate → deploy the Worker → upload through your configured pipeline or manually
 **Fallback:** Upload via Cloudflare Dashboard → Security → API Shield
 
 ## Troubleshooting
@@ -474,4 +480,6 @@ If switching to Workers Static Assets in future, add a KV-route-precedence check
 5. **Update `CHANGELOG.md`** with new version entry
 6. Commit, tag (`git tag v1.x.x`), and push with tags (`git push origin main --tags`)
 
-**Deploy requires a version tag.** Push to main runs CI only. Production deploy (Worker + Dashboard) triggers on `v*` tags.
+Release tags run the same CI checks as other pushes. This template does not
+automatically deploy from tags; deploy manually with `pnpm run deploy` or enable
+and configure the reviewed CI/CD example for your own infrastructure.

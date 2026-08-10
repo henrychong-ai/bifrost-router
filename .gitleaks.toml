@@ -1,0 +1,18 @@
+title = "Bifrost public repository secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Exact public placeholders and deterministic test fixtures"
+regexTarget = "secret"
+regexes = [
+  '''^isNormalizedR2Key$''',
+  '''^test-api-key-12345$''',
+  '''^test-signing-secret-12345$''',
+  '''^your-api-key$''',
+]
+
+[[allowlists]]
+description = "Ignored local package cache, never tracked or distributed"
+paths = ['''(^|/)\.pnpm-store/''']
