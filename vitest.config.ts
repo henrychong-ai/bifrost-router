@@ -27,13 +27,14 @@ export default defineConfig({
     // Per-file afterAll restores stubbed globals + spies (intra-file stub
     // hygiene; cross-file leaks are structurally gone under per-file workers).
     setupFiles: ['./test/setup.ts'],
-    exclude: ['node_modules', 'admin', 'shared', 'mcp', 'slackbot'],
+    exclude: ['node_modules', 'admin', 'shared', 'mcp', 'slackbot', 'scripts'],
     coverage: {
       // The Workers pool runs in workerd, which does not expose V8's inspector
       // coverage API. Cloudflare requires instrumented Istanbul coverage here.
       provider: 'istanbul',
       reporter: ['text', 'json', 'html'],
       exclude: ['node_modules/**', 'test/**', '**/*.test.ts', 'vitest.config.ts'],
+      thresholds: { statements: 69, branches: 58, functions: 67, lines: 70 },
     },
   },
 });

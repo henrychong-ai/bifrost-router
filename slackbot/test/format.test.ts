@@ -15,6 +15,112 @@ import {
 } from '../src/slack/format';
 import type { Route, AnalyticsSummary } from '@bifrost/shared';
 
+function makeAnalyticsSummary(input: {
+  period: string;
+  domain: string;
+  clicks: { total: number; uniqueSlugs: number };
+  views: { total: number; uniquePaths: number };
+  topClicks: Array<{ name: string; count: number }>;
+  topPages: Array<{ name: string; count: number }>;
+  topCountries: AnalyticsSummary['topCountries'];
+  topReferrers: AnalyticsSummary['topReferrers'];
+}): AnalyticsSummary {
+  const domain = input.domain === 'all' ? 'example.com' : input.domain;
+  return {
+    period: input.period,
+    domain: input.domain,
+    clicks: {
+      ...input.clicks,
+      previousTotal: 0,
+      deltaPercent: null,
+      uniqueUrls: input.clicks.uniqueSlugs,
+    },
+    views: {
+      ...input.views,
+      previousTotal: 0,
+      deltaPercent: null,
+      uniqueUrls: input.views.uniquePaths,
+    },
+    downloads: {
+      total: 0,
+      previousTotal: 0,
+      deltaPercent: 0,
+      totalBytes: 0,
+      cacheHitRate: null,
+    },
+    proxy: {
+      total: 0,
+      previousTotal: 0,
+      deltaPercent: 0,
+      errorCount: 0,
+      errorRate: null,
+    },
+    overview: {
+      recordedEvents: input.clicks.total + input.views.total,
+      previousRecordedEvents: 0,
+      deltaPercent: null,
+      activeDomains: input.clicks.total + input.views.total > 0 ? 1 : 0,
+      uniqueUrls: input.clicks.uniqueSlugs + input.views.uniquePaths,
+    },
+    filters: {
+      days: Number.parseInt(input.period, 10),
+      country: null,
+      search: null,
+      includeMonitoring: false,
+    },
+    monitoring: {
+      included: false,
+      classifier: 'cloudflare-healthchecks',
+      rows: { clicks: 0, views: 0, downloads: 0, proxy: 0, total: 0 },
+    },
+    coverage: {
+      status: 'partial',
+      cutoverAt: null,
+      note: 'Legacy streams are partial.',
+      unifiedTraffic: {
+        mode: 'off',
+        enabled: false,
+        retentionDays: 30,
+        recordedRequests: 0,
+        reconciled: false,
+        includedInHeadline: false,
+      },
+      streams: { clicks: 'legacy', views: 'legacy', downloads: 'legacy', proxy: 'legacy' },
+    },
+    topClicks: input.topClicks.map(item => ({
+      ...item,
+      domain,
+      path: item.name,
+      sourceUrl: `https://${domain}${item.name}`,
+      targetUrl: '',
+      previousCount: 0,
+      share: input.clicks.total > 0 ? item.count / input.clicks.total : 0,
+      deltaPercent: null,
+      extra: '',
+    })),
+    topProxies: [],
+    topPages: input.topPages.map(item => ({
+      ...item,
+      domain,
+      path: item.name,
+      sourceUrl: `https://${domain}${item.name}`,
+      previousCount: 0,
+      share: input.views.total > 0 ? item.count / input.views.total : 0,
+      deltaPercent: null,
+    })),
+    topDomains: [],
+    topCountries: input.topCountries,
+    topReferrers: input.topReferrers,
+    clicksByDay: [],
+    viewsByDay: [],
+    activityByDay: [],
+    recentClicks: [],
+    recentViews: [],
+    recentActivity: [],
+    insights: [],
+  };
+}
+
 describe('formatRouteList', () => {
   const domain = 'links.example.com';
 
@@ -127,7 +233,7 @@ describe('formatRouteList', () => {
 
 describe('formatAnalyticsSummary', () => {
   it('should format analytics summary with all sections', () => {
-    const summary: AnalyticsSummary = {
+    const summary = makeAnalyticsSummary({
       period: '30d',
       domain: 'links.example.com',
       clicks: { total: 1234, uniqueSlugs: 50 },
@@ -145,11 +251,7 @@ describe('formatAnalyticsSummary', () => {
         { name: 'SG', count: 300 },
       ],
       topReferrers: [],
-      clicksByDay: [],
-      viewsByDay: [],
-      recentClicks: [],
-      recentViews: [],
-    };
+    });
 
     const result = formatAnalyticsSummary(summary);
 
@@ -159,15 +261,15 @@ describe('formatAnalyticsSummary', () => {
     expect(result).toContain('Total Clicks: 1,234');
     expect(result).toContain('Unique Links: 50');
     expect(result).toContain('Total Page Views: 5,678');
-    expect(result).toContain(':link: *Top Links*');
+    expect(result).toContain(':link: *Top Routes - Redirect*');
     expect(result).toContain(':first_place_medal:');
-    expect(result).toContain('`/linkedin`');
-    expect(result).toContain(':page_facing_up: *Top Pages*');
+    expect(result).toContain('https://links.example.com/linkedin');
+    expect(result).toContain(':page_facing_up: *Top Website Pages*');
     expect(result).toContain(':earth_americas: *Top Countries*');
   });
 
   it('should handle empty top lists', () => {
-    const summary: AnalyticsSummary = {
+    const summary = makeAnalyticsSummary({
       period: '7d',
       domain: 'all',
       clicks: { total: 0, uniqueSlugs: 0 },
@@ -176,21 +278,17 @@ describe('formatAnalyticsSummary', () => {
       topPages: [],
       topCountries: [],
       topReferrers: [],
-      clicksByDay: [],
-      viewsByDay: [],
-      recentClicks: [],
-      recentViews: [],
-    };
+    });
 
     const result = formatAnalyticsSummary(summary);
 
     expect(result).toContain('*Analytics Summary (7d)*');
-    expect(result).not.toContain(':link: *Top Links*');
-    expect(result).not.toContain(':page_facing_up: *Top Pages*');
+    expect(result).not.toContain(':link: *Top Routes - Redirect*');
+    expect(result).not.toContain(':page_facing_up: *Top Website Pages*');
   });
 
   it('should not show domain for "all" domains', () => {
-    const summary: AnalyticsSummary = {
+    const summary = makeAnalyticsSummary({
       period: '30d',
       domain: 'all',
       clicks: { total: 100, uniqueSlugs: 10 },
@@ -199,11 +297,7 @@ describe('formatAnalyticsSummary', () => {
       topPages: [],
       topCountries: [],
       topReferrers: [],
-      clicksByDay: [],
-      viewsByDay: [],
-      recentClicks: [],
-      recentViews: [],
-    };
+    });
 
     const result = formatAnalyticsSummary(summary);
 
@@ -211,7 +305,7 @@ describe('formatAnalyticsSummary', () => {
   });
 
   it('should show medal emojis for top 3 positions', () => {
-    const summary: AnalyticsSummary = {
+    const summary = makeAnalyticsSummary({
       period: '30d',
       domain: 'example.com',
       clicks: { total: 100, uniqueSlugs: 5 },
@@ -225,11 +319,7 @@ describe('formatAnalyticsSummary', () => {
       topPages: [],
       topCountries: [],
       topReferrers: [],
-      clicksByDay: [],
-      viewsByDay: [],
-      recentClicks: [],
-      recentViews: [],
-    };
+    });
 
     const result = formatAnalyticsSummary(summary);
 

@@ -8,7 +8,7 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.{ts,tsx}'],
     // Vitest stubs CSS imports to empty strings by default. Process the
     // index.css file so `?raw` imports in tests resolve to the real source —
     // needed by `src/lib/typography.test.ts` (four-font stack regression suite).
@@ -17,8 +17,9 @@ export default defineConfig({
     },
     coverage: {
       provider: 'v8',
-      include: ['src/lib/**/*.ts'],
+      include: ['src/lib/**/*.ts', 'src/pages/dashboard.tsx'],
       exclude: ['src/**/*.test.ts'],
+      thresholds: { statements: 43, branches: 49, functions: 31, lines: 44 },
     },
   },
 });

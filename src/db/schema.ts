@@ -269,6 +269,28 @@ export type NewProxyRequest = typeof proxyRequests.$inferInsert;
 export type ProxyRequest = typeof proxyRequests.$inferSelect;
 
 /**
+ * Privacy-bounded unified public-request stream (v1.32.0, migration 0011).
+ * It deliberately excludes IP, User-Agent, referrer, target URL, and query.
+ */
+export const unifiedTrafficEvents = sqliteTable('unified_traffic_events', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  domain: text('domain').notNull(),
+  path: text('path').notNull(),
+  eventType: text('event_type').notNull(),
+  outcome: text('outcome').notNull(),
+  responseStatus: integer('response_status').notNull(),
+  responseBytes: integer('response_bytes'),
+  cacheStatus: text('cache_status'),
+  country: text('country'),
+  trafficClass: text('traffic_class').notNull().default('unknown'),
+  latencyMs: integer('latency_ms').notNull(),
+  createdAt: integer('created_at').notNull().default(sql`(unixepoch())`),
+});
+
+export type NewUnifiedTrafficEvent = typeof unifiedTrafficEvents.$inferInsert;
+export type UnifiedTrafficEvent = typeof unifiedTrafficEvents.$inferSelect;
+
+/**
  * Audit logs table
  *
  * Records admin actions for audit trail (create, update, delete, toggle, seed).

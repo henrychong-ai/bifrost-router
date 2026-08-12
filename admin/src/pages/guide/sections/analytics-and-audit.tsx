@@ -10,9 +10,13 @@ export function AnalyticsAndAuditSection() {
       description="Four traffic streams, a summary dashboard, and a complete history of who changed what."
     >
       <p>
-        The <strong>Dashboard</strong> (home page) summarises the last 30 days: total clicks, unique
-        slugs, page views, and the top links, pages, countries, and referrers. The four Analytics
-        pages hold the raw, filterable logs behind those numbers:
+        The <strong>Dashboard</strong> (home page) is a domain-aware operational overview. It shows
+        canonical source URLs, period comparisons, recent activity,{' '}
+        <strong>Top Routes - Redirect</strong>, <strong>Top Routes - Proxy</strong>, and{' '}
+        <strong>Top Website Pages</strong> for service-bound HTML, plus leading domains, countries,
+        and referrers. Cloudflare Health Checks are excluded by default and can be restored with the
+        labelled toggle. The four Analytics pages hold the raw, filterable logs behind the legacy
+        totals:
       </p>
       <ul className="space-y-1 text-charcoal-600">
         <li>
@@ -30,8 +34,12 @@ export function AnalyticsAndAuditSection() {
         </li>
       </ul>
       <p>
-        Each page filters by domain, time window, country, and text search. Analytics respects your
-        selected domain filter.
+        The Dashboard filters by domain, time window, country, and text search, exports the current
+        view to a formula-safe CSV, and surfaces bounded actionable signals for traffic changes,
+        proxy 5xx responses, low download cache-hit rates, and scanner-like leaders. Its partial
+        coverage label is deliberate: the legacy tables are useful operational signals, not a count
+        of every request. The optional unified shadow stream stays outside headline totals until an
+        operator validates reconciliation.
       </p>
       <p>
         The <strong>Audit</strong> page is the platform's memory: every create, edit, delete,

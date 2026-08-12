@@ -98,7 +98,7 @@ persist = true
 
 [vars]
 ENVIRONMENT = "production"
-VERSION = "1.31.0"  # IMPORTANT: Keep in sync with package.json version
+VERSION = "1.32.0"  # IMPORTANT: Keep in sync with package.json version
 ADMIN_API_DOMAIN = "bifrost.example.com"   # Domain that serves admin API at /api/*
 R2_COPY_SIZE_LIMIT_MB = "100"              # Max object size (MB) for rename/metadata copy ops
 
@@ -107,6 +107,13 @@ R2_COPY_SIZE_LIMIT_MB = "100"              # Max object size (MB) for rename/met
 # The dashboard normalizes its own keys client-side regardless; this flag governs
 # programmatic callers (API/MCP). 90s rollback: flip to 'off'.
 R2_KEY_NORMALIZE = "sanitize"
+
+# Privacy-bounded unified public-request analytics (v1.32.0). Apply migration
+# 0011 before setting shadow mode and provide an explicit RFC3339 cutover.
+# Unified rows never enter legacy headline totals automatically.
+UNIFIED_TRAFFIC_MODE = "off"
+UNIFIED_TRAFFIC_CUTOVER_AT = ""
+UNIFIED_TRAFFIC_RETENTION_DAYS = "30"
 
 # ── External R2 operations audit capture (v1.28.0) — OPTIONAL, ships DORMANT ──
 # Captures R2 operations made OUTSIDE this Worker (Cloudflare dashboard,
@@ -152,5 +159,73 @@ crons = ["0 20 * * *", "*/30 * * * *"]
 name = "bifrost-worker-dev"
 [env.dev.vars]
 ENVIRONMENT = "development"
-ADMIN_API_DOMAIN = "bifrost.example.com"
+VERSION = "1.32.0"
+ADMIN_API_DOMAIN = "bifrost-dev.example.com"
+R2_COPY_SIZE_LIMIT_MB = "100"
 R2_KEY_NORMALIZE = "sanitize"
+UNIFIED_TRAFFIC_MODE = "off"
+UNIFIED_TRAFFIC_CUTOVER_AT = ""
+UNIFIED_TRAFFIC_RETENTION_DAYS = "30"
+R2_EVENT_AUDIT = "off"
+CF_AUDIT_POLL = "off"
+CF_ACCOUNT_ID = "your-cloudflare-account-id"
+
+# Wrangler environments do not inherit bindings. Development therefore repeats
+# every binding name with isolated, placeholder resources so a fork cannot
+# accidentally deploy an environment missing a runtime dependency.
+[[env.dev.kv_namespaces]]
+binding = "ROUTES"
+id = "your-dev-kv-namespace-id"
+preview_id = "your-dev-kv-preview-id"
+
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "bifrost-analytics-dev"
+database_id = "your-dev-d1-database-id"
+
+[[env.dev.r2_buckets]]
+binding = "FILES_BUCKET"
+bucket_name = "files-dev"
+
+[[env.dev.r2_buckets]]
+binding = "ASSETS_BUCKET"
+bucket_name = "assets-dev"
+
+[[env.dev.r2_buckets]]
+binding = "FILES_USER1_BUCKET"
+bucket_name = "files-user1-dev"
+
+[[env.dev.r2_buckets]]
+binding = "FILES_USER2_BUCKET"
+bucket_name = "files-user2-dev"
+
+[[env.dev.r2_buckets]]
+binding = "FILES_USER3_BUCKET"
+bucket_name = "files-user3-dev"
+
+[[env.dev.r2_buckets]]
+binding = "FILES_USER4_BUCKET"
+bucket_name = "files-user4-dev"
+
+[[env.dev.r2_buckets]]
+binding = "FILES_USER5_BUCKET"
+bucket_name = "files-user5-dev"
+
+[[env.dev.r2_buckets]]
+binding = "FILES_USER6_BUCKET"
+bucket_name = "files-user6-dev"
+
+[[env.dev.r2_buckets]]
+binding = "BACKUP_BUCKET"
+bucket_name = "bifrost-backups-dev"
+
+[[env.dev.r2_buckets]]
+binding = "FEEDBACK_BUCKET"
+bucket_name = "bifrost-feedback-dev"
+
+[[env.dev.services]]
+binding = "EXAMPLE_SITE"
+service = "your-site-worker-dev"
+
+[env.dev.triggers]
+crons = []

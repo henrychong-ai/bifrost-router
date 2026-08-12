@@ -81,9 +81,9 @@ async function fetchApi<T>(
   return schema.parse(data);
 }
 
-function buildQueryString(params: Record<string, string | number | undefined>): string {
+function buildQueryString(params: Record<string, string | number | boolean | undefined>): string {
   const filtered = Object.entries(params).filter(
-    (entry): entry is [string, string | number] => entry[1] !== undefined,
+    (entry): entry is [string, string | number | boolean] => entry[1] !== undefined,
   );
   if (filtered.length === 0) return '';
   return '?' + new URLSearchParams(filtered.map(([k, v]) => [k, String(v)])).toString();
@@ -253,7 +253,7 @@ export const analyticsApi = {
    * Get analytics summary for dashboard
    */
   async summary(params: AnalyticsQueryParams = {}): Promise<AnalyticsSummary> {
-    const query = buildQueryString(params as Record<string, string | number | undefined>);
+    const query = buildQueryString(params as Record<string, string | number | boolean | undefined>);
     const response = await fetchApi(
       `/api/analytics/summary${query}`,
       AnalyticsSummaryResponseSchema,

@@ -1,5 +1,12 @@
 import { createDb } from './index';
-import { linkClicks, pageViews, fileDownloads, proxyRequests, auditLogs } from './schema';
+import {
+  linkClicks,
+  pageViews,
+  fileDownloads,
+  proxyRequests,
+  auditLogs,
+  unifiedTrafficEvents,
+} from './schema';
 import type { AuditAction, AuditSource } from '@bifrost/shared';
 
 /**
@@ -364,6 +371,90 @@ export async function recordProxyRequest(db: D1Database, data: ProxyRequestData)
 
 // Re-export AuditAction for backwards compatibility
 export type { AuditAction };
+
+export type UnifiedTrafficEventType =
+  | 'redirect'
+  | 'r2'
+  | 'proxy'
+  | 'service'
+  | 'not_found'
+  | 'sensitive_denied'
+  | 'system';
+export type UnifiedTrafficOutcome = 'redirect' | 'success' | 'client_error' | 'server_error';
+export type UnifiedTrafficClass = 'browser' | 'automation' | 'unknown';
+
+export interface UnifiedTrafficEventData {
+  domain: string;
+  path: string;
+  eventType: UnifiedTrafficEventType;
+  outcome: UnifiedTrafficOutcome;
+  responseStatus: number;
+  responseBytes?: number | null;
+  cacheStatus?: string | null;
+  country?: string | null;
+  trafficClass: UnifiedTrafficClass;
+  latencyMs: number;
+}
+
+/** Record one shadow event without ever affecting the routed response. */
+export async function recordUnifiedTrafficEvent(
+  db: D1Database,
+  data: UnifiedTrafficEventData,
+): Promise<void> {
+  try {
+    await createDb(db)
+      .insert(unifiedTrafficEvents)
+      .values({
+        domain: data.domain,
+        path: data.path,
+        eventType: data.eventType,
+        outcome: data.outcome,
+        responseStatus: data.responseStatus,
+        responseBytes: data.responseBytes ?? null,
+        cacheStatus: data.cacheStatus ?? null,
+        country: data.country ?? null,
+        trafficClass: data.trafficClass,
+        latencyMs: data.latencyMs,
+      });
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: 'Failed to record unified traffic event',
+        error: error instanceof Error ? error.message : String(error),
+        domain: data.domain,
+        path: data.path,
+        eventType: data.eventType,
+      }),
+    );
+  }
+}
+
+export async function pruneUnifiedTrafficEvents(
+  db: D1Database,
+  retentionDays: number,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): Promise<number> {
+  if (!Number.isSafeInteger(retentionDays) || retentionDays <= 0) return 0;
+  const cutoff = nowSeconds - retentionDays * 24 * 60 * 60;
+  try {
+    const result = await db
+      .prepare('DELETE FROM unified_traffic_events WHERE created_at < ?')
+      .bind(cutoff)
+      .run();
+    return Number(result.meta.changes ?? 0);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: 'Failed to prune unified traffic events',
+        error: error instanceof Error ? error.message : String(error),
+        retentionDays,
+      }),
+    );
+    return 0;
+  }
+}
 
 /**
  * Data for recording an audit log entry

@@ -2,7 +2,7 @@
 
 Guidance for Claude Code when working with this repository.
 
-**Version:** 1.31.0 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.32.0 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Public repository — sanitisation (MANDATORY)
 
@@ -44,14 +44,15 @@ This repo is **public**. Keep every file fully sanitised at all times — `CLAUD
 pnpm run dev          # Local dev (localhost:8787)
 pnpm run deploy       # Deploy to production
 pnpm run deploy:dev   # Deploy to dev environment
-pnpm run test         # Run tests
+pnpm run test         # Run root Worker tests
 pnpm run test:coverage # Root Worker coverage (Istanbul under workerd)
-pnpm run benchmark:routing # Reproducible route-lookup benchmark
+pnpm run test:coverage:all # Locked root/shared/admin/MCP coverage gates
+pnpm run benchmark:routing:gate # Three-run route-lookup regression gate
 pnpm run lint         # Lint (oxlint)
 pnpm run format       # Format (biome)
 pnpm run format:check # Format check (CI)
 pnpm run typecheck    # TypeScript check
-pnpm run check        # All checks (lint + format + typecheck + test)
+pnpm run check        # Full quality, test, build, performance, dry-run, and public gate
 ```
 
 ### Local Development
@@ -82,7 +83,7 @@ pnpm run deploy
 
 | Trigger | Actions |
 |---------|---------|
-| Push to any branch / PR | Gitleaks → Lint → Format → Typecheck → Test → Runtime types → Dashboard build |
+| Push to any branch / PR | Gitleaks → Public sanitisation → Lint → Format → Typecheck → Tests + coverage → Runtime types → Dashboard build → performance gates → production/development Wrangler dry-runs |
 | Version tag (`v*`) | Same CI checks; no deployment is enabled by default |
 | Manual dispatch | Same CI checks |
 
@@ -97,7 +98,7 @@ self-hosters must review, configure, and enable it for their own infrastructure.
 | **Account** | `your-cloudflare-account-id` |
 | **Zone** | `your-zone-id` (example.com) |
 | **KV (prod)** | `your-kv-namespace-id` |
-| **KV (dev)** | `your-kv-dev-namespace-id` |
+| **KV (dev)** | `your-dev-kv-namespace-id` |
 | **D1** | `your-d1-database-id` |
 
 **KV Key Format:** `{domain}:{path}` (e.g., `example.com:/linkedin`). Paths are always lowercase — `normalizePath()` applies `.toLowerCase()`.
@@ -197,12 +198,37 @@ interface KVRouteConfig {
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/analytics/summary` | Dashboard overview |
+| `GET /api/analytics/summary` | Domain-aware operational overview with full URLs, period comparisons, and insights |
 | `GET /api/analytics/clicks` | Paginated click records |
 | `GET /api/analytics/views` | Paginated view records |
 | `GET /api/analytics/clicks/:slug` | Stats for specific link |
 
-**Query params:** `domain`, `days` (1-365), `limit` (max 1000), `offset`, `slug`, `path`, `country`
+**Summary query params:** `domain`, `days` (1-365), `country`, `search`,
+`includeMonitoring` (Cloudflare Health Checks are excluded by default).
+
+**List/detail query params:** `domain`, `days` (1-365), `limit` (max 1000),
+`offset`, `slug`, `path`, `country`.
+
+The Dashboard exposes **Top Routes - Redirect**, **Top Routes - Proxy**, and
+**Top Website Pages** (service-bound HTML only), using canonical HTTPS source
+URLs so the domain and path are always visible together. It also surfaces recent
+activity and bounded actionable signals for material traffic movement, proxy 5xx
+rates, R2 cache-hit rates, scanner-like leaders, monitoring rows, and partial
+coverage. These endpoints are mounted under `adminRoutes`, so analytics access
+inherits the exact same admin authentication middleware as route management.
+
+### Unified request analytics (v1.32.0; optional, ships dormant)
+
+Migration `drizzle/0011_unified_traffic_events.sql` adds a privacy-bounded shadow
+stream for public request outcomes. `UNIFIED_TRAFFIC_MODE="off"` is a true dormant
+hot path. An operator may apply the migration, set a timezone-explicit
+`UNIFIED_TRAFFIC_CUTOVER_AT`, and switch the mode to `"shadow"`; unified rows stay
+separate from legacy headline totals until reconciliation has been validated.
+The stream stores no query string, IP address, referrer, User-Agent string, or
+target URL. `UNIFIED_TRAFFIC_RETENTION_DAYS` controls daily pruning after cutover.
+Pruning is dispatched by the `0 20 * * *` cron. The public example leaves
+`env.dev.triggers.crons` empty, so a long-running development shadow deployment
+must opt into that schedule explicitly.
 
 ## API Shield
 
@@ -469,16 +495,23 @@ The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `sr
 
 The dashboard is served via a Docker container (nginx + Tailscale), not via Cloudflare Workers Static Assets. The Worker has **no `[assets]` binding** and **no admin-domain SPA middleware** in `src/index.ts`.
 
+Because nginx serves immutable, prebuilt JavaScript files, the dashboard uses a
+strict static CSP (`script-src 'self'`) instead of runtime nonces. Nonces would
+add moving parts without protecting an inline-script surface: the Vite build has
+no required inline scripts. The nginx policy and baseline browser headers are
+covered by `scripts/check-dashboard-security.test.mjs`.
+
 If switching to Workers Static Assets in future, add a KV-route-precedence check (call `matchRoute()` first, fall through to the KV catch-all if a route exists; otherwise serve the SPA) to prevent KV-configured routes on admin domains from being masked by `index.html`.
 
 ## Versioning
 
 1. Update `version` in `package.json`
-2. Update `VERSION` in `wrangler.toml` `[vars]` section
+2. Update `VERSION` in both production and development `wrangler.toml` `[vars]` sections
 3. Update `admin/package.json` version
 4. Update version in this file header
-5. **Update `CHANGELOG.md`** with new version entry
-6. Commit, tag (`git tag v1.x.x`), and push with tags (`git push origin main --tags`)
+5. Update `openapi/bifrost-api.yaml` `info.version`
+6. **Update `CHANGELOG.md`** with new version entry
+7. Commit, tag (`git tag v1.x.x`), and push with tags (`git push origin main --tags`)
 
 Release tags run the same CI checks as other pushes. This template does not
 automatically deploy from tags; deploy manually with `pnpm run deploy` or enable

@@ -97,6 +97,44 @@ export const TopItemSchema = z.object({
 });
 export type TopItem = z.infer<typeof TopItemSchema>;
 
+export const TopClickSchema = z.object({
+  domain: z.string(),
+  path: z.string(),
+  sourceUrl: z.string(),
+  targetUrl: z.string(),
+  count: z.number(),
+  previousCount: z.number(),
+  share: z.number().min(0).max(1),
+  deltaPercent: z.number().nullable(),
+  name: z.string(),
+  extra: z.string(),
+});
+export type TopClick = z.infer<typeof TopClickSchema>;
+
+export const TopProxySchema = z.object({
+  domain: z.string(),
+  path: z.string(),
+  sourceUrl: z.string(),
+  targetUrl: z.string(),
+  count: z.number(),
+  previousCount: z.number(),
+  share: z.number().min(0).max(1),
+  deltaPercent: z.number().nullable(),
+});
+export type TopProxy = z.infer<typeof TopProxySchema>;
+
+export const TopPageSchema = z.object({
+  domain: z.string(),
+  path: z.string(),
+  sourceUrl: z.string(),
+  count: z.number(),
+  previousCount: z.number(),
+  share: z.number().min(0).max(1),
+  deltaPercent: z.number().nullable(),
+  name: z.string(),
+});
+export type TopPage = z.infer<typeof TopPageSchema>;
+
 export const TimeSeriesPointSchema = z.object({
   date: z.string(),
   count: z.number(),
@@ -108,31 +146,135 @@ export const AnalyticsSummarySchema = z.object({
   domain: z.string(),
   clicks: z.object({
     total: z.number(),
+    previousTotal: z.number(),
+    deltaPercent: z.number().nullable(),
+    uniqueUrls: z.number(),
     uniqueSlugs: z.number(),
   }),
   views: z.object({
     total: z.number(),
+    previousTotal: z.number(),
+    deltaPercent: z.number().nullable(),
+    uniqueUrls: z.number(),
     uniquePaths: z.number(),
   }),
-  topClicks: z.array(TopItemSchema),
-  topPages: z.array(TopItemSchema),
+  downloads: z.object({
+    total: z.number(),
+    previousTotal: z.number(),
+    deltaPercent: z.number().nullable(),
+    totalBytes: z.number(),
+    cacheHitRate: z.number().min(0).max(1).nullable(),
+  }),
+  proxy: z.object({
+    total: z.number(),
+    previousTotal: z.number(),
+    deltaPercent: z.number().nullable(),
+    errorCount: z.number(),
+    errorRate: z.number().min(0).max(1).nullable(),
+  }),
+  overview: z.object({
+    recordedEvents: z.number(),
+    previousRecordedEvents: z.number(),
+    deltaPercent: z.number().nullable(),
+    activeDomains: z.number(),
+    uniqueUrls: z.number(),
+  }),
+  filters: z.object({
+    days: z.number(),
+    country: z.string().nullable(),
+    search: z.string().nullable(),
+    includeMonitoring: z.boolean(),
+  }),
+  monitoring: z.object({
+    included: z.boolean(),
+    classifier: z.literal('cloudflare-healthchecks'),
+    rows: z.object({
+      clicks: z.number(),
+      views: z.number(),
+      downloads: z.number(),
+      proxy: z.number(),
+      total: z.number(),
+    }),
+  }),
+  coverage: z.object({
+    status: z.literal('partial'),
+    cutoverAt: z.number().nullable(),
+    note: z.string(),
+    unifiedTraffic: z.object({
+      mode: z.enum(['off', 'shadow']),
+      enabled: z.boolean(),
+      retentionDays: z.number().int().positive().nullable(),
+      recordedRequests: z.number(),
+      reconciled: z.literal(false),
+      includedInHeadline: z.literal(false),
+    }),
+    streams: z.object({
+      clicks: z.string(),
+      views: z.string(),
+      downloads: z.string(),
+      proxy: z.string(),
+    }),
+  }),
+  topClicks: z.array(TopClickSchema),
+  topProxies: z.array(TopProxySchema),
+  topPages: z.array(TopPageSchema),
+  topDomains: z.array(
+    z.object({ domain: z.string(), count: z.number(), share: z.number().min(0).max(1) }),
+  ),
   topCountries: z.array(TopItemSchema),
   topReferrers: z.array(TopItemSchema),
   clicksByDay: z.array(TimeSeriesPointSchema),
   viewsByDay: z.array(TimeSeriesPointSchema),
+  activityByDay: z.array(
+    z.object({
+      date: z.string(),
+      clicks: z.number(),
+      views: z.number(),
+      downloads: z.number(),
+      proxy: z.number(),
+      total: z.number(),
+    }),
+  ),
   recentClicks: z.array(
     z.object({
+      domain: z.string(),
       slug: z.string(),
+      path: z.string(),
+      sourceUrl: z.string(),
       target: z.string(),
+      targetUrl: z.string(),
       country: z.string().nullable(),
       createdAt: z.number(),
     }),
   ),
   recentViews: z.array(
     z.object({
+      domain: z.string(),
       path: z.string(),
+      sourceUrl: z.string(),
       country: z.string().nullable(),
       createdAt: z.number(),
+    }),
+  ),
+  recentActivity: z.array(
+    z.object({
+      eventId: z.string(),
+      type: z.enum(['click', 'view', 'download', 'proxy']),
+      domain: z.string(),
+      path: z.string(),
+      sourceUrl: z.string(),
+      targetUrl: z.string().nullable(),
+      country: z.string().nullable(),
+      createdAt: z.number(),
+    }),
+  ),
+  insights: z.array(
+    z.object({
+      id: z.string(),
+      severity: z.enum(['info', 'positive', 'warning']),
+      title: z.string(),
+      description: z.string(),
+      href: z.string().nullable(),
     }),
   ),
 });
@@ -356,6 +498,9 @@ export const AuditLogsListResponseSchema = z.object({
 export interface AnalyticsQueryParams {
   domain?: string;
   days?: number;
+  country?: string;
+  search?: string;
+  includeMonitoring?: boolean;
 }
 
 export interface PaginationQueryParams {

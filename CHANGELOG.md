@@ -6,6 +6,40 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.32.0 (2026-08-12) — domain-aware analytics and public release hardening
+
+**[feature] The Dashboard is now a domain-aware operational overview.** Leaderboards
+show canonical full source URLs and use explicit labels: **Top Routes - Redirect**,
+**Top Routes - Proxy**, and **Top Website Pages** for service-bound HTML. Filters,
+recent activity, period deltas, formula-safe CSV export, and bounded actionable
+signals make route errors, cache performance, scanner noise, and traffic changes
+visible without obscuring the underlying evidence.
+
+**[analytics] Cloudflare Health Checks are excluded by default.** The exact,
+case-sensitive `Cloudflare-Healthchecks/1.0` token is the only monitoring classifier;
+unrelated bots and scanners remain visible. A labelled toggle restores matching rows.
+Legacy headline totals are explicitly marked partial rather than presented as all
+traffic.
+
+**[analytics] Optional unified request shadow stream.** Migration `0011` and
+`UNIFIED_TRAFFIC_*` controls add dormant-by-default, privacy-bounded public-request
+capture. It records response outcomes without query strings, IP addresses, referrers,
+User-Agent strings, or target URLs, remains separate from legacy headline totals,
+and has bounded retention pruning after cutover.
+
+**[security/ci] Public-distribution gates are permanent.** CI now fails on forbidden
+private paths/content, non-placeholder Wrangler resource IDs, leaked secrets, stale
+runtime bindings, dashboard security-header drift, or regression tests. The
+Docker/nginx dashboard has a strict static-bundle CSP (`script-src 'self'`) plus
+HSTS and baseline browser hardening; request logs drop query strings and configured
+route targets.
+
+**[docs/test]** API contracts, OpenAPI, migration/setup instructions, the in-dashboard
+guide, version surfaces, and analytics/security tests were updated together.
+
+**Verification:** see [PERFORMANCE.md](./PERFORMANCE.md) for the final v1.32.0
+quality, coverage, bundle, routing, and Wrangler dry-run evidence.
+
 ## v1.31.0 (2026-08-10) — performance: concurrent wildcard lookup and route-level chunks
 
 **[performance] Wildcard route lookup now parallelises fallback KV reads.** The

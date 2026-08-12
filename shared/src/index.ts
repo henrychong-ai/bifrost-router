@@ -13,6 +13,7 @@ export { normalizeR2Key, isNormalizedR2Key } from './r2-key.js'; // gitleaks:all
 
 // Types
 export * from './types.js';
+export * from './analytics-utils.js';
 
 // Schemas - export selectively to avoid conflicts with types.ts
 export {

@@ -7,7 +7,7 @@
 > A free, self-hosted alternative to bit.ly and Rebrandly — built on Cloudflare Workers with zero server costs
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-1055%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1218%20passing-brightgreen)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)](https://www.typescriptlang.org/)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-orange)](https://workers.cloudflare.com/)
 
@@ -43,7 +43,7 @@ A lightweight, high-performance edge router and URL shortener built on Cloudflar
 - **MCP Server** — AI-powered route and R2 storage management via Claude Code/Desktop (29 tools)
 - **QR Codes** (v1.30.0) — unified QR resource (URL / text / Wi-Fi / vCard) with optional route linking (re-point, never reprint), a preset registry for your own branding, live preview, SVG + PNG export, and authed-only image serving
 - **User Guide** (v1.30.0) — in-dashboard guide (11 task-first sections) with a first-visit welcome dialog, contextual ? help links, an MCP integration tab, and dated changelog
-- **Analytics** — D1-powered click and page view tracking
+- **Operational Analytics** — domain-aware full URLs, redirect/proxy/service-page leaders, recent activity, period comparisons, and actionable traffic signals; Cloudflare Health Checks are excluded by default
 - **Wildcard Patterns** — Support for path patterns like `/blog/*`
 - **R2 Storage Management** — Browse, upload, download, rename, move, and delete R2 objects via API and dashboard
 - **CDN Cache Purge** — Purge Cloudflare edge cache globally for R2 objects via Zone Cache Purge API
@@ -154,6 +154,11 @@ Also update the `[env.dev]` section with your dev domain.
 
 > **Tip:** Remove any R2 bucket bindings and service bindings you don't need. The worker only requires KV (ROUTES) and D1 (DB) as minimum bindings.
 
+The example `[env.dev]` repeats every binding with isolated placeholder
+resources because Wrangler environments do not inherit bindings. Replace both
+production and development placeholders before using either deployment target;
+keep the development D1/KV/R2/service resources separate from production.
+
 ### Step 4: Configure Your Domains
 
 Edit `src/types.ts` to list your domains:
@@ -194,6 +199,10 @@ wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0004_file_downlo
 wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0005_proxy_requests.sql
 wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0006_audit_logs.sql
 wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0007_add_cache_status.sql
+wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0008_file_comments.sql
+wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0009_feedback.sql
+wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0010_external_audit_capture.sql
+wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0011_unified_traffic_events.sql
 
 # For local dev, use --local instead of --remote
 ```
@@ -234,6 +243,15 @@ curl -X POST https://bifrost.yourdomain.com/api/routes \
 ### Optional: Admin Dashboard
 
 The admin dashboard is a React SPA that connects to your Bifrost API.
+
+Its home page is an operational overview rather than a raw event dump. It shows
+canonical source URLs (domain plus path), **Top Routes - Redirect**,
+**Top Routes - Proxy**, **Top Website Pages** for service-bound HTML, recent activity, period
+comparisons, leading domains/countries/referrers, and actionable signals such as
+proxy 5xx rates, low R2 cache-hit rates, scanner-like paths, and material traffic
+changes. Cloudflare Health Checks are excluded by default and can be restored
+with the labelled toggle. Dashboard analytics inherit the same admin API-key
+middleware as route management.
 
 ```bash
 # Create admin/.env.local
@@ -311,7 +329,10 @@ A GitHub Actions template is provided at `.github/workflows/ci-cd.yml.example`.
    - `CLOUDFLARE_ACCOUNT_ID` — Your Cloudflare account ID
    - `ADMIN_API_KEY` — For admin dashboard build
 
-The active CI pipeline (`.github/workflows/ci.yml`) runs lint, typecheck, and tests on every PR.
+The active CI pipeline (`.github/workflows/ci.yml`) runs secret and public-sanitisation
+scans, lint/format/type checks, tests with locked coverage floors, the dashboard
+build, analytics/routing/dormant-path performance gates, and production plus
+development Wrangler dry-runs on every PR and push. It does not deploy.
 
 ### Optional: External R2 operations audit capture (v1.28.0)
 
@@ -401,7 +422,7 @@ All admin endpoints require `X-Admin-Key` header or `Authorization: Bearer <key>
 | `POST` | `/api/routes/normalize-case` | One-time migration: convert all route paths to lowercase (run after upgrading to v1.22.0+ if you have pre-existing uppercase routes) |
 | `GET` | `/api/routes/by-target` | Find routes serving an R2 object (`?bucket=&target=`) |
 | `POST` | `/api/routes/seed` | Bulk import routes |
-| `GET` | `/api/analytics/summary` | Analytics overview |
+| `GET` | `/api/analytics/summary` | Domain-aware operational overview (`?domain=&days=&country=&search=&includeMonitoring=`) |
 | `GET` | `/api/analytics/clicks` | Click records (paginated) |
 | `GET` | `/api/analytics/views` | View records (paginated) |
 | `GET` | `/api/analytics/clicks/:slug` | Stats for specific link |
@@ -415,6 +436,20 @@ All admin endpoints require `X-Admin-Key` header or `Authorization: Bearer <key>
 | `POST` | `/api/storage/:bucket/move` | Move object to different bucket |
 | `PUT` | `/api/storage/:bucket/metadata/:key` | Update object HTTP metadata |
 | `POST` | `/api/storage/:bucket/purge-cache/:key` | Purge CDN cache for R2 object |
+
+### Optional: unified request analytics (v1.32.0)
+
+Migration `0011` adds a privacy-bounded request stream that can measure public
+traffic beyond the four legacy event tables. It ships dormant and does not alter
+headline totals. To evaluate it safely, apply the migration, set an RFC3339 UTC
+`UNIFIED_TRAFFIC_CUTOVER_AT`, then set `UNIFIED_TRAFFIC_MODE = "shadow"`. The
+stream stores domain, normalised path, response classification, coarse country,
+cache status, and bounded latency; it does not store query strings, IP addresses,
+referrers, User-Agent strings, or target URLs. Set the mode back to `"off"` to
+stop capture. On an environment with the daily `0 20 * * *` cron, retention
+pruning continues after a valid cutover even while capture is off. The example
+development environment has no cron triggers; add that schedule if you keep a
+development shadow stream enabled beyond short-lived testing.
 
 ### Route Configuration
 
@@ -438,7 +473,7 @@ All admin endpoints require `X-Admin-Key` header or `Authorization: Bearer <key>
 
 ```bash
 pnpm run dev          # Local dev server (localhost:8787)
-pnpm run test         # Run all tests (1055 tests)
+pnpm run check        # Full quality, test, build, performance, and dry-run gate
 pnpm run typecheck    # TypeScript check
 pnpm run lint         # Lint all packages
 pnpm run deploy:dev   # Deploy to dev environment
@@ -449,18 +484,18 @@ pnpm run deploy:dev   # Deploy to dev environment
 | Layer | Technology | Version |
 |-------|------------|---------|
 | **Language** | TypeScript | 5.9.3 |
-| **Framework** | [Hono](https://hono.dev/) | 4.12.0 |
+| **Framework** | [Hono](https://hono.dev/) | 4.12.34 |
 | **Runtime** | Cloudflare Workers | — |
-| **CLI** | Wrangler | 4.73.0 |
-| **Validation** | Zod | 4.3.6 |
-| **ORM** | Drizzle ORM | 0.45.1 |
+| **CLI** | Wrangler | 4.114.0 |
+| **Validation** | Zod | 4.4.3 |
+| **ORM** | Drizzle ORM | 0.45.2 |
 | **Storage** | Cloudflare KV | — |
 | **Database** | Cloudflare D1 (analytics) | — |
 | **Object Storage** | Cloudflare R2 | — |
-| **Testing** | Vitest + @cloudflare/vitest-pool-workers | 3.2.4 / 0.12.21 |
+| **Testing** | Vitest + @cloudflare/vitest-pool-workers | 4.1.10 / 0.18.8 |
 | **Linting** | Oxlint + Biome (formatter) | — |
-| **Package Manager** | pnpm (workspaces) | 10.30.3 |
-| **Admin Dashboard** | React 19 + Vite 7 + Tailwind CSS 4 + shadcn/ui | — |
+| **Package Manager** | pnpm (workspaces) | 10.33.0 |
+| **Admin Dashboard** | React 19 + Vite 8 + Tailwind CSS 4 + shadcn/ui | — |
 
 ## License
 

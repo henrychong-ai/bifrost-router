@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Bifrost Admin API
   description: Edge router management API for route configuration and analytics
-  version: 1.15.2
+  version: 1.32.0
   contact:
     name: Bifrost Maintainers
     url: https://example.com
@@ -254,6 +254,9 @@ paths:
       parameters:
         - $ref: '#/components/parameters/DomainQuery'
         - $ref: '#/components/parameters/DaysQuery'
+        - $ref: '#/components/parameters/CountryQuery'
+        - $ref: '#/components/parameters/AnalyticsSearchQuery'
+        - $ref: '#/components/parameters/IncludeMonitoringQuery'
       responses:
         '200':
           description: Success
@@ -1105,6 +1108,22 @@ components:
         type: string
         minLength: 2
         maxLength: 2
+    AnalyticsSearchQuery:
+      name: search
+      in: query
+      description: Case-insensitive search across domains, paths, targets, and referrers
+      required: false
+      schema:
+        type: string
+        maxLength: 500
+    IncludeMonitoringQuery:
+      name: includeMonitoring
+      in: query
+      description: Include Cloudflare Health Checks rows (excluded by default)
+      required: false
+      schema:
+        type: boolean
+        default: false
 
     R2KeyQuery:
       name: r2Key

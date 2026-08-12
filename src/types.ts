@@ -175,6 +175,13 @@ export type Bindings = {
   // D1 database for analytics
   DB: D1Database;
 
+  /** Privacy-bounded unified request stream: dormant unless exactly `shadow`. */
+  UNIFIED_TRAFFIC_MODE?: 'off' | 'shadow' | string;
+  /** Explicit timezone-bearing RFC3339 activation point. */
+  UNIFIED_TRAFFIC_CUTOVER_AT?: string;
+  /** Positive whole-day retention for unified rows. */
+  UNIFIED_TRAFFIC_RETENTION_DAYS?: string;
+
   // R2 copy size limit for rename/metadata operations (in MB, default: 100)
   R2_COPY_SIZE_LIMIT_MB?: string;
 
@@ -262,6 +269,16 @@ export function getServiceFallback(env: Bindings, hostname: string): Fetcher | u
  */
 export type AppEnv = {
   Bindings: Bindings;
+  Variables: {
+    unifiedEventType?:
+      | 'redirect'
+      | 'r2'
+      | 'proxy'
+      | 'service'
+      | 'not_found'
+      | 'sensitive_denied'
+      | 'system';
+  };
 };
 
 /**

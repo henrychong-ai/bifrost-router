@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
 import type { AppEnv, Bindings, KVRouteConfig } from './types';
 import { getServiceFallback, isValidDomain } from './types';
@@ -14,10 +13,25 @@ import {
   recordPageView,
   recordFileDownload,
   recordProxyRequest,
+  recordUnifiedTrafficEvent,
+  pruneUnifiedTrafficEvents,
+  type UnifiedTrafficEventType,
 } from './db/analytics';
 import { handleScheduled } from './backup';
 import { pollCfAuditLogs } from './audit/cf-audit-poll';
 import { handleR2EventBatch, type R2EventMessage } from './queue/r2-events';
+import { privacySafeRequestLogger } from './middleware/request-logger';
+import {
+  boundedUnifiedCacheStatus,
+  boundedUnifiedCountry,
+  boundedUnifiedLatencyMs,
+  classifyUnifiedTraffic,
+  isUnifiedTrafficRequestEligible,
+  parseUnifiedTrafficCutoverAt,
+  parseUnifiedTrafficRetentionDays,
+  privacySafeUnifiedAnalyticsPath,
+  unifiedTrafficOutcome,
+} from './utils/unified-traffic';
 
 /**
  * Cloudflare request cf properties we use for analytics
@@ -51,13 +65,91 @@ function getAnalyticsData(c: {
   };
 }
 
+export function scheduleUnifiedTrafficEvent(
+  c: Parameters<typeof handleRedirect>[0],
+  startedAt: number,
+  domain: string,
+  path: string,
+  eventType: UnifiedTrafficEventType,
+  response: Response,
+): void {
+  const contentLength = response.headers.get('Content-Length');
+  const responseBytes = contentLength && /^\d+$/.test(contentLength) ? Number(contentLength) : null;
+  const cf = c.req.raw.cf as CfProperties | undefined;
+  c.executionCtx.waitUntil(
+    recordUnifiedTrafficEvent(c.env.DB, {
+      domain,
+      path: privacySafeUnifiedAnalyticsPath(path),
+      eventType,
+      outcome: unifiedTrafficOutcome(response.status),
+      responseStatus: response.status,
+      responseBytes,
+      cacheStatus: boundedUnifiedCacheStatus(response.headers.get(CACHE_STATUS_HEADER)),
+      country: boundedUnifiedCountry(cf?.country),
+      trafficClass: classifyUnifiedTraffic(path, c.req.header('user-agent')),
+      latencyMs: boundedUnifiedLatencyMs(performance.now() - startedAt),
+    }),
+  );
+}
+
+export async function captureUnifiedTrafficResponse(
+  c: Parameters<typeof handleRedirect>[0],
+  next: () => Promise<void>,
+): Promise<void> {
+  // True dormant path: no URL, path, or header work unless explicitly enabled.
+  if (c.env.UNIFIED_TRAFFIC_MODE !== 'shadow') {
+    await next();
+    return;
+  }
+
+  const url = new URL(c.req.url);
+  if (
+    !isUnifiedTrafficRequestEligible({
+      mode: c.env.UNIFIED_TRAFFIC_MODE,
+      cutoverAt: c.env.UNIFIED_TRAFFIC_CUTOVER_AT,
+      hostname: url.hostname,
+      adminHostname: c.env.ADMIN_API_DOMAIN,
+      path: c.req.path,
+      userAgent: c.req.header('user-agent'),
+    })
+  ) {
+    await next();
+    return;
+  }
+
+  const startedAt = performance.now();
+  try {
+    await next();
+  } catch (error) {
+    scheduleUnifiedTrafficEvent(
+      c,
+      startedAt,
+      url.hostname,
+      c.req.path,
+      c.get('unifiedEventType') ?? 'system',
+      new Response(null, { status: 500 }),
+    );
+    throw error;
+  }
+
+  scheduleUnifiedTrafficEvent(
+    c,
+    startedAt,
+    url.hostname,
+    c.req.path,
+    c.get('unifiedEventType') ?? (c.res.status === 404 ? 'not_found' : 'system'),
+    c.res,
+  );
+}
+
 const app = new Hono<AppEnv>();
 
 // ============================================
 // GLOBAL MIDDLEWARE
 // ============================================
 
-app.use('*', logger());
+app.use('*', privacySafeRequestLogger());
+app.use('*', captureUnifiedTrafficResponse);
 
 // Return 404 for build-system / source-tree paths and query-string
 // path-traversal probes, before the KV catch-all can answer them.
@@ -219,6 +311,7 @@ app.all('*', async c => {
     // Check for service binding fallback (e.g., example-site for example.com)
     const serviceFallback = getServiceFallback(c.env, url.hostname);
     if (serviceFallback) {
+      c.set('unifiedEventType', 'service');
       console.log(
         JSON.stringify({
           level: 'info',
@@ -265,6 +358,7 @@ app.all('*', async c => {
       return response;
     }
 
+    c.set('unifiedEventType', 'not_found');
     return c.json(
       {
         error: 'Not Found',
@@ -276,6 +370,8 @@ app.all('*', async c => {
     );
   }
 
+  c.set('unifiedEventType', route.type);
+
   // Log matched route
   console.log(
     JSON.stringify({
@@ -284,7 +380,6 @@ app.all('*', async c => {
       path,
       routePath: route.path,
       routeType: route.type,
-      target: route.target,
     }),
   );
 
@@ -442,17 +537,24 @@ export default {
       return;
     }
     if (event.cron === '0 20 * * *' || !event.cron) {
+      const cutoverAt = parseUnifiedTrafficCutoverAt(env.UNIFIED_TRAFFIC_CUTOVER_AT);
+      const retentionDays = parseUnifiedTrafficRetentionDays(env.UNIFIED_TRAFFIC_RETENTION_DAYS);
       ctx.waitUntil(
-        handleScheduled(env).then(result => {
-          if (result.success) {
-            console.log(
-              `[Scheduled] Backup completed in ${result.duration}ms - ` +
-                `${result.manifest?.kv.totalRoutes} routes`,
-            );
-          } else {
-            console.error(`[Scheduled] Backup failed: ${result.error}`);
-          }
-        }),
+        Promise.all([
+          handleScheduled(env).then(result => {
+            if (result.success) {
+              console.log(
+                `[Scheduled] Backup completed in ${result.duration}ms - ` +
+                  `${result.manifest?.kv.totalRoutes} routes`,
+              );
+            } else {
+              console.error(`[Scheduled] Backup failed: ${result.error}`);
+            }
+          }),
+          cutoverAt !== null && retentionDays !== null && cutoverAt <= Math.floor(Date.now() / 1000)
+            ? pruneUnifiedTrafficEvents(env.DB, retentionDays)
+            : Promise.resolve(0),
+        ]).then(() => undefined),
       );
       return;
     }

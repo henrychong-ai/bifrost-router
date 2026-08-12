@@ -572,7 +572,42 @@ describe('query functions', () => {
       const top = result.topClicks[0];
       expect(top).toHaveProperty('name');
       expect(top).toHaveProperty('count');
+      expect(top.sourceUrl).toBe(`https://${top.domain}${top.path}`);
       expect(top.count).toBeGreaterThanOrEqual(1);
+    });
+
+    it('excludes Cloudflare Health Checks by default and can include them explicitly', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const inserted = await env.DB.prepare(
+        `INSERT INTO link_clicks (domain, slug, target_url, user_agent, country, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+        .bind(
+          'links.example.com',
+          '/health-probe',
+          'https://example.com/health',
+          'Mozilla/5.0 (compatible; Cloudflare-Healthchecks/1.0)',
+          'SG',
+          now,
+        )
+        .run();
+
+      try {
+        const excluded = await getAnalyticsSummary(db, { search: 'health-probe' });
+        expect(excluded.clicks.total).toBe(0);
+        expect(excluded.monitoring.rows.clicks).toBe(1);
+
+        const included = await getAnalyticsSummary(db, {
+          search: 'health-probe',
+          includeMonitoring: true,
+        });
+        expect(included.clicks.total).toBe(1);
+        expect(included.topClicks[0]?.sourceUrl).toBe('https://links.example.com/health-probe');
+      } finally {
+        await env.DB.prepare('DELETE FROM link_clicks WHERE id = ?')
+          .bind(inserted.meta.last_row_id)
+          .run();
+      }
     });
   });
 

@@ -26,6 +26,7 @@ pnpm-debug.log*
 
 # Coverage reports
 coverage/
+.ci-artifacts/
 
 # Environment variables
 .env

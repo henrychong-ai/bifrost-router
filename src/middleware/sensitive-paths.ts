@@ -114,11 +114,13 @@ export function denySensitivePaths() {
     const path = c.req.path.toLowerCase();
 
     if (DENIED_EXACT_PATHS.has(path)) {
+      c.set('unifiedEventType', 'sensitive_denied');
       return c.json({ error: 'Not Found', path: c.req.path }, 404);
     }
 
     for (const prefix of DENIED_PREFIXES) {
       if (path.startsWith(prefix)) {
+        c.set('unifiedEventType', 'sensitive_denied');
         return c.json({ error: 'Not Found', path: c.req.path }, 404);
       }
     }
@@ -135,6 +137,7 @@ export function denySensitivePaths() {
       url.hostname === 'localhost' ||
       url.hostname === '127.0.0.1';
     if (isAdminHost && url.search && queryHasTraversal(url.search)) {
+      c.set('unifiedEventType', 'sensitive_denied');
       return c.json({ error: 'Not Found', path: c.req.path }, 404);
     }
 

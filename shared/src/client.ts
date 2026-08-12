@@ -354,6 +354,9 @@ export class EdgeRouterClient {
       params: {
         domain: effectiveDomain,
         days: options.days,
+        country: options.country,
+        search: options.search,
+        includeMonitoring: options.includeMonitoring ? 'true' : undefined,
       },
     });
   }

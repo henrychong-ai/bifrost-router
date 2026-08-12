@@ -206,6 +206,53 @@ export interface TopItem {
   extra?: string;
 }
 
+/** Domain-aware redirect leaderboard row. */
+export interface TopClick {
+  domain: string;
+  path: string;
+  sourceUrl: string;
+  targetUrl: string;
+  count: number;
+  previousCount: number;
+  share: number;
+  deltaPercent: number | null;
+  /** @deprecated Use `path`. */
+  name: string;
+  /** @deprecated Use `targetUrl`. */
+  extra: string;
+}
+
+/** Domain-aware reverse-proxy leaderboard row. */
+export interface TopProxy {
+  domain: string;
+  path: string;
+  sourceUrl: string;
+  targetUrl: string;
+  count: number;
+  previousCount: number;
+  share: number;
+  deltaPercent: number | null;
+}
+
+/** Domain-aware service-backed HTML page leaderboard row. */
+export interface TopPage {
+  domain: string;
+  path: string;
+  sourceUrl: string;
+  count: number;
+  previousCount: number;
+  share: number;
+  deltaPercent: number | null;
+  /** @deprecated Use `path`. */
+  name: string;
+}
+
+export interface TopDomain {
+  domain: string;
+  count: number;
+  share: number;
+}
+
 /**
  * Time series data point
  */
@@ -222,28 +269,113 @@ export interface AnalyticsSummary {
   domain: string;
   clicks: {
     total: number;
+    previousTotal: number;
+    deltaPercent: number | null;
+    uniqueUrls: number;
     uniqueSlugs: number;
   };
   views: {
     total: number;
+    previousTotal: number;
+    deltaPercent: number | null;
+    uniqueUrls: number;
     uniquePaths: number;
   };
-  topClicks: TopItem[];
-  topPages: TopItem[];
+  downloads: {
+    total: number;
+    previousTotal: number;
+    deltaPercent: number | null;
+    totalBytes: number;
+    cacheHitRate: number | null;
+  };
+  proxy: {
+    total: number;
+    previousTotal: number;
+    deltaPercent: number | null;
+    errorCount: number;
+    errorRate: number | null;
+  };
+  overview: {
+    recordedEvents: number;
+    previousRecordedEvents: number;
+    deltaPercent: number | null;
+    activeDomains: number;
+    uniqueUrls: number;
+  };
+  filters: {
+    days: number;
+    country: string | null;
+    search: string | null;
+    includeMonitoring: boolean;
+  };
+  monitoring: {
+    included: boolean;
+    classifier: 'cloudflare-healthchecks';
+    rows: { clicks: number; views: number; downloads: number; proxy: number; total: number };
+  };
+  coverage: {
+    status: 'partial';
+    cutoverAt: number | null;
+    note: string;
+    unifiedTraffic: {
+      mode: 'off' | 'shadow';
+      enabled: boolean;
+      retentionDays: number | null;
+      recordedRequests: number;
+      reconciled: false;
+      includedInHeadline: false;
+    };
+    streams: { clicks: string; views: string; downloads: string; proxy: string };
+  };
+  topClicks: TopClick[];
+  topProxies: TopProxy[];
+  topPages: TopPage[];
+  topDomains: TopDomain[];
   topCountries: TopItem[];
   topReferrers: TopItem[];
   clicksByDay: TimeSeriesPoint[];
   viewsByDay: TimeSeriesPoint[];
+  activityByDay: Array<{
+    date: string;
+    clicks: number;
+    views: number;
+    downloads: number;
+    proxy: number;
+    total: number;
+  }>;
   recentClicks: Array<{
+    domain: string;
     slug: string;
+    path: string;
+    sourceUrl: string;
     target: string;
+    targetUrl: string;
     country: string | null;
     createdAt: number;
   }>;
   recentViews: Array<{
+    domain: string;
     path: string;
+    sourceUrl: string;
     country: string | null;
     createdAt: number;
+  }>;
+  recentActivity: Array<{
+    eventId: string;
+    type: 'click' | 'view' | 'download' | 'proxy';
+    domain: string;
+    path: string;
+    sourceUrl: string;
+    targetUrl: string | null;
+    country: string | null;
+    createdAt: number;
+  }>;
+  insights: Array<{
+    id: string;
+    severity: 'info' | 'positive' | 'warning';
+    title: string;
+    description: string;
+    href: string | null;
   }>;
 }
 
@@ -267,6 +399,7 @@ export interface PaginationMeta {
   limit: number;
   offset: number;
   hasMore: boolean;
+  includeMonitoring?: boolean;
 }
 
 /**
@@ -323,6 +456,10 @@ export interface AnalyticsQueryOptions {
   path?: string;
   /** Filter by country code (2-letter ISO) */
   country?: string;
+  /** Search domain, path, target, and referrer fields. */
+  search?: string;
+  /** Include Cloudflare Health Checks rows (excluded by default). */
+  includeMonitoring?: boolean;
 }
 
 // =============================================================================

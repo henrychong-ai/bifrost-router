@@ -47,16 +47,23 @@ function formatAnalyticsSummary(summary: AnalyticsSummary): string {
   ];
 
   if (summary.topClicks.length > 0) {
-    lines.push('', '🔗 Top Links');
+    lines.push('', '🔗 Top Routes - Redirect');
     summary.topClicks.slice(0, 5).forEach((item, i) => {
-      lines.push(`${i + 1}. ${item.name} - ${formatNumber(item.count)} clicks`);
+      lines.push(`${i + 1}. ${item.sourceUrl} - ${formatNumber(item.count)} redirects`);
+    });
+  }
+
+  if (summary.topProxies.length > 0) {
+    lines.push('', '🔀 Top Routes - Proxy');
+    summary.topProxies.slice(0, 5).forEach((item, i) => {
+      lines.push(`${i + 1}. ${item.sourceUrl} - ${formatNumber(item.count)} requests`);
     });
   }
 
   if (summary.topPages.length > 0) {
-    lines.push('', '📄 Top Pages');
+    lines.push('', '📄 Top Website Pages');
     summary.topPages.slice(0, 5).forEach((item, i) => {
-      lines.push(`${i + 1}. ${item.name} - ${formatNumber(item.count)} views`);
+      lines.push(`${i + 1}. ${item.sourceUrl} - ${formatNumber(item.count)} views`);
     });
   }
 

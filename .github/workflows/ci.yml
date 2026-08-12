@@ -61,10 +61,23 @@ jobs:
         run: pnpm run format:check
 
       - name: Type check
-        run: pnpm run -r typecheck
+        run: |
+          pnpm run typecheck
+          pnpm run -r typecheck
 
       - name: Test
-        run: pnpm run -r test
+        run: |
+          pnpm run test
+          pnpm run -r test
+
+      - name: Coverage regression gates
+        run: pnpm run test:coverage:all
+
+      - name: Public sanitization gate
+        run: pnpm run public:check
+
+      - name: Script regression gates
+        run: pnpm run test:gates
 
       # Runtime-types freshness gate: `wrangler types --check` asserts the committed
       # worker-configuration.d.ts still matches each Worker's wrangler.toml
@@ -80,3 +93,15 @@ jobs:
 
       - name: Build admin dashboard
         run: pnpm -C admin build
+
+      - name: Analytics performance gate
+        run: pnpm run benchmark:analytics
+
+      - name: Routing performance gate
+        run: pnpm run benchmark:routing:gate
+
+      - name: Unified analytics dormant-path gate
+        run: pnpm run benchmark:unified-disabled
+
+      - name: Production and development Wrangler dry-runs
+        run: pnpm run wrangler:check

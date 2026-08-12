@@ -15,24 +15,111 @@ describe('Analytics tool handlers', () => {
   const mockSummary: AnalyticsSummary = {
     period: '30d',
     domain: 'links.example.com',
-    clicks: { total: 1000, uniqueSlugs: 50 },
-    views: { total: 5000, uniquePaths: 100 },
+    clicks: {
+      total: 1000,
+      previousTotal: 800,
+      deltaPercent: 25,
+      uniqueUrls: 50,
+      uniqueSlugs: 50,
+    },
+    views: {
+      total: 5000,
+      previousTotal: 4500,
+      deltaPercent: 11.1,
+      uniqueUrls: 100,
+      uniquePaths: 100,
+    },
+    downloads: {
+      total: 0,
+      previousTotal: 0,
+      deltaPercent: 0,
+      totalBytes: 0,
+      cacheHitRate: null,
+    },
+    proxy: {
+      total: 0,
+      previousTotal: 0,
+      deltaPercent: 0,
+      errorCount: 0,
+      errorRate: null,
+    },
+    overview: {
+      recordedEvents: 6000,
+      previousRecordedEvents: 5300,
+      deltaPercent: 13.2,
+      activeDomains: 1,
+      uniqueUrls: 150,
+    },
+    filters: { days: 30, country: null, search: null, includeMonitoring: false },
+    monitoring: {
+      included: false,
+      classifier: 'cloudflare-healthchecks',
+      rows: { clicks: 0, views: 0, downloads: 0, proxy: 0, total: 0 },
+    },
+    coverage: {
+      status: 'partial',
+      cutoverAt: null,
+      note: 'Legacy streams are partial.',
+      unifiedTraffic: {
+        mode: 'off',
+        enabled: false,
+        retentionDays: 30,
+        recordedRequests: 0,
+        reconciled: false,
+        includedInHeadline: false,
+      },
+      streams: { clicks: 'legacy', views: 'legacy', downloads: 'legacy', proxy: 'legacy' },
+    },
     topClicks: [
       {
+        domain: 'links.example.com',
+        path: '/linkedin',
+        sourceUrl: 'https://links.example.com/linkedin',
+        targetUrl: 'https://linkedin.com/in/example',
         name: '/linkedin',
         count: 200,
+        previousCount: 180,
+        share: 0.2,
+        deltaPercent: 11.1,
         extra: 'https://linkedin.com/in/example',
       },
       {
+        domain: 'links.example.com',
+        path: '/github',
+        sourceUrl: 'https://links.example.com/github',
+        targetUrl: 'https://github.com/example-user',
         name: '/github',
         count: 150,
+        previousCount: 120,
+        share: 0.15,
+        deltaPercent: 25,
         extra: 'https://github.com/example-user',
       },
     ],
+    topProxies: [],
     topPages: [
-      { name: '/', count: 2000 },
-      { name: '/about', count: 500 },
+      {
+        domain: 'links.example.com',
+        path: '/',
+        sourceUrl: 'https://links.example.com/',
+        name: '/',
+        count: 2000,
+        previousCount: 1800,
+        share: 0.4,
+        deltaPercent: 11.1,
+      },
+      {
+        domain: 'links.example.com',
+        path: '/about',
+        sourceUrl: 'https://links.example.com/about',
+        name: '/about',
+        count: 500,
+        previousCount: 450,
+        share: 0.1,
+        deltaPercent: 11.1,
+      },
     ],
+    topDomains: [{ domain: 'links.example.com', count: 6000, share: 1 }],
     topCountries: [
       { name: 'US', count: 400 },
       { name: 'SG', count: 300 },
@@ -51,14 +138,20 @@ describe('Analytics tool handlers', () => {
     ],
     recentClicks: [
       {
-        id: 1,
+        domain: 'links.example.com',
         slug: '/linkedin',
+        path: '/linkedin',
+        sourceUrl: 'https://links.example.com/linkedin',
+        target: 'https://linkedin.com/in/example',
         targetUrl: 'https://linkedin.com/in/example',
         country: 'US',
         createdAt: Math.floor(Date.now() / 1000) - 300,
       },
     ],
     recentViews: [],
+    activityByDay: [],
+    recentActivity: [],
+    insights: [],
   };
 
   const mockClicksResponse: PaginatedResponse<LinkClick> = {
@@ -158,9 +251,9 @@ describe('Analytics tool handlers', () => {
 
       const result = await getAnalyticsSummary(mockClient, {}, 'links.example.com');
 
-      expect(result).toContain('Top Links');
-      expect(result).toContain('/linkedin');
-      expect(result).toContain('200 clicks');
+      expect(result).toContain('Top Routes - Redirect');
+      expect(result).toContain('https://links.example.com/linkedin');
+      expect(result).toContain('200 redirects');
     });
 
     it('shows top pages', async () => {
@@ -168,7 +261,7 @@ describe('Analytics tool handlers', () => {
 
       const result = await getAnalyticsSummary(mockClient, {}, 'links.example.com');
 
-      expect(result).toContain('Top Pages');
+      expect(result).toContain('Top Website Pages');
       expect(result).toContain('2,000 views');
     });
 

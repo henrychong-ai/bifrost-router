@@ -14,6 +14,11 @@ import {
   getAuditLogs,
 } from '../db/queries';
 import { AuditActionSchema, AuditSourceSchema } from '@bifrost/shared';
+import {
+  isUnifiedTrafficCaptureActive,
+  parseUnifiedTrafficCutoverAt,
+  parseUnifiedTrafficRetentionDays,
+} from '../utils/unified-traffic';
 
 /**
  * Analytics API routes
@@ -29,6 +34,12 @@ export const analyticsRoutes = new Hono<AppEnv>();
 const SummaryQuerySchema = z.object({
   domain: z.string().optional(),
   days: z.coerce.number().min(1).max(365).default(30),
+  country: z.string().length(2).toUpperCase().optional(),
+  search: z.string().trim().max(500).optional(),
+  includeMonitoring: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform(value => value === 'true'),
 });
 
 /**
@@ -111,6 +122,9 @@ analyticsRoutes.get('/summary', async c => {
   const queryResult = SummaryQuerySchema.safeParse({
     domain: c.req.query('domain'),
     days: c.req.query('days'),
+    country: c.req.query('country'),
+    search: c.req.query('search'),
+    includeMonitoring: c.req.query('includeMonitoring'),
   });
 
   if (!queryResult.success) {
@@ -126,7 +140,20 @@ analyticsRoutes.get('/summary', async c => {
 
   try {
     const db = createDb(c.env.DB);
-    const summary = await getAnalyticsSummary(db, queryResult.data);
+    const unifiedTrafficMode: 'off' | 'shadow' =
+      c.env.UNIFIED_TRAFFIC_MODE === 'shadow' ? 'shadow' : 'off';
+    const summary = await getAnalyticsSummary(db, {
+      ...queryResult.data,
+      unifiedTrafficEnabled: isUnifiedTrafficCaptureActive(
+        c.env.UNIFIED_TRAFFIC_MODE,
+        c.env.UNIFIED_TRAFFIC_CUTOVER_AT,
+      ),
+      unifiedTrafficMode,
+      unifiedTrafficCutoverAt: parseUnifiedTrafficCutoverAt(c.env.UNIFIED_TRAFFIC_CUTOVER_AT),
+      unifiedTrafficRetentionDays: parseUnifiedTrafficRetentionDays(
+        c.env.UNIFIED_TRAFFIC_RETENTION_DAYS,
+      ),
+    });
 
     return c.json({
       success: true,

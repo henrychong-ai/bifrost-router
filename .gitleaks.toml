@@ -14,5 +14,11 @@ regexes = [
 ]
 
 [[allowlists]]
-description = "Ignored local package cache, never tracked or distributed"
-paths = ['''(^|/)\.pnpm-store/''']
+description = "Ignored generated output and local package caches, never tracked or distributed"
+paths = [
+  '''(^|/)\.pnpm-store/''',
+  '''(^|/)\.wrangler/''',
+  '''(^|/)\.ci-artifacts/''',
+  '''(^|/)coverage/''',
+  '''(^|/)dist/''',
+]

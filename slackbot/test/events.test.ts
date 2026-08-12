@@ -38,8 +38,15 @@ function createMockClient(): EdgeRouterClient {
       domain: 'links.example.com',
       clicks: { total: 100, uniqueSlugs: 10 },
       views: { total: 200, uniquePaths: 20 },
-      topClicks: [{ name: '/linkedin', count: 50 }],
-      topPages: [{ name: '/', count: 100 }],
+      topClicks: [
+        {
+          name: '/linkedin',
+          sourceUrl: 'https://links.example.com/linkedin',
+          count: 50,
+        },
+      ],
+      topProxies: [],
+      topPages: [{ name: '/', sourceUrl: 'https://links.example.com/', count: 100 }],
       topCountries: [{ name: 'US', count: 75 }],
       topReferrers: [],
       clicksByDay: [],

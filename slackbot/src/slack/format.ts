@@ -87,20 +87,29 @@ export function formatAnalyticsSummary(summary: AnalyticsSummary): string {
 
   // Top clicks
   if (summary.topClicks.length > 0) {
-    lines.push('', ':link: *Top Links*');
+    lines.push('', ':link: *Top Routes - Redirect*');
     for (const item of summary.topClicks.slice(0, 5)) {
       lines.push(
-        `${getPositionEmoji(summary.topClicks.indexOf(item) + 1)} \`${item.name}\` - ${item.count} clicks`,
+        `${getPositionEmoji(summary.topClicks.indexOf(item) + 1)} <${item.sourceUrl}|${item.sourceUrl}> - ${item.count} redirects`,
+      );
+    }
+  }
+
+  if (summary.topProxies.length > 0) {
+    lines.push('', ':twisted_rightwards_arrows: *Top Routes - Proxy*');
+    for (const item of summary.topProxies.slice(0, 5)) {
+      lines.push(
+        `${getPositionEmoji(summary.topProxies.indexOf(item) + 1)} <${item.sourceUrl}|${item.sourceUrl}> - ${item.count} requests`,
       );
     }
   }
 
   // Top pages
   if (summary.topPages.length > 0) {
-    lines.push('', ':page_facing_up: *Top Pages*');
+    lines.push('', ':page_facing_up: *Top Website Pages*');
     for (const item of summary.topPages.slice(0, 5)) {
       lines.push(
-        `${getPositionEmoji(summary.topPages.indexOf(item) + 1)} \`${item.name}\` - ${item.count} views`,
+        `${getPositionEmoji(summary.topPages.indexOf(item) + 1)} <${item.sourceUrl}|${item.sourceUrl}> - ${item.count} views`,
       );
     }
   }

@@ -49,6 +49,36 @@ describe('analytics routes', () => {
         created_at INTEGER DEFAULT (unixepoch()) NOT NULL
       )
     `).run();
+
+    await env.DB.prepare(`
+      CREATE TABLE IF NOT EXISTS file_downloads (
+        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        domain TEXT NOT NULL,
+        path TEXT NOT NULL,
+        r2_key TEXT NOT NULL,
+        content_type TEXT,
+        file_size INTEGER,
+        referrer TEXT,
+        user_agent TEXT,
+        country TEXT,
+        cache_status TEXT,
+        created_at INTEGER DEFAULT (unixepoch()) NOT NULL
+      )
+    `).run();
+
+    await env.DB.prepare(`
+      CREATE TABLE IF NOT EXISTS proxy_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        domain TEXT NOT NULL,
+        path TEXT NOT NULL,
+        target_url TEXT NOT NULL,
+        response_status INTEGER,
+        referrer TEXT,
+        user_agent TEXT,
+        country TEXT,
+        created_at INTEGER DEFAULT (unixepoch()) NOT NULL
+      )
+    `).run();
   });
 
   // Helper to make authenticated requests
@@ -129,7 +159,11 @@ describe('analytics routes', () => {
       expect(data.data).toHaveProperty('clicks');
       expect(data.data).toHaveProperty('views');
       expect(data.data).toHaveProperty('topClicks');
+      expect(data.data).toHaveProperty('topProxies');
       expect(data.data).toHaveProperty('topPages');
+      expect(data.data).toHaveProperty('recentActivity');
+      expect(data.data).toHaveProperty('insights');
+      expect(data.data.monitoring.classifier).toBe('cloudflare-healthchecks');
       expect(data.data).toHaveProperty('topCountries');
       expect(data.data).toHaveProperty('clicksByDay');
       expect(data.data).toHaveProperty('viewsByDay');
@@ -155,6 +189,23 @@ describe('analytics routes', () => {
       const data = await response.json();
       expect(data.success).toBe(true);
       expect(data.data.domain).toBe('example.com');
+    });
+
+    it('accepts bounded dashboard filters', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+      const response = await makeRequest(
+        app,
+        '/api/analytics/summary?country=sg&search=report&includeMonitoring=true',
+      );
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.data.filters).toEqual({
+        days: 30,
+        country: 'SG',
+        search: 'report',
+        includeMonitoring: true,
+      });
     });
 
     it('validates days parameter range', async () => {

@@ -47,7 +47,7 @@ export interface TimeSeriesPoint {
 /**
  * Analytics summary response
  */
-export interface AnalyticsSummary {
+export interface LegacyAnalyticsSummary {
   period: string;
   domain: string;
   clicks: {
@@ -101,10 +101,10 @@ function getDaysAgoTimestamp(days: number): number {
 /**
  * Get analytics summary for dashboard
  */
-export async function getAnalyticsSummary(
+export async function getLegacyAnalyticsSummary(
   db: Database,
   options: AnalyticsQueryOptions = {},
-): Promise<AnalyticsSummary> {
+): Promise<LegacyAnalyticsSummary> {
   const { domain, days = 30 } = options;
   const startTime = getDaysAgoTimestamp(days);
 
@@ -277,6 +277,8 @@ export async function getAnalyticsSummary(
     recentViews,
   };
 }
+
+export { getAnalyticsSummary } from './analytics-summary';
 
 /**
  * Get paginated list of link clicks
