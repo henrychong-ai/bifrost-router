@@ -6,6 +6,36 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.32.1 (2026-08-13) — dependency maintenance and fully bounded overrides
+
+**[chore] Routine minor/patch dependency refresh across the workspace.** Hono
+moved to 4.13.2, the MCP SDK to 1.30.0, and the Cloudflare test toolchain to
+`@cloudflare/vitest-pool-workers` 0.21.3 with its exactly matching pinned
+`wrangler` 4.123.0 (keeping a single Wrangler copy in the tree). Tooling: Biome
+2.5.8, Oxlint 1.78.0, `lint-staged` 17.3.0, and `tsx` 4.23.12. Dashboard: the
+Radix UI primitives, `@hookform/resolvers` 5.7.1, React Hook Form 7.85.0,
+Recharts 3.10.1, Sonner 2.0.8, Vite 8.2.1, ESLint 10.8.1, `eslint-plugin-oxlint`
+1.78.0, `eslint-plugin-react-refresh` 0.5.4, and typescript-eslint 8.67.0. No
+source or configuration behaviour changed.
+
+**[chore] Runtime types regenerated for the new Wrangler.** `worker-configuration.d.ts`
+in the root Worker and the Slackbot now reflect workerd 1.20260811.1, so
+`wrangler types --check` stays green.
+
+**[security] Every `pnpm.overrides` entry is now bounded at both ends.** Twelve
+entries carried a bare `>=X` floor. An unbounded floor is an open invitation for
+a transitive to cross a major boundary silently: `@hono/node-server` had already
+drifted from its 1.x floor to 2.0.11 with no error. Each override now declares
+`>=patched <next-major`, so the floor still closes its advisory while the ceiling
+bounds the blast radius. Resolved versions are unchanged apart from the
+intentional Hono bump, and `pnpm audit --audit-level=low` reports no known
+vulnerabilities.
+
+**[deferred] Major upgrades remain out of scope for this release.** TypeScript 7
+(typescript-eslint's peer range still excludes it), `@types/node` 26,
+`lucide-react` 1.x, and `@tanstack/react-table` 9.x each need their own reviewed
+change.
+
 ## v1.32.0 (2026-08-12) — domain-aware analytics and public release hardening
 
 **[feature] The Dashboard is now a domain-aware operational overview.** Leaderboards
