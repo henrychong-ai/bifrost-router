@@ -6,6 +6,42 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.32.1 (2026-08-20) — dependency maintenance: minor/patch refresh, bounded overrides
+
+**[chore] Routine minor and patch dependency refresh across all five workspaces.**
+No source behaviour changed. Root: `hono` 4.13.1 -> 4.13.3, `@biomejs/biome`
+2.5.5 -> 2.5.9, `oxlint` 1.75.0 -> 1.79.0, `vitest` and both coverage providers
+4.1.10 -> 4.1.11, `lint-staged` 17.2.0 -> 17.3.0, `tsx` 4.23.1 -> 4.23.12.
+`mcp`: `@modelcontextprotocol/sdk` 1.29.0 -> 1.30.0. `slackbot`: `hono`
+4.13.1 -> 4.13.3. `admin`: `@hookform/resolvers` 5.4.0 -> 5.9.1, the ten Radix UI
+primitives, `react-hook-form` 7.82.0 -> 7.85.0, `recharts` 3.10.0 -> 3.10.1,
+`sonner` 2.0.7 -> 2.0.8, `vite` 8.1.5 -> 8.2.2, `@vitejs/plugin-react`
+6.0.4 -> 6.1.0, `eslint` 10.7.0 -> 10.8.1, `typescript-eslint` 8.65.0 -> 8.67.0,
+`eslint-plugin-oxlint` 1.75.0 -> 1.79.0, `eslint-plugin-react-refresh`
+0.5.3 -> 0.5.4, and the React type packages.
+
+**[security] Every `pnpm.overrides` entry now carries an upper bound.** Twelve
+entries were a bare `>=X` floor, which lets a transitive cross a major boundary
+silently — an override is a pin, not a minimum guarantee. `flatted`, `picomatch`,
+`yaml`, `devalue`, `qs`, `minimatch`, `rollup`, `hono`, `@hono/node-server`,
+`fast-uri`, `postcss`, and `sharp` are now bounded `>=patched <next-major`. Three
+stale floors were raised to what the tree already resolves (`hono` 4.13.3,
+`postcss` 8.5.26, `sharp` 0.35.3) so a future advisory naming one of them does not
+find the repository pinned below its own patch level. `pnpm audit` reports zero
+advisories before and after.
+
+**[chore] Majors deliberately not taken.** `typescript` 7.0.2 (the admin
+`typescript-eslint` peer range excludes it), `@types/node` 26, `@tanstack/react-table`
+9, `lucide-react` 1.x, and `@cloudflare/vitest-pool-workers` 0.22.0 (pins
+`miniflare` 5.x alpha) stay put. `wrangler` stays pinned at the exact version
+`@cloudflare/vitest-pool-workers` depends on, keeping a single Wrangler copy in
+the tree; it moves when the pool package does.
+
+**Verification:** `pnpm run check` green apart from the timing-sensitive analytics
+benchmark, which fails identically (in fact worse) on an unmodified `main` checkout
+of the same machine and is therefore environmental, not a regression.
+`pnpm run test:coverage:all` green across root, shared, admin, and MCP.
+
 ## v1.32.0 (2026-08-12) — domain-aware analytics and public release hardening
 
 **[feature] The Dashboard is now a domain-aware operational overview.** Leaderboards
