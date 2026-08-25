@@ -9,6 +9,8 @@ import {
   FileDown,
   Globe,
   Link2,
+  Maximize2,
+  Minimize2,
   MousePointerClick,
   RefreshCw,
   Route,
@@ -21,7 +23,14 @@ import { SUPPORTED_DOMAINS } from '@/context';
 import { BackupHealthWidget } from '@/components/backup-health-widget';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -47,6 +56,7 @@ import {
   parseDashboardFilters,
   type DashboardFilters,
 } from '@/lib/dashboard-analytics';
+import { buildRecentActivityHref } from '@/lib/dashboard-navigation';
 import type { AnalyticsSummary, TopClick, TopPage, TopProxy } from '@/lib/schemas';
 import { copyToClipboard } from '@/lib/utils';
 
@@ -166,24 +176,126 @@ function SourceUrl({ url }: { url: string }) {
   );
 }
 
+/**
+ * Expand/minimise control for a leaderboard card.
+ *
+ * Source and destination URLs on a busy deployment routinely outrun a
+ * half-width card, and truncating them hides exactly the part that
+ * distinguishes two routes. Expanding widens the card to the full grid without
+ * changing the underlying analytics result — it is a presentation control, not
+ * a filter.
+ */
+export function ExpandableSectionHeader({
+  title,
+  description,
+  expanded,
+  contentId,
+  onToggle,
+}: {
+  title: string;
+  description: string;
+  expanded: boolean;
+  contentId: string;
+  onToggle: () => void;
+}) {
+  const action = expanded ? 'Minimise' : 'Expand';
+  const Icon = expanded ? Minimize2 : Maximize2;
+
+  return (
+    <CardHeader>
+      <CardTitle className="font-inter font-semibold text-blue-950">{title}</CardTitle>
+      <CardDescription>{description}</CardDescription>
+      <CardAction>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          onClick={onToggle}
+          aria-label={`${action} ${title}`}
+          // aria-pressed, not aria-expanded: this widens the card, it does not
+          // reveal hidden content. A disclosure role would promise a screen
+          // reader that content appears and disappears, which it never does.
+          aria-pressed={expanded}
+          aria-controls={contentId}
+          title={`${action} ${title}`}
+        >
+          <Icon aria-hidden="true" />
+        </Button>
+      </CardAction>
+    </CardHeader>
+  );
+}
+
+const RECENT_ACTIVITY_LABELS = {
+  click: 'Click',
+  view: 'View',
+  download: 'Download',
+  proxy: 'Proxy',
+} as const;
+
+const RECENT_ACTIVITY_DESCRIPTIONS = {
+  click: 'redirect click',
+  view: 'page view',
+  download: 'download',
+  proxy: 'proxy request',
+} as const;
+
+/**
+ * The Type cell of a Recent Activity row.
+ *
+ * It used to be inert text. Every row already carries the domain, path and
+ * country that identify the event, so the label now opens the matching
+ * Analytics page with that context applied — otherwise the reader lands on an
+ * unfiltered page and has to reconstruct the filter by hand. The canonical
+ * source URL in the next column still opens the public route itself.
+ */
+export function RecentActivityTypeLink({
+  item,
+  days,
+  includeMonitoring,
+}: {
+  item: AnalyticsSummary['recentActivity'][number];
+  days: number;
+  includeMonitoring: boolean;
+}) {
+  return (
+    <Link
+      to={buildRecentActivityHref(item, days, includeMonitoring)}
+      className="font-medium text-blue-700 underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:ring-2 focus-visible:outline-none"
+      aria-label={`View ${RECENT_ACTIVITY_DESCRIPTIONS[item.type]} analytics for ${item.sourceUrl}`}
+    >
+      {RECENT_ACTIVITY_LABELS[item.type]}
+    </Link>
+  );
+}
+
 function RouteTable({
   title,
   description,
   label,
   items,
+  expanded,
+  onToggleExpanded,
+  contentId,
 }: {
   title: string;
   description: string;
   label: string;
   items: Array<TopClick | TopProxy>;
+  expanded: boolean;
+  onToggleExpanded: () => void;
+  contentId: string;
 }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="font-inter font-semibold text-blue-950">{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent>
+    <Card className={expanded ? 'xl:col-span-2' : undefined}>
+      <ExpandableSectionHeader
+        title={title}
+        description={description}
+        expanded={expanded}
+        contentId={contentId}
+        onToggle={onToggleExpanded}
+      />
+      <CardContent id={contentId}>
         <Table>
           <TableHeader>
             <TableRow>
@@ -198,9 +310,13 @@ function RouteTable({
               <TableRow key={`${item.domain}\u001f${item.path}\u001f${item.targetUrl}`}>
                 <TableCell className="min-w-64 whitespace-normal">
                   <SourceUrl url={item.sourceUrl} />
-                  <span className="text-tiny text-muted-foreground">{item.domain}</span>
+                  <span className="text-tiny text-charcoal-500">{item.domain}</span>
                 </TableCell>
-                <TableCell className="max-w-80 whitespace-normal">
+                <TableCell
+                  className={
+                    expanded ? 'max-w-none whitespace-normal' : 'max-w-80 whitespace-normal'
+                  }
+                >
                   <a
                     href={item.targetUrl}
                     target="_blank"
@@ -251,7 +367,7 @@ function WebsitePages({ items }: { items: TopPage[] }) {
             </span>
             <div className="min-w-0 flex-1">
               <SourceUrl url={item.sourceUrl} />
-              <span className="text-tiny text-muted-foreground">
+              <span className="text-tiny text-charcoal-500">
                 {item.count.toLocaleString()} views · {formatShare(item.share)}
               </span>
             </div>
@@ -361,6 +477,9 @@ export function DashboardPage() {
   );
   const [searchInput, setSearchInput] = useState(filters.search);
   const [countryInput, setCountryInput] = useState(filters.country);
+  // One card at a time: two expanded cards would each claim the full grid and
+  // stack, which is just the collapsed layout with more scrolling.
+  const [expandedSection, setExpandedSection] = useState<'redirects' | 'proxy' | null>(null);
 
   useEffect(() => setSearchInput(filters.search), [filters.search]);
   useEffect(() => setCountryInput(filters.country), [filters.country]);
@@ -663,12 +782,22 @@ export function DashboardPage() {
               description="Most-used redirect routes and configured destinations"
               label="Redirects"
               items={summary.topClicks}
+              expanded={expandedSection === 'redirects'}
+              contentId="top-routes-redirect"
+              onToggleExpanded={() =>
+                setExpandedSection(current => (current === 'redirects' ? null : 'redirects'))
+              }
             />
             <RouteTable
               title="Top Routes - Proxy"
               description="Most-used reverse-proxy routes and upstream targets"
               label="Requests"
               items={summary.topProxies}
+              expanded={expandedSection === 'proxy'}
+              contentId="top-routes-proxy"
+              onToggleExpanded={() =>
+                setExpandedSection(current => (current === 'proxy' ? null : 'proxy'))
+              }
             />
           </div>
           <WebsitePages items={summary.topPages} />
@@ -692,7 +821,13 @@ export function DashboardPage() {
                 <TableBody>
                   {summary.recentActivity.map(item => (
                     <TableRow key={item.eventId}>
-                      <TableCell className="capitalize">{item.type}</TableCell>
+                      <TableCell>
+                        <RecentActivityTypeLink
+                          item={item}
+                          days={filters.days}
+                          includeMonitoring={filters.includeMonitoring}
+                        />
+                      </TableCell>
                       <TableCell className="min-w-64 whitespace-normal">
                         <SourceUrl url={item.sourceUrl} />
                       </TableCell>

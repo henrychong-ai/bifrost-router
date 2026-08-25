@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import type { AppEnv, KVRouteConfig } from '../types';
 import { SUPPORTED_DOMAINS, isValidDomain } from '../types';
@@ -26,12 +27,76 @@ import { recordAuditLog } from '../db/analytics';
 import type { AuditAction } from '../db/analytics';
 import { checkBackupHealth } from '../backup/health';
 import { parseOpenGraph, SSRFBlockedError, ResponseTooLargeError } from '../utils/og-parser';
-import { RoutesListQuerySchema } from '@bifrost/shared';
+import { RoutesListQuerySchema, redactSensitive } from '@bifrost/shared';
+import { normalizePath } from '../kv/lookup';
+import { purgeRouteUrl } from '../utils/cache';
 import {
   getDomainFromRequest,
   getRequiredDomainFromRequest,
   getActorInfo,
 } from './request-context';
+
+/**
+ * Zone-purge one route's own URL after a mutation — r2 routes only.
+ *
+ * Only the r2 serve path writes to `caches.default`, so repointing, disabling,
+ * deleting, or moving an r2 route left the OLD body being served from every
+ * edge PoP until `max-age` expired. Redirect and proxy routes are never edge-
+ * cached by Bifrost, so this is a deliberate no-op for them.
+ *
+ * Best-effort and non-blocking, mirroring the audit-log pattern: `waitUntil`
+ * inside try/catch because `c.executionCtx` is unavailable under test. The
+ * purge promise carries its own rejection handler — an unhandled rejection
+ * inside `waitUntil` can abort the whole invocation, and a transient Cloudflare
+ * API failure must not take the mutation's response down with it.
+ */
+function purgeRouteUrlIfR2(
+  c: Context<AppEnv>,
+  route: { type?: string } | null | undefined,
+  domain: string,
+  path: string,
+): void {
+  if (route?.type !== 'r2') return;
+  // Purge the CANONICAL path — callers may pass the raw request value
+  // ('/Report/'), while the cached URL and the stored route use the normalized
+  // form ('/report'). Residual: mixed-case REQUEST-URL variants are separate
+  // cache keys and expire via TTL only.
+  const canonicalPath = normalizePath(path);
+
+  // Cloudflare's purge-by-URL does not expand wildcards, and purge-by-prefix is
+  // an Enterprise feature. Issuing the purge anyway would delete nothing while
+  // reporting success — worse than an honest skip, because an operator would
+  // believe the cache was cleared.
+  if (canonicalPath.includes('*')) {
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        message: 'purge not possible for wildcard route — cached sub-paths expire via TTL',
+        domain,
+        path: canonicalPath,
+      }),
+    );
+    return;
+  }
+
+  try {
+    c.executionCtx.waitUntil(
+      purgeRouteUrl(domain, canonicalPath, c.env.CLOUDFLARE_API_TOKEN).catch(error => {
+        console.error(
+          JSON.stringify({
+            level: 'error',
+            message: 'cache purge failed',
+            domain,
+            path: canonicalPath,
+            error: redactSensitive(error instanceof Error ? error.message : String(error)),
+          }),
+        );
+      }),
+    );
+  } catch {
+    // executionCtx not available (e.g., in tests) - skip cache purge
+  }
+}
 
 /**
  * Admin API routes for route management
@@ -328,6 +393,9 @@ adminRoutes.post('/routes', async c => {
     // executionCtx not available (e.g., in tests) - skip audit logging
   }
 
+  // A create can land on a URL that previously 404'd or served a deleted route.
+  purgeRouteUrlIfR2(c, route, domain, result.data.path);
+
   return c.json(
     {
       success: true,
@@ -419,6 +487,11 @@ adminRoutes.put('/routes', async c => {
     // executionCtx not available (e.g., in tests) - skip audit logging
   }
 
+  // Covers toggle and retarget. The BEFORE type matters too: repointing an r2
+  // route at a redirect leaves the cached file body serving from the edge under
+  // the same URL. Both sides share one URL, so one purge covers either case.
+  purgeRouteUrlIfR2(c, route.type === 'r2' ? route : beforeRoute, domain, path);
+
   return c.json({
     success: true,
     data: route,
@@ -486,6 +559,9 @@ adminRoutes.delete('/routes', async c => {
   } catch {
     // executionCtx not available (e.g., in tests) - skip audit logging
   }
+
+  // The route is gone from KV but the edge still serves the file it pointed at.
+  purgeRouteUrlIfR2(c, routeBeforeDelete, domain, path);
 
   return c.json({
     success: true,
@@ -635,6 +711,11 @@ adminRoutes.post('/routes/migrate', async c => {
     } catch {
       /* skip in tests */
     }
+
+    // BOTH paths: the old URL now 404s but still serves cached bytes, and the
+    // new URL may hold a cached 404 or a previously-deleted route's body.
+    purgeRouteUrlIfR2(c, route, domain, oldPath);
+    purgeRouteUrlIfR2(c, route, domain, newPath);
 
     return c.json({
       success: true,
@@ -826,6 +907,11 @@ adminRoutes.post('/routes/transfer', async c => {
     } catch {
       // executionCtx not available in tests
     }
+
+    // BOTH domains: the source URL now 404s but still serves cached bytes, and
+    // the destination URL may hold a cached 404 from before the transfer.
+    purgeRouteUrlIfR2(c, route, fromDomain, path);
+    purgeRouteUrlIfR2(c, route, toDomain, path);
 
     return c.json({ success: true, data: route });
   } catch (error) {

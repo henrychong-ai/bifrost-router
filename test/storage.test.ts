@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { Hono } from 'hono';
 import { env } from 'cloudflare:test';
 import { adminRoutes } from '../src/routes/admin';
 import { getR2CopySizeLimit } from '../src/routes/storage';
 import type { AppEnv } from '../src/types';
+import { CLOUDFLARE_ZONE_IDS, R2_BUCKET_CUSTOM_DOMAINS } from '../src/types';
 
 /**
  * Storage API integration tests
@@ -343,6 +344,12 @@ describe('storage routes', () => {
       );
 
       expect(downloadResponse.status).toBe(200);
+      // Quoted httpEtag, never R2's raw unquoted hash — an unquoted entity-tag
+      // is invalid, and a client echoing it back makes R2 reject the request.
+      expect(downloadResponse.headers.get('ETag')).toMatch(/^"[^"]+"$/);
+      const stored = await env.FILES_BUCKET.head('roundtrip.txt');
+      expect(downloadResponse.headers.get('ETag')).toBe(stored?.httpEtag);
+      expect(downloadResponse.headers.get('ETag')).not.toBe(stored?.etag);
       const downloadedContent = await downloadResponse.text();
       expect(downloadedContent).toBe(content);
     });
@@ -1016,6 +1023,281 @@ describe('storage routes', () => {
       const obj = await env.FILES_BUCKET.head('large/413-meta.bin');
       expect(obj).not.toBeNull();
       expect(obj?.httpMetadata?.contentType).toBe('application/octet-stream');
+    });
+  });
+  /**
+   * Object mutations zone-purge the URLs that served them.
+   *
+   * Delete / rename / move / metadata-update / overwrite all leave bytes or
+   * headers cached at every edge PoP: a deleted object stays readable until
+   * `max-age` expires, and a renamed one is readable under BOTH keys. Rename
+   * and move purge both sides — the old key still has bytes at the edge, and
+   * the new one may hold a cached response for a previous object.
+   */
+  describe('cache purge on object mutation', () => {
+    let purgeBodies: { files: string[] }[] = [];
+
+    // The purge only fires with a token; the default test env has none.
+    const purgeEnv = { ...testEnv, CLOUDFLARE_API_TOKEN: 'test-cloudflare-api-token' };
+
+    // This template ships CLOUDFLARE_ZONE_IDS and R2_BUCKET_CUSTOM_DOMAINS
+    // EMPTY, so every purge would correctly degrade to purged=0 and prove
+    // nothing. Install a representative configuration for this block only.
+    beforeAll(() => {
+      CLOUDFLARE_ZONE_IDS['example.com'] = 'test-zone-id';
+      R2_BUCKET_CUSTOM_DOMAINS.files = ['files.example.com'];
+      R2_BUCKET_CUSTOM_DOMAINS.assets = ['assets.example.com'];
+    });
+
+    afterAll(() => {
+      delete CLOUDFLARE_ZONE_IDS['example.com'];
+      delete R2_BUCKET_CUSTOM_DOMAINS.files;
+      delete R2_BUCKET_CUSTOM_DOMAINS.assets;
+    });
+
+    function createExecutionContext(): { ctx: ExecutionContext; settled: () => Promise<void> } {
+      const pending: Promise<unknown>[] = [];
+      return {
+        ctx: {
+          waitUntil: (p: Promise<unknown>) => {
+            pending.push(p);
+          },
+          passThroughOnException: () => {},
+          props: {},
+        } as unknown as ExecutionContext,
+        settled: async () => {
+          await Promise.allSettled(pending);
+        },
+      };
+    }
+
+    beforeEach(() => {
+      purgeBodies = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = input instanceof Request ? input.url : String(input);
+          if (url.includes('/purge_cache')) {
+            purgeBodies.push(JSON.parse(String(init?.body ?? '{}')) as { files: string[] });
+          }
+          return new Response(JSON.stringify({ success: true }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }),
+      );
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    /** Every URL passed to the CF purge API across all batches. */
+    const purgedUrls = () => purgeBodies.flatMap(b => b.files);
+
+    async function seedObject(bucket: string, key: string, body = 'content'): Promise<void> {
+      await (env[`${bucket === 'files' ? 'FILES' : 'ASSETS'}_BUCKET`] as R2Bucket).put(key, body, {
+        httpMetadata: { contentType: 'text/plain' },
+      });
+      purgeBodies = [];
+    }
+
+    it('purges the object URLs on delete', async () => {
+      const app = createApp();
+      await seedObject('files', 'purge/del.txt');
+
+      const { ctx, settled } = createExecutionContext();
+      const response = await app.fetch(
+        new Request('http://example.com/api/storage/files/objects/purge/del.txt', {
+          method: 'DELETE',
+          headers: authHeaders,
+        }),
+        purgeEnv,
+        ctx,
+      );
+      await settled();
+
+      expect(response.status).toBe(200);
+      expect(purgedUrls()).toContain('https://files.example.com/purge/del.txt');
+    });
+
+    it('purges the object URLs on metadata update', async () => {
+      const app = createApp();
+      await seedObject('files', 'purge/meta.txt');
+
+      const { ctx, settled } = createExecutionContext();
+      const response = await app.fetch(
+        new Request('http://example.com/api/storage/files/metadata/purge/meta.txt', {
+          method: 'PUT',
+          headers: { ...authHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contentType: 'application/pdf' }),
+        }),
+        purgeEnv,
+        ctx,
+      );
+      await settled();
+
+      expect(response.status).toBe(200);
+      expect(purgedUrls()).toContain('https://files.example.com/purge/meta.txt');
+    });
+
+    it('purges BOTH the old and new URLs on rename', async () => {
+      const app = createApp();
+      await seedObject('files', 'purge/before.txt');
+
+      const { ctx, settled } = createExecutionContext();
+      const response = await app.fetch(
+        new Request('http://example.com/api/storage/files/rename', {
+          method: 'POST',
+          headers: { ...authHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ oldKey: 'purge/before.txt', newKey: 'purge/after.txt' }),
+        }),
+        purgeEnv,
+        ctx,
+      );
+      await settled();
+
+      expect(response.status).toBe(200);
+      expect(purgedUrls()).toContain('https://files.example.com/purge/before.txt');
+      expect(purgedUrls()).toContain('https://files.example.com/purge/after.txt');
+    });
+
+    it('purges both source and destination URLs on a cross-bucket move', async () => {
+      const app = createApp();
+      await seedObject('files', 'purge/moved.txt');
+
+      const { ctx, settled } = createExecutionContext();
+      const response = await app.fetch(
+        new Request('http://example.com/api/storage/files/move', {
+          method: 'POST',
+          headers: { ...authHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'purge/moved.txt', destinationBucket: 'assets' }),
+        }),
+        purgeEnv,
+        ctx,
+      );
+      await settled();
+
+      expect(response.status).toBe(200);
+      expect(purgedUrls()).toContain('https://files.example.com/purge/moved.txt');
+      expect(purgedUrls()).toContain('https://assets.example.com/purge/moved.txt');
+    });
+
+    it('purges on an overwrite upload but not on a first upload', async () => {
+      const app = createApp();
+
+      const upload = async (content: string, overwrite: boolean) => {
+        const formData = new FormData();
+        formData.append('file', new File([content], 'test.txt', { type: 'text/plain' }));
+        formData.append('key', 'purge/upload.txt');
+        if (overwrite) formData.append('overwrite', 'true');
+        const { ctx, settled } = createExecutionContext();
+        const response = await app.fetch(
+          new Request('http://example.com/api/storage/files/upload', {
+            method: 'POST',
+            headers: authHeaders,
+            body: formData,
+          }),
+          purgeEnv,
+          ctx,
+        );
+        await settled();
+        return response;
+      };
+
+      const first = await upload('one', false);
+      expect(first.status).toBe(201);
+      expect(purgeBodies).toHaveLength(0);
+
+      const second = await upload('two', true);
+      expect(second.status).toBe(201);
+      expect(purgedUrls()).toContain('https://files.example.com/purge/upload.txt');
+    });
+
+    it('purges even when the audit-log path throws', async () => {
+      // The purge used to sit INSIDE the audit try block, so anything that threw
+      // on the way to `recordAuditLog` silently skipped cache invalidation and
+      // stale bytes kept serving from every PoP until max-age expired.
+      //
+      // `recordAuditLog` swallows its own async failures, so a merely-broken DB
+      // would prove nothing. The DB binding here throws on the SECOND access —
+      // the comment cleanup earlier in the handler gets a working binding, the
+      // audit call does not — which reproduces the real coupling.
+      const app = createApp();
+      await seedObject('files', 'purge/audit-fail.txt');
+
+      let dbAccesses = 0;
+      const brokenEnv = Object.defineProperty({ ...purgeEnv }, 'DB', {
+        get() {
+          dbAccesses += 1;
+          if (dbAccesses > 1) throw new Error('D1 binding unavailable');
+          return env.DB;
+        },
+      });
+
+      const { ctx, settled } = createExecutionContext();
+      const response = await app.fetch(
+        new Request('http://example.com/api/storage/files/objects/purge/audit-fail.txt', {
+          method: 'DELETE',
+          headers: authHeaders,
+        }),
+        brokenEnv,
+        ctx,
+      );
+      await settled();
+
+      expect(response.status).toBe(200);
+      expect(dbAccesses).toBeGreaterThan(1);
+      expect(purgedUrls()).toContain('https://files.example.com/purge/audit-fail.txt');
+    });
+
+    it('survives a Cloudflare API failure without failing the mutation', async () => {
+      // An unhandled rejection inside waitUntil can abort the whole invocation.
+      const app = createApp();
+      await seedObject('files', 'purge/cf-fail.txt');
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => {
+          throw new Error('network unreachable');
+        }),
+      );
+      const errors: string[] = [];
+      vi.spyOn(console, 'error').mockImplementation((line: unknown) => {
+        errors.push(String(line));
+      });
+
+      const { ctx, settled } = createExecutionContext();
+      const response = await app.fetch(
+        new Request('http://example.com/api/storage/files/objects/purge/cf-fail.txt', {
+          method: 'DELETE',
+          headers: authHeaders,
+        }),
+        purgeEnv,
+        ctx,
+      );
+      await settled();
+
+      expect(response.status).toBe(200);
+      expect(errors.some(e => e.includes('cache purge failed'))).toBe(true);
+    });
+
+    it('degrades silently when no Cloudflare token is configured', async () => {
+      const app = createApp();
+      await seedObject('files', 'purge/no-token.txt');
+
+      const { ctx, settled } = createExecutionContext();
+      const response = await app.fetch(
+        new Request('http://example.com/api/storage/files/objects/purge/no-token.txt', {
+          method: 'DELETE',
+          headers: authHeaders,
+        }),
+        testEnv,
+        ctx,
+      );
+      await settled();
+
+      expect(response.status).toBe(200);
+      expect(purgeBodies).toHaveLength(0);
     });
   });
 });

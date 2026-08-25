@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 import { readFileSync } from 'fs';
+import { stripHtmlComments } from './src/lib/strip-html-comments';
 
 // Read version from root package.json at build time
 const rootPackageJson = JSON.parse(
@@ -56,7 +57,7 @@ function tailscaleIdentityPlugin(): Plugin {
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), tailwindcss(), tailscaleIdentityPlugin()],
+  plugins: [react(), tailwindcss(), tailscaleIdentityPlugin(), stripHtmlComments()],
   define: {
     // Inject version at build time from root package.json
     __APP_VERSION__: JSON.stringify(APP_VERSION),

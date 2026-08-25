@@ -1,4 +1,4 @@
-import { getZoneIdForDomain, getR2CustomDomainUrls } from '../types';
+import { CLOUDFLARE_ZONE_IDS, getZoneIdForDomain, getR2CustomDomainUrls } from '../types';
 import { findRoutesByR2Target } from '../kv/routes';
 
 /**
@@ -37,10 +37,29 @@ export async function purgeR2CacheForObject(
   const urlsWithZones: { url: string; zoneId: string }[] = [];
   const skippedUrls: string[] = [];
 
-  // 1a. Bifrost KV route URLs (route paths are already URL-safe slugs)
+  // 1a. Bifrost KV route URLs.
+  //
+  // Two paths are unusable and must never enter the batch. A WILDCARD path
+  // purges nothing — Cloudflare's purge-by-URL does not expand `*`, and
+  // purge-by-prefix is an Enterprise feature. A path with a raw space (or any
+  // character the request URL percent-encodes) is rejected by the API, and the
+  // rejection fails the WHOLE 30-URL batch — taking the correctly-encoded
+  // custom-domain URLs down with it. So: encode every segment, and drop
+  // wildcard routes with a warning rather than poisoning the batch.
   const routes = await findRoutesByR2Target(kv, bucket, key);
   for (const route of routes) {
-    const url = `https://${route.domain}${route.path}`;
+    if (route.path.includes('*')) {
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          message: 'purge not possible for wildcard route — cached sub-paths expire via TTL',
+          domain: route.domain,
+          path: route.path,
+        }),
+      );
+      continue;
+    }
+    const url = `https://${route.domain}${encodePathSegments(route.path)}`;
     const zoneId = getZoneIdForDomain(route.domain);
     if (zoneId) {
       urlsWithZones.push({ url, zoneId });
@@ -54,7 +73,7 @@ export async function purgeR2CacheForObject(
   urlsWithZones.push(...customDomainUrls);
 
   if (skippedUrls.length > 0) {
-    console.log(
+    console.warn(
       JSON.stringify({
         level: 'warn',
         message: 'Skipped cache purge for domains without zone ID',
@@ -72,6 +91,63 @@ export async function purgeR2CacheForObject(
 
   const { purged, failed } = await purgeZoneCache(cfApiToken, urlsWithZones);
   return { purged, failed, urls: allUrls };
+}
+
+/**
+ * Purge the edge cache for one route's own URL (r2 routes only).
+ *
+ * `purgeR2CacheForObject` purges by OBJECT — it finds every route pointing at a
+ * key. This is the complement: the object is unchanged but the route→object
+ * mapping is, so the route's own URL is the thing holding a stale body.
+ *
+ * ZONE purge only, deliberately: `caches.default.delete()` evicts a single colo
+ * and would read as a global purge while leaving every other PoP stale. The
+ * Workers cache entry is keyed on the URL, so a zone purge of that URL evicts
+ * it too. Gracefully degrades to purged=0 with no token or no zone mapping,
+ * mirroring `purgeR2CacheForObject`.
+ */
+export async function purgeRouteUrl(
+  domain: string,
+  path: string,
+  cfApiToken?: string,
+): Promise<PurgeCacheResult> {
+  // Percent-encode each segment, the same way `getR2CustomDomainUrls` encodes
+  // object keys. `normalizePath()` DECODES the path, but the cache entry lives
+  // under the request URL, which is encoded — purging `/my report` would miss
+  // `/my%20report` — and Cloudflare rejects a purge list containing a URL with
+  // raw spaces or control characters, failing the whole batch.
+  const url = `https://${domain}${encodePathSegments(path)}`;
+  const zoneId = getZoneIdForDomain(domain);
+
+  // Only worth warning about when SOME zones are configured and this one is
+  // missing — that is a genuine gap. With the shipped empty configuration every
+  // purge would otherwise warn on every mutation forever, which trains an
+  // operator to ignore the line that matters.
+  if (!zoneId && Object.keys(CLOUDFLARE_ZONE_IDS).length > 0) {
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        message: 'Skipped route cache purge for domain without zone ID',
+        url,
+      }),
+    );
+  }
+
+  if (!cfApiToken || !zoneId) {
+    return { purged: 0, failed: 0, urls: [url] };
+  }
+
+  const { purged, failed } = await purgeZoneCache(cfApiToken, [{ url, zoneId }]);
+  return { purged, failed, urls: [url] };
+}
+
+/**
+ * Encode a route path for use in a purge URL: each `/`-separated segment is
+ * percent-encoded, the separators are preserved. Mirrors `encodeR2KeyAsPath`
+ * in src/types.ts, which does the same job for R2 object keys.
+ */
+function encodePathSegments(path: string): string {
+  return path.split('/').map(encodeURIComponent).join('/');
 }
 
 /**

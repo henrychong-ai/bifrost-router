@@ -17,8 +17,15 @@ export default defineConfig({
     },
     coverage: {
       provider: 'v8',
-      include: ['src/lib/**/*.ts', 'src/pages/dashboard.tsx'],
-      exclude: ['src/**/*.test.ts'],
+      // filter-types.ts is included so the value-parity suite is instrumented —
+      // without it that file carries no coverage mapping at all, and the
+      // changed-line gate can only emit an unactionable "zero executable
+      // coverage mapping" failure on it. Scoped to that one module rather than
+      // all of src/context: the providers and hooks there are exercised through
+      // the pages, not directly, and pulling them in would drop the LOCKED
+      // floors below their configured level.
+      include: ['src/lib/**/*.ts', 'src/context/filter-types.ts', 'src/pages/dashboard.tsx'],
+      exclude: ['src/**/*.test.ts', 'src/**/*.fixture.ts'],
       thresholds: { statements: 43, branches: 49, functions: 31, lines: 44 },
     },
   },

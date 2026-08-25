@@ -6,6 +6,161 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.33.0 (2026-08-26) — Range and conditional R2 serving
+
+**[feature] R2 routes now honour `Range` and the HTTP precondition headers.**
+`handleR2` hands the request's own headers to `bucket.get()` as `onlyIf` and
+`range`, so R2 evaluates them, and the handler maps the result onto real HTTP:
+**206** with a `Content-Range` carrying absolute offsets (all three `R2Range`
+shapes, including suffix `bytes=-N`, resolved against the full object size, with
+the slice length clamped to the bytes that remain), **304** for a failed
+`If-None-Match`/`If-Modified-Since`, and **412** for a failed
+`If-Match`/`If-Unmodified-Since`. `Accept-Ranges: bytes` and `Last-Modified` are
+emitted on every shape. Entity-tag comparison follows RFC 9110 §13.1 — weak for
+`If-None-Match`, strong for `If-Match`, `*` always matching. Byte-range resume,
+media seeking, and cache revalidation all work for the first time; previously
+the handler ignored both headers and streamed the whole object with a 200.
+
+**[fix] `ETag` is the quoted `httpEtag` everywhere, never R2's raw `etag`.** The
+raw value is a bare hash, which is not a valid HTTP entity-tag. A conforming
+client echoes it back unquoted in `If-None-Match` and R2 rejects the request
+outright. Because every object stored by an earlier release was served with the
+raw form, returning clients WILL send it back: the handler degrades stepwise
+when R2 refuses the request options — drop the range, then the precondition,
+then read unconditionally — and warns instead of returning a 500. RFC 9110
+§13.1/§14.2 explicitly permit ignoring a validator or `Range` that cannot be
+used. A malformed or unsatisfiable `Range` recovers the same way, as a full 200.
+A plain unconditional read that fails is still rethrown: degradation is scoped
+to unusable request options, never to an R2 outage. The admin storage-download
+and feedback-attachment endpoints emit `httpEtag` too.
+
+**[fix] `If-Range` is evaluated by the handler (RFC 9110 §13.1.5).** R2's
+`Headers`-shaped `range` option parses only `Range`, so `If-Range` is outside
+its conditional model. A stale validator means the client's cached copy no
+longer matches and its byte offsets are meaningless, so the `Range` is discarded
+and the object re-read in full. Entity-tag form uses strong comparison; date
+form is an exact match at second granularity. An `If-Range` value that is
+neither form is IGNORED and the range proceeds, per the specification's MUST.
+
+**[fix] The edge cache key is the URL alone, and range/conditional requests
+bypass the cache in both directions.** The key previously carried the request
+headers. Cloudflare's Cache API keys on URL, so those headers were **inert** —
+they never fragmented the cache, and removing them is hazard removal rather than
+a hit-rate fix. The corollary of a URL-only key is that a range or conditional
+request must skip both the lookup and the write: a URL-keyed entry holds the
+full 200 body, so serving it would ignore `Range` and never produce a 304. 206
+and 304 responses are never written to `caches.default` — one client's byte
+range replayed to the next requester as a whole object is a correctness bug.
+
+**[fix] Route and object mutations purge the edge cache instead of waiting out
+`max-age`.** New `purgeRouteUrl()` is the route-side complement of
+`purgeR2CacheForObject()`: the object is unchanged but the route→object mapping
+is, so the route's own URL holds the stale body. Route create, update, toggle,
+delete, migrate, and transfer purge the route's URL for **r2 routes only**;
+migrate and transfer purge both URLs, and an update purges when either the
+before- or after-type is r2. Object delete, rename, move, metadata update, and
+overwrite-upload purge the affected object URLs. Purge URLs are percent-encoded
+per segment, since the cache entry lives under the encoded request URL. Every
+purge now runs outside the audit-logging try block and carries its own rejection
+handler, so cache invalidation is never skipped because an audit write threw and
+a Cloudflare API failure cannot abort the invocation. Wildcard routes are
+skipped with a warning: purge-by-URL does not expand `*` and purge-by-prefix is
+an Enterprise feature, so issuing the call would delete nothing while reporting
+success. Zone purge only — never `caches.default.delete()`, which evicts a
+single colo while reading as a global purge.
+
+**[fix] `file_downloads` records GET 200s only.** The gate was `response.ok`,
+which also matched a 206 (one row per byte-range slice, `file_size` set to the
+slice, cache status permanently MISS) and a HEAD probe (headers only, no bytes).
+A 304 transfers nothing. The served R2 key is now resolved before the cache
+lookup and recorded in preference to the route target, so a cache HIT is
+attributed to the object actually served. In the unified traffic stream, 304
+maps to the `success` outcome rather than `redirect`.
+
+**[security] Unhandled-error diagnostics are credential-redacted.** A thrown
+Error's message and stack are attacker-influenceable and routinely carry the
+credential the failing call was holding. Both the structured log line and the
+development-only diagnostic echoed in the response body now pass through the
+shared `redactSensitive()` redactor.
+
+**[feature] Leaderboard cards expand, and Recent Activity rows navigate.** The
+two Top Routes cards gained accessible expand/minimise controls, so long source
+and destination URLs get the full grid width without changing the underlying
+analytics result. Recent Activity's Type cell was inert text; each row now links
+to the matching Analytics page with the event's period, domain, country, path,
+and monitoring state already applied, while the canonical source URL continues
+to open the public route. Leaderboard metadata rows moved to the accessible
+`charcoal-500` contrast token.
+
+**[test] Drift guards for R2 bindings and supported domains.** Wrangler does not
+inherit bindings into `[env.*]`, so a bucket added to the catalogue, the binding
+map, and the top-level `[[r2_buckets]]` but not to `[[env.dev.r2_buckets]]` was
+invisible to CI and would surface only on a deployed development Worker as a
+handled 404. A new suite asserts every catalogue bucket has a development
+binding, that production logical names equal their physical `bucket_name`, that
+the out-of-catalogue `BACKUP_BUCKET` and `FEEDBACK_BUCKET` are declared in both
+environments, and that `FEEDBACK_BUCKET` never joins the generic storage
+resolver. `SUPPORTED_DOMAINS` parity is now asserted on runtime VALUES in exact
+order — source-text parsing cannot see what a module actually exports — with the
+dashboard copy covered by its own runtime suite. The dashboard coverage scope
+now also includes `src/context/filter-types.ts`, which previously carried no
+coverage mapping at all.
+
+**[security] The built SPA shell no longer ships HTML comments.** A
+`stripHtmlComments()` Vite plugin removes them from the build artefact while the
+maintainer rationale stays in `admin/index.html` source; conditional and
+hydration-marker forms are preserved.
+
+### Deliberate strictness
+
+Conditional-request handling has seven places where a naive implementation could
+fail open, so this one is deliberately strict at each: strong preconditions are
+re-evaluated after any degraded read that dropped `onlyIf` (412 rather than a
+silent 200); `If-Unmodified-Since` is withheld from `onlyIf` when `If-Match` is
+present, since §13.2.2 makes the date validator subordinate and R2's precedence
+between the two is undocumented; the `If-Range` full re-read keeps `onlyIf` and
+fails closed to 404 if the object was overwritten in the race window; an
+unusable `If-Range` value is ignored rather than treated as a mismatch (§13.1.5
+MUST); non-GET/HEAD methods receive 412 never 304 (§15.4.5) and never receive
+the `range` option (§14.2); `If-Match` against a missing object returns 412 not
+404 (§13.1.1); and a zero-length resolved range returns 416 rather than an
+invalid `Content-Range`. Each is easy to lose in a refactor that only chases the
+happy path, so the suite pins all seven.
+
+### Known considerations
+
+- **Download counts will step DOWN.** From this release a download delivered as
+  a 206 is not recorded, and that includes a full-object `Range: bytes=0-`,
+  which is what many media players and download managers send once they see
+  `Accept-Ranges`. HEAD probes are no longer counted either. This is an
+  instrumentation change, not a traffic change; the unified `traffic_events`
+  stream still records every request, 206s included.
+- **An unsatisfiable or malformed `Range` degrades to a full 200**, not a 416.
+  RFC 9110 §14.2 permits ignoring a Range that cannot be used, and it is the
+  same recovery path that stops a legacy unquoted validator returning a 500.
+- **Query-string and mixed-case URL variants are separate cache entries** and
+  expire via TTL only. A purge covers the canonical route URL; purge-by-prefix
+  is an Enterprise feature.
+- **Range and conditional requests bypass the edge cache by design**, and that
+  cuts both ways for anyone watching the numbers. An unauthenticated client can
+  force every request to origin by sending `Range: bytes=0-` — each one a full
+  R2 read, with cache-hit rate driven towards zero. A **malformed conditional
+  header** is worse: it cannot be satisfied, so the request degrades to a full
+  200, which is cache-bypassed AND **recorded** as a download. Repeat it and the
+  download count climbs while the cache-hit rate falls, with no corresponding
+  traffic. Self-hosters serving large public objects should put a WAF
+  rate-limit rule in front of their R2-serving paths, scoped to those paths and
+  keyed on client IP — never on a caller-controlled header, which an attacker
+  simply rotates.
+- **Purge results are not surfaced.** `purgeRouteUrl()` and
+  `purgeR2CacheForObject()` both return a `PurgeCacheResult`, and the automatic
+  callers discard it inside `waitUntil`. A failed purge is logged but invisible
+  to the operator who made the mutation; a future release may return it in the
+  mutation response.
+- **The admin OG-metadata endpoint echoes upstream fetch-error text.** It sits
+  behind admin authentication, so this is a defence-in-depth note rather than an
+  exposure: an authenticated operator can learn details of an upstream failure
+  from the error string.
 ## v1.32.0 (2026-08-12) — domain-aware analytics and public release hardening
 
 **[feature] The Dashboard is now a domain-aware operational overview.** Leaderboards

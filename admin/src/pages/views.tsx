@@ -14,6 +14,11 @@ import {
 } from '@/components/ui/table';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { FilterToolbar, type FilterState } from '@/components/filters';
+import { useSearchParams } from 'react-router';
+import {
+  analyticsFiltersToSearchParams,
+  parseAnalyticsFilterSearchParams,
+} from '@/lib/analytics-filter-url';
 
 function formatDate(timestamp: number): string {
   return new Date(timestamp * 1000).toLocaleString();
@@ -24,7 +29,13 @@ export function ViewsPage() {
   const limit = 50;
 
   // Filter state from context (persists during navigation)
-  const { filters, setFilters } = useViewsFilters();
+  const { filters: storedFilters, setFilters } = useViewsFilters();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // The URL wins on arrival, so a deep link lands on the filters it names.
+  const filters = useMemo(
+    () => parseAnalyticsFilterSearchParams(searchParams, storedFilters),
+    [searchParams, storedFilters],
+  );
 
   // Debounce search input
   const debouncedSearch = useDebounce(filters.search || '', 300);
@@ -48,6 +59,8 @@ export function ViewsPage() {
   const handleFilterChange = (newFilters: FilterState) => {
     setOffset(0);
     setFilters(newFilters);
+    // Keep the URL in step so the view stays shareable and survives a reload.
+    setSearchParams(analyticsFiltersToSearchParams(newFilters), { replace: true });
   };
 
   // Handle reset - reset pagination (FilterToolbar handles filter reset via onFiltersChange)

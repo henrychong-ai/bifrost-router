@@ -403,7 +403,9 @@ feedbackRoutes.get('/:id/attachment/:key{.+}', async c => {
   const headers = new Headers();
   if (obj.httpMetadata?.contentType) headers.set('Content-Type', obj.httpMetadata.contentType);
   headers.set('Content-Length', obj.size.toString());
-  headers.set('ETag', obj.etag);
+  // httpEtag (quoted), never the raw `etag` hash — see the storage download
+  // route for the full rationale.
+  headers.set('ETag', obj.httpEtag);
   // Defence-in-depth: never let a browser sniff/execute a stored attachment
   // (the Content-Type is client-declared at upload time). Force a download.
   headers.set('X-Content-Type-Options', 'nosniff');

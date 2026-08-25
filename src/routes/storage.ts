@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import type { AppEnv, Bindings } from '../types';
 import { ALL_BUCKET_BINDINGS } from '../types';
@@ -15,7 +16,13 @@ import {
 } from '../db/file-comments';
 import type { AuditAction } from '@bifrost/shared';
 import type { R2ObjectInfo, AllR2BucketName } from '@bifrost/shared';
-import { ALL_R2_BUCKETS, READ_ONLY_BUCKETS, CommentSchema, normalizeR2Key } from '@bifrost/shared';
+import {
+  ALL_R2_BUCKETS,
+  READ_ONLY_BUCKETS,
+  CommentSchema,
+  normalizeR2Key,
+  redactSensitive,
+} from '@bifrost/shared';
 
 const DEFAULT_R2_COPY_SIZE_LIMIT_MB = 100;
 
@@ -82,6 +89,38 @@ function getActorInfo(c: { req: { header: (name: string) => string | undefined }
 export const storageRoutes = new Hono<AppEnv>();
 
 // GET /buckets - List all R2 buckets
+/**
+ * Fire-and-forget edge-cache purge for one object key.
+ *
+ * Deliberately NOT inside an audit-logging try block: cache invalidation is a
+ * correctness concern (stale bytes keep serving from every PoP until max-age
+ * expires) and must not be skipped because an unrelated audit write threw.
+ *
+ * The purge promise carries its own rejection handler. An unhandled rejection
+ * inside `waitUntil` can abort the whole invocation, so a transient Cloudflare
+ * API failure must never take the mutation's response down with it — it is
+ * logged and swallowed.
+ */
+function purgeObjectCache(c: Context<AppEnv>, bucket: string, key: string): void {
+  try {
+    c.executionCtx.waitUntil(
+      purgeR2CacheForObject(c.env.ROUTES, bucket, key, c.env.CLOUDFLARE_API_TOKEN).catch(error => {
+        console.error(
+          JSON.stringify({
+            level: 'error',
+            message: 'cache purge failed',
+            bucket,
+            key,
+            error: redactSensitive(error instanceof Error ? error.message : String(error)),
+          }),
+        );
+      }),
+    );
+  } catch {
+    // executionCtx not available (e.g., in tests) - skip cache purge
+  }
+}
+
 storageRoutes.get('/buckets', async c => {
   return c.json({
     success: true,
@@ -274,7 +313,10 @@ storageRoutes.get('/:bucket/objects/:key{.+}', async c => {
     headers.set('Content-Type', obj.httpMetadata.contentType);
   }
   headers.set('Content-Length', obj.size.toString());
-  headers.set('ETag', obj.etag);
+  // httpEtag (quoted), never the raw `etag` hash — an unquoted entity-tag is
+  // invalid, and a client echoing it back in If-None-Match makes R2 reject the
+  // request outright.
+  headers.set('ETag', obj.httpEtag);
 
   return new Response(obj.body, { headers });
 });
@@ -400,7 +442,13 @@ storageRoutes.post('/:bucket/upload', async c => {
       }),
     );
   } catch {
-    // executionCtx not available in tests
+    // executionCtx not available in tests - skip audit logging
+  }
+
+  // Replacing an object leaves the OLD bytes cached at every edge PoP under the
+  // same URLs. A first upload has nothing cached to invalidate.
+  if (existing) {
+    purgeObjectCache(c, bucketName, validation.sanitizedKey);
   }
 
   return c.json(
@@ -458,8 +506,12 @@ storageRoutes.delete('/:bucket/objects/:key{.+}', async c => {
       }),
     );
   } catch {
-    // executionCtx not available in tests
+    // executionCtx not available in tests - skip audit logging
   }
+
+  // The bytes are gone but every edge PoP still holds them. Purge the URLs that
+  // served this key, or the object stays readable until max-age expires.
+  purgeObjectCache(c, bucketName, validation.sanitizedKey);
 
   return c.json({ success: true, message: `Deleted: ${validation.sanitizedKey}` });
 });
@@ -560,7 +612,13 @@ storageRoutes.post('/:bucket/rename', async c => {
       }),
     );
   } catch {
-    // executionCtx not available in tests
+    // executionCtx not available in tests - skip audit logging
+  }
+
+  // BOTH keys: the old one no longer exists (stale bytes at the edge) and the
+  // new one may hold a cached 404 or a previous object at that key.
+  for (const key of [oldValidation.sanitizedKey, newValidation.sanitizedKey]) {
+    purgeObjectCache(c, bucketName, key);
   }
 
   return c.json({
@@ -697,8 +755,13 @@ storageRoutes.post('/:bucket/move', async c => {
       }),
     );
   } catch {
-    // executionCtx not available in tests
+    // executionCtx not available in tests - skip audit logging
   }
+
+  // Both sides of the move: the source URLs now serve deleted bytes, and the
+  // destination may hold a cached 404 or a previous object at that key.
+  purgeObjectCache(c, sourceBucketName, keyValidation.sanitizedKey);
+  purgeObjectCache(c, destBucketName, destKeyValidation.sanitizedKey);
 
   return c.json({
     success: true,
@@ -780,8 +843,13 @@ storageRoutes.put('/:bucket/metadata/:key{.+}', async c => {
       }),
     );
   } catch {
-    // executionCtx not available in tests
+    // executionCtx not available in tests - skip audit logging
   }
+
+  // Purge the served URLs — the object's response headers just changed
+  // (Content-Type/Cache-Control/Content-Disposition), the same staleness class
+  // as an overwrite.
+  purgeObjectCache(c, bucketName, validation.sanitizedKey);
 
   return c.json({
     success: true,

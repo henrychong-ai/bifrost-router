@@ -2,7 +2,7 @@
 
 Guidance for Claude Code when working with this repository.
 
-**Version:** 1.32.0 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.33.0 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Public repository — sanitisation (MANDATORY)
 
@@ -430,6 +430,23 @@ Single-domain API responses include `domain` on each route, but the fallback ens
 
 All single-route operations use query parameters (not path parameters) to avoid URL encoding issues with special characters (`/`, `*`, etc.) in route paths.
 
+### R2 serve-path caching (v1.33.0)
+
+- **Cache key is the URL alone.** Cloudflare's Cache API keys on URL, so the previous header-bearing key never fragmented the cache — the headers were inert. The URL-only key removes the hazard and makes the bypass rule explicit.
+- **Range and conditional requests bypass the cache entirely** (`Range`, `If-None-Match`, `If-Modified-Since`, `If-Match`, `If-Unmodified-Since`) and hit R2 every time — a URL-keyed entry holds the full 200 body, so serving it would ignore `Range` and never produce a 304. Deliberate perf trade-off. `If-Range` is NOT in that list: alone it is a no-op (RFC 9110 §13.1.5), and with a `Range` the request already bypasses.
+- **206 and 304 are never written to the cache** — a URL-keyed partial would replay one client's byte range to every later requester as if it were the whole object.
+- **`ETag` must be `object.httpEtag`, never `object.etag`.** The latter is R2's raw unquoted hash. An unquoted tag echoed back by a client in `If-None-Match` makes R2 reject the request (`Invalid ETag in if-none-match header`). Every object stored before this release was served with the raw form, so the handler **degrades stepwise** on a rejected option (drop range → drop precondition → unconditional read) and warns instead of 500ing. A plain unconditional read that fails is still rethrown — degradation is scoped to unusable request options, not to an R2 outage.
+- **`Last-Modified` is emitted** on 200/206/304/412, enabling date-based validators. R2's ms-granularity `If-Modified-Since` behaviour is not verified end-to-end.
+- **206 offsets are ABSOLUTE.** `object.size` is always the FULL size; all three `R2Range` shapes (`{offset,length}`, `{offset}`, `{suffix}`) are resolved to an absolute offset and a length clamped to the remaining bytes before reaching `Content-Range`/`Content-Length`.
+- **Downloads are recorded on GET + status 200 only** (`shouldRecordFileDownload()` in `src/db/analytics.ts`) — a 206 is one slice of a file (many per view, `file_size` = slice, cache status always MISS), a HEAD returns headers with the full `Content-Length` but no bytes, and a 304 transfers nothing. In unified traffic, 304 maps to outcome `success`, not `redirect`.
+- **`servedR2Key` is set BEFORE the cache lookup.** The cache-HIT branch returns early, so setting it below `cache.match()` would attribute every cached serve to `route.target`.
+- **Mutations purge, they do not wait for `max-age`.** `purgeRouteUrl()` (route's own URL, r2 routes only) and `purgeR2CacheForObject()` (every URL serving a key) are both **zone** purges — never `caches.default.delete()`, which evicts one colo while reading as a global purge. Route create/update/toggle/delete/migrate/transfer purge the route URL (migrate and transfer purge both; an update purges when either the before- or after-type is r2). Object delete/rename/move/metadata-update/overwrite-upload purge the object URLs (rename and move purge both keys). Purge URLs are **percent-encoded per segment** — `normalizePath()` decodes, but the cache entry lives under the encoded request URL, and Cloudflare rejects a batch containing raw spaces. Every purge runs OUTSIDE the audit-log try block and carries its own `.catch()`: an unhandled rejection inside `waitUntil` can abort the invocation, and cache invalidation must never be skipped because an unrelated audit write threw. **Residual:** a purge covers the route's own URL only — there is no prefix or tag purge on this plan.
+- **Wildcard routes cannot be purged.** Cloudflare's purge-by-URL does not expand `*` and purge-by-prefix is Enterprise-only, so `purgeRouteUrlIfR2` SKIPS the call for any path containing `*` and warns instead. Issuing it would delete nothing while reporting success — an operator would believe the cache was cleared. Cached sub-paths of a wildcard route expire via TTL only.
+- **This implementation is deliberately strict in seven places where a naive implementation could fail open**: strong preconditions are re-evaluated after a degraded read (412, not a silent 200); `If-Unmodified-Since` is stripped from `onlyIf` when `If-Match` is present (§13.2.2); the If-Range full re-read keeps `onlyIf` and 404s on a bodiless result; an *unusable* If-Range value is IGNORED rather than treated as a mismatch (§13.1.5 MUST); non-GET/HEAD methods get 412 never 304 (§15.4.5) and never receive the `range` option (§14.2); `If-Match` against a missing object is 412 not 404 (§13.1.1); a zero-length resolved range is 416 rather than an invalid `Content-Range`. Each is easy to lose in a refactor that only chases the happy path, so the suite pins all seven — keep them.
+- **Metric-integrity note (and the WAF recommendation).** Range and conditional requests bypass the edge cache in both directions by design. A malformed conditional header cannot be satisfied, so the request degrades to a full **200** — cache-bypassed AND recorded as a download. A client repeating one drives the download count UP and the cache-hit rate towards zero, with every request a full R2 read and no matching traffic. Put a WAF rate-limit rule in front of the R2-serving paths, scoped to those paths and keyed on client IP — never on a caller-controlled header.
+- **Accepted:** an unsatisfiable or malformed `Range` degrades to a full 200 rather than 416 (§14.2 permits ignoring an unusable Range, and it is the same path that stops a legacy unquoted validator 500ing); query-string and mixed-case URL variants are separate cache entries that expire via TTL only.
+- **Test-mock landmine.** R2 mocks MUST keep `etag` (raw) and `httpEtag` (quoted) distinct, because R2 does. Mock them as the same quoted string and a handler emitting the RAW value passes every assertion while serving an invalid entity-tag — the mock has quietly removed the only difference the test was checking. `test/r2-download-recorder.test.ts` additionally drives the real Worker against miniflare's real R2 binding.
+
 ### R2 Cache Purge
 
 When "Purge Cache" is triggered from the storage edit dialog, the Worker uses the **Cloudflare Zone Cache Purge API** (`POST /zones/{zone_id}/purge_cache`) to globally invalidate CDN cache across all edge PoPs. URLs are collected from two sources:
@@ -440,7 +457,9 @@ Requires `CLOUDFLARE_API_TOKEN` Worker secret with **Zone > Cache Purge > Purge*
 ```bash
 wrangler secret put CLOUDFLARE_API_TOKEN
 ```
-Use the same "API Token - Workers Edit" token from 1Password, after adding Cache Purge permission in the Cloudflare dashboard.
+Use the same Cloudflare API token (Workers Edit permissions) from your secrets manager, after adding Cache Purge permission to it in the Cloudflare dashboard.
+
+Since v1.33.0 the same purge runs **automatically** on every route and object mutation (see "R2 serve-path caching" above) — the manual button remains for out-of-band changes.
 
 ### Rate Limiting
 

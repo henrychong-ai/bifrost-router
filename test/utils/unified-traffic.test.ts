@@ -78,7 +78,13 @@ describe('unified event bounds', () => {
     expect(boundedUnifiedCountry('sg')).toBe('SG');
     expect(boundedUnifiedCountry('SGP')).toBeNull();
     expect(boundedUnifiedLatencyMs(999_999)).toBe(120_000);
+    expect(unifiedTrafficOutcome(200)).toBe('success');
+    expect(unifiedTrafficOutcome(206)).toBe('success');
+    // A 304 is a successful cache revalidation, not a redirect. The raw status
+    // is still stored, and the `outcome` CHECK constraint admits no new value.
+    expect(unifiedTrafficOutcome(304)).toBe('success');
     expect(unifiedTrafficOutcome(302)).toBe('redirect');
+    expect(unifiedTrafficOutcome(307)).toBe('redirect');
     expect(unifiedTrafficOutcome(404)).toBe('client_error');
     expect(unifiedTrafficOutcome(503)).toBe('server_error');
   });

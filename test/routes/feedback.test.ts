@@ -201,6 +201,9 @@ describe('feedback API - auth + lifecycle', () => {
     // Stored attachments must never be sniffed/executed by the browser.
     expect(att.headers.get('X-Content-Type-Options')).toBe('nosniff');
     expect(att.headers.get('Content-Disposition')).toBe('attachment');
+    // Quoted httpEtag, never R2's raw unquoted hash — an unquoted entity-tag is
+    // invalid, and a client echoing it back makes R2 reject the request.
+    expect(att.headers.get('ETag')).toMatch(/^"[^"]+"$/);
     const bytes = new Uint8Array(await att.arrayBuffer());
     expect(bytes.byteLength).toBe(4);
 

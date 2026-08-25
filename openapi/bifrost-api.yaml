@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Bifrost Admin API
   description: Edge router management API for route configuration and analytics
-  version: 1.32.0
+  version: 1.33.0
   contact:
     name: Bifrost Maintainers
     url: https://example.com

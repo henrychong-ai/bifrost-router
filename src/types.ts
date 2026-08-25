@@ -278,6 +278,12 @@ export type AppEnv = {
       | 'not_found'
       | 'sensitive_denied'
       | 'system';
+    /**
+     * R2 key actually served by `handleR2`, set before the edge-cache lookup so
+     * the `file_downloads` recorder attributes a cache HIT to the real object
+     * rather than falling back to `route.target`.
+     */
+    servedR2Key?: string;
   };
 };
 

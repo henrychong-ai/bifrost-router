@@ -1,122 +1,13 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AnalyticsSummarySchema } from '@/lib/schemas';
 import { DashboardPage } from './dashboard';
+import { summary } from './dashboard-summary.fixture';
 
 const mockUseAnalyticsSummary = vi.hoisted(() => vi.fn());
 
 vi.mock('@/hooks', () => ({ useAnalyticsSummary: mockUseAnalyticsSummary }));
 vi.mock('@/components/backup-health-widget', () => ({ BackupHealthWidget: () => null }));
-
-const summary = AnalyticsSummarySchema.parse({
-  period: '30d',
-  domain: 'all',
-  clicks: { total: 4, previousTotal: 2, deltaPercent: 100, uniqueUrls: 1, uniqueSlugs: 1 },
-  views: { total: 3, previousTotal: 3, deltaPercent: 0, uniqueUrls: 1, uniquePaths: 1 },
-  downloads: {
-    total: 1,
-    previousTotal: 0,
-    deltaPercent: null,
-    totalBytes: 2048,
-    cacheHitRate: 1,
-  },
-  proxy: { total: 2, previousTotal: 1, deltaPercent: 100, errorCount: 0, errorRate: 0 },
-  overview: {
-    recordedEvents: 10,
-    previousRecordedEvents: 6,
-    deltaPercent: 66.7,
-    activeDomains: 1,
-    uniqueUrls: 3,
-  },
-  filters: { days: 30, country: null, search: null, includeMonitoring: false },
-  monitoring: {
-    included: false,
-    classifier: 'cloudflare-healthchecks',
-    rows: { clicks: 1, views: 0, downloads: 0, proxy: 0, total: 1 },
-  },
-  coverage: {
-    status: 'partial',
-    cutoverAt: null,
-    note: 'Legacy streams are partial.',
-    unifiedTraffic: {
-      mode: 'off',
-      enabled: false,
-      retentionDays: 30,
-      recordedRequests: 0,
-      reconciled: false,
-      includedInHeadline: false,
-    },
-    streams: { clicks: 'legacy', views: 'legacy', downloads: 'legacy', proxy: 'legacy' },
-  },
-  topClicks: [
-    {
-      domain: 'example.com',
-      path: '/welcome',
-      sourceUrl: 'https://example.com/welcome',
-      targetUrl: 'https://destination.example/welcome',
-      count: 4,
-      previousCount: 2,
-      share: 1,
-      deltaPercent: 100,
-      name: '/welcome',
-      extra: 'https://destination.example/welcome',
-    },
-  ],
-  topProxies: [
-    {
-      domain: 'example.com',
-      path: '/api-status',
-      sourceUrl: 'https://example.com/api-status',
-      targetUrl: 'https://upstream.example/status',
-      count: 2,
-      previousCount: 1,
-      share: 1,
-      deltaPercent: 100,
-    },
-  ],
-  topPages: [
-    {
-      domain: 'example.com',
-      path: '/about',
-      sourceUrl: 'https://example.com/about',
-      count: 3,
-      previousCount: 3,
-      share: 1,
-      deltaPercent: 0,
-      name: '/about',
-    },
-  ],
-  topDomains: [{ domain: 'example.com', count: 10, share: 1 }],
-  topCountries: [{ name: 'SG', count: 8 }],
-  topReferrers: [{ name: 'https://search.example/', count: 5 }],
-  clicksByDay: [],
-  viewsByDay: [],
-  activityByDay: [],
-  recentClicks: [],
-  recentViews: [],
-  recentActivity: [
-    {
-      eventId: 'click:1',
-      type: 'click',
-      domain: 'example.com',
-      path: '/welcome',
-      sourceUrl: 'https://example.com/welcome',
-      targetUrl: 'https://destination.example/welcome',
-      country: 'SG',
-      createdAt: 1_700_000_000,
-    },
-  ],
-  insights: [
-    {
-      id: 'monitoring-traffic',
-      severity: 'info',
-      title: 'Monitoring traffic excluded',
-      description: 'One matching row.',
-      href: null,
-    },
-  ],
-});
 
 describe('DashboardPage', () => {
   beforeEach(() => {
@@ -146,6 +37,72 @@ describe('DashboardPage', () => {
     expect(html).toContain('https://example.com/welcome');
     expect(html).toContain('https://example.com/api-status');
     expect(html).toContain('https://example.com/about');
+  });
+
+  it('offers an expand control on each leaderboard card, collapsed by default', () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter initialEntries={['/']}>
+        <DashboardPage />
+      </MemoryRouter>,
+    );
+
+    // Collapsed: the control offers to Expand and reports aria-pressed=false.
+    // aria-pressed rather than aria-expanded — it widens the card, it does not
+    // disclose hidden content.
+    expect(html).toContain('aria-label="Expand Top Routes - Redirect"');
+    expect(html).toContain('aria-label="Expand Top Routes - Proxy"');
+    expect(html).toContain('aria-pressed="false"');
+    // ...and specifically NOT aria-expanded on the control itself. (Radix
+    // primitives elsewhere on the page legitimately use aria-expanded, so scope
+    // the check to the expand button's own markup.)
+    const control = html.slice(html.indexOf('aria-label="Expand Top Routes - Redirect"'));
+    const controlTag = control.slice(0, control.indexOf('>'));
+    expect(controlTag).toContain('aria-pressed');
+    expect(controlTag).not.toContain('aria-expanded');
+    // The control must point at the content it expands, or a screen reader
+    // cannot associate the two.
+    expect(html).toContain('aria-controls="top-routes-redirect"');
+    expect(html).toContain('id="top-routes-redirect"');
+    expect(html).toContain('aria-controls="top-routes-proxy"');
+    expect(html).toContain('id="top-routes-proxy"');
+    // Nothing is pre-expanded, so neither leader CARD claims the full grid on
+    // first paint. (The filter bar uses xl:col-span-2 unconditionally, so count
+    // the card-level occurrences rather than asserting the class is absent.)
+    const expandedCards = html.match(/data-slot="card" class="[^"]*xl:col-span-2/g);
+    expect(expandedCards).toBeNull();
+  });
+
+  it('links each Recent Activity row to its filtered analytics view', () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter initialEntries={['/?days=7&includeMonitoring=true']}>
+        <DashboardPage />
+      </MemoryRouter>,
+    );
+
+    // The event's own domain, path, and country travel with the link — landing
+    // on an unfiltered page would make the reader rebuild the filter by hand.
+    expect(html).toContain('href="/analytics/redirects?');
+    expect(html).toContain('domain=example.com');
+    expect(html).toContain('country=SG');
+    expect(html).toContain('search=%2Fwelcome');
+    expect(html).toContain('days=7');
+    expect(html).toContain('includeMonitoring=true');
+    // The label is a real link, not the previous inert text.
+    expect(html).toContain('View redirect click analytics for https://example.com/welcome');
+  });
+
+  it('renders leaderboard metadata at the accessible contrast token', () => {
+    // charcoal-400 failed a live mobile accessibility gate; charcoal-500 is the
+    // level that passed. Guard it so a future palette tidy-up cannot quietly
+    // walk it back.
+    const html = renderToStaticMarkup(
+      <MemoryRouter initialEntries={['/']}>
+        <DashboardPage />
+      </MemoryRouter>,
+    );
+
+    expect(html).toContain('text-tiny text-charcoal-500');
+    expect(html).not.toContain('text-charcoal-400');
   });
 
   it('renders an actionable error state without hiding the page controls', () => {

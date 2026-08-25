@@ -10,6 +10,33 @@ import {
 import type { AuditAction, AuditSource } from '@bifrost/shared';
 
 /**
+ * Whether a served r2 response counts as a recordable download.
+ *
+ * The recorder used to fire on any `response.ok`. Once the serve path started
+ * honouring `Range` and the precondition headers that became wrong in three
+ * directions:
+ *
+ *  - a **206** is one slice of a file, and a seeking media player emits dozens
+ *    per view. Each would write its own row with `file_size` set to the slice
+ *    and `X-Cache-Status` permanently MISS (range requests bypass the edge
+ *    cache), inflating both the download count and the cache-miss rate.
+ *  - a **304** transfers no bytes at all — it is a revalidation, not a
+ *    download.
+ *  - a **HEAD** returns headers only. It satisfies `response.ok` with the full
+ *    `Content-Length`, so a metadata probe was recorded as a completed download
+ *    of the whole file.
+ *
+ * GET + 200 only.
+ */
+export function shouldRecordFileDownload(
+  route: { type: string },
+  status: number,
+  method: string,
+): boolean {
+  return route.type === 'r2' && method === 'GET' && status === 200;
+}
+
+/**
  * Data for recording a link click
  */
 export interface LinkClickData {

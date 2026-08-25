@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { Hono } from 'hono';
 import { env } from 'cloudflare:test';
 import { adminRoutes } from '../../src/routes/admin';
 import type { AppEnv } from '../../src/types';
+import { CLOUDFLARE_ZONE_IDS } from '../../src/types';
 import { clearAllRoutes } from '../helpers';
 
 describe('admin routes', () => {
@@ -1600,6 +1601,378 @@ describe('admin routes', () => {
         ),
         testEnv,
       );
+    });
+  });
+  /**
+   * Route mutations zone-purge the route's own URL (r2 routes only).
+   *
+   * The r2 serve path writes full 200s into `caches.default`, so repointing,
+   * disabling, deleting, migrating, or transferring an r2 route left every edge
+   * PoP serving the OLD body until `max-age` expired. Redirect and proxy routes
+   * are never edge-cached by Bifrost, so they must NOT trigger a purge.
+   */
+  describe('r2 route mutation cache purge', () => {
+    let purgeBodies: { files: string[] }[] = [];
+
+    // The purge only fires with a token; the default test env has none.
+    const purgeEnv = { ...testEnv, CLOUDFLARE_API_TOKEN: 'test-cloudflare-api-token' };
+    const routeDomain = 'links.example.com';
+
+    // This template ships CLOUDFLARE_ZONE_IDS empty, so every purge would
+    // correctly degrade to purged=0 and prove nothing. Install a zone for the
+    // duration of this block and remove it again.
+    beforeAll(() => {
+      CLOUDFLARE_ZONE_IDS['example.com'] = 'test-zone-id';
+    });
+
+    afterAll(() => {
+      delete CLOUDFLARE_ZONE_IDS['example.com'];
+    });
+
+    /** ExecutionContext that lets the test await the handler's waitUntil work. */
+    function createExecutionContext(): { ctx: ExecutionContext; settled: () => Promise<void> } {
+      const pending: Promise<unknown>[] = [];
+      return {
+        ctx: {
+          waitUntil: (p: Promise<unknown>) => {
+            pending.push(p);
+          },
+          passThroughOnException: () => {},
+          props: {},
+        } as unknown as ExecutionContext,
+        settled: async () => {
+          await Promise.allSettled(pending);
+        },
+      };
+    }
+
+    beforeEach(() => {
+      purgeBodies = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = input instanceof Request ? input.url : String(input);
+          if (url.includes('/purge_cache')) {
+            purgeBodies.push(JSON.parse(String(init?.body ?? '{}')) as { files: string[] });
+          }
+          return new Response(JSON.stringify({ success: true }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }),
+      );
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    /** Every URL passed to the CF purge API across all batches. */
+    const purgedUrls = () => purgeBodies.flatMap(b => b.files);
+
+    async function createRoute(
+      app: Hono<AppEnv>,
+      body: Record<string, unknown>,
+      domain = routeDomain,
+    ): Promise<void> {
+      const { ctx, settled } = createExecutionContext();
+      await app.fetch(
+        new Request(`http://example.com/api/routes?domain=${domain}`, {
+          method: 'POST',
+          headers: { 'X-Admin-Key': validApiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }),
+        purgeEnv,
+        ctx,
+      );
+      await settled();
+      purgeBodies = [];
+    }
+
+    it('purges the route URL when an r2 route is created', async () => {
+      // A create can land on a URL that previously 404'd or served a deleted route.
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+
+      const { ctx, settled } = createExecutionContext();
+      const response = await app.fetch(
+        new Request(`http://example.com/api/routes?domain=${routeDomain}`, {
+          method: 'POST',
+          headers: { 'X-Admin-Key': validApiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: '/purge-new-r2', type: 'r2', target: 'a.pdf' }),
+        }),
+        purgeEnv,
+        ctx,
+      );
+      await settled();
+
+      expect(response.status).toBe(201);
+      expect(purgedUrls()).toEqual([`https://${routeDomain}/purge-new-r2`]);
+    });
+
+    it('purges the route URL when an r2 route is updated', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+      await createRoute(app, { path: '/purge-r2', type: 'r2', target: 'a.pdf' });
+
+      const { ctx, settled } = createExecutionContext();
+      const response = await app.fetch(
+        new Request(`http://example.com/api/routes?domain=${routeDomain}&path=/purge-r2`, {
+          method: 'PUT',
+          headers: { 'X-Admin-Key': validApiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target: 'b.pdf' }),
+        }),
+        purgeEnv,
+        ctx,
+      );
+      await settled();
+
+      expect(response.status).toBe(200);
+      expect(purgedUrls()).toEqual([`https://${routeDomain}/purge-r2`]);
+    });
+
+    it('purges on a toggle (enabled-only update)', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+      await createRoute(app, { path: '/purge-tog', type: 'r2', target: 'a.pdf' });
+
+      const { ctx, settled } = createExecutionContext();
+      await app.fetch(
+        new Request(`http://example.com/api/routes?domain=${routeDomain}&path=/purge-tog`, {
+          method: 'PUT',
+          headers: { 'X-Admin-Key': validApiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: false }),
+        }),
+        purgeEnv,
+        ctx,
+      );
+      await settled();
+
+      expect(purgedUrls()).toEqual([`https://${routeDomain}/purge-tog`]);
+    });
+
+    it('purges the route URL when an r2 route is deleted', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+      await createRoute(app, { path: '/purge-del', type: 'r2', target: 'a.pdf' });
+
+      const { ctx, settled } = createExecutionContext();
+      await app.fetch(
+        new Request(`http://example.com/api/routes?domain=${routeDomain}&path=/purge-del`, {
+          method: 'DELETE',
+          headers: { 'X-Admin-Key': validApiKey },
+        }),
+        purgeEnv,
+        ctx,
+      );
+      await settled();
+
+      expect(purgedUrls()).toEqual([`https://${routeDomain}/purge-del`]);
+    });
+
+    it('purges the CANONICAL path when the caller passes a raw denormalized one', async () => {
+      // `createRoute` stores `normalizePath(input.path)`, so the stored route
+      // and the cached URL are lowercase and slash-trimmed while the request
+      // body still carries '/Purge-Norm/'. Purging the raw value would miss
+      // the entry entirely.
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+
+      const { ctx, settled } = createExecutionContext();
+      const response = await app.fetch(
+        new Request(`http://example.com/api/routes?domain=${routeDomain}`, {
+          method: 'POST',
+          headers: { 'X-Admin-Key': validApiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: '/Purge-Norm/', type: 'r2', target: 'a.pdf' }),
+        }),
+        purgeEnv,
+        ctx,
+      );
+      await settled();
+
+      expect(response.status).toBe(201);
+      expect(purgedUrls()).toEqual([`https://${routeDomain}/purge-norm`]);
+    });
+
+    it('purges BOTH URLs when an r2 route is migrated', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+      await createRoute(app, { path: '/purge-old', type: 'r2', target: 'a.pdf' });
+
+      const { ctx, settled } = createExecutionContext();
+      await app.fetch(
+        new Request(
+          `http://example.com/api/routes/migrate?domain=${routeDomain}&oldPath=/purge-old&newPath=/purge-new`,
+          { method: 'POST', headers: { 'X-Admin-Key': validApiKey } },
+        ),
+        purgeEnv,
+        ctx,
+      );
+      await settled();
+
+      expect(purgedUrls().sort()).toEqual([
+        `https://${routeDomain}/purge-new`,
+        `https://${routeDomain}/purge-old`,
+      ]);
+    });
+
+    it('purges BOTH domains when an r2 route is transferred', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+      await createRoute(app, { path: '/purge-xfer', type: 'r2', target: 'a.pdf' });
+
+      const { ctx, settled } = createExecutionContext();
+      await app.fetch(
+        new Request('http://example.com/api/routes/transfer', {
+          method: 'POST',
+          headers: { 'X-Admin-Key': validApiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            path: '/purge-xfer',
+            fromDomain: routeDomain,
+            toDomain: 'example.com',
+          }),
+        }),
+        purgeEnv,
+        ctx,
+      );
+      await settled();
+
+      expect(purgedUrls().sort()).toEqual([
+        'https://example.com/purge-xfer',
+        `https://${routeDomain}/purge-xfer`,
+      ]);
+    });
+
+    it('does NOT purge when a redirect route is updated', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+      await createRoute(app, {
+        path: '/purge-redir',
+        type: 'redirect',
+        target: 'https://old.example.com',
+      });
+
+      const { ctx, settled } = createExecutionContext();
+      const response = await app.fetch(
+        new Request(`http://example.com/api/routes?domain=${routeDomain}&path=/purge-redir`, {
+          method: 'PUT',
+          headers: { 'X-Admin-Key': validApiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target: 'https://new.example.com' }),
+        }),
+        purgeEnv,
+        ctx,
+      );
+      await settled();
+
+      expect(response.status).toBe(200);
+      expect(purgeBodies).toHaveLength(0);
+    });
+
+    it('purges when an r2 route is REPOINTED to a redirect (stale body at the edge)', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+      await createRoute(app, { path: '/purge-flip', type: 'r2', target: 'a.pdf' });
+
+      const { ctx, settled } = createExecutionContext();
+      await app.fetch(
+        new Request(`http://example.com/api/routes?domain=${routeDomain}&path=/purge-flip`, {
+          method: 'PUT',
+          headers: { 'X-Admin-Key': validApiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'redirect', target: 'https://example.com' }),
+        }),
+        purgeEnv,
+        ctx,
+      );
+      await settled();
+
+      expect(purgedUrls()).toEqual([`https://${routeDomain}/purge-flip`]);
+    });
+
+    it('SKIPS the purge for a wildcard route and warns instead', async () => {
+      // Cloudflare's purge-by-URL does not expand `*`, and purge-by-prefix is an
+      // Enterprise feature. Issuing the call would delete nothing while
+      // reporting success — an operator would believe the cache was cleared.
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+      const warnings: string[] = [];
+      vi.spyOn(console, 'warn').mockImplementation((line: unknown) => {
+        warnings.push(String(line));
+      });
+
+      const { ctx, settled } = createExecutionContext();
+      const response = await app.fetch(
+        new Request(`http://example.com/api/routes?domain=${routeDomain}`, {
+          method: 'POST',
+          headers: { 'X-Admin-Key': validApiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: '/assets/*', type: 'r2', target: 'a.pdf' }),
+        }),
+        purgeEnv,
+        ctx,
+      );
+      await settled();
+
+      expect(response.status).toBe(201);
+      expect(purgeBodies).toHaveLength(0);
+      expect(warnings.some(w => w.includes('purge not possible for wildcard route'))).toBe(true);
+    });
+
+    it('still purges a non-wildcard route on the same domain', async () => {
+      // Guards against the wildcard skip being written too broadly.
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+
+      const { ctx, settled } = createExecutionContext();
+      await app.fetch(
+        new Request(`http://example.com/api/routes?domain=${routeDomain}`, {
+          method: 'POST',
+          headers: { 'X-Admin-Key': validApiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: '/assets/report', type: 'r2', target: 'a.pdf' }),
+        }),
+        purgeEnv,
+        ctx,
+      );
+      await settled();
+
+      expect(purgedUrls()).toEqual([`https://${routeDomain}/assets/report`]);
+    });
+
+    it('survives a Cloudflare API failure without failing the mutation', async () => {
+      // An unhandled rejection inside waitUntil can abort the whole invocation.
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+      await createRoute(app, { path: '/purge-boom', type: 'r2', target: 'a.pdf' });
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => {
+          throw new Error('network unreachable');
+        }),
+      );
+      const errors: string[] = [];
+      vi.spyOn(console, 'error').mockImplementation((line: unknown) => {
+        errors.push(String(line));
+      });
+
+      const { ctx, settled } = createExecutionContext();
+      const response = await app.fetch(
+        new Request(`http://example.com/api/routes?domain=${routeDomain}&path=/purge-boom`, {
+          method: 'DELETE',
+          headers: { 'X-Admin-Key': validApiKey },
+        }),
+        purgeEnv,
+        ctx,
+      );
+      await settled();
+
+      expect(response.status).toBe(200);
+      expect(errors.some(e => e.includes('cache purge failed'))).toBe(true);
+    });
+
+    it('degrades silently when no Cloudflare token is configured', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+      await createRoute(app, { path: '/purge-notoken', type: 'r2', target: 'a.pdf' });
+
+      const { ctx, settled } = createExecutionContext();
+      const response = await app.fetch(
+        new Request(`http://example.com/api/routes?domain=${routeDomain}&path=/purge-notoken`, {
+          method: 'DELETE',
+          headers: { 'X-Admin-Key': validApiKey },
+        }),
+        testEnv,
+        ctx,
+      );
+      await settled();
+
+      expect(response.status).toBe(200);
+      expect(purgeBodies).toHaveLength(0);
     });
   });
 });

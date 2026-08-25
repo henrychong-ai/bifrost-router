@@ -94,6 +94,10 @@ export function unifiedTrafficOutcome(
 ): 'redirect' | 'success' | 'client_error' | 'server_error' {
   if (status >= 500) return 'server_error';
   if (status >= 400) return 'client_error';
+  // 304 is a successful cache revalidation, not a redirect. The raw status is
+  // still stored alongside the outcome, so no fidelity is lost, and the
+  // `outcome` CHECK constraint admits no new value.
+  if (status === 304) return 'success';
   if (status >= 300) return 'redirect';
   return 'success';
 }

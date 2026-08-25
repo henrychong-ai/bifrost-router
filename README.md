@@ -46,7 +46,8 @@ A lightweight, high-performance edge router and URL shortener built on Cloudflar
 - **Operational Analytics** — domain-aware full URLs, redirect/proxy/service-page leaders, recent activity, period comparisons, and actionable traffic signals; Cloudflare Health Checks are excluded by default
 - **Wildcard Patterns** — Support for path patterns like `/blog/*`
 - **R2 Storage Management** — Browse, upload, download, rename, move, and delete R2 objects via API and dashboard
-- **CDN Cache Purge** — Purge Cloudflare edge cache globally for R2 objects via Zone Cache Purge API
+- **Range & Conditional R2 Serving** (v1.33.0) — byte-range resume and media seeking (206 with absolute `Content-Range`, suffix ranges included), cache revalidation (304), and precondition failures (412), served straight from R2 with a quoted `ETag` and `Last-Modified` on every response
+- **CDN Cache Purge** — Purge Cloudflare edge cache globally for R2 objects via Zone Cache Purge API, automatically on every route and object mutation as well as on demand
 - **Route Domain Transfer** — Move routes between domains preserving configuration and audit trail
 - **R2 Backup System** — Automated daily KV route backups with health monitoring (D1 covered by Time Travel)
 - **API Shield** — OpenAPI schema validation at the Cloudflare edge
@@ -59,7 +60,7 @@ A lightweight, high-performance edge router and URL shortener built on Cloudflar
 - **Timing-Safe Auth** — API key comparison resistant to timing attacks
 - **SSRF Protection** — Blocks proxy requests to private/internal IPs
 - **Path Traversal Protection** — R2 keys sanitized to prevent directory traversal
-- **Rate Limiting** — Via Cloudflare WAF (Worker middleware available if needed)
+- **Rate Limiting** — Via Cloudflare WAF (Worker middleware available if needed). **Recommended if you serve large public R2 objects:** add a WAF rate-limit rule scoped to your R2-serving paths and keyed on client IP. Range and conditional requests bypass the edge cache by design, and a *malformed* conditional header degrades to a full, cache-bypassed 200 that is also recorded as a download — so a client repeating one drives your download count up and your cache-hit rate to zero while every request hits R2. Never key such a rule on a caller-controlled header; an attacker just rotates it.
 - **Service-Binding Fetch Resilience** — Worker-to-Worker service-binding calls are wrapped in `try/catch` via the `safeServiceFetch` helper, so URL-parse errors and binding failures become 404s + warn logs instead of `scriptThrewException` worker errors
 
 ### Project Structure

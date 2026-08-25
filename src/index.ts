@@ -8,6 +8,7 @@ import { handleRedirect, handleProxy, handleR2, CACHE_STATUS_HEADER } from './ha
 import { adminRoutes } from './routes/admin';
 import { safeServiceFetch } from './utils/safe-service-fetch';
 import { denySensitivePaths } from './middleware/sensitive-paths';
+import { redactSensitive } from '@bifrost/shared';
 import {
   recordClick,
   recordPageView,
@@ -15,6 +16,7 @@ import {
   recordProxyRequest,
   recordUnifiedTrafficEvent,
   pruneUnifiedTrafficEvents,
+  shouldRecordFileDownload,
   type UnifiedTrafficEventType,
 } from './db/analytics';
 import { handleScheduled } from './backup';
@@ -402,8 +404,11 @@ app.all('*', async c => {
     );
   }
 
-  // Track R2 routes (file downloads)
-  if (route.type === 'r2' && response.ok) {
+  // Track R2 routes (file downloads). Gate: GET + status 200 only —
+  // `response.ok` also matched 206 (one row per byte-range slice) and a HEAD
+  // probe (headers only, no bytes), and a 304 transfers nothing. See
+  // shouldRecordFileDownload().
+  if (shouldRecordFileDownload(route, response.status, c.req.method)) {
     // Extract file metadata from response headers
     const contentType = response.headers.get('Content-Type') || undefined;
     const contentLength = response.headers.get('Content-Length');
@@ -415,7 +420,9 @@ app.all('*', async c => {
       recordFileDownload(c.env.DB, {
         domain: url.hostname,
         path: path,
-        r2Key: route.target,
+        // The key the handler actually served (set before the cache lookup, so
+        // a cache HIT is attributed to the object rather than the route target).
+        r2Key: c.get('servedR2Key') ?? route.target,
         contentType,
         fileSize,
         cacheStatus,
@@ -488,13 +495,20 @@ app.onError((err, c) => {
     return err.getResponse();
   }
 
-  // Handle unexpected errors as 500
+  // Handle unexpected errors as 500.
+  //
+  // A thrown Error's message and stack are attacker-influenceable and routinely
+  // carry whatever credential the failing call was holding (an Authorization
+  // header echoed by a fetch failure, a token in a URL). Both the log line and
+  // the development-only diagnostic in the response body go through the shared
+  // credential redactor first.
   console.error(
     JSON.stringify({
       level: 'error',
       message: 'Unhandled error',
-      error: err.message,
-      stack: c.env.ENVIRONMENT === 'development' ? err.stack : undefined,
+      error: redactSensitive(err.message),
+      stack:
+        c.env.ENVIRONMENT === 'development' && err.stack ? redactSensitive(err.stack) : undefined,
       path: c.req.path,
       method: c.req.method,
     }),
@@ -503,7 +517,7 @@ app.onError((err, c) => {
   return c.json(
     {
       error: 'Internal Server Error',
-      message: c.env.ENVIRONMENT === 'development' ? err.message : undefined,
+      message: c.env.ENVIRONMENT === 'development' ? redactSensitive(err.message) : undefined,
     },
     500,
   );
