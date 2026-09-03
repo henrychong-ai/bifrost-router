@@ -6,6 +6,73 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.33.1 (2026-09-03) — deps: hono security patch, minor/patch refresh
+
+**[security] `hono` 4.13.1 -> 4.13.5** (direct dependency of the root Worker and
+the slackbot Worker; the `pnpm.overrides` floor is raised to `>=4.13.5 <5` so
+transitive copies move with it). Clears three advisories fixed in 4.13.5:
+
+- **GHSA-crvj-82cr-hjcx** — the query parser read parameters *after* the URL
+  fragment, so a `?` following a `#` started a query string the application saw
+  but a fronting proxy, WAF, or cache did not. That differential matters here:
+  the Worker sits behind Cloudflare, and Cache Middleware keys on the query.
+- **GHSA-gqvv-2mrq-wpjv** — incomplete fix for CVE-2026-39408; `toSSG()` could
+  still write outside its output directory. Not reachable in this repo (no SSG),
+  patched on the floor-raise anyway.
+- **GHSA-g6gw-c38x-mqfc** — unbounded dot-notation nesting in `parseBody()`
+  could allocate a disproportionate object graph. Not reachable in this repo
+  (`parseBody({ dot: true })` is unused).
+
+**[chore] Minor/patch dependency refresh across all five workspaces.** No major
+bumps. Production: `zod` 4.4.3 -> 4.5.4, `@modelcontextprotocol/sdk` 1.29.0 ->
+1.30.0, `@tanstack/react-query` 5.101.4 -> 5.102.8, `react-hook-form` 7.82.0 ->
+7.87.0, `react-router` 8.3.0 -> 8.3.1, `@hookform/resolvers` 5.4.0 -> 5.9.1,
+`recharts` 3.10.0 -> 3.10.1, `sonner` 2.0.7 -> 2.0.8, and eleven `@radix-ui/*`
+patch bumps. Development: `oxlint` + `eslint-plugin-oxlint` 1.75.0 -> 1.81.0,
+`@biomejs/biome` 2.5.5 -> 2.5.12, `eslint` 10.7.0 -> 10.9.1, `typescript-eslint`
+8.65.0 -> 8.69.0, `vite` 8.1.5 -> 8.2.2, `@vitejs/plugin-react` 6.0.4 -> 6.1.1,
+`vitest` + `@vitest/coverage-*` 4.1.10 -> 4.1.11, `happy-dom` 20.11.6 ->
+20.13.2, `lint-staged` 17.2.0 -> 17.4.1, `tsx` 4.23.1 -> 4.23.13,
+`eslint-plugin-react-refresh` 0.5.3 -> 0.5.6, `@types/react` 19.2.17 ->
+19.2.18, `@types/react-dom` 19.2.3 -> 19.2.7.
+
+**[chore] `wrangler` 4.114.0 -> 4.124.0, `@cloudflare/vitest-pool-workers`
+0.18.8 -> 0.22.0 — moved together, deliberately.** `wrangler` is exact-pinned
+because `@cloudflare/vitest-pool-workers` depends on an exact `wrangler`; the
+pin exists to keep one copy in the tree, so it must track whatever the pool
+package requires (0.22.0 -> 4.124.0), not the newest published wrangler
+(4.129.0). Bumping only one of the pair would silently install two wranglers.
+`worker-configuration.d.ts` regenerated for both the root and slackbot Workers
+(`wrangler types`), which the `types:check` gate enforces.
+
+**Deferred majors** (each already has its own Dependabot PR): `typescript` 5 ->
+7, `@types/node` 25 -> 26, `vitest` / `@vitest/coverage-*` 4 -> 5,
+`@tanstack/react-table` 8 -> 9, `lucide-react` 0.575 -> 1.x. Each needs its own
+review and is out of scope for a patch release.
+
+**Lockfile note (landmine).** `hono` and `yaml` are each both a direct
+dependency *and* a `pnpm.overrides` target, so the lockfile importer records the
+**override** specifier, not the manifest range. `pnpm update` rewrites it to the
+manifest range instead, which then fails the very next
+`pnpm install --frozen-lockfile` — green locally, red in CI. A plain
+`pnpm install` reconciles it; re-verify with `--frozen-lockfile` after any
+`pnpm update`.
+
+**[ci] `scripts/check-openapi.test.mjs` now derives the expected OpenAPI version
+from `package.json` instead of a hardcoded literal.** The literal made step 5 of
+the release checklist (bump `openapi/bifrost-api.yaml` `info.version`) fail
+`test:gates` on every single release, and it never tested anything the derived
+form does not — the property worth asserting is that the schema version and the
+package version agree.
+
+**Verification:** `pnpm run check` green end to end — lint (root + admin),
+format, typecheck (root + all workspaces), `test:gates`, 715 root / 217 shared /
+92 mcp / 237 admin / 104 slackbot tests, both runtime-types gates, dashboard
+build, `benchmark:analytics`, `benchmark:routing:gate`,
+`benchmark:unified-disabled`, `wrangler:check` (production + development
+dry-runs), and `public:check`. `pnpm install --frozen-lockfile` re-verified
+after the lockfile reconciliation described above.
+
 ## v1.33.0 (2026-08-26) — Range and conditional R2 serving
 
 **[feature] R2 routes now honour `Range` and the HTTP precondition headers.**

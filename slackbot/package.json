@@ -20,14 +20,14 @@
   },
   "dependencies": {
     "@bifrost/shared": "workspace:*",
-    "hono": "^4.12.32",
-    "zod": "^4.4.3"
+    "hono": "^4.13.5",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.18.8",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@types/node": "^25.9.5",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.10",
-    "wrangler": "4.114.0"
+    "vitest": "^4.1.11",
+    "wrangler": "4.124.0"
   }
 }
