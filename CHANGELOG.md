@@ -6,6 +6,69 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.33.1 (2026-09-10) — Dependency refresh; every advisory cleared
+
+**[security] All 14 advisories reported by `pnpm audit` are resolved; the tree
+now audits clean.** Five distinct packages were involved:
+
+- **hono** `4.13.1 → 4.13.7` — three moderate advisories: `toSSG()` writing
+  outside the output directory (incomplete fix for the earlier path-traversal
+  issue), unbounded dot-notation nesting in `parseBody()` allowing memory
+  exhaustion, and a query parser that read parameters after the URL fragment,
+  producing cache-key and proxy interpretation differentials. The router is the
+  direct consumer of Hono, so this is the material one in this release.
+- **vitest / @vitest/mocker** `4.1.10 → 4.1.11` — moderate path traversal /
+  arbitrary file read via the mocker's redirect mock. Test tooling only.
+- **fast-uri** `4.1.2 → 4.1.4` — high severity, reached through the MCP SDK's
+  `ajv` schema validation, which is runtime-reachable in the MCP server.
+- **qs** `6.15.3 → 6.16.0` — moderate, transitive under the MCP SDK's HTTP
+  stack.
+- **sharp** `0.35.3 → 0.35.4` — high severity, transitive under the Workers
+  test pool. Build-time only.
+
+**[chore] Minor/patch refresh across the whole workspace.** No major bumps.
+Root: `@biomejs/biome` 2.5.5 → 2.5.13, `@vitest/coverage-istanbul` and
+`@vitest/coverage-v8` 4.1.10 → 4.1.11, `lint-staged` 17.2.0 → 17.5.1, `oxlint`
+1.75.0 → 1.82.0, `tsx` 4.23.1 → 4.23.13, `vitest` 4.1.10 → 4.1.11, `zod` 4.4.3
+→ 4.6.1, `hono` 4.13.1 → 4.13.7. Dashboard: `react` and `react-dom` 19.2.8 →
+19.3.0, `react-router` 8.3.0 → 8.3.1, `react-hook-form` 7.82.0 → 7.87.0,
+`@hookform/resolvers` 5.4.0 → 5.9.1, `@tanstack/react-query` 5.101.4 → 5.102.8,
+`recharts` 3.10.0 → 3.10.1, `sonner` 2.0.7 → 2.0.8, ten `@radix-ui/*` packages,
+`vite` 8.1.5 → 8.3.0, `@vitejs/plugin-react` 6.0.4 → 6.1.1, `eslint` 10.7.0 →
+10.10.0, `typescript-eslint` 8.65.0 → 8.70.0, `eslint-plugin-oxlint` 1.75.0 →
+1.82.0, `eslint-plugin-react-refresh` 0.5.3 → 0.5.6, `happy-dom` 20.11.6 →
+20.14.3, `@types/react` and `@types/react-dom` to 19.3.0. MCP:
+`@modelcontextprotocol/sdk` 1.29.0 → 1.30.0. `@types/node` 25.9.5 → 25.9.6 and
+`zod` 4.4.3 → 4.6.1 across every package that declares them.
+
+**[chore] Every `pnpm.overrides` entry now carries an upper bound, and three
+stale floors were raised.** An unbounded `>=X` floor is an open invitation for
+a future `pnpm update` to float a transitive across a major boundary with no
+error, and a floor written for one advisory does **not** self-update when a
+later advisory names the same package — an override is a pin, not a minimum
+guarantee. Twelve entries were rewritten: `flatted`, `picomatch`, `yaml`,
+`devalue`, `minimatch`, `rollup`, `@hono/node-server` and `postcss` gained a
+`<MAJOR+1` ceiling at their existing floor; `qs` (`>=6.15.2` → `>=6.16.0 <7`),
+`fast-uri` (`>=4.1.2` → `>=4.1.3 <5`), `sharp` (`>=0.35.0` → `>=0.35.4 <1`) and
+`hono` (`>=4.12.34` → `>=4.13.5 <5`) had their floors raised to the advisory
+patch level as well. `@hono/node-server` is deliberately held below 2: the
+`^2.0.5` line only becomes legitimate against the MCP SDK's own declared range,
+so crossing it is a separate, reviewed decision rather than a sweep side effect.
+The already-bounded selector-scoped entries (`undici`, `vite`, `esbuild`,
+`ws`, `nanoid`, `brace-expansion`, `path-to-regexp`, `ip-address`,
+`@babel/core`, `ajv`, `micromatch>picomatch`) are unchanged.
+
+**Deferred — majors, not taken in a patch release.** `typescript` 5.9 → 7,
+`vitest` and the `@vitest/coverage-*` packages 4 → 5, `@tanstack/react-table`
+8 → 9, `lucide-react` 0.575 → 1, `@types/node` 25 → 26, and
+`@cloudflare/vitest-pool-workers` 0.18 → 0.22. None of them carry an open
+advisory. `wrangler` stays pinned at 4.114.0 in the root and slackbot packages:
+`@cloudflare/vitest-pool-workers@0.18.8` depends on that exact version, so
+moving wrangler on its own would put two copies in the tree and risk a workerd
+mismatch under the Workers test pool. Wrangler moves when the pool moves.
+
+---
+
 ## v1.33.0 (2026-08-26) — Range and conditional R2 serving
 
 **[feature] R2 routes now honour `Range` and the HTTP precondition headers.**
