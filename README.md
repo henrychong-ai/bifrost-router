@@ -487,7 +487,7 @@ pnpm run deploy:dev   # Deploy to dev environment
 | **Language** | TypeScript | 5.9.3 |
 | **Framework** | [Hono](https://hono.dev/) | 4.12.34 |
 | **Runtime** | Cloudflare Workers | — |
-| **CLI** | Wrangler | 4.114.0 |
+| **CLI** | Wrangler | 4.131.0 |
 | **Validation** | Zod | 4.4.3 |
 | **ORM** | Drizzle ORM | 0.45.2 |
 | **Storage** | Cloudflare KV | — |

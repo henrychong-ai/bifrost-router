@@ -70,7 +70,7 @@
     "tsx": "^4.23.13",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11",
-    "wrangler": "4.114.0",
+    "wrangler": "4.131.0",
     "yaml": "^2.9.0"
   },
   "pnpm": {
@@ -111,10 +111,10 @@
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [
       "oxlint --fix --max-warnings=0",
-      "biome format --write"
+      "biome format --write --no-errors-on-unmatched"
     ],
     "*.json": [
-      "biome format --write"
+      "biome format --write --no-errors-on-unmatched"
     ]
   }
 }
