@@ -12,9 +12,10 @@ import {
 import { toast } from 'sonner';
 import {
   FEEDBACK_MAX_SCREENSHOTS,
-  FEEDBACK_SEVERITIES,
+  FEEDBACK_PRIORITIES,
+  FEEDBACK_PRIORITY_DEFAULT,
   FEEDBACK_TYPES,
-  type FeedbackSeverity,
+  formatFeedbackPriority,
   type FeedbackType,
 } from '@bifrost/shared';
 import {
@@ -98,7 +99,7 @@ export function FeedbackDialog() {
   const [type, setType] = useState<FeedbackType>('bug');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [severity, setSeverity] = useState<FeedbackSeverity | ''>('');
+  const [priority, setPriority] = useState<number>(FEEDBACK_PRIORITY_DEFAULT);
   const [submitterEmail, setSubmitterEmail] = useState('');
   const [submitterName, setSubmitterName] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -107,7 +108,7 @@ export function FeedbackDialog() {
     setType('bug');
     setTitle('');
     setDescription('');
-    setSeverity('');
+    setPriority(FEEDBACK_PRIORITY_DEFAULT);
     setSubmitterEmail('');
     setSubmitterName('');
     setAttachments(prev => {
@@ -184,7 +185,7 @@ export function FeedbackDialog() {
     fd.append('type', type);
     fd.append('title', title.trim());
     fd.append('description', description.trim());
-    if (severity) fd.append('severity', severity);
+    fd.append('priority', String(priority));
     if (submitterEmail.trim()) fd.append('submitterEmail', submitterEmail.trim());
     if (submitterName.trim()) fd.append('submitterName', submitterName.trim());
     fd.append('context', JSON.stringify(buildFeedbackContext(location.pathname)));
@@ -290,21 +291,28 @@ export function FeedbackDialog() {
             />
           </div>
 
-          {/* Severity (optional) */}
+          {/* Priority — the single urgency axis (P0 is the top level) */}
           <div className="space-y-1.5">
-            <Label className="font-inter">Severity (optional)</Label>
-            <Select
-              value={severity || undefined}
-              onValueChange={v => setSeverity(v as FeedbackSeverity)}
-            >
+            <Label className="font-inter">Priority</Label>
+            <Select value={String(priority)} onValueChange={v => setPriority(Number(v))}>
               <SelectTrigger className="font-inter">
-                <SelectValue placeholder="How badly is it affecting you?" />
+                {/*
+                  The trigger text is rendered from CHILDREN, not from the
+                  selected item and not from `placeholder`. Radix normally fills
+                  the trigger by portalling the selected SelectItemText into it,
+                  and reaches for `placeholder` only when the value is '' or
+                  undefined — so an off-list value would leave the trigger blank
+                  with no placeholder to rescue it. Children cover every
+                  non-empty value; `formatFeedbackPriority` returns exactly the
+                  item labels for 0..3, so in-range rendering is unchanged.
+                */}
+                <SelectValue>{formatFeedbackPriority(priority)}</SelectValue>
               </SelectTrigger>
               {/* Above the feedback dialog's own z-[60] content (Select defaults to z-50). */}
               <SelectContent className="z-[70]">
-                {FEEDBACK_SEVERITIES.map(s => (
-                  <SelectItem key={s} value={s} className="font-inter capitalize">
-                    {s}
+                {FEEDBACK_PRIORITIES.map(p => (
+                  <SelectItem key={p.value} value={String(p.value)} className="font-inter">
+                    {p.label}
                   </SelectItem>
                 ))}
               </SelectContent>

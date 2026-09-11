@@ -15,9 +15,16 @@ export function FeedbackAndHelpSection() {
       <p>
         The <strong>Feedback</strong> button in the header (or{' '}
         <Shortcut keys={[mod, '/']} label="from anywhere" />) opens the report dialog: pick a type
-        (bug, feature, question), describe it, and optionally attach up to three screenshots. Bug
-        reports automatically include a technical capture (recent console and network activity, with
-        credentials scrubbed) so the fix does not start with "can you reproduce it?".
+        (bug, feature, question), set a priority, describe it, and optionally attach up to three
+        screenshots. Bug reports automatically include a technical capture (recent console and
+        network activity, with credentials scrubbed) so the fix does not start with "can you
+        reproduce it?".
+      </p>
+      <p>
+        Priority is the single urgency axis, running <strong>P0 - Mission-critical</strong>,{' '}
+        <strong>P1 - Urgent</strong>, <strong>P2 - Important</strong>, and{' '}
+        <strong>P3 - Routine</strong>. A new report starts at P3 - Routine and whoever works the
+        queue raises it from there, so the top of the scale stays meaningful.
       </p>
       <p>
         Track your submissions on the Feedback page under <strong>My feedback</strong> — each moves

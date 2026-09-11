@@ -3,6 +3,8 @@ import { Loader2, MessageSquarePlus } from 'lucide-react';
 import {
   FEEDBACK_STATUSES,
   FEEDBACK_TYPES,
+  formatFeedbackAge,
+  formatFeedbackPriority,
   type FeedbackItem,
   type FeedbackStatus,
   type FeedbackType,
@@ -54,6 +56,11 @@ function TriageQueue({ onOpen }: { onOpen: (id: string) => void }) {
   });
 
   const items: FeedbackItem[] = data?.feedback ?? [];
+  // ONE clock read for the whole table. `formatFeedbackAge` defaults `now` to a
+  // fresh Date on every call, so calling it per reference would evaluate each
+  // row's guard and its rendered text against different instants — and do the
+  // work twice per row. Every row below reads its age from here instead.
+  const ages = new Map(items.map(it => [it.id, formatFeedbackAge(it.createdAt)]));
 
   return (
     <div className="space-y-3">
@@ -104,6 +111,7 @@ function TriageQueue({ onOpen }: { onOpen: (id: string) => void }) {
             <TableHeader>
               <TableRow>
                 <TableHead className="font-inter">Ref</TableHead>
+                <TableHead className="font-inter">Logged</TableHead>
                 <TableHead className="font-inter">Title</TableHead>
                 <TableHead className="font-inter">Type</TableHead>
                 <TableHead className="font-inter">Priority</TableHead>
@@ -127,9 +135,19 @@ function TriageQueue({ onOpen }: { onOpen: (id: string) => void }) {
                   className="cursor-pointer"
                 >
                   <TableCell className="font-mono text-tiny">{it.shortId}</TableCell>
+                  <TableCell className="font-inter whitespace-nowrap" title={it.createdAt}>
+                    {it.createdAt.slice(0, 10)}
+                    {/* An unparseable timestamp yields no age — don't render an
+                        empty muted span (and its stray space) beside the date. */}
+                    {ages.get(it.id) && (
+                      <span className="text-tiny text-muted-foreground"> {ages.get(it.id)}</span>
+                    )}
+                  </TableCell>
                   <TableCell className="max-w-xs truncate font-inter">{it.title}</TableCell>
                   <TableCell className="font-inter">{it.type}</TableCell>
-                  <TableCell className="font-inter">{it.priority}</TableCell>
+                  <TableCell className="font-inter whitespace-nowrap">
+                    {formatFeedbackPriority(it.priority)}
+                  </TableCell>
                   <TableCell>
                     <StatusBadge status={it.status} />
                   </TableCell>

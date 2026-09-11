@@ -6,6 +6,79 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.34.0 (2026-09-11) — Feedback priority P0-P3, severity removed
+
+**[feature] The feedback queue now has one urgency axis: a four-level P0-P3
+priority.** `0` is **P0 - Mission-critical**, `1` **P1 - Urgent**, `2`
+**P2 - Important**, `3` **P3 - Routine**, replacing the Linear-style
+0-none / 1-urgent / 2-high / 3-medium / 4-low integer. Because **0 is the TOP
+level**, a new item starts at the BOTTOM of the scale and triage raises it:
+`FEEDBACK_PRIORITY_DEFAULT` is `3`, the create path writes it explicitly rather
+than relying on a column default, and the submit dialog lets the reporter pick a
+level. The levels and their labels are spelled exactly once, in
+`shared/src/feedback.ts` — `FEEDBACK_PRIORITIES`, `formatFeedbackPriority()`,
+and a `FEEDBACK_PRIORITY_SCALE_DESCRIPTION` derived from them by value lookup,
+never by array index.
+
+**[feature] The queue table gains a Logged column, and priority reads as a
+label everywhere.** Each row shows the submission date with an age hint
+(`48d ago`) from `formatFeedbackAge()` — computed once per render into a Map
+keyed by row id, so every row is measured against the same instant. The table
+cell, the detail dialog, the markdown export, and the `feedback_triage` audit
+extras (`priorityLabel`) all print `P2 - Important` rather than a bare `2`; the
+number alone stops meaning anything once the scale changes, and an audit row
+outlives the release that wrote it.
+
+**[fix] Priority validation never coerces.** `FeedbackPriorityInputSchema` is a
+`z.preprocess` over digit-only strings, deliberately **not**
+`z.coerce.number()`: coercion turns `null`, `''`, `false`, and `[]` into `0`,
+which on this scale is P0 - Mission-critical. A malformed `priority` part on
+`POST /api/feedback` is rejected with a 400 instead of silently filing the item
+at the top of the queue. An out-of-range `?priority=` list filter is ignored
+rather than 400-ed, matching the lenient per-field coercion the other filters
+use.
+
+### Breaking changes
+
+- **`priority` is now bounded 0..3, and stored values are rescaled.** Migration
+  `drizzle/0012_feedback_priority_scale.sql` maps old `0` (none) and `4` (low)
+  to `3`, `1` (urgent) to `0`, `2` (high) to `1`, and `3` (medium) to `2`, then
+  moves the column to `NOT NULL DEFAULT 3`. Every old `0` becomes `3` even on a
+  triaged row: on the old scale `0` was both "none" and the column default, so a
+  stored `0` is not evidence anyone chose it, and carrying it across would
+  promote those rows to P0 and drown the real ones. Re-triage by hand
+  afterwards. A `priority` of `4` is now rejected by the API, the triage patch,
+  and the OpenAPI schema.
+- **`severity` is removed from the feedback feature entirely** — the column, the
+  `FEEDBACK_SEVERITIES` enum and `FeedbackSeverity` type, the submit and triage
+  schemas, the `FeedbackItem` shape, the OpenAPI blocks, and both dashboard
+  dialogs. **Migration 0012 drops the column, so any stored severity values are
+  lost**; export the table first (`GET /api/feedback/export?format=json`) if you
+  want to keep them. Non-feedback severities (backup health, analytics insights,
+  error display) are untouched.
+- **Apply `0012` per environment BEFORE deploying this Worker there, and never
+  run it twice.** This template applies migrations file by file and keeps no
+  `d1_migrations` ledger, so nothing mechanical stops a replay — and a replay
+  maps every deliberate new-scale P0 back down to P3 (the final `DROP COLUMN`
+  then fails, but only after the damage). Read the default back first: a
+  `dflt_value` of `3` means it is already applied. Between the migration and the
+  deploy the old Worker still writes `0`, so sweep once afterwards with
+  `UPDATE feedback SET priority = 3 WHERE priority IN (0, 4) AND status = 'new';`
+  — the `status = 'new'` guard is what keeps that off deliberate P0s. README
+  Step 5 carries the full upgrade note.
+
+**[test] `scripts/check-migration-0012.test.mjs` replays the migration on an
+in-memory SQLite in `pnpm run test:gates`.** It builds the pre-migration table
+from the repo's own `0009_feedback.sql` so the fixture cannot drift, executes
+every statement (a malformed one throws), and pins the column shape, the
+recreated index, the full value mapping, the absence of any index/trigger/view
+referencing `severity`, and the one-shot property. It also proves it is not
+vacuous: a header line stripped of its `-- ` prefix must fail, because
+`wrangler d1 execute --file` reports success and exits 0 on a file it could not
+parse.
+
+---
+
 ## v1.33.1 (2026-09-11) — Dependency security sweep
 
 **[security] All known advisories cleared — `pnpm audit` reports no known

@@ -13,10 +13,10 @@
 
 import { and, desc, eq, gte } from 'drizzle-orm';
 import {
+  FEEDBACK_PRIORITY_DEFAULT,
   formatFeedbackShortId,
   type FeedbackContext,
   type FeedbackItem,
-  type FeedbackSeverity,
   type FeedbackStatus,
   type FeedbackType,
   type TriageFeedbackInput,
@@ -39,7 +39,6 @@ export function rowToFeedbackItem(row: FeedbackRow): FeedbackItem {
     id: row.id,
     shortId: row.shortId,
     type: row.type as FeedbackType,
-    severity: (row.severity as FeedbackSeverity | null) ?? null,
     priority: row.priority,
     status: row.status as FeedbackStatus,
     title: row.title,
@@ -85,7 +84,8 @@ export interface CreateFeedbackData {
   /** Pre-generated UUIDv7 (the handler needs it first to build the R2 object keys). */
   id: string;
   type: FeedbackType;
-  severity?: FeedbackSeverity | null;
+  /** Reporter-set starting level on the P0-P3 scale; absent means P3 - Routine. */
+  priority?: number;
   title: string;
   description: string;
   steps?: string | null;
@@ -111,8 +111,12 @@ export async function createFeedback(
     id: data.id,
     shortId: formatFeedbackShortId(n),
     type: data.type,
-    severity: data.severity ?? null,
-    priority: 0,
+    // Written EXPLICITLY rather than left to the column default. A new item
+    // starts at the BOTTOM of the P0-P3 scale (0 is the TOP level, so the
+    // pre-0012 stored default of 0 would now read "Mission-critical"), and on a
+    // deployment where migration 0012 has not been applied yet the stored
+    // default is still 0 — a new item must never come out P0 by accident.
+    priority: data.priority ?? FEEDBACK_PRIORITY_DEFAULT,
     status: 'new',
     title: data.title,
     description: data.description,
@@ -142,6 +146,7 @@ export async function createFeedback(
 export interface ListFeedbackFilters {
   status?: FeedbackStatus;
   type?: FeedbackType;
+  /** One P0-P3 level (0..3); validated by the caller. */
   priority?: number;
   since?: string;
   limit?: number;
@@ -212,7 +217,6 @@ export async function triageFeedback(
     set.resolvedAt = patch.status === 'resolved' ? now : null;
   }
   if (patch.priority !== undefined) set.priority = patch.priority;
-  if (patch.severity !== undefined) set.severity = patch.severity;
   if (patch.type !== undefined) set.type = patch.type;
   if (patch.labels !== undefined) set.labels = patch.labels;
   if (patch.area !== undefined) set.area = patch.area;

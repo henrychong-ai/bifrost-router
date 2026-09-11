@@ -458,11 +458,20 @@ export const feedback = sqliteTable('feedback', {
   /** Submission category: bug | feature | question | other. */
   type: text('type').notNull(),
 
-  /** Submitter-set technical impact: low | medium | high | critical (nullable). */
-  severity: text('severity'),
-
-  /** Triage-set priority: 0 none, 1 urgent, 2 high, 3 medium, 4 low. */
-  priority: integer('priority').notNull().default(0),
+  /**
+   * Priority on the P0-P3 scale: 0 = P0 Mission-critical, 1 = P1 Urgent,
+   * 2 = P2 Important, 3 = P3 Routine. NOT NULL, defaulting to 3 — the literal
+   * value of `FEEDBACK_PRIORITY_DEFAULT` (@bifrost/shared), which this file
+   * cannot import (it holds no cross-package imports). A new row starts at the
+   * BOTTOM of the scale and triage raises it; 0 is the TOP level, so the old
+   * NOT NULL DEFAULT 0 Linear scale would now read Mission-critical.
+   *
+   * The `.default(3)` is load-bearing on the INSERT side too: drizzle enumerates
+   * every column it is given, so without it an omitted field is written as NULL
+   * rather than picking up the column default. Rebuilt by migration 0012, which
+   * also drops the old `severity` column — priority is the single urgency axis.
+   */
+  priority: integer('priority').notNull().default(3),
 
   /** Triage lifecycle status. */
   status: text('status').notNull().default('new'),

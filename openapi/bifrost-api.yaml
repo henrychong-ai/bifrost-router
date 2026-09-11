@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Bifrost Admin API
   description: Edge router management API for route configuration and analytics
-  version: 1.33.1
+  version: 1.34.0
   contact:
     name: Bifrost Maintainers
     url: https://example.com
@@ -657,9 +657,15 @@ paths:
                 type:
                   type: string
                   enum: [bug, feature, question, other]
-                severity:
-                  type: string
-                  enum: [low, medium, high, critical]
+                priority:
+                  type: integer
+                  minimum: 0
+                  maximum: 3
+                  default: 3
+                  description: >-
+                    Reporter-set starting level. 0..3: P0 - Mission-critical,
+                    P1 - Urgent, P2 - Important, P3 - Routine. Omit (or send an
+                    empty value) for the default, P3 - Routine.
                 title:
                   type: string
                   maxLength: 200
@@ -1240,11 +1246,13 @@ components:
     FeedbackPriorityQuery:
       name: priority
       in: query
-      description: Filter by triage priority (0 none, 1 urgent, 2 high, 3 medium, 4 low)
+      description: >-
+        Filter by priority. 0..3: P0 - Mission-critical, P1 - Urgent,
+        P2 - Important, P3 - Routine (new items start at P3 - Routine).
       schema:
         type: integer
         minimum: 0
-        maximum: 4
+        maximum: 3
 
     FeedbackSinceQuery:
       name: since
@@ -1507,10 +1515,10 @@ components:
         priority:
           type: integer
           minimum: 0
-          maximum: 4
-        severity:
-          type: string
-          enum: [low, medium, high, critical]
+          maximum: 3
+          description: >-
+            0..3: P0 - Mission-critical, P1 - Urgent, P2 - Important,
+            P3 - Routine (new items start at P3 - Routine).
         type:
           type: string
           enum: [bug, feature, question, other]
@@ -1550,14 +1558,13 @@ components:
         type:
           type: string
           enum: [bug, feature, question, other]
-        severity:
-          type: string
-          nullable: true
-          enum: [low, medium, high, critical]
         priority:
           type: integer
           minimum: 0
-          maximum: 4
+          maximum: 3
+          description: >-
+            0..3: P0 - Mission-critical, P1 - Urgent, P2 - Important,
+            P3 - Routine (new items start at P3 - Routine).
         status:
           type: string
           enum: [new, triaged, in_progress, resolved, wontfix, duplicate]

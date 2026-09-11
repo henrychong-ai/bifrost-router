@@ -32,13 +32,18 @@ import {
   FEEDBACK_DESCRIPTION_MAX_LENGTH,
   FEEDBACK_FIELD_MAX_LENGTH,
   FEEDBACK_MAX_SCREENSHOTS,
+  FEEDBACK_PRIORITY_DEFAULT,
+  FEEDBACK_PRIORITY_MAX,
+  FEEDBACK_PRIORITY_MIN,
+  FEEDBACK_PRIORITY_SCALE_DESCRIPTION,
   FEEDBACK_SCREENSHOT_MAX_BYTES,
   FEEDBACK_SUBMITTER_FIELD_MAX_LENGTH,
   FEEDBACK_TITLE_MAX_LENGTH,
-  FeedbackSeveritySchema,
+  FeedbackPriorityInputSchema,
   FeedbackStatusSchema,
   FeedbackTypeSchema,
   TriageFeedbackRequestSchema,
+  formatFeedbackPriority,
   redactCaptureBundle,
   redactSensitive,
   sanitizeFeedbackText,
@@ -166,16 +171,22 @@ feedbackRoutes.post('/', async c => {
       message: 'type must be one of bug | feature | question | other',
     });
   }
-  let severity: FeedbackItem['severity'] = null;
-  const severityRaw = field(body.severity);
-  if (severityRaw) {
-    const sevParsed = FeedbackSeveritySchema.safeParse(severityRaw);
-    if (!sevParsed.success) {
+
+  // --- Priority (reporter-set, optional) ---
+  // Absent or empty means the bottom of the scale, P3 - Routine. Anything else
+  // must be a digits-only string inside 0..3 and is REJECTED when it is not:
+  // silently defaulting a bad value would file the item at a level nobody
+  // chose, and 0 is the TOP level, so a coercion slip is not a harmless one.
+  let priority: number = FEEDBACK_PRIORITY_DEFAULT;
+  const priorityRaw = field(body.priority);
+  if (priorityRaw !== undefined && priorityRaw !== '') {
+    const priorityParsed = FeedbackPriorityInputSchema.safeParse(priorityRaw);
+    if (!priorityParsed.success) {
       throw new HTTPException(400, {
-        message: 'severity must be one of low | medium | high | critical',
+        message: `priority must be an integer ${FEEDBACK_PRIORITY_SCALE_DESCRIPTION}`,
       });
     }
-    severity = sevParsed.data;
+    priority = priorityParsed.data;
   }
 
   // --- Optional structured fields ---
@@ -286,7 +297,7 @@ feedbackRoutes.post('/', async c => {
     const item = await createFeedback(c.env.DB, {
       id,
       type: typeParsed.data,
-      severity,
+      priority,
       title,
       description,
       steps,
@@ -324,9 +335,15 @@ feedbackRoutes.get('/', async c => {
   if (statusParsed.success) filters.status = statusParsed.data;
   const typeParsed = FeedbackTypeSchema.safeParse(c.req.query('type'));
   if (typeParsed.success) filters.type = typeParsed.data;
+  // Only 0..3 is a filterable level. Anything else (a legacy 4, a negative, a
+  // word) is IGNORED rather than 400'd — the same lenient per-field coercion
+  // every other filter on this route uses.
   const priorityRaw = c.req.query('priority');
   if (priorityRaw !== undefined && /^\d+$/.test(priorityRaw)) {
-    filters.priority = Number(priorityRaw);
+    const parsedPriority = Number(priorityRaw);
+    if (parsedPriority >= FEEDBACK_PRIORITY_MIN && parsedPriority <= FEEDBACK_PRIORITY_MAX) {
+      filters.priority = parsedPriority;
+    }
   }
   const since = c.req.query('since');
   if (since) filters.since = since;
@@ -359,7 +376,7 @@ feedbackRoutes.get('/export', async c => {
     // Strip newlines from the title so it can't inject extra markdown headings.
     lines.push(`## ${it.shortId} — ${it.title.replace(/\n/g, ' ')}`);
     lines.push(
-      `- type: ${it.type} | severity: ${it.severity ?? '—'} | priority: ${it.priority} | status: ${it.status}`,
+      `- type: ${it.type} | priority: ${formatFeedbackPriority(it.priority)} | status: ${it.status}`,
     );
     lines.push(`- submitter: ${it.submitterEmail ?? '—'} | created: ${it.createdAt}`);
     if (it.area) lines.push(`- area: ${it.area}`);
@@ -442,7 +459,11 @@ feedbackRoutes.patch('/:id', async c => {
   auditFeedback(c, 'feedback_triage', updated, {
     status: parsed.data.status,
     priority: parsed.data.priority,
-    severity: parsed.data.severity,
+    // The number alone is unreadable once the scale changes meaning — 0 was
+    // "none" on the old Linear scale and is "P0 - Mission-critical" now, and an
+    // audit row outlives the release that wrote it.
+    priorityLabel:
+      parsed.data.priority === undefined ? undefined : formatFeedbackPriority(parsed.data.priority),
     type: parsed.data.type,
   });
   return c.json({ success: true, data: updated });

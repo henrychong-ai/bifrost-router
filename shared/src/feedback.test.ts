@@ -4,13 +4,20 @@ import {
   FEEDBACK_CAPTURE_BUNDLE_MAX_BYTES,
   FEEDBACK_DESCRIPTION_MAX_LENGTH,
   FEEDBACK_MAX_SCREENSHOTS,
+  FEEDBACK_PRIORITIES,
+  FEEDBACK_PRIORITY_DEFAULT,
+  FEEDBACK_PRIORITY_MAX,
+  FEEDBACK_PRIORITY_MIN,
+  FEEDBACK_PRIORITY_SCALE_DESCRIPTION,
   FEEDBACK_RATE_LIMIT_PER_MINUTE,
   FEEDBACK_SCREENSHOT_MAX_BYTES,
-  FEEDBACK_SEVERITIES,
   FEEDBACK_STATUSES,
   FEEDBACK_TITLE_MAX_LENGTH,
   FEEDBACK_TYPES,
+  FeedbackPriorityInputSchema,
   TriageFeedbackSchema,
+  formatFeedbackAge,
+  formatFeedbackPriority,
   formatFeedbackShortId,
   redactCaptureBundle,
   redactSensitive,
@@ -24,9 +31,28 @@ describe('feedback enums + caps', () => {
     expect(FEEDBACK_TYPES).not.toContain('issue');
   });
 
-  it('severity tops out at critical (disjoint from priority "urgent")', () => {
-    expect(FEEDBACK_SEVERITIES).toEqual(['low', 'medium', 'high', 'critical']);
-    expect(FEEDBACK_SEVERITIES).not.toContain('urgent');
+  it('priority is the P0-P3 scale, with P0 at the top and P3 the default', () => {
+    expect(FEEDBACK_PRIORITY_MIN).toBe(0);
+    expect(FEEDBACK_PRIORITY_MAX).toBe(3);
+    expect(FEEDBACK_PRIORITY_DEFAULT).toBe(3);
+    expect(FEEDBACK_PRIORITIES.map(p => p.value)).toEqual([0, 1, 2, 3]);
+    expect(FEEDBACK_PRIORITIES.map(p => p.label)).toEqual([
+      'P0 - Mission-critical',
+      'P1 - Urgent',
+      'P2 - Important',
+      'P3 - Routine',
+    ]);
+  });
+
+  it('the scale description is derived, and names the default by VALUE', () => {
+    // An index lookup would agree only while the array stays ordered 0,1,2,3.
+    expect(FEEDBACK_PRIORITY_SCALE_DESCRIPTION).toContain('0..3');
+    for (const entry of FEEDBACK_PRIORITIES) {
+      expect(FEEDBACK_PRIORITY_SCALE_DESCRIPTION).toContain(entry.label);
+    }
+    expect(FEEDBACK_PRIORITY_SCALE_DESCRIPTION).toContain(
+      `new items start at ${formatFeedbackPriority(FEEDBACK_PRIORITY_DEFAULT)}`,
+    );
   });
 
   it('status lifecycle', () => {
@@ -144,7 +170,8 @@ describe('Zod schemas', () => {
       type: 'bug',
       title: 'It broke',
       description: 'Here is what happened',
-      severity: 'high',
+      // A multipart part arrives as a string; the schema preprocesses it.
+      priority: '0',
     });
     expect(r.success).toBe(true);
   });
@@ -173,9 +200,56 @@ describe('Zod schemas', () => {
     ).toBe(false);
   });
 
-  it('TriageFeedbackSchema accepts partial patches and clamps priority', () => {
+  it('TriageFeedbackSchema accepts partial patches and bounds priority to 0..3', () => {
     expect(TriageFeedbackSchema.safeParse({ status: 'resolved' }).success).toBe(true);
-    expect(TriageFeedbackSchema.safeParse({ priority: 5 }).success).toBe(false);
-    expect(TriageFeedbackSchema.safeParse({ priority: 2 }).success).toBe(true);
+    expect(TriageFeedbackSchema.safeParse({ priority: 0 }).success).toBe(true);
+    expect(TriageFeedbackSchema.safeParse({ priority: 3 }).success).toBe(true);
+    // 4 was "low" on the old Linear scale — off the P0-P3 scale now.
+    expect(TriageFeedbackSchema.safeParse({ priority: 4 }).success).toBe(false);
+    expect(TriageFeedbackSchema.safeParse({ priority: -1 }).success).toBe(false);
+    expect(TriageFeedbackSchema.safeParse({ priority: 1.5 }).success).toBe(false);
+  });
+
+  it('FeedbackPriorityInputSchema converts digit strings and refuses the coercion traps', () => {
+    expect(FeedbackPriorityInputSchema.parse('0')).toBe(0);
+    expect(FeedbackPriorityInputSchema.parse('3')).toBe(3);
+    expect(FeedbackPriorityInputSchema.parse(2)).toBe(2);
+    expect(FeedbackPriorityInputSchema.safeParse('4').success).toBe(false);
+    // The whole reason this is z.preprocess and not z.coerce.number(): every
+    // one of these coerces to 0, which on this scale is the TOP level.
+    for (const trap of [null, '', false, [], '  ', 'high']) {
+      expect(FeedbackPriorityInputSchema.safeParse(trap).success).toBe(false);
+    }
+  });
+});
+
+describe('formatFeedbackPriority', () => {
+  it('renders each level of the scale', () => {
+    expect(formatFeedbackPriority(0)).toBe('P0 - Mission-critical');
+    expect(formatFeedbackPriority(3)).toBe('P3 - Routine');
+  });
+
+  it('falls back to a bare P<n> for an unmigrated legacy value', () => {
+    // A display helper must never be the thing that breaks a queue view.
+    expect(formatFeedbackPriority(4)).toBe('P4');
+  });
+});
+
+describe('formatFeedbackAge', () => {
+  const now = new Date('2026-09-11T12:00:00Z');
+
+  it('counts up through minutes, hours, and days', () => {
+    expect(formatFeedbackAge('2026-09-11T11:59:30Z', now)).toBe('just now');
+    expect(formatFeedbackAge('2026-09-11T11:30:00Z', now)).toBe('30m ago');
+    expect(formatFeedbackAge('2026-09-11T05:00:00Z', now)).toBe('7h ago');
+    expect(formatFeedbackAge('2026-09-04T12:00:00Z', now)).toBe('7d ago');
+    // Days keep counting past a week — on a work queue the age IS the signal.
+    expect(formatFeedbackAge('2026-07-25T12:00:00Z', now)).toBe('48d ago');
+  });
+
+  it('returns an empty string rather than NaNd for missing or junk input', () => {
+    expect(formatFeedbackAge(null, now)).toBe('');
+    expect(formatFeedbackAge(undefined, now)).toBe('');
+    expect(formatFeedbackAge('not a date', now)).toBe('');
   });
 });

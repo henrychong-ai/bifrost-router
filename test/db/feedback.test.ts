@@ -13,13 +13,15 @@ import {
   type CreateFeedbackData,
 } from '../../src/db/feedback';
 
+// Post-0012 shape: `severity` is gone and `priority` is INTEGER NOT NULL
+// DEFAULT 3, landing LAST because the migration drops and re-adds the column
+// (see drizzle/0012_feedback_priority_scale.sql). The fixture mirrors what a
+// migrated environment actually has.
 const FEEDBACK_DDL = `
   CREATE TABLE IF NOT EXISTS feedback (
     id TEXT PRIMARY KEY NOT NULL,
     short_id TEXT NOT NULL UNIQUE,
     type TEXT NOT NULL,
-    severity TEXT,
-    priority INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'new',
     title TEXT NOT NULL,
     description TEXT NOT NULL,
@@ -29,7 +31,8 @@ const FEEDBACK_DDL = `
     labels TEXT, area TEXT, assignee TEXT,
     triage_notes TEXT, linked_pr TEXT, external_ref TEXT,
     submitter_email TEXT, submitter_name TEXT,
-    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, resolved_at TEXT
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, resolved_at TEXT,
+    priority INTEGER NOT NULL DEFAULT 3
   )`;
 const COUNTERS_DDL = `CREATE TABLE IF NOT EXISTS counters (name TEXT PRIMARY KEY NOT NULL, value INTEGER NOT NULL DEFAULT 0)`;
 
@@ -71,8 +74,23 @@ describe('db/feedback', () => {
     expect(a.shortId).toBe('F-1');
     expect(b.shortId).toBe('F-2');
     expect(a.status).toBe('new');
-    expect(a.priority).toBe(0);
+    // A new item starts at the BOTTOM of the P0-P3 scale, never at P0.
+    expect(a.priority).toBe(3);
     expect(a.resolvedAt).toBeNull();
+  });
+
+  it('honours a reporter-set priority and rejects nothing the route already bounded', async () => {
+    const top = await createFeedback(env.DB, data({ priority: 0 }));
+    expect(top.priority).toBe(0);
+    expect((await getFeedbackById(env.DB, top.id))?.priority).toBe(0);
+  });
+
+  it('filters by priority level', async () => {
+    await createFeedback(env.DB, data({ priority: 0 }));
+    await createFeedback(env.DB, data());
+    expect(await listFeedback(env.DB, { priority: 0 })).toHaveLength(1);
+    expect(await listFeedback(env.DB, { priority: 3 })).toHaveLength(1);
+    expect(await listFeedback(env.DB, { priority: 1 })).toHaveLength(0);
   });
 
   it('round-trips context + array fields', async () => {

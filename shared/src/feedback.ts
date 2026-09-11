@@ -3,10 +3,11 @@
  * feedback work-queue shared by the Worker backend, the MCP server, and the
  * admin dashboard.
  *
- * Holds: the enums (type / severity / status), the fixed caps, the Zod schemas
- * for submit + triage, the text sanitiser, a dependency-free RFC-9562 UUIDv7
- * generator, the `F-<n>` short-id formatter, and the credential-redaction helper
- * applied to console / network captures before they are stored.
+ * Holds: the enums (type / status), the P0-P3 priority scale and its display
+ * helpers, the fixed caps, the Zod schemas for submit + triage, the text
+ * sanitiser, a dependency-free RFC-9562 UUIDv7 generator, the `F-<n>` short-id
+ * formatter, and the credential-redaction helper applied to console / network
+ * captures before they are stored.
  *
  * Auth model: the Bifrost admin API is gated by a single ADMIN_API_KEY (no
  * multi-user auth). There is one admin who sees ALL feedback, so there is no
@@ -48,10 +49,6 @@ export const FEEDBACK_RATE_LIMIT_PER_MINUTE = 10;
 export const FEEDBACK_TYPES = ['bug', 'feature', 'question', 'other'] as const;
 export type FeedbackType = (typeof FEEDBACK_TYPES)[number];
 
-/** Submitter-set technical impact. Tops out at "critical" (priority owns "urgent"). */
-export const FEEDBACK_SEVERITIES = ['low', 'medium', 'high', 'critical'] as const;
-export type FeedbackSeverity = (typeof FEEDBACK_SEVERITIES)[number];
-
 /** Triage lifecycle. */
 export const FEEDBACK_STATUSES = [
   'new',
@@ -63,9 +60,71 @@ export const FEEDBACK_STATUSES = [
 ] as const;
 export type FeedbackStatus = (typeof FEEDBACK_STATUSES)[number];
 
-/** Triage-set priority (Linear): 0 none, 1 urgent, 2 high, 3 medium, 4 low. */
+/**
+ * Priority is the SINGLE urgency axis on a feedback item — a four-level P0-P3
+ * scale replacing the old Linear-style 0-none / 1-urgent / 2-high / 3-medium /
+ * 4-low ordering (and the separate `severity` field, which is gone).
+ *
+ * P0 is the TOP level, so a new item starts at the BOTTOM — P3 Routine — and
+ * triage raises it. The column stays NOT NULL: every item always carries a
+ * level, and "nobody has looked at this yet" is expressed by `status = 'new'`,
+ * never by a missing priority.
+ */
 export const FEEDBACK_PRIORITY_MIN = 0;
-export const FEEDBACK_PRIORITY_MAX = 4;
+export const FEEDBACK_PRIORITY_MAX = 3;
+
+/** Where a newly submitted item starts: P3 - Routine, the bottom of the scale. */
+export const FEEDBACK_PRIORITY_DEFAULT = 3;
+
+/** The canonical P0-P3 scale — the ONE place the levels and labels are spelled. */
+export const FEEDBACK_PRIORITIES = [
+  { value: 0, label: 'P0 - Mission-critical' },
+  { value: 1, label: 'P1 - Urgent' },
+  { value: 2, label: 'P2 - Important' },
+  { value: 3, label: 'P3 - Routine' },
+] as const;
+
+/**
+ * Render a priority for humans: `P0 - Mission-critical` … `P3 - Routine`. An
+ * out-of-range legacy value (a pre-0012 row that escaped the migration) falls
+ * back to a bare `P<n>` rather than throwing — a display helper must never be
+ * the thing that breaks a queue view.
+ */
+export function formatFeedbackPriority(priority: number): string {
+  const match = FEEDBACK_PRIORITIES.find(entry => entry.value === priority);
+  return match ? match.label : `P${priority}`;
+}
+
+/**
+ * `48d ago` — the compact age of an ISO-8601 timestamp. Days keep counting past
+ * a week: on a work queue the age IS the signal, so this deliberately does not
+ * fall back to an absolute date. `now` is injectable so callers and tests are
+ * not at the mercy of the clock. An unparseable input returns an empty string,
+ * never a throw or `NaNd ago`.
+ */
+export function formatFeedbackAge(iso: string | null | undefined, now: Date = new Date()): string {
+  if (!iso) return '';
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return '';
+  const seconds = (now.getTime() - parsed.getTime()) / 1000;
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+/**
+ * The scale, spelled out for an API description. DERIVED from
+ * {@link FEEDBACK_PRIORITIES} so a label change cannot leave a description
+ * behind; `openapi/bifrost-api.yaml` carries the same wording by hand.
+ *
+ * The default label goes through {@link formatFeedbackPriority} (a VALUE lookup),
+ * never `FEEDBACK_PRIORITIES[FEEDBACK_PRIORITY_DEFAULT]` (an INDEX lookup) —
+ * those agree only while the array happens to be ordered 0,1,2,3.
+ */
+export const FEEDBACK_PRIORITY_SCALE_DESCRIPTION = `${FEEDBACK_PRIORITY_MIN}..${FEEDBACK_PRIORITY_MAX}: ${FEEDBACK_PRIORITIES.map(
+  entry => entry.label,
+).join(', ')} (new items start at ${formatFeedbackPriority(FEEDBACK_PRIORITY_DEFAULT)})`;
 
 /** Suggested (free-form, not enforced) `area` vocabulary, bifrost-component-oriented. */
 export const FEEDBACK_AREAS = [
@@ -255,18 +314,35 @@ export function redactCaptureBundle(bundle: FeedbackCaptureBundle): FeedbackCapt
 // ---------------------------------------------------------------------------
 
 export const FeedbackTypeSchema = z.enum(FEEDBACK_TYPES);
-export const FeedbackSeveritySchema = z.enum(FEEDBACK_SEVERITIES);
 export const FeedbackStatusSchema = z.enum(FEEDBACK_STATUSES);
+
+/** A priority already typed as a number, on the P0-P3 scale (0..3). */
 export const FeedbackPrioritySchema = z
   .number()
   .int()
   .min(FEEDBACK_PRIORITY_MIN)
   .max(FEEDBACK_PRIORITY_MAX);
 
+/**
+ * The same 0..3 bound for a priority that arrives as a STRING — a multipart
+ * form part, a query parameter, a tool argument.
+ *
+ * ⚠️ Deliberately `z.preprocess` and NOT `z.coerce.number()`. Coercion turns
+ * `null`, `''`, `false`, and `[]` into `0` — which on this scale is
+ * P0 - Mission-critical, the TOP level. A malformed part would silently file
+ * the item at the top of the queue. Only a digits-only string is converted;
+ * everything else reaches the number check unchanged and is rejected.
+ */
+export const FeedbackPriorityInputSchema = z.preprocess(
+  value => (typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value),
+  z.number().int().min(FEEDBACK_PRIORITY_MIN).max(FEEDBACK_PRIORITY_MAX),
+);
+
 /** The submit payload (the non-file fields; screenshots + capture arrive as multipart parts). */
 export const CreateFeedbackSchema = z.object({
   type: FeedbackTypeSchema,
-  severity: FeedbackSeveritySchema.optional(),
+  /** Reporter-set starting level. Absent means P3 - Routine. */
+  priority: FeedbackPriorityInputSchema.optional(),
   title: z.string().min(1).max(FEEDBACK_TITLE_MAX_LENGTH),
   description: z.string().min(1).max(FEEDBACK_DESCRIPTION_MAX_LENGTH),
   steps: z.string().max(FEEDBACK_FIELD_MAX_LENGTH).optional(),
@@ -283,8 +359,8 @@ export type CreateFeedbackInput = z.infer<typeof CreateFeedbackSchema>;
 /** The triage patch (admin-only). All fields optional; at least one applied. */
 export const TriageFeedbackSchema = z.object({
   status: FeedbackStatusSchema.optional(),
+  /** Absent leaves the level untouched; there is no "clear" — every item has one. */
   priority: FeedbackPrioritySchema.optional(),
-  severity: FeedbackSeveritySchema.optional(),
   type: FeedbackTypeSchema.optional(),
   labels: z.string().max(FEEDBACK_TRIAGE_FIELD_MAX_LENGTH).nullable().optional(),
   area: z.string().max(FEEDBACK_TRIAGE_FIELD_MAX_LENGTH).nullable().optional(),
@@ -306,7 +382,7 @@ export interface FeedbackItem {
   id: string;
   shortId: string;
   type: FeedbackType;
-  severity: FeedbackSeverity | null;
+  /** P0-P3; always present (a new item starts at P3 - Routine). */
   priority: number;
   status: FeedbackStatus;
   title: string;
@@ -334,6 +410,7 @@ export interface FeedbackItem {
 export interface FeedbackListParams {
   status?: FeedbackStatus;
   type?: FeedbackType;
+  /** Filter to one P0-P3 level (0..3). */
   priority?: number;
   since?: string;
   limit?: number;

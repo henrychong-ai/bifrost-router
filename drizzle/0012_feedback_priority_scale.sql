@@ -1,0 +1,100 @@
+-- Migration 0012: feedback priority -> P0-P3 scale, and severity removed (v1.34.0)
+--
+-- Apply:
+--   wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0012_feedback_priority_scale.sql
+--   (and --local for local dev; target the dev database for the development
+--   environment), or `pnpm run db:migrate:v12:prod` / `pnpm run db:migrate:v12:local`.
+--   CI does NOT auto-migrate — apply per environment.
+--
+-- This migration does two things to the `feedback` table:
+--
+--   1. Rescales `priority` from the Linear-style 0-none / 1-urgent / 2-high /
+--      3-medium / 4-low integer (NOT NULL DEFAULT 0) to a four-level P0-P3
+--      scale — P0 Mission-critical, P1 Urgent, P2 Important, P3 Routine — where
+--      the TOP level is 0. The column stays NOT NULL, but the DEFAULT moves to
+--      3: a new item starts at the BOTTOM of the scale and triage raises it.
+--      Left at DEFAULT 0 every new submission would read Mission-critical.
+--
+--   2. Drops `severity` entirely. Priority is now the single urgency axis, so
+--      the submitter-set low/medium/high/critical field has no role. ANY VALUES
+--      STORED IN `severity` ARE LOST — export the table first if you want them
+--      (`GET /api/feedback/export?format=json` on the running deployment).
+--
+-- Value mapping applied below:
+--   0 -> 3   (see below — 0 is NOT evidence of a decision on the old scale)
+--   4 -> 3   (old "low" -> P3 Routine, the new bottom of the scale)
+--   1, 2, 3 -> unchanged (a deliberate triage keeps its level)
+--
+-- WHY EVERY 0 BECOMES 3, INCLUDING ON TRIAGED ROWS. On the old scale 0 was BOTH
+-- "none" and the column DEFAULT, so a stored 0 is indistinguishable from
+-- "nobody ever set a priority" — a row triaged for status/area/notes without
+-- anyone touching priority still reads 0. Under the new scale 0 is the TOP
+-- level, so carrying a 0 across would silently promote those rows to
+-- P0 Mission-critical and drown the real P0s. Mapping every 0 to P3 Routine
+-- fails safe; the handful of rows that genuinely deserve a high level are
+-- re-triaged by hand afterwards, which is a decision someone makes on the new
+-- scale rather than one this migration invents from an ambiguous zero.
+--
+-- SQLite cannot change a column DEFAULT in place, and it cannot DROP a column
+-- an index references — idx_feedback_priority does. So: drop the index, add
+-- priority_next with the new NOT NULL DEFAULT, rewrite the values, drop the old
+-- column, rename, recreate the index. No full table rebuild is needed. The
+-- rebuilt column lands LAST in the physical column order; drizzle always names
+-- columns and there is no SELECT * against feedback, so nothing depends on it.
+-- No index, trigger, or view references `severity` (migration 0009 indexes
+-- short_id, status, type, and priority only), so its DROP needs no preparation.
+--
+-- MIGRATE BEFORE YOU DEPLOY, AND MIND THE GAP. Apply this file to an
+-- environment BEFORE deploying the v1.34.0 Worker to it, per environment. For
+-- the window between the two the OLD Worker is still live and writes an
+-- EXPLICIT priority 0 on every new submission — which on the new scale is
+-- P0 Mission-critical, and which the CASE below has already run past. After the
+-- deploy, sweep any rows that landed in that window:
+--
+--     UPDATE feedback SET priority = 3 WHERE priority IN (0, 4) AND status = 'new';
+--
+-- Note the `status = 'new'` guard: AFTER this migration a 0 is a DELIBERATE P0,
+-- so the unguarded remap would demote real P0s. The guard is safe because the
+-- gap rows are untriaged by definition. The statement is idempotent.
+--
+-- ONE-SHOT — NEVER RE-RUN. This file is NOT idempotent: replaying it after a
+-- successful apply maps every new-scale P0 (0) down to P3. This template has no
+-- `d1_migrations` ledger (migrations are applied file by file with
+-- `wrangler d1 execute --file`), so NOTHING stops a second run but the person
+-- running it. Before ANY apply, read the current default back and STOP if it is
+-- already 3:
+--     wrangler d1 execute bifrost-analytics --remote \
+--       --command "SELECT dflt_value FROM pragma_table_info('feedback') WHERE name='priority'"
+--   dflt_value 0 -> not yet applied, proceed.  dflt_value 3 -> ALREADY APPLIED, stop.
+--   (A SQL-level guard is not available: RAISE(ABORT) is only valid inside a
+--   trigger body, so the check has to be this readback.) On a replay the final
+--   DROP COLUMN fails with "no such column: severity" — but only AFTER the
+--   demotion has already been committed, so the error is a receipt, not a
+--   guard. The damage is pinned as a TESTED property in
+--   scripts/check-migration-0012.test.mjs, not just as this warning.
+--
+-- EVERY NON-SQL LINE IN THIS FILE MUST START WITH `-- `. An unparsable file
+--   makes `wrangler d1 execute --file` print "Executed 0 queries", report
+--   success and exit 0 — a silent no-op. So a reported count of ZERO still
+--   means the file did not parse and NOTHING was applied. Do not verify an edit
+--   by the reported statement count either: a header line that loses its `-- `
+--   prefix is simply glued onto the leading DROP INDEX and the count is
+--   unchanged. Verify by the READBACK below, and by the test, which executes
+--   every statement against a real SQLite on every `pnpm run test:gates`.
+--
+-- READBACK (expect priority notnull=1 with default 3, no severity column, index present):
+--   wrangler d1 execute bifrost-analytics --remote \
+--     --command "SELECT name, [notnull], dflt_value FROM pragma_table_info('feedback')"
+--   wrangler d1 execute bifrost-analytics --remote \
+--     --command "SELECT name FROM sqlite_master WHERE name='idx_feedback_priority'"
+--
+-- Not reversible by re-running: the old column and every severity value are
+-- dropped. Recovery is D1 Time Travel to a bookmark taken before the apply.
+
+DROP INDEX IF EXISTS idx_feedback_priority;
+ALTER TABLE feedback ADD COLUMN priority_next INTEGER NOT NULL DEFAULT 3;
+UPDATE feedback SET priority_next = CASE WHEN priority IN (0, 4) THEN 3 ELSE priority END;
+ALTER TABLE feedback DROP COLUMN priority;
+ALTER TABLE feedback RENAME COLUMN priority_next TO priority;
+CREATE INDEX IF NOT EXISTS idx_feedback_priority ON feedback (priority);
+ALTER TABLE feedback DROP COLUMN severity;

@@ -204,9 +204,36 @@ wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0008_file_commen
 wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0009_feedback.sql
 wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0010_external_audit_capture.sql
 wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0011_unified_traffic_events.sql
+wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0012_feedback_priority_scale.sql
 
 # For local dev, use --local instead of --remote
 ```
+
+> **Upgrading an existing deployment to v1.34.0?** `0012` is a **one-shot** data
+> migration, not a plain schema add. It rescales `feedback.priority` to the
+> P0-P3 scale (old `0` none and `4` low become `3`; `1` urgent becomes `0`; `2`
+> high becomes `1`; `3` medium becomes `2`), moves the column to
+> `NOT NULL DEFAULT 3`, and **drops `severity`** — any stored severity values
+> are lost, so export the table first if you want them
+> (`GET /api/feedback/export?format=json`). Apply it to each environment
+> **before** deploying the new Worker there, and **never run it twice**: a
+> replay maps every deliberate P0 back down to P3. Check first — `dflt_value`
+> of `3` means it is already applied:
+>
+> ```bash
+> wrangler d1 execute bifrost-analytics --remote \
+>   --command "SELECT dflt_value FROM pragma_table_info('feedback') WHERE name='priority'"
+> ```
+>
+> Between applying the migration and deploying the new Worker, the old Worker
+> still writes priority `0` (now the TOP level) on new submissions. Sweep those
+> once after the deploy — the guard keeps it off deliberate P0s, and the
+> statement is idempotent:
+>
+> ```bash
+> wrangler d1 execute bifrost-analytics --remote \
+>   --command "UPDATE feedback SET priority = 3 WHERE priority IN (0, 4) AND status = 'new'"
+> ```
 
 ### Step 6: Set Secrets & Deploy
 

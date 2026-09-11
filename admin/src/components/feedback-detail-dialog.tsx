@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { ExternalLink, Loader2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
-  FEEDBACK_SEVERITIES,
+  FEEDBACK_PRIORITIES,
+  FEEDBACK_PRIORITY_DEFAULT,
   FEEDBACK_STATUSES,
   FEEDBACK_TYPES,
+  formatFeedbackPriority,
   type FeedbackCaptureBundle,
-  type FeedbackSeverity,
   type FeedbackStatus,
   type FeedbackType,
   type TriageFeedbackInput,
@@ -33,8 +34,6 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { api } from '@/lib/api-client';
 import { useDeleteFeedback, useFeedbackItem, useTriageFeedback } from '@/hooks/use-feedback';
-
-const PRIORITY_LABELS = ['none', 'urgent', 'high', 'medium', 'low'];
 
 export function FeedbackDetailDialog({
   id,
@@ -255,16 +254,38 @@ export function FeedbackDetailDialog({
               <div className="space-y-1.5">
                 <Label className="font-inter">Priority</Label>
                 <Select
-                  value={String(field('priority') ?? 0)}
+                  value={String(field('priority') ?? FEEDBACK_PRIORITY_DEFAULT)}
                   onValueChange={v => set('priority', Number(v))}
                 >
                   <SelectTrigger className="font-inter">
-                    <SelectValue />
+                    {/*
+                      The trigger's text is rendered from CHILDREN, not from the
+                      selected item and not from `placeholder`.
+
+                      Radix normally fills the trigger by portalling the SELECTED
+                      SelectItemText into it. A pre-0012 row can still hold an
+                      off-scale 4, which matches no item, so nothing is portalled
+                      and the trigger renders EMPTY — the table would show "P4"
+                      while the dialog showed nothing. `placeholder` does NOT
+                      rescue that: Radix reaches for it only when the value is ''
+                      or undefined, and this value is always a non-empty string.
+
+                      Children are used for every non-empty value, so they cover
+                      the off-scale case too. In-scale rendering is unchanged
+                      because `formatFeedbackPriority` returns exactly the item
+                      labels for 0..3. Saving other fields still sends no
+                      priority, so an off-scale value is never written back.
+                    */}
+                    <SelectValue>
+                      {formatFeedbackPriority(
+                        (field('priority') as number | undefined) ?? FEEDBACK_PRIORITY_DEFAULT,
+                      )}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    {PRIORITY_LABELS.map((label, i) => (
-                      <SelectItem key={i} value={String(i)} className="font-inter">
-                        {i} — {label}
+                    {FEEDBACK_PRIORITIES.map(p => (
+                      <SelectItem key={p.value} value={String(p.value)} className="font-inter">
+                        {p.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -283,24 +304,6 @@ export function FeedbackDetailDialog({
                     {FEEDBACK_TYPES.map(t => (
                       <SelectItem key={t} value={t} className="font-inter">
                         {t}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="font-inter">Severity</Label>
-                <Select
-                  value={(field('severity') as string | undefined) || undefined}
-                  onValueChange={v => set('severity', v as FeedbackSeverity)}
-                >
-                  <SelectTrigger className="font-inter">
-                    <SelectValue placeholder="—" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {FEEDBACK_SEVERITIES.map(s => (
-                      <SelectItem key={s} value={s} className="font-inter">
-                        {s}
                       </SelectItem>
                     ))}
                   </SelectContent>
