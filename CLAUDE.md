@@ -529,8 +529,9 @@ If switching to Workers Static Assets in future, add a KV-route-precedence check
 3. Update `admin/package.json` version
 4. Update version in this file header
 5. Update `openapi/bifrost-api.yaml` `info.version`
-6. **Update `CHANGELOG.md`** with new version entry
-7. Commit, tag (`git tag v1.x.x`), and push with tags (`git push origin main --tags`)
+6. Update the expected `info.version` in `scripts/check-openapi.test.mjs` (the `test:gates` OpenAPI check asserts it)
+7. **Update `CHANGELOG.md`** with new version entry
+8. Commit, tag (`git tag v1.x.x`), and push with tags (`git push origin main --tags`)
 
 Release tags run the same CI checks as other pushes. This template does not
 automatically deploy from tags; deploy manually with `pnpm run deploy` or enable
