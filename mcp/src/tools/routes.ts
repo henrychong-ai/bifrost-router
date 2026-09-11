@@ -2,7 +2,16 @@
  * Route management tool handlers for MCP server
  */
 
+import { SUPPORTED_DOMAINS_LIST } from '@bifrost/shared';
 import type { EdgeRouterClient, Route } from '@bifrost/shared';
+
+/**
+ * v1.34.1 — list the valid domains and say where the default comes from:
+ * EDGE_ROUTER_DOMAIN is read by the MCP server PROCESS, not sent by the client.
+ */
+const NO_DOMAIN_ERROR = `Error: No domain specified. Pass the domain parameter — one of: ${SUPPORTED_DOMAINS_LIST} — or set EDGE_ROUTER_DOMAIN in the MCP server's environment to default it.`;
+const transferDomainsError = (missing: string[]): string =>
+  `Error: transfer_route is missing ${missing.join(' and ')}. Pass both from_domain and to_domain explicitly — one of: ${SUPPORTED_DOMAINS_LIST}. Neither defaults to EDGE_ROUTER_DOMAIN: a transfer deletes the route from the source, so the source is never guessed.`;
 
 /**
  * Format a route for display
@@ -79,7 +88,7 @@ export async function listRoutes(
 ): Promise<string> {
   const domain = args.domain || defaultDomain;
   if (!domain) {
-    return 'Error: No domain specified. Set EDGE_ROUTER_DOMAIN environment variable or provide domain parameter.';
+    return NO_DOMAIN_ERROR;
   }
 
   try {
@@ -103,7 +112,7 @@ export async function getRoute(
 ): Promise<string> {
   const domain = args.domain || defaultDomain;
   if (!domain) {
-    return 'Error: No domain specified. Set EDGE_ROUTER_DOMAIN environment variable or provide domain parameter.';
+    return NO_DOMAIN_ERROR;
   }
 
   try {
@@ -136,7 +145,7 @@ export async function createRoute(
 ): Promise<string> {
   const domain = args.domain || defaultDomain;
   if (!domain) {
-    return 'Error: No domain specified. Set EDGE_ROUTER_DOMAIN environment variable or provide domain parameter.';
+    return NO_DOMAIN_ERROR;
   }
 
   try {
@@ -193,7 +202,7 @@ export async function updateRoute(
 ): Promise<string> {
   const domain = args.domain || defaultDomain;
   if (!domain) {
-    return 'Error: No domain specified. Set EDGE_ROUTER_DOMAIN environment variable or provide domain parameter.';
+    return NO_DOMAIN_ERROR;
   }
 
   try {
@@ -238,7 +247,7 @@ export async function deleteRoute(
 ): Promise<string> {
   const domain = args.domain || defaultDomain;
   if (!domain) {
-    return 'Error: No domain specified. Set EDGE_ROUTER_DOMAIN environment variable or provide domain parameter.';
+    return NO_DOMAIN_ERROR;
   }
 
   try {
@@ -259,7 +268,7 @@ export async function toggleRoute(
 ): Promise<string> {
   const domain = args.domain || defaultDomain;
   if (!domain) {
-    return 'Error: No domain specified. Set EDGE_ROUTER_DOMAIN environment variable or provide domain parameter.';
+    return NO_DOMAIN_ERROR;
   }
 
   try {
@@ -281,7 +290,7 @@ export async function migrateRoute(
 ): Promise<string> {
   const domain = args.domain || defaultDomain;
   if (!domain) {
-    return 'Error: No domain specified. Set EDGE_ROUTER_DOMAIN environment variable or provide domain parameter.';
+    return NO_DOMAIN_ERROR;
   }
 
   try {
@@ -297,18 +306,32 @@ export async function migrateRoute(
  */
 export async function handleTransferRoute(
   client: EdgeRouterClient,
-  args: { path: string; from_domain: string; to_domain: string },
+  args: { path: string; from_domain?: string; to_domain?: string },
 ): Promise<string> {
+  // v1.34.1 — both domains are explicit, never defaulted: a transfer deletes the
+  // route from the source, so guessing it from EDGE_ROUTER_DOMAIN would delete
+  // from a domain the caller never named. The API already refuses a missing
+  // one; this guard names which is missing and lists the valid domains.
+  const missing = [
+    ...(args.from_domain ? [] : ['from_domain']),
+    ...(args.to_domain ? [] : ['to_domain']),
+  ];
+  if (!args.from_domain || !args.to_domain) {
+    return transferDomainsError(missing);
+  }
+  const fromDomain = args.from_domain;
+  const toDomain = args.to_domain;
+
   try {
-    const route = await client.transferRoute(args.path, args.from_domain, args.to_domain);
+    const route = await client.transferRoute(args.path, fromDomain, toDomain);
     return [
       'Route transferred successfully!',
       '',
       `Path: ${args.path}`,
-      `From: ${args.from_domain}`,
-      `To: ${args.to_domain}`,
+      `From: ${fromDomain}`,
+      `To: ${toDomain}`,
       '',
-      formatRouteDetails(route, args.to_domain),
+      formatRouteDetails(route, toDomain),
     ].join('\n');
   } catch (error) {
     return `Error transferring route: ${error instanceof Error ? error.message : String(error)}`;

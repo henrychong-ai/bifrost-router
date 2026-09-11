@@ -27,13 +27,14 @@ const CLIENTS: ClientDoc[] = [
     snippets: [
       {
         title: 'One-time registration',
-        code: 'claude mcp add --scope user bifrost \\\n  --env EDGE_ROUTER_URL=https://bifrost.example.com \\\n  --env EDGE_ROUTER_API_KEY=$BIFROST_ADMIN_KEY \\\n  -- node /path/to/bifrost/mcp/dist/index.js',
+        code: 'claude mcp add --scope user bifrost \\\n  --env EDGE_ROUTER_URL=https://bifrost.example.com \\\n  --env EDGE_ROUTER_API_KEY=$BIFROST_ADMIN_KEY \\\n  --env EDGE_ROUTER_DOMAIN=links.example.com \\\n  -- node /path/to/bifrost/mcp/dist/index.js',
         copyLabel: 'Command',
       },
     ],
     notes: [
       'Build the server first: pnpm --filter mcp build (from the repo root).',
       'Inject EDGE_ROUTER_API_KEY from your secret manager rather than pasting it into config.',
+      'EDGE_ROUTER_DOMAIN is the default domain for the route tools (the server process reads it); leave it out and every route tool call must pass domain explicitly.',
       'Verify with claude mcp list — the server name is bifrost.',
     ],
   },
@@ -44,7 +45,7 @@ const CLIENTS: ClientDoc[] = [
     snippets: [
       {
         title: 'claude_desktop_config.json → mcpServers',
-        code: '"bifrost": {\n  "command": "/usr/local/bin/node",\n  "args": ["/path/to/bifrost/mcp/dist/index.js"],\n  "env": {\n    "EDGE_ROUTER_URL": "https://bifrost.example.com",\n    "EDGE_ROUTER_API_KEY": "<from your secret manager>"\n  }\n}',
+        code: '"bifrost": {\n  "command": "/usr/local/bin/node",\n  "args": ["/path/to/bifrost/mcp/dist/index.js"],\n  "env": {\n    "EDGE_ROUTER_URL": "https://bifrost.example.com",\n    "EDGE_ROUTER_API_KEY": "<from your secret manager>",\n    "EDGE_ROUTER_DOMAIN": "links.example.com"\n  }\n}',
         copyLabel: 'Config',
       },
     ],

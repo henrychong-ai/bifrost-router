@@ -14,6 +14,7 @@
  */
 
 import { z } from 'zod';
+import { SUPPORTED_DOMAINS, SUPPORTED_DOMAINS_LIST } from './types.js';
 
 // ---------------------------------------------------------------------------
 // Types + limits
@@ -536,7 +537,15 @@ export function generateQrId(): string {
 const mcpDomainField = z
   .string()
   .optional()
-  .describe('Target domain (e.g., "links.example.com"). Defaults to the client default domain.');
+  .refine(
+    value => !value || SUPPORTED_DOMAINS.includes(value as (typeof SUPPORTED_DOMAINS)[number]),
+    {
+      message: `Domain must be one of: ${SUPPORTED_DOMAINS_LIST}`,
+    },
+  )
+  .describe(
+    `Domain (optional) — selects the QR's domain namespace, or for get_route_qr the route table searched. When omitted: the MCP server process's EDGE_ROUTER_DOMAIN if set, else the API's default host (ADMIN_API_DOMAIN). Supported: ${SUPPORTED_DOMAINS_LIST}.`,
+  );
 
 export const ListQrsInputSchema = z.object({
   domain: mcpDomainField,

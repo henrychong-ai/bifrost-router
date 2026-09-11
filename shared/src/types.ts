@@ -54,6 +54,9 @@ export const SUPPORTED_DOMAINS = [
 
 export type SupportedDomain = (typeof SUPPORTED_DOMAINS)[number];
 
+/** The supported domains as one comma-separated list — the ONE spelling every description and error uses. */
+export const SUPPORTED_DOMAINS_LIST = SUPPORTED_DOMAINS.join(', ');
+
 /**
  * Check if a domain is supported
  */

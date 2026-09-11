@@ -2,7 +2,7 @@
 
 Guidance for Claude Code when working with this repository.
 
-**Version:** 1.34.0 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.34.1 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Public repository — sanitisation (MANDATORY)
 
@@ -295,6 +295,8 @@ Config in `~/.claude.json`:
   }
 }
 ```
+
+**Domain parameter (v1.34.1):** `EDGE_ROUTER_DOMAIN` is the MCP server PROCESS's default (the stdio config above), never something a client sends. When it is unset, the seven route tools (`list_routes`, `get_route`, `create_route`, `update_route`, `delete_route`, `toggle_route`, `migrate_route`) require an explicit `domain`, and the error lists `SUPPORTED_DOMAINS`; `transfer_route` needs both `from_domain` and `to_domain` explicitly — neither defaults (a transfer deletes the route from the source). Analytics `domain` is an optional scope (the env default first, else every domain the caller may see); QR `domain` selects the QR's domain namespace (the env default first, else the API's `ADMIN_API_DOMAIN`); `get_route_qr`'s selects the route table searched, and the API default host holds no short links, so pass it. Pinned by `mcp/src/tools/routes.no-domain.test.ts`.
 
 ### Installing the MCP for a user ("install mcp" trigger)
 

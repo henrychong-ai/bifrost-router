@@ -162,7 +162,7 @@ export const SlugStatsQuerySchema = z.object({
  */
 export const ListRoutesInputSchema = z.object({
   domain: DomainSchema.describe(
-    "Target domain (e.g., 'links.example.com'). Defaults to EDGE_ROUTER_DOMAIN env var.",
+    "Target domain (e.g., 'links.example.com'). Optional in this schema; the MCP server requires it unless its process sets EDGE_ROUTER_DOMAIN.",
   ),
 });
 

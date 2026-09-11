@@ -28,7 +28,7 @@ pnpm -C mcp build
 |----------|---------|-------------|
 | `EDGE_ROUTER_API_KEY` | — | Admin API key (required) |
 | `EDGE_ROUTER_URL` | `https://example.com` | Base URL of your deployed edge router |
-| `EDGE_ROUTER_DOMAIN` | — | Default domain for operations |
+| `EDGE_ROUTER_DOMAIN` | — | Default domain, read by the server process: the seven route tools that take `domain` require it when this is unset (the error lists the supported domains); `transfer_route` needs both domains explicitly (never defaulted); analytics scope and the QR domain namespace fall back to it too. |
 
 ### Claude Code
 

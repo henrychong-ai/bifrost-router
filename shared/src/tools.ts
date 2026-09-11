@@ -5,7 +5,7 @@
  * They provide a unified interface for tool discovery and validation.
  */
 
-import { SUPPORTED_DOMAINS, R2_BUCKETS, ALL_R2_BUCKETS } from './types.js';
+import { SUPPORTED_DOMAINS, SUPPORTED_DOMAINS_LIST, R2_BUCKETS, ALL_R2_BUCKETS } from './types.js';
 
 /**
  * JSON Schema property definition
@@ -39,13 +39,46 @@ export interface ToolDefinition {
 }
 
 /**
- * Domain property schema (reused across tools)
+ * Domain property schemas — one per omission behaviour (v1.34.1). The seven route
+ * tools hard-fail without a domain (the server process's EDGE_ROUTER_DOMAIN is
+ * the only default); analytics use it as an optional scope; QR tools select
+ * the QR's domain namespace (get_route_qr: the route table searched); and
+ * transfer_route's two domains are required and never defaulted. Every variant
+ * goes through one factory so none can ship without the enum.
  */
-const domainProperty: JsonSchemaProperty = {
+const domainProperty = (description: string): JsonSchemaProperty => ({
   type: 'string',
-  description: `Target domain (e.g., 'links.example.com'). Supported: ${SUPPORTED_DOMAINS.join(', ')}. Defaults to EDGE_ROUTER_DOMAIN env var if set.`,
+  description,
   enum: [...SUPPORTED_DOMAINS],
-};
+});
+
+/** Route tools: required unless the MCP server process sets EDGE_ROUTER_DOMAIN. */
+const routeDomainProperty = domainProperty(
+  `Target domain (e.g., 'links.example.com'). Supported: ${SUPPORTED_DOMAINS_LIST}. Optional only when the MCP server process sets EDGE_ROUTER_DOMAIN (that value is its default); otherwise required.`,
+);
+
+/** Analytics: an optional scope — the env default first, else every domain the caller may see. */
+const analyticsDomainProperty = domainProperty(
+  `Filter by domain (optional). When omitted: the MCP server process's EDGE_ROUTER_DOMAIN if set, else all domains the caller may see. Supported: ${SUPPORTED_DOMAINS_LIST}.`,
+);
+
+/** QR tools: selects the QR's domain namespace — the env default first, else the API's default host. */
+const qrDomainProperty = domainProperty(
+  `Domain the QR code belongs to — selects its domain namespace (optional). When omitted: the MCP server process's EDGE_ROUTER_DOMAIN if set, else the API's default host (ADMIN_API_DOMAIN). Supported: ${SUPPORTED_DOMAINS_LIST}.`,
+);
+
+/** get_route_qr: selects the ROUTE TABLE searched (the API default host holds no short links). */
+const routeQrDomainProperty = domainProperty(
+  `Domain of the route to encode — selects the route table searched (optional). When omitted: the MCP server process's EDGE_ROUTER_DOMAIN if set, else the API's default host (ADMIN_API_DOMAIN), which holds no short links — pass it. Supported: ${SUPPORTED_DOMAINS_LIST}.`,
+);
+
+/** transfer_route: both required, never defaulted — a transfer deletes the route from the source. */
+const sourceDomainProperty = domainProperty(
+  `Source domain — required and never defaulted (a transfer deletes the route from the source, so it is never guessed from EDGE_ROUTER_DOMAIN). Supported: ${SUPPORTED_DOMAINS_LIST}.`,
+);
+const destinationDomainProperty = domainProperty(
+  `Destination domain — required (no default). Supported: ${SUPPORTED_DOMAINS_LIST}.`,
+);
 
 /**
  * All tool definitions
@@ -61,7 +94,7 @@ export const toolDefinitions: ToolDefinition[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        domain: domainProperty,
+        domain: routeDomainProperty,
         search: {
           type: 'string',
           description:
@@ -80,7 +113,7 @@ export const toolDefinitions: ToolDefinition[] = [
           type: 'string',
           description: 'Route path starting with / (e.g., "/linkedin", "/blog/*")',
         },
-        domain: domainProperty,
+        domain: routeDomainProperty,
       },
       required: ['path'],
     },
@@ -131,7 +164,7 @@ export const toolDefinitions: ToolDefinition[] = [
           description: `R2 bucket for file serving (R2 only). Available: ${R2_BUCKETS.join(', ')}. Default: files`,
           enum: [...R2_BUCKETS],
         },
-        domain: domainProperty,
+        domain: routeDomainProperty,
       },
       required: ['path', 'type', 'target'],
     },
@@ -177,7 +210,7 @@ export const toolDefinitions: ToolDefinition[] = [
           description: `R2 bucket for file serving (R2 only). Available: ${R2_BUCKETS.join(', ')}`,
           enum: [...R2_BUCKETS],
         },
-        domain: domainProperty,
+        domain: routeDomainProperty,
       },
       required: ['path'],
     },
@@ -192,7 +225,7 @@ export const toolDefinitions: ToolDefinition[] = [
           type: 'string',
           description: 'Route path to delete',
         },
-        domain: domainProperty,
+        domain: routeDomainProperty,
       },
       required: ['path'],
     },
@@ -211,7 +244,7 @@ export const toolDefinitions: ToolDefinition[] = [
           type: 'boolean',
           description: 'Enable (true) or disable (false) the route',
         },
-        domain: domainProperty,
+        domain: routeDomainProperty,
       },
       required: ['path', 'enabled'],
     },
@@ -231,7 +264,7 @@ export const toolDefinitions: ToolDefinition[] = [
           type: 'string',
           description: 'New route path to migrate to (e.g., "/new-link")',
         },
-        domain: domainProperty,
+        domain: routeDomainProperty,
       },
       required: ['oldPath', 'newPath'],
     },
@@ -247,14 +280,8 @@ export const toolDefinitions: ToolDefinition[] = [
           type: 'string',
           description: 'Route path to transfer (e.g., "/github")',
         },
-        from_domain: {
-          type: 'string',
-          description: 'Source domain to transfer from',
-        },
-        to_domain: {
-          type: 'string',
-          description: 'Destination domain to transfer to',
-        },
+        from_domain: sourceDomainProperty,
+        to_domain: destinationDomainProperty,
       },
       required: ['path', 'from_domain', 'to_domain'],
     },
@@ -270,7 +297,7 @@ export const toolDefinitions: ToolDefinition[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        domain: domainProperty,
+        domain: analyticsDomainProperty,
         days: {
           type: 'number',
           description: 'Time range in days (default: 30, max: 365)',
@@ -287,7 +314,7 @@ export const toolDefinitions: ToolDefinition[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        domain: domainProperty,
+        domain: analyticsDomainProperty,
         days: {
           type: 'number',
           description: 'Time range in days (default: 30)',
@@ -325,7 +352,7 @@ export const toolDefinitions: ToolDefinition[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        domain: domainProperty,
+        domain: analyticsDomainProperty,
         days: {
           type: 'number',
           description: 'Time range in days (default: 30)',
@@ -368,7 +395,7 @@ export const toolDefinitions: ToolDefinition[] = [
           type: 'string',
           description: 'Link slug (e.g., "/linkedin")',
         },
-        domain: domainProperty,
+        domain: analyticsDomainProperty,
         days: {
           type: 'number',
           description: 'Time range in days (default: 30)',
@@ -672,7 +699,7 @@ export const toolDefinitions: ToolDefinition[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        domain: domainProperty,
+        domain: qrDomainProperty,
         type: {
           type: 'string',
           description: 'Filter by QR type: url, text, vcard, or wifi',
@@ -695,7 +722,7 @@ export const toolDefinitions: ToolDefinition[] = [
       type: 'object',
       properties: {
         id: { type: 'string', description: 'QR code id' },
-        domain: domainProperty,
+        domain: qrDomainProperty,
       },
       required: ['id'],
     },
@@ -707,7 +734,7 @@ export const toolDefinitions: ToolDefinition[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        domain: domainProperty,
+        domain: qrDomainProperty,
         type: { type: 'string', description: 'QR type', enum: ['url', 'text', 'vcard', 'wifi'] },
         payload: {
           type: 'object',
@@ -745,7 +772,7 @@ export const toolDefinitions: ToolDefinition[] = [
       type: 'object',
       properties: {
         id: { type: 'string', description: 'QR code id' },
-        domain: domainProperty,
+        domain: qrDomainProperty,
         description: { type: 'string', description: 'New description' },
         tags: { type: 'array', description: 'Replacement tag list' },
         payload: { type: 'object', description: 'Replacement payload (same type as the record)' },
@@ -766,7 +793,7 @@ export const toolDefinitions: ToolDefinition[] = [
       type: 'object',
       properties: {
         id: { type: 'string', description: 'QR code id' },
-        domain: domainProperty,
+        domain: qrDomainProperty,
       },
       required: ['id'],
     },
@@ -778,7 +805,7 @@ export const toolDefinitions: ToolDefinition[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        domain: domainProperty,
+        domain: routeQrDomainProperty,
         path: { type: 'string', description: 'Route path to encode (e.g., "/linkedin")' },
         fg: { type: 'string', description: 'Foreground colour (#rrggbb)' },
         bg: { type: 'string', description: 'Background colour (#rrggbb)' },

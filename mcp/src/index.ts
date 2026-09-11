@@ -62,7 +62,9 @@ async function main(): Promise<void> {
     console.error('');
     console.error('Optional environment variables:');
     console.error('  EDGE_ROUTER_URL     - Base URL (default: https://example.com)');
-    console.error('  EDGE_ROUTER_DOMAIN  - Default domain for operations');
+    console.error(
+      '  EDGE_ROUTER_DOMAIN  - Default domain for the route tools (also scopes analytics and QR); without it every route tool call must pass domain',
+    );
     process.exit(1);
   }
 
@@ -174,7 +176,7 @@ async function main(): Promise<void> {
         case 'transfer_route':
           result = await handleTransferRoute(
             client,
-            args as { path: string; from_domain: string; to_domain: string },
+            args as { path: string; from_domain?: string; to_domain?: string },
           );
           break;
 
@@ -344,29 +346,31 @@ async function main(): Promise<void> {
               limit?: number;
               offset?: number;
             },
+            defaultDomain,
           );
           break;
 
         case 'get_qr':
-          result = await getQr(client, args as { id: string; domain?: string });
+          result = await getQr(client, args as { id: string; domain?: string }, defaultDomain);
           break;
 
         case 'create_qr':
-          result = await createQr(client, args as Parameters<typeof createQr>[1]);
+          result = await createQr(client, args as Parameters<typeof createQr>[1], defaultDomain);
           break;
 
         case 'update_qr':
-          result = await updateQr(client, args as Parameters<typeof updateQr>[1]);
+          result = await updateQr(client, args as Parameters<typeof updateQr>[1], defaultDomain);
           break;
 
         case 'delete_qr':
-          result = await deleteQr(client, args as { id: string; domain?: string });
+          result = await deleteQr(client, args as { id: string; domain?: string }, defaultDomain);
           break;
 
         case 'get_route_qr':
           result = await getRouteQr(
             client,
             args as { path: string; domain?: string; fg?: string; bg?: string; size?: number },
+            defaultDomain,
           );
           break;
 

@@ -6,6 +6,34 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.34.1 (2026-09-11) — MCP: the domain parameter says when it is required
+
+**[fix] The no-domain error from the seven route tools now lists
+`SUPPORTED_DOMAINS`** and says `EDGE_ROUTER_DOMAIN` is set in the MCP server's
+environment — it is read by the server process, never sent by the client. The
+previous text told the caller to set an environment variable without naming a
+single valid domain.
+
+**[fix] `transfer_route` gains the guard the other seven route tools had.** It
+was the only route handler with no missing-domain check and no
+`EDGE_ROUTER_DOMAIN` fallback, so an omitted domain reached the API and came
+back as its raw 400. Both domains are required and never defaulted — a transfer deletes the
+  route from the source, so guessing it from `EDGE_ROUTER_DOMAIN` would delete
+  from a domain the caller never named — and a missing one returns an error
+  naming which, with the supported domains. Every route handler's guard is pinned in
+`mcp/src/tools/routes.no-domain.test.ts`.
+
+**[docs] The `domain` description no longer reads as if a default always
+exists.** The shared tool catalog stops reusing one description for three
+different behaviours: the seven route tools say the field is optional only when
+the server process sets `EDGE_ROUTER_DOMAIN`, and otherwise required; the
+analytics tools call it an optional scope (the env default first, else every
+domain the caller may see); the QR tools say it selects the QR's domain
+namespace (the env default first, else the API's `ADMIN_API_DOMAIN`). The `list_routes` Zod schema and the `mcp/README.md`
+environment table match.
+
+---
+
 ## v1.34.0 (2026-09-11) — Feedback priority P0-P3, severity removed
 
 **[feature] The feedback queue now has one urgency axis: a four-level P0-P3
