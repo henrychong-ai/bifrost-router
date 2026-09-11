@@ -6,6 +6,52 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.33.1 (2026-09-11) — Dependency security sweep
+
+**[security] All known advisories cleared — `pnpm audit` reports no known
+vulnerabilities.** Fourteen advisories (nine moderate, five high) were resolved
+by raising the `pnpm.overrides` floors rather than pinning inside a vulnerable
+range:
+
+| Package | Advisories | Floor |
+|---------|-----------|-------|
+| `hono` | GHSA-gqvv-2mrq-wpjv, GHSA-g6gw-c38x-mqfc, GHSA-crvj-82cr-hjcx | `>=4.13.5` (resolves 4.13.7) |
+| `fast-uri` | GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf, GHSA-jqff-g426-hqxp, GHSA-5jgf-p345-68v8 | `>=4.1.3` |
+| `qs` | GHSA-4mjr-xmp4-gh2g, GHSA-x5fp-wj9c-mxmx | `>=6.16.0` |
+| `sharp` | GHSA-rgj7-g3m4-5g8c | `>=0.35.4` |
+| `vitest`, `@vitest/mocker` | GHSA-82fw-gwwq-j7x9 | 4.1.11 via the in-range sweep |
+
+The `nanoid` override moved from `<3.3.17 -> 3.3.17` to `<3.3.18 -> 3.3.18`, so
+the floor no longer sits on a version that later advisories reach.
+
+**[chore] In-range minor/patch sweep across all five workspaces.** `zod` 4.6.2,
+`hono` 4.13.7, `vitest` and `@vitest/coverage-*` 4.1.11, `@biomejs/biome`
+2.5.13, `vite` 8.3.0, `@modelcontextprotocol/sdk` 1.30.x, `react`/`react-dom`
+19.3 with matching `@types`, `react-hook-form`, `@tanstack/react-query`, the
+`@radix-ui/*` set, `recharts`, `sonner`, `react-router`, `happy-dom`,
+`lint-staged`, `tsx`, `eslint`, `typescript-eslint`, `@vitejs/plugin-react`,
+and `eslint-plugin-react-refresh`. Held back deliberately:
+`@cloudflare/vitest-pool-workers` 0.18.x, TypeScript 5.9.x, Vitest 4.x,
+`@tanstack/react-table` 8.x, `@types/node` on its current major, and
+`lucide-react` 0.575.x — each is a major-version move that needs its own
+migration pass.
+
+**[chore] Wrangler 4.114.0 -> 4.131.0.** Pinned exactly in the root and
+`slackbot` packages, with both `worker-configuration.d.ts` runtime-type files
+regenerated.
+
+**[chore] Oxlint and `eslint-plugin-oxlint` 1.75.0 -> 1.82.0.** Root and
+dashboard lint both stay green at `--max-warnings=0`; no new rules fired, so no
+rule disables were added.
+
+**[fix] Pre-commit hook no longer fails when only Biome-ignored files are
+staged.** `worker-configuration.d.ts` is excluded in `biome.json`, so a commit
+touching nothing else handed Biome an empty file set and it exited 1 with "No
+files were processed". The lint-staged Biome tasks now pass
+`--no-errors-on-unmatched`; every file Biome does format is still formatted.
+
+---
+
 ## v1.33.0 (2026-08-26) — Range and conditional R2 serving
 
 **[feature] R2 routes now honour `Range` and the HTTP precondition headers.**

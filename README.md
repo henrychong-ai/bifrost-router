@@ -485,15 +485,15 @@ pnpm run deploy:dev   # Deploy to dev environment
 | Layer | Technology | Version |
 |-------|------------|---------|
 | **Language** | TypeScript | 5.9.3 |
-| **Framework** | [Hono](https://hono.dev/) | 4.12.34 |
+| **Framework** | [Hono](https://hono.dev/) | 4.13.7 |
 | **Runtime** | Cloudflare Workers | — |
 | **CLI** | Wrangler | 4.131.0 |
-| **Validation** | Zod | 4.4.3 |
+| **Validation** | Zod | 4.6.2 |
 | **ORM** | Drizzle ORM | 0.45.2 |
 | **Storage** | Cloudflare KV | — |
 | **Database** | Cloudflare D1 (analytics) | — |
 | **Object Storage** | Cloudflare R2 | — |
-| **Testing** | Vitest + @cloudflare/vitest-pool-workers | 4.1.10 / 0.18.8 |
+| **Testing** | Vitest + @cloudflare/vitest-pool-workers | 4.1.11 / 0.18.8 |
 | **Linting** | Oxlint + Biome (formatter) | — |
 | **Package Manager** | pnpm (workspaces) | 10.33.0 |
 | **Admin Dashboard** | React 19 + Vite 8 + Tailwind CSS 4 + shadcn/ui | — |
