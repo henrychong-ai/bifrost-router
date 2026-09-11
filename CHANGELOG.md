@@ -42,12 +42,13 @@ use.
 
 - **`priority` is now bounded 0..3, and stored values are rescaled.** Migration
   `drizzle/0012_feedback_priority_scale.sql` maps old `0` (none) and `4` (low)
-  to `3`, `1` (urgent) to `0`, `2` (high) to `1`, and `3` (medium) to `2`, then
-  moves the column to `NOT NULL DEFAULT 3`. Every old `0` becomes `3` even on a
-  triaged row: on the old scale `0` was both "none" and the column default, so a
-  stored `0` is not evidence anyone chose it, and carrying it across would
-  promote those rows to P0 and drown the real ones. Re-triage by hand
-  afterwards. A `priority` of `4` is now rejected by the API, the triage patch,
+  to `3` and leaves old `1`, `2`, and `3` on their existing numbers — so a `1`
+  now reads P1 - Urgent, a `2` reads P2 - Important, and a `3` reads
+  P3 - Routine. It then moves the column to `NOT NULL DEFAULT 3`. Every old `0`
+  becomes `3` even on a triaged row: on the old scale `0` was both "none" and
+  the column default, so a stored `0` is not evidence anyone chose it, and
+  carrying it across would promote those rows to P0 and drown the real ones.
+  Re-triage by hand afterwards. A `priority` of `4` is now rejected by the API, the triage patch,
   and the OpenAPI schema.
 - **`severity` is removed from the feedback feature entirely** — the column, the
   `FEEDBACK_SEVERITIES` enum and `FeedbackSeverity` type, the submit and triage
@@ -56,16 +57,21 @@ use.
   lost**; export the table first (`GET /api/feedback/export?format=json`) if you
   want to keep them. Non-feedback severities (backup health, analytics insights,
   error display) are untouched.
-- **Apply `0012` per environment BEFORE deploying this Worker there, and never
-  run it twice.** This template applies migrations file by file and keeps no
-  `d1_migrations` ledger, so nothing mechanical stops a replay — and a replay
-  maps every deliberate new-scale P0 back down to P3 (the final `DROP COLUMN`
-  then fails, but only after the damage). Read the default back first: a
-  `dflt_value` of `3` means it is already applied. Between the migration and the
-  deploy the old Worker still writes `0`, so sweep once afterwards with
-  `UPDATE feedback SET priority = 3 WHERE priority IN (0, 4) AND status = 'new';`
-  — the `status = 'new'` guard is what keeps that off deliberate P0s. README
-  Step 5 carries the full upgrade note.
+- **Deploy the v1.34.0 Worker to an environment FIRST, then apply `0012` to
+  that environment in the same window, once per environment, never twice.** The
+  migration drops `severity`, and the old Worker names that column on every
+  feedback insert and — through drizzle's expanded select — every feedback read,
+  so applying first breaks submit, list, detail, and export with a 500
+  (`no such column: severity`) until the deploy lands. Deploying first costs
+  nothing: the new Worker never names `severity`, and it writes priority `3`
+  explicitly on create, which the rescale maps to `3`. Do not triage between the
+  two steps — a priority set to `0` before the rescale runs is mapped down to
+  `3` along with the legacy zeroes. And never replay the file: this template
+  applies migrations file by file and keeps no `d1_migrations` ledger, so
+  nothing mechanical stops a second run, which maps every deliberate P0 back
+  down to P3 (the final `DROP COLUMN` then fails, but only after the damage).
+  Read the default back first — a `dflt_value` of `3` means it is already
+  applied. README Step 5 carries the full upgrade note.
 
 **[test] `scripts/check-migration-0012.test.mjs` replays the migration on an
 in-memory SQLite in `pnpm run test:gates`.** It builds the pre-migration table

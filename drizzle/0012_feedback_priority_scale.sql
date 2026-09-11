@@ -1,6 +1,7 @@
 -- Migration 0012: feedback priority -> P0-P3 scale, and severity removed (v1.34.0)
 --
--- Apply:
+-- Apply (AFTER deploying the v1.34.0 Worker to that environment — see
+-- DEPLOY FIRST, THEN APPLY below):
 --   wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0012_feedback_priority_scale.sql
 --   (and --local for local dev; target the dev database for the development
 --   environment), or `pnpm run db:migrate:v12:prod` / `pnpm run db:migrate:v12:local`.
@@ -44,18 +45,26 @@
 -- No index, trigger, or view references `severity` (migration 0009 indexes
 -- short_id, status, type, and priority only), so its DROP needs no preparation.
 --
--- MIGRATE BEFORE YOU DEPLOY, AND MIND THE GAP. Apply this file to an
--- environment BEFORE deploying the v1.34.0 Worker to it, per environment. For
--- the window between the two the OLD Worker is still live and writes an
--- EXPLICIT priority 0 on every new submission — which on the new scale is
--- P0 Mission-critical, and which the CASE below has already run past. After the
--- deploy, sweep any rows that landed in that window:
+-- DEPLOY FIRST, THEN APPLY. Deploy the v1.34.0 Worker to an environment FIRST,
+-- then apply this file to that environment in the same window, once per
+-- environment, never twice. That order is the safe one, and the reverse breaks
+-- the feature outright:
 --
---     UPDATE feedback SET priority = 3 WHERE priority IN (0, 4) AND status = 'new';
+--   The final statement DROPS `severity`, and the OLD Worker still names that
+--   column — on every feedback INSERT, and (through drizzle's expanded SELECT)
+--   on every feedback READ. Apply first and every submit, list, detail, and
+--   export 500s with `no such column: severity` until the deploy lands.
 --
--- Note the `status = 'new'` guard: AFTER this migration a 0 is a DELIBERATE P0,
--- so the unguarded remap would demote real P0s. The guard is safe because the
--- gap rows are untriaged by definition. The statement is idempotent.
+--   Deploying first costs nothing. The v1.34.0 Worker never names `severity`,
+--   and it writes priority 3 EXPLICITLY on create — which the rescale below
+--   maps to 3, i.e. leaves alone. Until the rescale runs, an old-scale 0 or 4
+--   simply renders through `formatFeedbackPriority` for the few minutes in
+--   between. Nothing needs sweeping afterwards.
+--
+--   One thing to hold off on in that window: do not TRIAGE. A priority set to
+--   0 (P0 - Mission-critical) before the rescale runs is mapped down to 3 by
+--   the CASE below, which cannot tell it from a legacy "none". Triage after the
+--   apply, not between the two steps.
 --
 -- ONE-SHOT — NEVER RE-RUN. This file is NOT idempotent: replaying it after a
 -- successful apply maps every new-scale P0 (0) down to P3. This template has no

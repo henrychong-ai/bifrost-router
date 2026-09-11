@@ -211,28 +211,28 @@ wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0012_feedback_pr
 
 > **Upgrading an existing deployment to v1.34.0?** `0012` is a **one-shot** data
 > migration, not a plain schema add. It rescales `feedback.priority` to the
-> P0-P3 scale (old `0` none and `4` low become `3`; `1` urgent becomes `0`; `2`
-> high becomes `1`; `3` medium becomes `2`), moves the column to
-> `NOT NULL DEFAULT 3`, and **drops `severity`** — any stored severity values
-> are lost, so export the table first if you want them
-> (`GET /api/feedback/export?format=json`). Apply it to each environment
-> **before** deploying the new Worker there, and **never run it twice**: a
-> replay maps every deliberate P0 back down to P3. Check first — `dflt_value`
-> of `3` means it is already applied:
+> P0-P3 scale (old `0` none and `4` low become `3`; old `1`, `2`, and `3` keep
+> their numbers, so a `1` now reads P1 - Urgent, a `2` reads P2 - Important, and
+> a `3` reads P3 - Routine), moves the column to `NOT NULL DEFAULT 3`, and
+> **drops `severity`** — any stored severity values are lost, so export the
+> table first if you want them (`GET /api/feedback/export?format=json`).
+>
+> **Deploy the v1.34.0 Worker to an environment FIRST, then apply `0012` to that
+> environment in the same window, once per environment, never twice.** The
+> migration drops `severity`, and the old Worker names that column on every
+> feedback insert and read — apply it first and every feedback submit, list,
+> detail, and export returns a 500 (`no such column: severity`) until the deploy
+> lands. Deploying first is free: the new Worker never names `severity` and
+> writes priority `3` explicitly on create, which the rescale leaves alone. Do
+> not triage between the two steps, though — a priority set to `0` before the
+> rescale runs is mapped down to `3` along with the legacy zeroes.
+>
+> **Never run it twice**: a replay maps every deliberate P0 back down to P3.
+> Check first — `dflt_value` of `3` means it is already applied:
 >
 > ```bash
 > wrangler d1 execute bifrost-analytics --remote \
 >   --command "SELECT dflt_value FROM pragma_table_info('feedback') WHERE name='priority'"
-> ```
->
-> Between applying the migration and deploying the new Worker, the old Worker
-> still writes priority `0` (now the TOP level) on new submissions. Sweep those
-> once after the deploy — the guard keeps it off deliberate P0s, and the
-> statement is idempotent:
->
-> ```bash
-> wrangler d1 execute bifrost-analytics --remote \
->   --command "UPDATE feedback SET priority = 3 WHERE priority IN (0, 4) AND status = 'new'"
 > ```
 
 ### Step 6: Set Secrets & Deploy
