@@ -6,6 +6,39 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.35.1 (2026-09-13) — MCP: route timestamps render correctly
+
+**Why:** `get_route` — and every other MCP reply that prints a route's details —
+dated every route to the year 58000. The formatter treated the stored
+timestamps as Unix seconds when they are epoch milliseconds, so each displayed
+date was the real one multiplied by a thousand. No stored route data changed —
+the defect was confined to the MCP text rendering — but it made the details
+block useless for telling a fresh route from an old one.
+
+### Fixed
+
+- **Route `Created:` / `Updated:` lines show the real dates again.** Routes are
+  stamped with `Date.now()` in `src/kv/routes.ts`, i.e. epoch MILLISECONDS, but
+  `formatRouteDetails` in `mcp/src/tools/routes.ts` passed
+  `route.createdAt * 1000` (and the same for `updatedAt`) to `new Date()` — a
+  thousandfold overshoot that put every route roughly 56,000 years into the
+  future. Both lines now go through one `formatRouteTimestamp()` helper that
+  hands the stored value to `new Date()` unchanged, so the unit is stated once
+  instead of being re-derived at each call site. Every handler that renders the
+  details block is fixed with it: `get_route`, `create_route`, `update_route`,
+  `toggle_route`, `migrate_route` and `transfer_route`. `mcp/src/tools/analytics.ts`
+  is deliberately untouched — its `Math.floor(Date.now() / 1000)` is the
+  analytics API's own seconds contract, not a route timestamp. The route
+  fixtures in `mcp/src/tools/*.test.ts` now hold milliseconds, exactly as the KV
+  layer writes them, and the `get_route` details test pins the rendered output
+  at `Created: 2024-01-01T00:00:00.000Z` and `Updated: 2024-01-01T00:00:00.000Z`
+  — a seconds-versus-milliseconds regression cannot pass it. A second `get_route`
+  test stamps a route from the live clock and asserts both rendered lines carry
+  the current year, so the fixture and the expected literal cannot be reverted
+  as a pair and stay green.
+
+---
+
 ## v1.35.0 (2026-09-13) — MCP: `EDGE_ROUTER_DOMAIN` removed; every domain-scoped call names its domain
 
 **Why:** v1.34.1 made the seven route tools refuse a missing domain, but left
@@ -149,6 +182,14 @@ deployment this repo is derived from.
    so a new domain-bearing tool can ship with a catalog `required` entry and no
    handler guard — advertised as required, unenforced on the only transport this
    repo has.
+8. **`formatRouteTimestamp()` throws on a missing or non-finite value.** Added
+   in v1.35.1, `mcp/src/tools/routes.ts` hands the stored number straight to
+   `new Date()` and calls `.toISOString()`, which raises a `RangeError` on
+   `undefined`, `null` or `NaN`. It is unreachable from a real record — every KV
+   route write stamps both fields — and all six call sites sit inside a handler
+   `try`/`catch`, so it would surface as an error string rather than a crash.
+   Guard it, and validate client responses against `RouteSchema`, when the
+   shared-client validation work in item 2 lands.
 
 ---
 

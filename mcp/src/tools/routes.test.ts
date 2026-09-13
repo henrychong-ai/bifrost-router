@@ -19,8 +19,9 @@ describe('Route tool handlers', () => {
     statusCode: 302,
     preserveQuery: true,
     enabled: true,
-    createdAt: 1704067200,
-    updatedAt: 1704067200,
+    // Epoch MILLISECONDS, exactly as the KV layer stamps them — 2024-01-01T00:00:00.000Z.
+    createdAt: 1704067200000,
+    updatedAt: 1704067200000,
   };
 
   beforeEach(() => {
@@ -101,6 +102,33 @@ describe('Route tool handlers', () => {
       expect(result).toContain('Domain: links.example.com');
       expect(result).toContain('Type: redirect');
       expect(result).toContain('Target: https://github.com/example-user');
+      // Route timestamps are epoch milliseconds: rendering them as seconds
+      // (a stray * 1000) pushed every date into the year 58000.
+      expect(result).toContain('Created: 2024-01-01T00:00:00.000Z');
+      expect(result).toContain('Updated: 2024-01-01T00:00:00.000Z');
+    });
+
+    // The fixed-literal assertions above could, in principle, be reverted as a
+    // pair — fixture back to seconds, expected string back to a 1970 date — and
+    // still pass. This one cannot be: the fixture is stamped from the live
+    // clock, and the rendered year is checked against the real current year.
+    it('renders a route stamped from the live clock in the current year', async () => {
+      const now = Date.now();
+      vi.mocked(mockClient.getRoute).mockResolvedValue({
+        ...mockRoute,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const result = await getRoute(mockClient, { path: '/github', domain: 'links.example.com' });
+
+      // Pins the fixture itself: read as milliseconds it IS the current year,
+      // so dividing it by 1000 to match a restored `* 1000` fails right here.
+      const currentYear = new Date().getUTCFullYear();
+      expect(new Date(now).getUTCFullYear()).toBe(currentYear);
+      // And pins the rendering: `* 1000` on a millisecond value renders 58000.
+      expect(result).toContain(`Created: ${currentYear}-`);
+      expect(result).toContain(`Updated: ${currentYear}-`);
     });
 
     it('shows redirect-specific details', async () => {

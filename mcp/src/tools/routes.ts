@@ -54,6 +54,11 @@ function formatRouteList(routes: Route[], domain: string): string {
   return lines.join('\n');
 }
 
+/** Route timestamps are epoch milliseconds — `src/kv/routes.ts` stamps them with `Date.now()`. */
+function formatRouteTimestamp(epochMs: number): string {
+  return new Date(epochMs).toISOString();
+}
+
 /**
  * Format route details for display
  */
@@ -87,8 +92,8 @@ function formatRouteDetails(route: Route, domain: string): string {
   }
 
   lines.push('');
-  lines.push(`Created: ${new Date(route.createdAt * 1000).toISOString()}`);
-  lines.push(`Updated: ${new Date(route.updatedAt * 1000).toISOString()}`);
+  lines.push(`Created: ${formatRouteTimestamp(route.createdAt)}`);
+  lines.push(`Updated: ${formatRouteTimestamp(route.updatedAt)}`);
 
   return lines.join('\n');
 }

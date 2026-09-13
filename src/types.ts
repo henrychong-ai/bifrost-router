@@ -307,10 +307,10 @@ interface BaseRouteConfig {
   /** Enable/disable route without deleting (default: true) */
   enabled?: boolean;
 
-  /** Creation timestamp */
+  /** Creation timestamp (Unix milliseconds — `Date.now()`) */
   createdAt: number;
 
-  /** Last update timestamp */
+  /** Last update timestamp (Unix milliseconds — `Date.now()`) */
   updatedAt: number;
 }
 
@@ -401,10 +401,10 @@ export interface KVRouteConfig {
   /** Enable/disable route without deleting (default: true) */
   enabled?: boolean;
 
-  /** Creation timestamp */
+  /** Creation timestamp (Unix milliseconds — `Date.now()`) */
   createdAt: number;
 
-  /** Last update timestamp */
+  /** Last update timestamp (Unix milliseconds — `Date.now()`) */
   updatedAt: number;
 }
 
@@ -438,7 +438,7 @@ export interface RoutesMetadata {
   /** Schema version for migrations */
   version: string;
 
-  /** Last update timestamp */
+  /** Last update timestamp (Unix milliseconds — `Date.now()`) */
   updatedAt: number;
 
   /** Total route count */

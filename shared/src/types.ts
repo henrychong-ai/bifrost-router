@@ -115,10 +115,10 @@ export interface Route {
   /** Enable/disable route without deleting (default: true) */
   enabled?: boolean;
 
-  /** Creation timestamp (Unix seconds) */
+  /** Creation timestamp (Unix milliseconds — `Date.now()`) */
   createdAt: number;
 
-  /** Last update timestamp (Unix seconds) */
+  /** Last update timestamp (Unix milliseconds — `Date.now()`) */
   updatedAt: number;
 }
 

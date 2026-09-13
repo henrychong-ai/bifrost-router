@@ -98,8 +98,8 @@ export const RouteSchema = z.object({
     'R2 bucket for file serving (R2 only, default: "files")',
   ),
   enabled: z.boolean().optional().default(true).describe('Enable/disable route'),
-  createdAt: z.number().describe('Creation timestamp (Unix seconds)'),
-  updatedAt: z.number().describe('Last update timestamp (Unix seconds)'),
+  createdAt: z.number().describe('Creation timestamp (Unix milliseconds)'),
+  updatedAt: z.number().describe('Last update timestamp (Unix milliseconds)'),
 });
 
 /**

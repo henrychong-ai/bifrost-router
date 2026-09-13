@@ -238,8 +238,8 @@ describe('no-domain guard on every domain-required tool', () => {
       type: 'redirect',
       target: 'https://target.example.com',
       enabled: true,
-      createdAt: 1700000000,
-      updatedAt: 1700000000,
+      createdAt: 1700000000000,
+      updatedAt: 1700000000000,
     });
     const client = { ...mockClient, transferRoute } as unknown as EdgeRouterClient;
 
