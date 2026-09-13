@@ -2,7 +2,7 @@
 
 Guidance for Claude Code when working with this repository.
 
-**Version:** 1.34.1 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.35.0 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Public repository — sanitisation (MANDATORY)
 
@@ -289,21 +289,27 @@ Config in `~/.claude.json`:
     "args": ["run", "--account", "your-1password-account", "--", "node", "/path/to/mcp/dist/index.js"],
     "env": {
       "EDGE_ROUTER_API_KEY": "op://Your-Vault/Cloudflare/ADMIN_API_KEY",
-      "EDGE_ROUTER_URL": "https://bifrost.example.com",
-      "EDGE_ROUTER_DOMAIN": "links.example.com"
+      "EDGE_ROUTER_URL": "https://bifrost.example.com"
     }
   }
 }
 ```
 
-**Domain parameter (v1.34.1):** `EDGE_ROUTER_DOMAIN` is the MCP server PROCESS's default (the stdio config above), never something a client sends. When it is unset, the seven route tools (`list_routes`, `get_route`, `create_route`, `update_route`, `delete_route`, `toggle_route`, `migrate_route`) require an explicit `domain`, and the error lists `SUPPORTED_DOMAINS`; `transfer_route` needs both `from_domain` and `to_domain` explicitly — neither defaults (a transfer deletes the route from the source). Analytics `domain` is an optional scope (the env default first, else every domain the caller may see); QR `domain` selects the QR's domain namespace (the env default first, else the API's `ADMIN_API_DOMAIN`); `get_route_qr`'s selects the route table searched, and the API default host holds no short links, so pass it. Pinned by `mcp/src/tools/routes.no-domain.test.ts`.
+**Domain parameter (v1.35.0) — ONE contract; there is no default domain anywhere.**
+- REQUIRED + enumerated on 14 tools: the 7 route tools (`list_routes`, `get_route`, `create_route`, `update_route`, `delete_route`, `toggle_route`, `migrate_route`), the 6 QR tools (`list_qrs`, `get_qr`, `create_qr`, `update_qr`, `delete_qr`, `get_route_qr`) and `get_slug_stats`. Requiredness lives in the SHARED schemas (`RequiredDomainSchema` in `shared/src/schemas.ts`; the QR field in `shared/src/qr.ts`) and in the catalog's `required` arrays (`shared/src/tools.ts`). `transfer_route` requires both `from_domain` and `to_domain` (a transfer deletes the route from the source, so the source is never guessed).
+- OPTIONAL (but still enumerated — `OptionalDomainSchema`) on exactly 3: `get_analytics_summary`, `get_clicks`, `get_views`. Omitted = all domains (the query layer adds `WHERE domain = ?` only when a value is present) — a scope, never a default. `get_slug_stats` is REQUIRED because the same slug can exist on several domains and an unscoped read merges their clicks.
+- `EDGE_ROUTER_DOMAIN` is REMOVED (v1.35.0) — nothing reads it; a stale key logs one stderr warning at stdio boot and never fails startup. `EdgeRouterClient` has no `defaultDomain` and no `getDomain()`.
+- ⚠️ Never add a silent default — a defaulted write landing on the wrong domain is worse than a clear error.
+- Enforcement: this repo has no hosted MCP server, and the stdio server's low-level `Server` validates nothing, so the handler guards (`requireDomain()` + `NO_DOMAIN_ERROR` in `mcp/src/tools/routes.ts`) ARE the enforcement — pinned across all 14 by `mcp/src/tools/routes.no-domain.test.ts`, with the JSON-Schema catalog pinned by the `v1.35.0 domain contract (catalog)` block in `shared/src/tools.test.ts`.
+- Open follow-up: the REST API's own `ADMIN_API_DOMAIN` fallback (`src/routes/request-context.ts`) is unchanged and still reachable by non-MCP callers. This repo keeps no `TODO.md`; the open items live in the **Follow-ups** list of the v1.35.0 entry in [CHANGELOG.md](./CHANGELOG.md).
+- Clients cache tool schemas: after rebuilding the server, reconnect (`/mcp` in Claude Code) before trusting the advertised inputs.
 
 ### Installing the MCP for a user ("install mcp" trigger)
 
 When the user asks to **"install mcp"** (or to connect bifrost to their Claude surfaces), install the **stdio** server on both surfaces — this repo ships no remote OAuth `/mcp` endpoint, so Desktop's Settings → Connectors UI (remote servers only) does not apply:
 
 1. **Build first** if `mcp/dist/index.js` is missing: `pnpm install && pnpm -C shared build && pnpm -C mcp build`
-2. **Ask the user** for their deployment URL (`EDGE_ROUTER_URL`), default domain, and how they want to supply `EDGE_ROUTER_API_KEY` (plaintext vs `op run` 1Password injection — prefer the latter).
+2. **Ask the user** for their deployment URL (`EDGE_ROUTER_URL`) and how they want to supply `EDGE_ROUTER_API_KEY` (plaintext vs `op run` 1Password injection — prefer the latter). There is no default-domain variable to ask for: every route, QR and slug-stats call names its domain.
 3. **Claude Code** — add the entry above to `~/.claude.json` `mcpServers`. Verify with `claude mcp list`.
 4. **Claude Desktop** — add the same entry to `~/Library/Application Support/Claude/claude_desktop_config.json`, with **full executable paths** (Desktop does not inherit shell PATH). Back up the file before editing. Tell the user to fully restart Claude Desktop (Cmd+Q); if using `op run`, 1Password must be unlocked at launch.
 

@@ -1,12 +1,18 @@
 /**
- * QR code tool handlers for MCP server (v1.54.0).
+ * QR code tool handlers for the stdio MCP server (v1.35.0).
  *
  * Thin formatting layer over EdgeRouterClient's /api/qr methods — the API owns
- * validation (discriminated payload schemas, type immutability, RBAC), so
- * handlers surface its errors verbatim and format results for tool output.
+ * validation (discriminated payload schemas, type immutability), so handlers
+ * surface its errors verbatim and format results for tool output.
+ *
+ * `domain` is required on every QR tool and never defaulted. The low-level
+ * stdio Server validates nothing, so the guard below is the enforcement here;
+ * without it an omitted domain reached the API's ADMIN_API_DOMAIN fallback and
+ * a QR meant for one domain landed on another's host.
  */
 
 import type { EdgeRouterClient, QRCode } from '@bifrost/shared';
+import { NO_DOMAIN_ERROR, requireDomain } from './routes.js';
 
 function formatQr(qr: QRCode): string {
   const lines = [
@@ -41,13 +47,14 @@ export async function listQrs(
     limit?: number;
     offset?: number;
   },
-  defaultDomain?: string,
 ): Promise<string> {
+  const domain = requireDomain(args.domain);
+  if (!domain) {
+    return NO_DOMAIN_ERROR;
+  }
+
   try {
-    const { items, meta } = await client.listQrs({
-      ...args,
-      domain: args.domain || defaultDomain,
-    });
+    const { items, meta } = await client.listQrs({ ...args, domain });
     if (items.length === 0) return 'No QR codes found.';
 
     const rows = items.map(
@@ -66,10 +73,14 @@ export async function listQrs(
 export async function getQr(
   client: EdgeRouterClient,
   args: { id: string; domain?: string },
-  defaultDomain?: string,
 ): Promise<string> {
+  const domain = requireDomain(args.domain);
+  if (!domain) {
+    return NO_DOMAIN_ERROR;
+  }
+
   try {
-    const qr = await client.getQr(args.id, args.domain || defaultDomain);
+    const qr = await client.getQr(args.id, domain);
     return formatQr(qr);
   } catch (error) {
     return formatError(error);
@@ -88,11 +99,15 @@ export async function createQr(
     design?: Record<string, unknown>;
     linkedRoute?: { domain: string; path: string };
   },
-  defaultDomain?: string,
 ): Promise<string> {
+  const domain = requireDomain(args.domain);
+  if (!domain) {
+    return NO_DOMAIN_ERROR;
+  }
+
   try {
-    const { domain, ...input } = args;
-    const qr = await client.createQr(input, domain || defaultDomain);
+    const { domain: _domain, ...input } = args;
+    const qr = await client.createQr(input, domain);
     return `QR code created.\n\n${formatQr(qr)}`;
   } catch (error) {
     return formatError(error);
@@ -111,15 +126,19 @@ export async function updateQr(
     linkedRoute?: { domain: string; path: string };
     clearLinkedRoute?: boolean;
   },
-  defaultDomain?: string,
 ): Promise<string> {
+  const domain = requireDomain(args.domain);
+  if (!domain) {
+    return NO_DOMAIN_ERROR;
+  }
+
   try {
-    const { id, domain, clearLinkedRoute, ...rest } = args;
+    const { id, domain: _domain, clearLinkedRoute, ...rest } = args;
     const input: Record<string, unknown> = { ...rest };
     // The REST contract clears the link with an explicit null.
     if (clearLinkedRoute) input.linkedRoute = null;
 
-    const qr = await client.updateQr(id, input, domain || defaultDomain);
+    const qr = await client.updateQr(id, input, domain);
     return `QR code updated.\n\n${formatQr(qr)}`;
   } catch (error) {
     return formatError(error);
@@ -129,10 +148,14 @@ export async function updateQr(
 export async function deleteQr(
   client: EdgeRouterClient,
   args: { id: string; domain?: string },
-  defaultDomain?: string,
 ): Promise<string> {
+  const domain = requireDomain(args.domain);
+  if (!domain) {
+    return NO_DOMAIN_ERROR;
+  }
+
   try {
-    const result = await client.deleteQr(args.id, args.domain || defaultDomain);
+    const result = await client.deleteQr(args.id, domain);
     return `QR code deleted: ${result.id} (hard delete; the audit log preserves the record).`;
   } catch (error) {
     return formatError(error);
@@ -142,11 +165,15 @@ export async function deleteQr(
 export async function getRouteQr(
   client: EdgeRouterClient,
   args: { path: string; domain?: string; fg?: string; bg?: string; size?: number },
-  defaultDomain?: string,
 ): Promise<string> {
+  const domain = requireDomain(args.domain);
+  if (!domain) {
+    return NO_DOMAIN_ERROR;
+  }
+
   try {
     const svg = await client.getRouteQrSvg(args.path, {
-      domain: args.domain || defaultDomain,
+      domain,
       fg: args.fg,
       bg: args.bg,
       size: args.size,

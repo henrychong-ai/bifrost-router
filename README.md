@@ -319,13 +319,14 @@ Add to your Claude Code config (`~/.claude.json`):
       "args": ["/absolute/path/to/bifrost-router/mcp/dist/index.js"],
       "env": {
         "EDGE_ROUTER_API_KEY": "your-admin-api-key",
-        "EDGE_ROUTER_URL": "https://bifrost.yourdomain.com",
-        "EDGE_ROUTER_DOMAIN": "yourdomain.com"
+        "EDGE_ROUTER_URL": "https://bifrost.yourdomain.com"
       }
     }
   }
 }
 ```
+
+There is no default-domain variable: since v1.35.0 every route, QR and slug-stats call names its own domain, and only the three analytics tools take an optional domain (omit it for all domains).
 
 For Claude Desktop, add the same entry (with full executable paths) to `~/Library/Application Support/Claude/claude_desktop_config.json` and restart the app. Or open this repo in Claude Code and ask it to **"install mcp"** — it will configure both surfaces for you.
 

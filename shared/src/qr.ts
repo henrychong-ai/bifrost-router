@@ -527,24 +527,31 @@ export function generateQrId(): string {
 }
 
 // =============================================================================
-// MCP tool input schemas (v1.54.0) — zod shapes consumed by BOTH MCP servers
-// (src/mcp/server.ts registers `.shape`; the stdio package validates args).
-// Deliberately transport-loose on `payload`/`design`: the REST layer re-validates
-// with the strict discriminated schemas above, so MCP clients get friendly
-// errors from the API rather than double-maintained schema copies.
+// MCP tool input schemas — the QR half of the shared tool contract. This repo
+// ships only the local stdio server, whose low-level SDK `Server` validates
+// nothing, so these schemas document the contract while the JSON-Schema catalog
+// (shared/src/tools.ts) is what clients actually receive and the handler guards
+// in mcp/src/tools/qr.ts are the enforcement. Deliberately transport-loose on
+// `payload`/`design`: the REST layer re-validates with the strict discriminated
+// schemas above, so MCP clients get friendly errors from the API rather than
+// double-maintained schema copies.
 // =============================================================================
 
+/**
+ * Required, enumerated domain for the QR MCP tools (v1.35.0).
+ *
+ * There is no default: every QR call names its domain, so a missing one is
+ * refused instead of resolving server-side to the API's admin host.
+ */
 const mcpDomainField = z
-  .string()
-  .optional()
-  .refine(
-    value => !value || SUPPORTED_DOMAINS.includes(value as (typeof SUPPORTED_DOMAINS)[number]),
-    {
-      message: `Domain must be one of: ${SUPPORTED_DOMAINS_LIST}`,
-    },
-  )
+  .enum(SUPPORTED_DOMAINS)
+  .describe(`Domain namespace the QR belongs to. Required — one of: ${SUPPORTED_DOMAINS_LIST}.`);
+
+/** get_route_qr searches a route table rather than the QR namespace. */
+const mcpRouteQrDomainField = z
+  .enum(SUPPORTED_DOMAINS)
   .describe(
-    `Domain (optional) — selects the QR's domain namespace, or for get_route_qr the route table searched. When omitted: the MCP server process's EDGE_ROUTER_DOMAIN if set, else the API's default host (ADMIN_API_DOMAIN). Supported: ${SUPPORTED_DOMAINS_LIST}.`,
+    `Domain whose route table is searched for the path. Required — one of: ${SUPPORTED_DOMAINS_LIST}.`,
   );
 
 export const ListQrsInputSchema = z.object({
@@ -624,7 +631,7 @@ export const DeleteQrInputSchema = z.object({
 export type DeleteQrInput = z.infer<typeof DeleteQrInputSchema>;
 
 export const GetRouteQrInputSchema = z.object({
-  domain: mcpDomainField,
+  domain: mcpRouteQrDomainField,
   path: z.string().describe('Route path to encode (e.g., "/linkedin")'),
   fg: z.string().optional().describe('Foreground colour (#rrggbb)'),
   bg: z.string().optional().describe('Background colour (#rrggbb)'),

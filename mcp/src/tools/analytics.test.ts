@@ -7,6 +7,7 @@ import type {
   PageView,
   PaginatedResponse,
 } from '@bifrost/shared';
+import { EdgeRouterClient as EdgeRouterClientImpl, SUPPORTED_DOMAINS } from '@bifrost/shared';
 import { getAnalyticsSummary, getClicks, getViews, getSlugStats } from './analytics.js';
 
 describe('Analytics tool handlers', () => {
@@ -237,7 +238,7 @@ describe('Analytics tool handlers', () => {
     it('returns formatted analytics summary', async () => {
       vi.mocked(mockClient.getAnalyticsSummary).mockResolvedValue(mockSummary);
 
-      const result = await getAnalyticsSummary(mockClient, {}, 'links.example.com');
+      const result = await getAnalyticsSummary(mockClient, { domain: 'links.example.com' });
 
       expect(result).toContain('Analytics Summary');
       expect(result).toContain('30d');
@@ -249,7 +250,7 @@ describe('Analytics tool handlers', () => {
     it('shows top clicks', async () => {
       vi.mocked(mockClient.getAnalyticsSummary).mockResolvedValue(mockSummary);
 
-      const result = await getAnalyticsSummary(mockClient, {}, 'links.example.com');
+      const result = await getAnalyticsSummary(mockClient, { domain: 'links.example.com' });
 
       expect(result).toContain('Top Routes - Redirect');
       expect(result).toContain('https://links.example.com/linkedin');
@@ -259,7 +260,7 @@ describe('Analytics tool handlers', () => {
     it('shows top pages', async () => {
       vi.mocked(mockClient.getAnalyticsSummary).mockResolvedValue(mockSummary);
 
-      const result = await getAnalyticsSummary(mockClient, {}, 'links.example.com');
+      const result = await getAnalyticsSummary(mockClient, { domain: 'links.example.com' });
 
       expect(result).toContain('Top Website Pages');
       expect(result).toContain('2,000 views');
@@ -268,7 +269,7 @@ describe('Analytics tool handlers', () => {
     it('shows top countries', async () => {
       vi.mocked(mockClient.getAnalyticsSummary).mockResolvedValue(mockSummary);
 
-      const result = await getAnalyticsSummary(mockClient, {}, 'links.example.com');
+      const result = await getAnalyticsSummary(mockClient, { domain: 'links.example.com' });
 
       expect(result).toContain('Top Countries');
       expect(result).toContain('US');
@@ -277,7 +278,7 @@ describe('Analytics tool handlers', () => {
     it('shows top referrers', async () => {
       vi.mocked(mockClient.getAnalyticsSummary).mockResolvedValue(mockSummary);
 
-      const result = await getAnalyticsSummary(mockClient, {}, 'links.example.com');
+      const result = await getAnalyticsSummary(mockClient, { domain: 'links.example.com' });
 
       expect(result).toContain('Top Referrers');
       expect(result).toContain('twitter.com');
@@ -286,7 +287,7 @@ describe('Analytics tool handlers', () => {
     it('shows recent clicks with relative time', async () => {
       vi.mocked(mockClient.getAnalyticsSummary).mockResolvedValue(mockSummary);
 
-      const result = await getAnalyticsSummary(mockClient, {}, 'links.example.com');
+      const result = await getAnalyticsSummary(mockClient, { domain: 'links.example.com' });
 
       expect(result).toContain('Recent Clicks');
       expect(result).toContain('/linkedin');
@@ -295,7 +296,7 @@ describe('Analytics tool handlers', () => {
     it('handles errors gracefully', async () => {
       vi.mocked(mockClient.getAnalyticsSummary).mockRejectedValue(new Error('Database error'));
 
-      const result = await getAnalyticsSummary(mockClient, {}, 'links.example.com');
+      const result = await getAnalyticsSummary(mockClient, { domain: 'links.example.com' });
 
       expect(result).toContain('Error getting analytics summary');
       expect(result).toContain('Database error');
@@ -306,7 +307,7 @@ describe('Analytics tool handlers', () => {
     it('returns formatted click list with pagination info', async () => {
       vi.mocked(mockClient.getClicks).mockResolvedValue(mockClicksResponse);
 
-      const result = await getClicks(mockClient, {}, 'links.example.com');
+      const result = await getClicks(mockClient, { domain: 'links.example.com' });
 
       expect(result).toContain('Clicks');
       expect(result).toContain('1-2 of 100');
@@ -317,7 +318,7 @@ describe('Analytics tool handlers', () => {
     it('shows country for each click', async () => {
       vi.mocked(mockClient.getClicks).mockResolvedValue(mockClicksResponse);
 
-      const result = await getClicks(mockClient, {}, 'links.example.com');
+      const result = await getClicks(mockClient, { domain: 'links.example.com' });
 
       expect(result).toContain('(US)');
       expect(result).toContain('(SG)');
@@ -326,7 +327,7 @@ describe('Analytics tool handlers', () => {
     it('shows more indicator when hasMore is true', async () => {
       vi.mocked(mockClient.getClicks).mockResolvedValue(mockClicksResponse);
 
-      const result = await getClicks(mockClient, {}, 'links.example.com');
+      const result = await getClicks(mockClient, { domain: 'links.example.com' });
 
       expect(result).toContain('more clicks');
     });
@@ -337,7 +338,7 @@ describe('Analytics tool handlers', () => {
         meta: { total: 0, limit: 50, offset: 0, hasMore: false },
       });
 
-      const result = await getClicks(mockClient, {}, 'links.example.com');
+      const result = await getClicks(mockClient, { domain: 'links.example.com' });
 
       expect(result).toContain('No clicks found');
     });
@@ -345,7 +346,7 @@ describe('Analytics tool handlers', () => {
     it('handles errors gracefully', async () => {
       vi.mocked(mockClient.getClicks).mockRejectedValue(new Error('Query failed'));
 
-      const result = await getClicks(mockClient, {}, 'links.example.com');
+      const result = await getClicks(mockClient, { domain: 'links.example.com' });
 
       expect(result).toContain('Error getting clicks');
       expect(result).toContain('Query failed');
@@ -356,7 +357,7 @@ describe('Analytics tool handlers', () => {
     it('returns formatted view list with pagination info', async () => {
       vi.mocked(mockClient.getViews).mockResolvedValue(mockViewsResponse);
 
-      const result = await getViews(mockClient, {}, 'example.com');
+      const result = await getViews(mockClient, { domain: 'example.com' });
 
       expect(result).toContain('Page Views');
       expect(result).toContain('1-2 of 500');
@@ -367,7 +368,7 @@ describe('Analytics tool handlers', () => {
     it('shows country for each view', async () => {
       vi.mocked(mockClient.getViews).mockResolvedValue(mockViewsResponse);
 
-      const result = await getViews(mockClient, {}, 'example.com');
+      const result = await getViews(mockClient, { domain: 'example.com' });
 
       expect(result).toContain('(US)');
       expect(result).toContain('(GB)');
@@ -379,7 +380,7 @@ describe('Analytics tool handlers', () => {
         meta: { total: 0, limit: 50, offset: 0, hasMore: false },
       });
 
-      const result = await getViews(mockClient, {}, 'example.com');
+      const result = await getViews(mockClient, { domain: 'example.com' });
 
       expect(result).toContain('No page views found');
     });
@@ -387,7 +388,7 @@ describe('Analytics tool handlers', () => {
     it('handles errors gracefully', async () => {
       vi.mocked(mockClient.getViews).mockRejectedValue(new Error('Query failed'));
 
-      const result = await getViews(mockClient, {}, 'example.com');
+      const result = await getViews(mockClient, { domain: 'example.com' });
 
       expect(result).toContain('Error getting page views');
       expect(result).toContain('Query failed');
@@ -398,7 +399,10 @@ describe('Analytics tool handlers', () => {
     it('returns formatted slug statistics', async () => {
       vi.mocked(mockClient.getSlugStats).mockResolvedValue(mockSlugStats);
 
-      const result = await getSlugStats(mockClient, { slug: '/linkedin' }, 'links.example.com');
+      const result = await getSlugStats(mockClient, {
+        slug: '/linkedin',
+        domain: 'links.example.com',
+      });
 
       expect(result).toContain('Statistics for /linkedin');
       expect(result).toContain('Total Clicks: 200');
@@ -408,7 +412,10 @@ describe('Analytics tool handlers', () => {
     it('shows top countries for slug', async () => {
       vi.mocked(mockClient.getSlugStats).mockResolvedValue(mockSlugStats);
 
-      const result = await getSlugStats(mockClient, { slug: '/linkedin' }, 'links.example.com');
+      const result = await getSlugStats(mockClient, {
+        slug: '/linkedin',
+        domain: 'links.example.com',
+      });
 
       expect(result).toContain('Top Countries');
       expect(result).toContain('US');
@@ -418,7 +425,10 @@ describe('Analytics tool handlers', () => {
     it('shows top referrers for slug', async () => {
       vi.mocked(mockClient.getSlugStats).mockResolvedValue(mockSlugStats);
 
-      const result = await getSlugStats(mockClient, { slug: '/linkedin' }, 'links.example.com');
+      const result = await getSlugStats(mockClient, {
+        slug: '/linkedin',
+        domain: 'links.example.com',
+      });
 
       expect(result).toContain('Top Referrers');
       expect(result).toContain('twitter.com');
@@ -427,7 +437,10 @@ describe('Analytics tool handlers', () => {
     it('shows recent activity by day', async () => {
       vi.mocked(mockClient.getSlugStats).mockResolvedValue(mockSlugStats);
 
-      const result = await getSlugStats(mockClient, { slug: '/linkedin' }, 'links.example.com');
+      const result = await getSlugStats(mockClient, {
+        slug: '/linkedin',
+        domain: 'links.example.com',
+      });
 
       expect(result).toContain('Recent Activity');
       expect(result).toContain('2026-01-10');
@@ -436,10 +449,151 @@ describe('Analytics tool handlers', () => {
     it('handles errors gracefully', async () => {
       vi.mocked(mockClient.getSlugStats).mockRejectedValue(new Error('Slug not found'));
 
-      const result = await getSlugStats(mockClient, { slug: '/notfound' }, 'links.example.com');
+      const result = await getSlugStats(mockClient, {
+        slug: '/notfound',
+        domain: 'links.example.com',
+      });
 
       expect(result).toContain('Error getting slug statistics');
       expect(result).toContain('Slug not found');
     });
+  });
+});
+
+/**
+ * v1.35.0 — the three analytics tools keep an OPTIONAL domain. Omitting it is a
+ * SCOPE meaning "all domains", not a default: nothing fills one in, and the
+ * client sends no `domain` query parameter at all. Proved against a real
+ * EdgeRouterClient rather than a mock, because the omission has to survive the
+ * request builder.
+ */
+describe('analytics domain is an optional scope, never a default', () => {
+  const ANALYTICS_PATHS = {
+    get_analytics_summary: '/api/analytics/summary',
+    get_clicks: '/api/analytics/clicks',
+    get_views: '/api/analytics/views',
+  } as const;
+
+  function realClient(): { client: EdgeRouterClient; fetchMock: ReturnType<typeof vi.fn> } {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          totalClicks: 0,
+          uniqueLinks: 0,
+          totalPageViews: 0,
+          uniquePages: 0,
+          topClicks: [],
+          topPages: [],
+          topCountries: [],
+          topReferrers: [],
+          recentClicks: [],
+          items: [],
+          meta: { total: 0, count: 0, offset: 0, limit: 0, hasMore: false },
+        },
+      }),
+    });
+    const client = new EdgeRouterClientImpl({
+      baseUrl: 'https://admin.example.com',
+      apiKey: 'test-key',
+      fetch: fetchMock as unknown as typeof globalThis.fetch,
+    });
+    return { client, fetchMock };
+  }
+
+  /**
+   * Handler level: the three optional-domain handlers pass `args.domain`
+   * through verbatim — `undefined` when omitted. Nothing fills one in.
+   */
+  const HANDLER_CASES = [
+    ['get_analytics_summary', getAnalyticsSummary, 'getAnalyticsSummary'],
+    ['get_clicks', getClicks, 'getClicks'],
+    ['get_views', getViews, 'getViews'],
+  ] as const;
+
+  function handlerMock(): EdgeRouterClient {
+    return {
+      getAnalyticsSummary: vi.fn().mockResolvedValue({
+        period: '30d',
+        domain: 'all',
+        totalClicks: 0,
+        uniqueLinks: 0,
+        totalPageViews: 0,
+        uniquePages: 0,
+        topClicks: [],
+        topPages: [],
+        topCountries: [],
+        topReferrers: [],
+        recentClicks: [],
+      }),
+      getClicks: vi
+        .fn()
+        .mockResolvedValue({ items: [], meta: { total: 0, count: 0, offset: 0, limit: 0 } }),
+      getViews: vi
+        .fn()
+        .mockResolvedValue({ items: [], meta: { total: 0, count: 0, offset: 0, limit: 0 } }),
+    } as unknown as EdgeRouterClient;
+  }
+
+  it.each(HANDLER_CASES)(
+    '%s passes an omitted domain through as undefined',
+    async (_tool, handler, method) => {
+      const client = handlerMock();
+
+      await (handler as (c: EdgeRouterClient, a: { domain?: string }) => Promise<string>)(
+        client,
+        {},
+      );
+
+      const call = vi.mocked(client[method] as unknown as (o: unknown) => unknown).mock.calls[0][0];
+      expect((call as { domain?: string }).domain).toBeUndefined();
+    },
+  );
+
+  it.each(HANDLER_CASES)(
+    '%s passes an explicit domain through unchanged',
+    async (_tool, handler, method) => {
+      const client = handlerMock();
+      const domain = SUPPORTED_DOMAINS[3];
+
+      await (handler as (c: EdgeRouterClient, a: { domain?: string }) => Promise<string>)(client, {
+        domain,
+      });
+
+      const call = vi.mocked(client[method] as unknown as (o: unknown) => unknown).mock.calls[0][0];
+      expect((call as { domain?: string }).domain).toBe(domain);
+    },
+  );
+
+  it.each([
+    ['get_analytics_summary', getAnalyticsSummary],
+    ['get_clicks', getClicks],
+    ['get_views', getViews],
+  ] as const)('%s with no domain sends no domain query param', async (tool, handler) => {
+    const { client, fetchMock } = realClient();
+
+    await (handler as (c: EdgeRouterClient, a: { domain?: string }) => Promise<string>)(client, {});
+
+    const url = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(url.pathname).toBe(ANALYTICS_PATHS[tool]);
+    expect(url.searchParams.has('domain')).toBe(false);
+  });
+
+  it.each([
+    ['get_analytics_summary', getAnalyticsSummary],
+    ['get_clicks', getClicks],
+    ['get_views', getViews],
+  ] as const)('%s with a domain scopes the request to exactly it', async (tool, handler) => {
+    const { client, fetchMock } = realClient();
+    const domain = SUPPORTED_DOMAINS[1];
+
+    await (handler as (c: EdgeRouterClient, a: { domain?: string }) => Promise<string>)(client, {
+      domain,
+    });
+
+    const url = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(url.pathname).toBe(ANALYTICS_PATHS[tool]);
+    expect(url.searchParams.get('domain')).toBe(domain);
   });
 });

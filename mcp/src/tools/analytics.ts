@@ -10,6 +10,7 @@ import type {
   PageView,
   PaginatedResponse,
 } from '@bifrost/shared';
+import { NO_DOMAIN_ERROR, requireDomain } from './routes.js';
 
 /**
  * Format a number with thousands separators
@@ -194,9 +195,9 @@ function formatSlugStats(stats: SlugStats): string {
 export async function getAnalyticsSummary(
   client: EdgeRouterClient,
   args: { domain?: string; days?: number },
-  defaultDomain?: string,
 ): Promise<string> {
-  const domain = args.domain || defaultDomain;
+  // `domain` is an optional SCOPE, not a default: omitting it means all domains.
+  const domain = args.domain;
 
   try {
     const summary = await client.getAnalyticsSummary({
@@ -222,9 +223,8 @@ export async function getClicks(
     slug?: string;
     country?: string;
   },
-  defaultDomain?: string,
 ): Promise<string> {
-  const domain = args.domain || defaultDomain;
+  const domain = args.domain;
 
   try {
     const response = await client.getClicks({
@@ -254,9 +254,8 @@ export async function getViews(
     path?: string;
     country?: string;
   },
-  defaultDomain?: string,
 ): Promise<string> {
-  const domain = args.domain || defaultDomain;
+  const domain = args.domain;
 
   try {
     const response = await client.getViews({
@@ -279,9 +278,13 @@ export async function getViews(
 export async function getSlugStats(
   client: EdgeRouterClient,
   args: { slug: string; domain?: string; days?: number },
-  defaultDomain?: string,
 ): Promise<string> {
-  const domain = args.domain || defaultDomain;
+  // Required: the same slug can exist on several domains and an unscoped read
+  // silently merges their clicks into one total.
+  const domain = requireDomain(args.domain);
+  if (!domain) {
+    return NO_DOMAIN_ERROR;
+  }
 
   try {
     const stats = await client.getSlugStats(args.slug, {

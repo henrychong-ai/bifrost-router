@@ -6,12 +6,27 @@ import { SUPPORTED_DOMAINS_LIST } from '@bifrost/shared';
 import type { EdgeRouterClient, Route } from '@bifrost/shared';
 
 /**
- * v1.34.1 — list the valid domains and say where the default comes from:
- * EDGE_ROUTER_DOMAIN is read by the MCP server PROCESS, not sent by the client.
+ * v1.35.0 — there is no default domain. Every route, QR and slug-stats call
+ * names its own domain and nothing fills a missing one in.
+ *
+ * The low-level stdio Server validates nothing, so these handler guards ARE the
+ * enforcement on this transport: they refuse before any client call, and the
+ * error lists the valid domains so an agent recovers in one retry.
  */
-const NO_DOMAIN_ERROR = `Error: No domain specified. Pass the domain parameter — one of: ${SUPPORTED_DOMAINS_LIST} — or set EDGE_ROUTER_DOMAIN in the MCP server's environment to default it.`;
+export const NO_DOMAIN_ERROR = `Error: No domain specified. Pass the domain parameter — one of: ${SUPPORTED_DOMAINS_LIST}.`;
+
+/**
+ * Returns the caller's domain, or `undefined` when they named none.
+ *
+ * Takes `unknown` on purpose: the stdio server hands raw JSON-RPC arguments
+ * straight to the handlers, so a non-string is as reachable as a missing key.
+ */
+export function requireDomain(domain: unknown): string | undefined {
+  return typeof domain === 'string' && domain.length > 0 ? domain : undefined;
+}
+
 const transferDomainsError = (missing: string[]): string =>
-  `Error: transfer_route is missing ${missing.join(' and ')}. Pass both from_domain and to_domain explicitly — one of: ${SUPPORTED_DOMAINS_LIST}. Neither defaults to EDGE_ROUTER_DOMAIN: a transfer deletes the route from the source, so the source is never guessed.`;
+  `Error: transfer_route is missing ${missing.join(' and ')}. Pass both from_domain and to_domain explicitly — one of: ${SUPPORTED_DOMAINS_LIST}. A transfer deletes the route from the source, so the source is never guessed.`;
 
 /**
  * Format a route for display
@@ -84,9 +99,8 @@ function formatRouteDetails(route: Route, domain: string): string {
 export async function listRoutes(
   client: EdgeRouterClient,
   args: { domain?: string; search?: string },
-  defaultDomain?: string,
 ): Promise<string> {
-  const domain = args.domain || defaultDomain;
+  const domain = requireDomain(args.domain);
   if (!domain) {
     return NO_DOMAIN_ERROR;
   }
@@ -108,9 +122,8 @@ export async function listRoutes(
 export async function getRoute(
   client: EdgeRouterClient,
   args: { path: string; domain?: string },
-  defaultDomain?: string,
 ): Promise<string> {
-  const domain = args.domain || defaultDomain;
+  const domain = requireDomain(args.domain);
   if (!domain) {
     return NO_DOMAIN_ERROR;
   }
@@ -141,9 +154,8 @@ export async function createRoute(
     bucket?: string;
     domain?: string;
   },
-  defaultDomain?: string,
 ): Promise<string> {
-  const domain = args.domain || defaultDomain;
+  const domain = requireDomain(args.domain);
   if (!domain) {
     return NO_DOMAIN_ERROR;
   }
@@ -198,9 +210,8 @@ export async function updateRoute(
     bucket?: string;
     domain?: string;
   },
-  defaultDomain?: string,
 ): Promise<string> {
-  const domain = args.domain || defaultDomain;
+  const domain = requireDomain(args.domain);
   if (!domain) {
     return NO_DOMAIN_ERROR;
   }
@@ -243,9 +254,8 @@ export async function updateRoute(
 export async function deleteRoute(
   client: EdgeRouterClient,
   args: { path: string; domain?: string },
-  defaultDomain?: string,
 ): Promise<string> {
-  const domain = args.domain || defaultDomain;
+  const domain = requireDomain(args.domain);
   if (!domain) {
     return NO_DOMAIN_ERROR;
   }
@@ -264,9 +274,8 @@ export async function deleteRoute(
 export async function toggleRoute(
   client: EdgeRouterClient,
   args: { path: string; enabled: boolean; domain?: string },
-  defaultDomain?: string,
 ): Promise<string> {
-  const domain = args.domain || defaultDomain;
+  const domain = requireDomain(args.domain);
   if (!domain) {
     return NO_DOMAIN_ERROR;
   }
@@ -286,9 +295,8 @@ export async function toggleRoute(
 export async function migrateRoute(
   client: EdgeRouterClient,
   args: { oldPath: string; newPath: string; domain?: string },
-  defaultDomain?: string,
 ): Promise<string> {
-  const domain = args.domain || defaultDomain;
+  const domain = requireDomain(args.domain);
   if (!domain) {
     return NO_DOMAIN_ERROR;
   }
@@ -308,19 +316,19 @@ export async function handleTransferRoute(
   client: EdgeRouterClient,
   args: { path: string; from_domain?: string; to_domain?: string },
 ): Promise<string> {
-  // v1.34.1 — both domains are explicit, never defaulted: a transfer deletes the
-  // route from the source, so guessing it from EDGE_ROUTER_DOMAIN would delete
-  // from a domain the caller never named. The API already refuses a missing
-  // one; this guard names which is missing and lists the valid domains.
-  const missing = [
-    ...(args.from_domain ? [] : ['from_domain']),
-    ...(args.to_domain ? [] : ['to_domain']),
-  ];
-  if (!args.from_domain || !args.to_domain) {
+  // Both domains are explicit, never defaulted: a transfer deletes the route
+  // from the source, so guessing the source would delete from a domain the
+  // caller never named. The API already refuses a missing one; this guard names
+  // which is missing and lists the valid domains. Both go through
+  // requireDomain, so a non-string (the stdio server hands over raw JSON-RPC
+  // arguments) is refused exactly like a missing key and never reaches the
+  // client.
+  const fromDomain = requireDomain(args.from_domain);
+  const toDomain = requireDomain(args.to_domain);
+  const missing = [...(fromDomain ? [] : ['from_domain']), ...(toDomain ? [] : ['to_domain'])];
+  if (!fromDomain || !toDomain) {
     return transferDomainsError(missing);
   }
-  const fromDomain = args.from_domain;
-  const toDomain = args.to_domain;
 
   try {
     const route = await client.transferRoute(args.path, fromDomain, toDomain);

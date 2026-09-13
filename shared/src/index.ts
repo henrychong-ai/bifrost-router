@@ -17,8 +17,10 @@ export * from './analytics-utils.js';
 
 // Schemas - export selectively to avoid conflicts with types.ts
 export {
-  // Domain schema
+  // Domain schemas
   DomainSchema,
+  RequiredDomainSchema,
+  OptionalDomainSchema,
   // Route schemas
   RouteTypeSchema,
   RedirectStatusCodeSchema,

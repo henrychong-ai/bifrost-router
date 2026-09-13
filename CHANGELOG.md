@@ -6,6 +6,152 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.35.0 (2026-09-13) — MCP: `EDGE_ROUTER_DOMAIN` removed; every domain-scoped call names its domain
+
+**Why:** v1.34.1 made the seven route tools refuse a missing domain, but left
+two halves of the same contract disagreeing — the stdio server still defaulted
+the domain from `EDGE_ROUTER_DOMAIN`, and the QR tools defaulted from it too,
+falling through server-side to the API's `ADMIN_API_DOMAIN` when unset. That is
+the silent wrong-domain hazard v1.34.1 removed from the route tools, still open
+on every QR read and write: a QR meant for one domain landed on whatever host
+the API happened to default to. This release deletes the default plumbing
+outright. It is the port of the upstream change made in the private edge-router
+deployment this repo is derived from.
+
+### Breaking
+
+- **`EDGE_ROUTER_DOMAIN` is removed.** Nothing reads it: not
+  `createClientFromEnv` (`shared/src/client.ts`), not the stdio server
+  (`mcp/src/index.ts`). `EdgeRouterClient` has no `defaultDomain` config field
+  and no `getDomain()` helper, so no client method fills in a missing domain.
+- **`domain` is REQUIRED and enumerated on 14 tools** — the seven route tools
+  (`list_routes`, `get_route`, `create_route`, `update_route`, `delete_route`,
+  `toggle_route`, `migrate_route`), the six QR tools (`list_qrs`, `get_qr`,
+  `create_qr`, `update_qr`, `delete_qr`, `get_route_qr`) and `get_slug_stats`.
+  `transfer_route` keeps both `from_domain` and `to_domain` required, as
+  before; its error text just no longer names the environment variable. The
+  requiredness lives in the SHARED schemas (`RequiredDomainSchema` in
+  `shared/src/schemas.ts`, the QR field in `shared/src/qr.ts`) and in the
+  catalog's `required` arrays (`shared/src/tools.ts`). Before this release
+  `transfer_route` was the ONLY tool in the catalog listing a domain field
+  under `required`, and it is not one of the 14 — so all 14 `domain` entries
+  are new. `list_routes` and `list_qrs` had no `required` array at all, so one
+  was created rather than extended.
+- **The three analytics tools keep an OPTIONAL but ENUMERATED domain**
+  (`get_analytics_summary`, `get_clicks`, `get_views`) — `OptionalDomainSchema`
+  in `shared/src/schemas.ts`, so the catalog and the schemas advertise the same
+  choices and a client picks one without guessing. Omitting it means all
+  domains: the query layer adds `WHERE domain = ?` only when a value is
+  present, so it is a scope, never a default. The stdio server no longer
+  injects a hidden environment filter there. `get_slug_stats` is the exception
+  in that family and is now required: the same slug can exist on several
+  domains, and an unscoped read silently merged their clicks into one total.
+- **QR tools can no longer reach the API's admin-host fallback from MCP.** With
+  `domain` required at the schema level and guarded in the stdio handlers, an
+  omitted domain is refused before any request is built.
+- **Analytics results widen for anyone who used `EDGE_ROUTER_DOMAIN` as a
+  scope.** The stdio server used to inject the variable as a hidden filter on
+  `get_analytics_summary`, `get_clicks` and `get_views`, so an operator who set
+  it saw one domain's numbers by default. Those three calls now report ALL
+  domains when `domain` is omitted. Pass it explicitly to narrow — the value is
+  enumerated, so a client can pick one without guessing.
+- **Stdio boot warning.** A stale `EDGE_ROUTER_DOMAIN` never fails startup: the
+  server logs one stderr line — `EDGE_ROUTER_DOMAIN is set but ignored since
+  v1.35.0 — pass domain on every route, QR and slug-stats call.` — and serves
+  normally.
+
+### Changed
+
+- **`shared/src/client.ts`** lost `EdgeRouterClientConfig.defaultDomain`, the
+  private field, the constructor assignment, and `getDomain()`. The seven route
+  methods, the seven QR methods and `getSlugStats` take a required `domain`;
+  `getAnalyticsSummary` / `getClicks` / `getViews` keep `domain?`. The request
+  builder still skips `undefined` params, so an omitted analytics domain sends
+  no query parameter at all.
+- **Handlers** (`mcp/src/tools/{routes,qr,analytics}.ts`): all 17 lost their
+  third `defaultDomain` parameter, and the 17 dispatch cases in
+  `mcp/src/index.ts` lost the trailing argument. `routes.ts` exports
+  `NO_DOMAIN_ERROR` and a `requireDomain()` helper that the QR and slug-stats
+  handlers share. The low-level stdio `Server` validates nothing, so these
+  guards are the enforcement on that transport.
+- **Catalog descriptions** (`shared/src/tools.ts`): no description mentions an
+  environment variable or the admin-host fallback any more, and
+  `get_slug_stats` gets its own wording (the same slug can exist on several
+  domains).
+- **Tests.** `mcp/src/tools/routes.no-domain.test.ts` is parameterised over all
+  14 required tools (error text, every supported domain listed, no client call,
+  empty string refused too). `shared/src/tools.test.ts` gains a catalog
+  contract block pinning the 14 required and the 3 optional, the enum on every
+  `domain` property, and the absence of any environment-variable wording.
+  `shared/src/schemas.test.ts` pins the required and optional enums.
+  `mcp/src/tools/analytics.test.ts` adds real-client cases proving an omitted
+  analytics domain sends no `domain` query param and a supplied one scopes the
+  request to exactly it. `shared/src/client.test.ts` proves a stale
+  `EDGE_ROUTER_DOMAIN` is ignored end to end.
+- **Docs.** `CLAUDE.md`, `README.md`, `mcp/README.md` and the dashboard's MCP
+  install snippets drop the variable; `mcp/PLAN.md` carries a historical
+  banner. The "install mcp" trigger no longer asks the user for a default
+  domain.
+
+**Follow-ups** (this repo has no `TODO.md`, so they are recorded here):
+1. **REST API: require an explicit domain on mutating endpoints instead of the
+   `ADMIN_API_DOMAIN` fallback.** `getRequiredDomainFromRequest`
+   (`src/routes/request-context.ts`) still resolves `X-Domain` > `?domain` >
+   `ADMIN_API_DOMAIN` > a hardcoded literal. It is no longer reachable from
+   MCP, but it still backs every QR endpoint (`src/routes/qr.ts` — list, get,
+   create, update, delete, `/:id/image`, `/from-route`) and the mutating route
+   endpoints in `src/routes/admin.ts` (`POST`/`PUT`/`DELETE /api/routes`,
+   `/api/routes/seed`, `/api/routes/migrate`, and the single-route
+   `GET /api/routes?path=`). Decide whether the dashboard relies on it before
+   removing it.
+2. **stdio MCP server: validate arguments through the shared Zod schemas at
+   dispatch.** `mcp/src/index.ts` uses the low-level SDK `Server`, which
+   validates nothing: handlers receive raw JSON-RPC `arguments` cast with `as`.
+   That is why the domain contract is enforced by hand-written handler guards.
+   Parsing each tool's arguments through the matching shared `*InputSchema`
+   would cover every other field too and keep the catalog, the schemas and the
+   wire from drifting apart. It also closes `requireDomain()` accepting any
+   non-empty string without checking it against `SUPPORTED_DOMAINS` (the API
+   refuses an unsupported one, so it is a worse error rather than a wrong
+   write); it is the moment to move `requireDomain` / `NO_DOMAIN_ERROR` out of
+   `mcp/src/tools/routes.ts` into a neutral `mcp/src/tools/domain.ts` under an
+   honest name, now that the QR and analytics handlers import them from a file
+   named after route tools; to enumerate `linkedRoute.domain` in the QR schemas
+   (`shared/src/qr.ts` still types it as a bare `z.string()`); and to export one
+   required/optional tool-list constant from `shared` so the 14/3 split stops
+   being hand-maintained in `shared/src/tools.ts`, `shared/src/tools.test.ts`
+   and `mcp/src/tools/routes.no-domain.test.ts` independently. It is also what
+   enforces enum membership for the three optional-domain analytics tools: the
+   catalog and the shared schemas both enumerate `domain`, but nothing on the
+   stdio path parses them, so a misspelled domain is passed to the API as a
+   filter and comes back as an empty result rather than an error. Deliberately
+   not patched piecemeal here — one guard per tool would be the third
+   hand-maintained copy of the same list.
+3. **stdio refusals are returned as success-shaped results.** `mcp/src/index.ts`
+   returns each handler's error string as ordinary `content` with no
+   `isError: true`, so a client cannot tell a refusal from an answer without
+   reading the prose. Fix with structured handler errors plus stdio wire
+   assertions on `isError`.
+4. **The stdio `Server` metadata version is a static `'1.0.0'`**
+   (`mcp/src/index.ts`), so `initialize` reports a version unrelated to the
+   release. Source it from the root package version at build time.
+5. **Slack bot: never default the domain — require or confirm it, especially for
+   delete/toggle.** `slackbot/src/slack/events.ts:219` resolves
+   `command.domain || accessibleDomains[0] || '<placeholder>'` before `create`,
+   `delete` and `toggle`, so a message that names no domain acts on whichever
+   domain happens to sort first in the user's permissions. This is the same
+   hazard the MCP layer just closed, still open on the Slack surface.
+6. **Test files are not typechecked by any tsconfig; include them.** `*.test.ts`
+   sits outside every project's `include`, so a type error in a test surfaces
+   only as a runtime failure — or not at all, in a branch the test never takes.
+7. **Derive the 14-tool handler-guard list from the catalog.** The guarded tools
+   and the catalog's `required` arrays are maintained by hand in separate files,
+   so a new domain-bearing tool can ship with a catalog `required` entry and no
+   handler guard — advertised as required, unenforced on the only transport this
+   repo has.
+
+---
+
 ## v1.34.1 (2026-09-11) — MCP: the domain parameter says when it is required
 
 **[fix] The no-domain error from the seven route tools now lists

@@ -51,9 +51,6 @@ export interface EdgeRouterClientConfig {
   /** Admin API key for authentication */
   apiKey: string;
 
-  /** Default domain for requests (optional, can be overridden per request) */
-  defaultDomain?: string;
-
   /** Custom fetch implementation (for testing or Workers) */
   fetch?: FetchFunction;
 }
@@ -78,13 +75,11 @@ export class EdgeRouterError extends Error {
 export class EdgeRouterClient {
   private readonly baseUrl: string;
   private readonly apiKey: string;
-  private readonly defaultDomain?: string;
   private readonly fetch: FetchFunction;
 
   constructor(config: EdgeRouterClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, ''); // Remove trailing slash
     this.apiKey = config.apiKey;
-    this.defaultDomain = config.defaultDomain;
     this.fetch = config.fetch ?? globalThis.fetch;
   }
 
@@ -218,29 +213,20 @@ export class EdgeRouterClient {
     return response;
   }
 
-  /**
-   * Get the effective domain, resolving default if not provided
-   */
-  private getDomain(domain?: string): string | undefined {
-    return domain ?? this.defaultDomain;
-  }
-
   // ===========================================================================
   // Route Management
   // ===========================================================================
 
   /**
    * List all routes for a domain
-   * @param domain - Optional domain to filter routes
+   * @param domain - Domain whose routes are listed (required; never defaulted)
    * @param search - Optional search term to filter routes (case-insensitive)
    */
-  async listRoutes(domain?: string, search?: string): Promise<Route[]> {
-    const effectiveDomain = this.getDomain(domain);
-    const params: Record<string, string> = {};
-    if (effectiveDomain) params.domain = effectiveDomain;
+  async listRoutes(domain: string, search?: string): Promise<Route[]> {
+    const params: Record<string, string> = { domain };
     if (search) params.search = search;
     const response = await this.request<{ routes: Route[]; total: number }>('GET', '/api/routes', {
-      params: Object.keys(params).length > 0 ? params : undefined,
+      params,
     });
     return response.routes;
   }
@@ -250,24 +236,19 @@ export class EdgeRouterClient {
    *
    * Uses query parameter for path to handle "/" and other special characters correctly.
    */
-  async getRoute(path: string, domain?: string): Promise<Route> {
-    const effectiveDomain = this.getDomain(domain);
+  async getRoute(path: string, domain: string): Promise<Route> {
     return this.request<Route>('GET', '/api/routes', {
-      params: {
-        path,
-        ...(effectiveDomain && { domain: effectiveDomain }),
-      },
+      params: { path, domain },
     });
   }
 
   /**
    * Create a new route
    */
-  async createRoute(input: CreateRouteInput, domain?: string): Promise<Route> {
-    const effectiveDomain = this.getDomain(domain);
+  async createRoute(input: CreateRouteInput, domain: string): Promise<Route> {
     return this.request<Route>('POST', '/api/routes', {
       body: input,
-      params: effectiveDomain ? { domain: effectiveDomain } : undefined,
+      params: { domain },
     });
   }
 
@@ -276,14 +257,10 @@ export class EdgeRouterClient {
    *
    * Uses query parameter for path to handle "/" and other special characters correctly.
    */
-  async updateRoute(path: string, input: UpdateRouteInput, domain?: string): Promise<Route> {
-    const effectiveDomain = this.getDomain(domain);
+  async updateRoute(path: string, input: UpdateRouteInput, domain: string): Promise<Route> {
     return this.request<Route>('PUT', '/api/routes', {
       body: input,
-      params: {
-        path,
-        ...(effectiveDomain && { domain: effectiveDomain }),
-      },
+      params: { path, domain },
     });
   }
 
@@ -292,34 +269,25 @@ export class EdgeRouterClient {
    *
    * Uses query parameter for path to handle "/" and other special characters correctly.
    */
-  async deleteRoute(path: string, domain?: string): Promise<void> {
-    const effectiveDomain = this.getDomain(domain);
+  async deleteRoute(path: string, domain: string): Promise<void> {
     await this.request<void>('DELETE', '/api/routes', {
-      params: {
-        path,
-        ...(effectiveDomain && { domain: effectiveDomain }),
-      },
+      params: { path, domain },
     });
   }
 
   /**
    * Toggle a route's enabled status
    */
-  async toggleRoute(path: string, enabled: boolean, domain?: string): Promise<Route> {
+  async toggleRoute(path: string, enabled: boolean, domain: string): Promise<Route> {
     return this.updateRoute(path, { enabled }, domain);
   }
 
   /**
    * Migrate a route to a new path
    */
-  async migrateRoute(oldPath: string, newPath: string, domain?: string): Promise<Route> {
-    const effectiveDomain = this.getDomain(domain);
+  async migrateRoute(oldPath: string, newPath: string, domain: string): Promise<Route> {
     return this.request<Route>('POST', '/api/routes/migrate', {
-      params: {
-        oldPath,
-        newPath,
-        ...(effectiveDomain && { domain: effectiveDomain }),
-      },
+      params: { oldPath, newPath, domain },
     });
   }
 
@@ -349,10 +317,9 @@ export class EdgeRouterClient {
    * Get analytics summary
    */
   async getAnalyticsSummary(options: AnalyticsQueryOptions = {}): Promise<AnalyticsSummary> {
-    const effectiveDomain = this.getDomain(options.domain);
     return this.request<AnalyticsSummary>('GET', '/api/analytics/summary', {
       params: {
-        domain: effectiveDomain,
+        domain: options.domain,
         days: options.days,
         country: options.country,
         search: options.search,
@@ -365,10 +332,9 @@ export class EdgeRouterClient {
    * Get paginated list of clicks
    */
   async getClicks(options: AnalyticsQueryOptions = {}): Promise<PaginatedResponse<LinkClick>> {
-    const effectiveDomain = this.getDomain(options.domain);
     return this.request<PaginatedResponse<LinkClick>>('GET', '/api/analytics/clicks', {
       params: {
-        domain: effectiveDomain,
+        domain: options.domain,
         days: options.days,
         limit: options.limit,
         offset: options.offset,
@@ -382,10 +348,9 @@ export class EdgeRouterClient {
    * Get paginated list of page views
    */
   async getViews(options: AnalyticsQueryOptions = {}): Promise<PaginatedResponse<PageView>> {
-    const effectiveDomain = this.getDomain(options.domain);
     return this.request<PaginatedResponse<PageView>>('GET', '/api/analytics/views', {
       params: {
-        domain: effectiveDomain,
+        domain: options.domain,
         days: options.days,
         limit: options.limit,
         offset: options.offset,
@@ -397,9 +362,14 @@ export class EdgeRouterClient {
 
   /**
    * Get detailed statistics for a specific slug
+   *
+   * `domain` is REQUIRED: the same slug can exist on several domains and an
+   * unscoped read silently merges their clicks.
    */
-  async getSlugStats(slug: string, options: AnalyticsQueryOptions = {}): Promise<SlugStats> {
-    const effectiveDomain = this.getDomain(options.domain);
+  async getSlugStats(
+    slug: string,
+    options: AnalyticsQueryOptions & { domain: string },
+  ): Promise<SlugStats> {
     // Remove leading slash from slug for URL path
     const cleanSlug = slug.startsWith('/') ? slug.slice(1) : slug;
     return this.request<SlugStats>(
@@ -407,7 +377,7 @@ export class EdgeRouterClient {
       `/api/analytics/clicks/${encodeURIComponent(cleanSlug)}`,
       {
         params: {
-          domain: effectiveDomain,
+          domain: options.domain,
           days: options.days,
         },
       },
@@ -588,19 +558,17 @@ export class EdgeRouterClient {
    * List QR codes for a domain with optional filters + pagination.
    * Returns { items, meta } (paginated envelope unwrap).
    */
-  async listQrs(
-    options: {
-      domain?: string;
-      type?: string;
-      tag?: string;
-      search?: string;
-      limit?: number;
-      offset?: number;
-    } = {},
-  ): Promise<{ items: QRCode[]; meta: QRListMeta }> {
+  async listQrs(options: {
+    domain: string;
+    type?: string;
+    tag?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ items: QRCode[]; meta: QRListMeta }> {
     return this.request<{ items: QRCode[]; meta: QRListMeta }>('GET', '/api/qr', {
       params: {
-        domain: this.getDomain(options.domain),
+        domain: options.domain,
         type: options.type,
         tag: options.tag,
         search: options.search,
@@ -611,41 +579,41 @@ export class EdgeRouterClient {
   }
 
   /** Get a single QR code record. */
-  async getQr(id: string, domain?: string): Promise<QRCode> {
+  async getQr(id: string, domain: string): Promise<QRCode> {
     return this.request<QRCode>('GET', `/api/qr/${encodeURIComponent(id)}`, {
-      params: { domain: this.getDomain(domain) },
+      params: { domain },
     });
   }
 
   /** Create a QR code. The API validates with the strict discriminated schemas. */
-  async createQr(input: Record<string, unknown>, domain?: string): Promise<QRCode> {
+  async createQr(input: Record<string, unknown>, domain: string): Promise<QRCode> {
     return this.request<QRCode>('POST', '/api/qr', {
-      params: { domain: this.getDomain(domain) },
+      params: { domain },
       body: input,
     });
   }
 
   /** Update a QR code (type is immutable server-side). */
-  async updateQr(id: string, input: Record<string, unknown>, domain?: string): Promise<QRCode> {
+  async updateQr(id: string, input: Record<string, unknown>, domain: string): Promise<QRCode> {
     return this.request<QRCode>('PUT', `/api/qr/${encodeURIComponent(id)}`, {
-      params: { domain: this.getDomain(domain) },
+      params: { domain },
       body: input,
     });
   }
 
   /** Delete a QR code (hard delete; the audit log preserves the record). */
-  async deleteQr(id: string, domain?: string): Promise<{ deleted: true; id: string }> {
+  async deleteQr(id: string, domain: string): Promise<{ deleted: true; id: string }> {
     return this.request<{ deleted: true; id: string }>(
       'DELETE',
       `/api/qr/${encodeURIComponent(id)}`,
-      { params: { domain: this.getDomain(domain) } },
+      { params: { domain } },
     );
   }
 
   /** Fetch the rendered QR SVG source for a stored record. */
-  async getQrImageSvg(id: string, domain?: string): Promise<string> {
+  async getQrImageSvg(id: string, domain: string): Promise<string> {
     const response = await this.requestRaw('GET', `/api/qr/${encodeURIComponent(id)}/image`, {
-      domain: this.getDomain(domain),
+      domain,
     });
     return response.text();
   }
@@ -653,10 +621,10 @@ export class EdgeRouterClient {
   /** Render an ephemeral QR SVG for an existing route (persists nothing). */
   async getRouteQrSvg(
     path: string,
-    options: { domain?: string; fg?: string; bg?: string; size?: number } = {},
+    options: { domain: string; fg?: string; bg?: string; size?: number },
   ): Promise<string> {
     const response = await this.requestRaw('GET', '/api/qr/from-route', {
-      domain: this.getDomain(options.domain),
+      domain: options.domain,
       path,
       fg: options.fg,
       bg: options.bg,
@@ -672,7 +640,9 @@ export class EdgeRouterClient {
  * Expected environment variables:
  * - EDGE_ROUTER_API_KEY: Admin API key (required)
  * - EDGE_ROUTER_URL: Base URL (default: 'https://example.com')
- * - EDGE_ROUTER_DOMAIN: Default domain (optional)
+ *
+ * There is no default domain: every route, QR and slug-stats call names its
+ * own domain. `EDGE_ROUTER_DOMAIN` was removed in v1.35.0 and is not read.
  */
 export function createClientFromEnv(env?: Record<string, string | undefined>): EdgeRouterClient {
   // Use provided env or try to use process.env if available
@@ -685,6 +655,5 @@ export function createClientFromEnv(env?: Record<string, string | undefined>): E
   return new EdgeRouterClient({
     baseUrl: resolvedEnv.EDGE_ROUTER_URL ?? 'https://example.com',
     apiKey,
-    defaultDomain: resolvedEnv.EDGE_ROUTER_DOMAIN,
   });
 }

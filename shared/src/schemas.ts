@@ -6,7 +6,7 @@
  */
 
 import { z } from 'zod';
-import { SUPPORTED_DOMAINS, R2_BUCKETS, ALL_R2_BUCKETS } from './types.js';
+import { SUPPORTED_DOMAINS, SUPPORTED_DOMAINS_LIST, R2_BUCKETS, ALL_R2_BUCKETS } from './types.js';
 import { CommentSchema } from './comment.js';
 
 // =============================================================================
@@ -22,6 +22,36 @@ export const DomainSchema = z
   .refine(val => !val || SUPPORTED_DOMAINS.includes(val as (typeof SUPPORTED_DOMAINS)[number]), {
     message: `Domain must be one of: ${SUPPORTED_DOMAINS.join(', ')}`,
   });
+
+/**
+ * Required, enumerated domain for the MCP tool surface (v1.35.0).
+ *
+ * Every route, QR and slug-stats tool names its own domain: there is no default
+ * anywhere in the MCP layer and no environment variable fills one in, so a
+ * missing domain is refused rather than silently resolving to some other
+ * brand's host. {@link OptionalDomainSchema} is the analytics counterpart
+ * (omitted = all domains); the untyped {@link DomainSchema} remains for the
+ * REST query schemas.
+ */
+export const RequiredDomainSchema = z
+  .enum(SUPPORTED_DOMAINS)
+  .describe(`Domain. Required — one of: ${SUPPORTED_DOMAINS_LIST}.`);
+
+/**
+ * Optional, enumerated domain for the three analytics MCP tools (v1.35.0).
+ *
+ * A SCOPE, never a default: omitting it means all domains. Enumerated so
+ * `tools/list` advertises the same choices the catalog does and a client can
+ * pick one without guessing. {@link GetSlugStatsInputSchema} is the exception
+ * in this family — it uses {@link RequiredDomainSchema}, because the same slug
+ * can exist on several domains and an unscoped read merges their clicks.
+ */
+export const OptionalDomainSchema = z
+  .enum(SUPPORTED_DOMAINS)
+  .optional()
+  .describe(
+    `Domain to scope the results to. Omit for all domains. One of: ${SUPPORTED_DOMAINS_LIST}.`,
+  );
 
 // =============================================================================
 // Route Schemas
@@ -161,9 +191,15 @@ export const SlugStatsQuerySchema = z.object({
  * list_routes tool input schema
  */
 export const ListRoutesInputSchema = z.object({
-  domain: DomainSchema.describe(
-    "Target domain (e.g., 'links.example.com'). Optional in this schema; the MCP server requires it unless its process sets EDGE_ROUTER_DOMAIN.",
+  domain: RequiredDomainSchema.describe(
+    `Target domain whose routes are listed (e.g., 'links.example.com'). Required — one of: ${SUPPORTED_DOMAINS_LIST}.`,
   ),
+  search: z
+    .string()
+    .optional()
+    .describe(
+      'Search term to filter routes. Matches against path, target URL, type, status code, bucket, and host header (case-insensitive).',
+    ),
 });
 
 /**
@@ -171,7 +207,7 @@ export const ListRoutesInputSchema = z.object({
  */
 export const GetRouteInputSchema = z.object({
   path: z.string().startsWith('/').describe('Route path starting with /'),
-  domain: DomainSchema.describe('Target domain'),
+  domain: RequiredDomainSchema,
 });
 
 /**
@@ -194,7 +230,7 @@ export const CreateRouteToolInputSchema = z.object({
   bucket: R2BucketSchema.optional().describe(
     'R2 bucket for file serving (R2 only, default: "files")',
   ),
-  domain: DomainSchema.describe('Target domain'),
+  domain: RequiredDomainSchema,
 });
 
 /**
@@ -211,7 +247,7 @@ export const UpdateRouteToolInputSchema = z.object({
   hostHeader: z.string().optional().describe('New Host header override for proxy routes'),
   forceDownload: z.boolean().optional().describe('New force download setting (R2 only)'),
   bucket: R2BucketSchema.optional().describe('R2 bucket for file serving (R2 only)'),
-  domain: DomainSchema.describe('Target domain'),
+  domain: RequiredDomainSchema,
 });
 
 /**
@@ -219,7 +255,7 @@ export const UpdateRouteToolInputSchema = z.object({
  */
 export const DeleteRouteInputSchema = z.object({
   path: z.string().startsWith('/').describe('Route path to delete'),
-  domain: DomainSchema.describe('Target domain'),
+  domain: RequiredDomainSchema,
 });
 
 /**
@@ -228,14 +264,14 @@ export const DeleteRouteInputSchema = z.object({
 export const ToggleRouteInputSchema = z.object({
   path: z.string().startsWith('/').describe('Route path to toggle'),
   enabled: z.boolean().describe('Enable (true) or disable (false) the route'),
-  domain: DomainSchema.describe('Target domain'),
+  domain: RequiredDomainSchema,
 });
 
 /**
  * get_analytics_summary tool input schema
  */
 export const GetAnalyticsSummaryInputSchema = z.object({
-  domain: DomainSchema.describe('Filter by domain'),
+  domain: OptionalDomainSchema,
   days: z.number().min(1).max(365).optional().default(30).describe('Time range in days'),
 });
 
@@ -243,7 +279,7 @@ export const GetAnalyticsSummaryInputSchema = z.object({
  * get_clicks tool input schema
  */
 export const GetClicksInputSchema = z.object({
-  domain: DomainSchema.describe('Filter by domain'),
+  domain: OptionalDomainSchema,
   days: z.number().min(1).max(365).optional().default(30).describe('Time range in days'),
   limit: z.number().min(1).max(100).optional().default(50).describe('Results per page'),
   offset: z.number().min(0).optional().default(0).describe('Pagination offset'),
@@ -255,7 +291,7 @@ export const GetClicksInputSchema = z.object({
  * get_views tool input schema
  */
 export const GetViewsInputSchema = z.object({
-  domain: DomainSchema.describe('Filter by domain'),
+  domain: OptionalDomainSchema,
   days: z.number().min(1).max(365).optional().default(30).describe('Time range in days'),
   limit: z.number().min(1).max(100).optional().default(50).describe('Results per page'),
   offset: z.number().min(0).optional().default(0).describe('Pagination offset'),
@@ -268,7 +304,9 @@ export const GetViewsInputSchema = z.object({
  */
 export const GetSlugStatsInputSchema = z.object({
   slug: z.string().startsWith('/').describe("Link slug (e.g., '/linkedin')"),
-  domain: DomainSchema.describe('Filter by domain'),
+  domain: RequiredDomainSchema.describe(
+    `Domain the slug belongs to. Required — the same slug can exist on several domains. One of: ${SUPPORTED_DOMAINS_LIST}.`,
+  ),
   days: z.number().min(1).max(365).optional().default(30).describe('Time range in days'),
 });
 

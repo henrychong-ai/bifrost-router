@@ -11,6 +11,7 @@ import {
   storageTools,
   qrTools,
 } from './tools.js';
+import { SUPPORTED_DOMAINS } from './types.js';
 
 describe('tools', () => {
   describe('toolDefinitions', () => {
@@ -208,5 +209,80 @@ describe('tools', () => {
         expect(names).toContain(qrTool);
       }
     });
+  });
+});
+
+/**
+ * v1.35.0 domain contract, pinned catalog-side.
+ *
+ * There is no hosted MCP server in this repo and the stdio server's low-level
+ * `Server` validates nothing, so the JSON-Schema catalog is what a client
+ * actually sees: it is the only machine-readable half of the contract, and the
+ * handler guards (mcp/src/tools/routes.no-domain.test.ts) are the enforcement.
+ * These assertions keep the two halves from drifting apart.
+ */
+describe('v1.35.0 domain contract (catalog)', () => {
+  /** 7 route + 6 QR + get_slug_stats. */
+  const REQUIRED_DOMAIN_TOOLS = [
+    'list_routes',
+    'get_route',
+    'create_route',
+    'update_route',
+    'delete_route',
+    'toggle_route',
+    'migrate_route',
+    'list_qrs',
+    'get_qr',
+    'create_qr',
+    'update_qr',
+    'delete_qr',
+    'get_route_qr',
+    'get_slug_stats',
+  ] as const;
+
+  /** The only three tools where an omitted domain means "all domains". */
+  const OPTIONAL_DOMAIN_TOOLS = ['get_analytics_summary', 'get_clicks', 'get_views'] as const;
+
+  it('pins the split at 14 required and 3 optional', () => {
+    expect(REQUIRED_DOMAIN_TOOLS).toHaveLength(14);
+    expect(OPTIONAL_DOMAIN_TOOLS).toHaveLength(3);
+  });
+
+  it.each(REQUIRED_DOMAIN_TOOLS)('%s requires an enumerated domain', name => {
+    const tool = getToolDefinition(name);
+    expect(tool).toBeDefined();
+    const schema = tool?.inputSchema;
+    expect(schema?.required ?? []).toContain('domain');
+    expect(schema?.properties.domain?.enum).toEqual([...SUPPORTED_DOMAINS]);
+  });
+
+  it('transfer_route requires both domains, enumerated', () => {
+    const schema = getToolDefinition('transfer_route')?.inputSchema;
+    expect(schema?.required ?? []).toEqual(
+      expect.arrayContaining(['from_domain', 'to_domain', 'path']),
+    );
+    expect(schema?.properties.from_domain?.enum).toEqual([...SUPPORTED_DOMAINS]);
+    expect(schema?.properties.to_domain?.enum).toEqual([...SUPPORTED_DOMAINS]);
+  });
+
+  it.each(OPTIONAL_DOMAIN_TOOLS)('%s keeps domain optional but enumerated', name => {
+    const schema = getToolDefinition(name)?.inputSchema;
+    // `required` may be absent entirely on these tools; either way domain is not in it.
+    expect(schema?.required ?? []).not.toContain('domain');
+    expect(schema?.properties.domain?.enum).toEqual([...SUPPORTED_DOMAINS]);
+  });
+
+  it('no catalog description mentions a default-domain environment variable', () => {
+    const rendered = JSON.stringify(toolDefinitions);
+    expect(rendered).not.toContain('EDGE_ROUTER_DOMAIN');
+    expect(rendered).not.toContain('ADMIN_API_DOMAIN');
+  });
+
+  it('every tool carrying a domain property is covered by exactly one list', () => {
+    const withDomain = toolDefinitions
+      .filter(tool => 'domain' in tool.inputSchema.properties)
+      .map(tool => tool.name)
+      .sort();
+    expect(withDomain).toEqual([...REQUIRED_DOMAIN_TOOLS, ...OPTIONAL_DOMAIN_TOOLS].slice().sort());
   });
 });

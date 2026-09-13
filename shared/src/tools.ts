@@ -39,12 +39,12 @@ export interface ToolDefinition {
 }
 
 /**
- * Domain property schemas — one per omission behaviour (v1.34.1). The seven route
- * tools hard-fail without a domain (the server process's EDGE_ROUTER_DOMAIN is
- * the only default); analytics use it as an optional scope; QR tools select
- * the QR's domain namespace (get_route_qr: the route table searched); and
- * transfer_route's two domains are required and never defaulted. Every variant
- * goes through one factory so none can ship without the enum.
+ * Domain property schemas — one per meaning (v1.35.0). There is no default
+ * domain anywhere: the seven route tools, the six QR tools and get_slug_stats
+ * all list `domain` under `required`, and transfer_route requires both of its
+ * domains. Only the three analytics tools keep it optional, where omitting it
+ * means all domains. Every variant goes through one factory so none can ship
+ * without the enum, and shared/src/tools.test.ts pins the catalog contract.
  */
 const domainProperty = (description: string): JsonSchemaProperty => ({
   type: 'string',
@@ -52,32 +52,37 @@ const domainProperty = (description: string): JsonSchemaProperty => ({
   enum: [...SUPPORTED_DOMAINS],
 });
 
-/** Route tools: required unless the MCP server process sets EDGE_ROUTER_DOMAIN. */
+/** Route tools: required everywhere, never defaulted. */
 const routeDomainProperty = domainProperty(
-  `Target domain (e.g., 'links.example.com'). Supported: ${SUPPORTED_DOMAINS_LIST}. Optional only when the MCP server process sets EDGE_ROUTER_DOMAIN (that value is its default); otherwise required.`,
+  `Target domain (e.g., 'links.example.com'). Required — one of: ${SUPPORTED_DOMAINS_LIST}.`,
 );
 
-/** Analytics: an optional scope — the env default first, else every domain the caller may see. */
+/** Analytics: an optional scope — omitted means all domains. */
 const analyticsDomainProperty = domainProperty(
-  `Filter by domain (optional). When omitted: the MCP server process's EDGE_ROUTER_DOMAIN if set, else all domains the caller may see. Supported: ${SUPPORTED_DOMAINS_LIST}.`,
+  `Domain to scope the results to. Omit for all domains. One of: ${SUPPORTED_DOMAINS_LIST}.`,
 );
 
-/** QR tools: selects the QR's domain namespace — the env default first, else the API's default host. */
+/** get_slug_stats: required — the same slug can exist on several domains. */
+const slugStatsDomainProperty = domainProperty(
+  `Domain the slug belongs to. Required — the same slug can exist on several domains. One of: ${SUPPORTED_DOMAINS_LIST}.`,
+);
+
+/** QR tools: selects the QR's domain namespace — required, never defaulted. */
 const qrDomainProperty = domainProperty(
-  `Domain the QR code belongs to — selects its domain namespace (optional). When omitted: the MCP server process's EDGE_ROUTER_DOMAIN if set, else the API's default host (ADMIN_API_DOMAIN). Supported: ${SUPPORTED_DOMAINS_LIST}.`,
+  `Domain namespace the QR belongs to. Required — one of: ${SUPPORTED_DOMAINS_LIST}.`,
 );
 
-/** get_route_qr: selects the ROUTE TABLE searched (the API default host holds no short links). */
+/** get_route_qr: selects the ROUTE TABLE searched — required, never defaulted. */
 const routeQrDomainProperty = domainProperty(
-  `Domain of the route to encode — selects the route table searched (optional). When omitted: the MCP server process's EDGE_ROUTER_DOMAIN if set, else the API's default host (ADMIN_API_DOMAIN), which holds no short links — pass it. Supported: ${SUPPORTED_DOMAINS_LIST}.`,
+  `Domain whose route table is searched for the path. Required — one of: ${SUPPORTED_DOMAINS_LIST}.`,
 );
 
 /** transfer_route: both required, never defaulted — a transfer deletes the route from the source. */
 const sourceDomainProperty = domainProperty(
-  `Source domain — required and never defaulted (a transfer deletes the route from the source, so it is never guessed from EDGE_ROUTER_DOMAIN). Supported: ${SUPPORTED_DOMAINS_LIST}.`,
+  `Source domain — required, never defaulted (a transfer deletes the route from the source, so the source is never guessed). One of: ${SUPPORTED_DOMAINS_LIST}.`,
 );
 const destinationDomainProperty = domainProperty(
-  `Destination domain — required (no default). Supported: ${SUPPORTED_DOMAINS_LIST}.`,
+  `Destination domain — required, never defaulted. One of: ${SUPPORTED_DOMAINS_LIST}.`,
 );
 
 /**
@@ -101,6 +106,7 @@ export const toolDefinitions: ToolDefinition[] = [
             'Search term to filter routes. Matches against path, target URL, type, status code, bucket, and host header (case-insensitive).',
         },
       },
+      required: ['domain'],
     },
   },
   {
@@ -115,7 +121,7 @@ export const toolDefinitions: ToolDefinition[] = [
         },
         domain: routeDomainProperty,
       },
-      required: ['path'],
+      required: ['domain', 'path'],
     },
   },
   {
@@ -166,7 +172,7 @@ export const toolDefinitions: ToolDefinition[] = [
         },
         domain: routeDomainProperty,
       },
-      required: ['path', 'type', 'target'],
+      required: ['domain', 'path', 'type', 'target'],
     },
   },
   {
@@ -212,7 +218,7 @@ export const toolDefinitions: ToolDefinition[] = [
         },
         domain: routeDomainProperty,
       },
-      required: ['path'],
+      required: ['domain', 'path'],
     },
   },
   {
@@ -227,7 +233,7 @@ export const toolDefinitions: ToolDefinition[] = [
         },
         domain: routeDomainProperty,
       },
-      required: ['path'],
+      required: ['domain', 'path'],
     },
   },
   {
@@ -246,7 +252,7 @@ export const toolDefinitions: ToolDefinition[] = [
         },
         domain: routeDomainProperty,
       },
-      required: ['path', 'enabled'],
+      required: ['domain', 'path', 'enabled'],
     },
   },
   {
@@ -266,7 +272,7 @@ export const toolDefinitions: ToolDefinition[] = [
         },
         domain: routeDomainProperty,
       },
-      required: ['oldPath', 'newPath'],
+      required: ['domain', 'oldPath', 'newPath'],
     },
   },
   {
@@ -395,7 +401,7 @@ export const toolDefinitions: ToolDefinition[] = [
           type: 'string',
           description: 'Link slug (e.g., "/linkedin")',
         },
-        domain: analyticsDomainProperty,
+        domain: slugStatsDomainProperty,
         days: {
           type: 'number',
           description: 'Time range in days (default: 30)',
@@ -404,7 +410,7 @@ export const toolDefinitions: ToolDefinition[] = [
           default: 30,
         },
       },
-      required: ['slug'],
+      required: ['domain', 'slug'],
     },
   },
 
@@ -713,6 +719,7 @@ export const toolDefinitions: ToolDefinition[] = [
         limit: { type: 'number', description: 'Page size (1-1000)' },
         offset: { type: 'number', description: 'Page offset' },
       },
+      required: ['domain'],
     },
   },
   {
@@ -724,7 +731,7 @@ export const toolDefinitions: ToolDefinition[] = [
         id: { type: 'string', description: 'QR code id' },
         domain: qrDomainProperty,
       },
-      required: ['id'],
+      required: ['domain', 'id'],
     },
   },
   {
@@ -761,7 +768,7 @@ export const toolDefinitions: ToolDefinition[] = [
             'url-type only: { domain, path } of the Bifrost route to encode as a short URL',
         },
       },
-      required: ['type', 'payload'],
+      required: ['domain', 'type', 'payload'],
     },
   },
   {
@@ -783,7 +790,7 @@ export const toolDefinitions: ToolDefinition[] = [
         linkedRoute: { type: 'object', description: 'url-type only: { domain, path } to link' },
         clearLinkedRoute: { type: 'boolean', description: 'Set true to unlink the route' },
       },
-      required: ['id'],
+      required: ['domain', 'id'],
     },
   },
   {
@@ -795,7 +802,7 @@ export const toolDefinitions: ToolDefinition[] = [
         id: { type: 'string', description: 'QR code id' },
         domain: qrDomainProperty,
       },
-      required: ['id'],
+      required: ['domain', 'id'],
     },
   },
   {
@@ -811,7 +818,7 @@ export const toolDefinitions: ToolDefinition[] = [
         bg: { type: 'string', description: 'Background colour (#rrggbb)' },
         size: { type: 'number', description: 'SVG size in px (128-2048)' },
       },
-      required: ['path'],
+      required: ['domain', 'path'],
     },
   },
 ];

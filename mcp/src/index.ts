@@ -39,14 +39,12 @@ import {
   handlePurgeCache,
 } from './tools/storage.js';
 import { listQrs, getQr, createQr, updateQr, deleteQr, getRouteQr } from './tools/qr.js';
+import { warnIgnoredEnv } from './boot-warnings.js';
 
 /**
  * Main entry point
  */
 async function main(): Promise<void> {
-  // Get default domain from environment
-  const defaultDomain = process.env.EDGE_ROUTER_DOMAIN;
-
   // Create the Edge Router client
   let client: EdgeRouterClient;
   try {
@@ -62,9 +60,6 @@ async function main(): Promise<void> {
     console.error('');
     console.error('Optional environment variables:');
     console.error('  EDGE_ROUTER_URL     - Base URL (default: https://example.com)');
-    console.error(
-      '  EDGE_ROUTER_DOMAIN  - Default domain for the route tools (also scopes analytics and QR); without it every route tool call must pass domain',
-    );
     process.exit(1);
   }
 
@@ -94,7 +89,10 @@ async function main(): Promise<void> {
 
   // Register tool execution handler
   server.setRequestHandler(CallToolRequestSchema, async request => {
-    const { name, arguments: args } = request.params;
+    const { name } = request.params;
+    // A call with no `arguments` object at all must still reach the handler, so
+    // it answers with the actionable no-domain error instead of a TypeError.
+    const args = request.params.arguments ?? {};
 
     try {
       let result: string;
@@ -102,11 +100,11 @@ async function main(): Promise<void> {
       switch (name) {
         // Route management tools
         case 'list_routes':
-          result = await listRoutes(client, args as { domain?: string }, defaultDomain);
+          result = await listRoutes(client, args as { domain?: string });
           break;
 
         case 'get_route':
-          result = await getRoute(client, args as { path: string; domain?: string }, defaultDomain);
+          result = await getRoute(client, args as { path: string; domain?: string });
           break;
 
         case 'create_route':
@@ -125,7 +123,6 @@ async function main(): Promise<void> {
               bucket?: string;
               domain?: string;
             },
-            defaultDomain,
           );
           break;
 
@@ -145,23 +142,17 @@ async function main(): Promise<void> {
               bucket?: string;
               domain?: string;
             },
-            defaultDomain,
           );
           break;
 
         case 'delete_route':
-          result = await deleteRoute(
-            client,
-            args as { path: string; domain?: string },
-            defaultDomain,
-          );
+          result = await deleteRoute(client, args as { path: string; domain?: string });
           break;
 
         case 'toggle_route':
           result = await toggleRoute(
             client,
             args as { path: string; enabled: boolean; domain?: string },
-            defaultDomain,
           );
           break;
 
@@ -169,7 +160,6 @@ async function main(): Promise<void> {
           result = await migrateRoute(
             client,
             args as { oldPath: string; newPath: string; domain?: string },
-            defaultDomain,
           );
           break;
 
@@ -182,11 +172,7 @@ async function main(): Promise<void> {
 
         // Analytics tools
         case 'get_analytics_summary':
-          result = await getAnalyticsSummary(
-            client,
-            args as { domain?: string; days?: number },
-            defaultDomain,
-          );
+          result = await getAnalyticsSummary(client, args as { domain?: string; days?: number });
           break;
 
         case 'get_clicks':
@@ -200,7 +186,6 @@ async function main(): Promise<void> {
               slug?: string;
               country?: string;
             },
-            defaultDomain,
           );
           break;
 
@@ -215,7 +200,6 @@ async function main(): Promise<void> {
               path?: string;
               country?: string;
             },
-            defaultDomain,
           );
           break;
 
@@ -223,7 +207,6 @@ async function main(): Promise<void> {
           result = await getSlugStats(
             client,
             args as { slug: string; domain?: string; days?: number },
-            defaultDomain,
           );
           break;
 
@@ -346,31 +329,29 @@ async function main(): Promise<void> {
               limit?: number;
               offset?: number;
             },
-            defaultDomain,
           );
           break;
 
         case 'get_qr':
-          result = await getQr(client, args as { id: string; domain?: string }, defaultDomain);
+          result = await getQr(client, args as { id: string; domain?: string });
           break;
 
         case 'create_qr':
-          result = await createQr(client, args as Parameters<typeof createQr>[1], defaultDomain);
+          result = await createQr(client, args as Parameters<typeof createQr>[1]);
           break;
 
         case 'update_qr':
-          result = await updateQr(client, args as Parameters<typeof updateQr>[1], defaultDomain);
+          result = await updateQr(client, args as Parameters<typeof updateQr>[1]);
           break;
 
         case 'delete_qr':
-          result = await deleteQr(client, args as { id: string; domain?: string }, defaultDomain);
+          result = await deleteQr(client, args as { id: string; domain?: string });
           break;
 
         case 'get_route_qr':
           result = await getRouteQr(
             client,
             args as { path: string; domain?: string; fg?: string; bg?: string; size?: number },
-            defaultDomain,
           );
           break;
 
@@ -414,9 +395,9 @@ async function main(): Promise<void> {
 
   // Log startup (to stderr to avoid interfering with stdio protocol)
   console.error('Bifrost MCP server started');
-  if (defaultDomain) {
-    console.error(`Default domain: ${defaultDomain}`);
-  }
+  // A removed variable left behind in an operator's config is never a startup
+  // failure, but it must not be silent either. See mcp/src/boot-warnings.ts.
+  warnIgnoredEnv(process.env, m => console.error(m));
 }
 
 // Run the server

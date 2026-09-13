@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EdgeRouterClient, EdgeRouterError, createClientFromEnv } from './client.js';
 
 describe('EdgeRouterClient', () => {
@@ -10,7 +10,6 @@ describe('EdgeRouterClient', () => {
     client = new EdgeRouterClient({
       baseUrl: 'https://test.example.com',
       apiKey: 'test-api-key',
-      defaultDomain: 'links.example.com',
       fetch: mockFetch,
     });
   });
@@ -28,7 +27,7 @@ describe('EdgeRouterClient', () => {
         json: async () => ({ success: true, data: [] }),
       });
 
-      clientWithSlash.listRoutes();
+      clientWithSlash.listRoutes('links.example.com');
 
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining('https://test.example.com/api/routes'),
@@ -44,7 +43,7 @@ describe('EdgeRouterClient', () => {
         json: async () => ({ success: true, data: [] }),
       });
 
-      await client.listRoutes();
+      await client.listRoutes('links.example.com');
 
       expect(mockFetch).toHaveBeenCalledWith(
         'https://test.example.com/api/routes?domain=links.example.com',
@@ -58,7 +57,7 @@ describe('EdgeRouterClient', () => {
       );
     });
 
-    it('uses provided domain over default', async () => {
+    it('sends exactly the domain it is given', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({ success: true, data: [] }),
@@ -83,7 +82,7 @@ describe('EdgeRouterClient', () => {
         }),
       });
 
-      const routes = await client.listRoutes();
+      const routes = await client.listRoutes('links.example.com');
 
       expect(routes).toEqual(mockRoutes);
     });
@@ -103,7 +102,7 @@ describe('EdgeRouterClient', () => {
         }),
       });
 
-      await client.getRoute('/test/path');
+      await client.getRoute('/test/path', 'links.example.com');
 
       // Path is passed as query parameter, URLSearchParams handles encoding
       expect(mockFetch).toHaveBeenCalledWith(
@@ -127,7 +126,7 @@ describe('EdgeRouterClient', () => {
         json: async () => ({ success: true, data: input }),
       });
 
-      await client.createRoute(input);
+      await client.createRoute(input, 'links.example.com');
 
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining('/api/routes'),
@@ -154,7 +153,7 @@ describe('EdgeRouterClient', () => {
         }),
       });
 
-      await client.updateRoute('/test', input);
+      await client.updateRoute('/test', input, 'links.example.com');
 
       // Path is passed as query parameter
       expect(mockFetch).toHaveBeenCalledWith(
@@ -176,7 +175,7 @@ describe('EdgeRouterClient', () => {
         json: async () => ({ success: true }),
       });
 
-      await client.deleteRoute('/test');
+      await client.deleteRoute('/test', 'links.example.com');
 
       // Path is passed as query parameter
       expect(mockFetch).toHaveBeenCalledWith(
@@ -203,7 +202,7 @@ describe('EdgeRouterClient', () => {
         }),
       });
 
-      await client.toggleRoute('/test', false);
+      await client.toggleRoute('/test', false, 'links.example.com');
 
       // Path is passed as query parameter
       expect(mockFetch).toHaveBeenCalledWith(
@@ -232,7 +231,7 @@ describe('EdgeRouterClient', () => {
         }),
       });
 
-      await client.getAnalyticsSummary({ days: 7 });
+      await client.getAnalyticsSummary({ domain: 'links.example.com', days: 7 });
 
       expect(mockFetch).toHaveBeenCalledWith(
         'https://test.example.com/api/analytics/summary?domain=links.example.com&days=7',
@@ -271,12 +270,114 @@ describe('EdgeRouterClient', () => {
         }),
       });
 
-      await client.getSlugStats('/linkedin');
+      await client.getSlugStats('/linkedin', { domain: 'links.example.com' });
 
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining('/api/analytics/clicks/linkedin'),
         expect.any(Object),
       );
+    });
+  });
+
+  // v1.35.0 — every domain-bearing method sends exactly the domain it is given
+  // and nothing else: there is no client-level default to fall back to.
+  describe('domain pass-through on migrate, views and QR methods', () => {
+    const okJson = (data: unknown) => ({ ok: true, json: async () => ({ success: true, data }) });
+    const okText = (text: string) => ({ ok: true, text: async () => text });
+    const calledUrl = () => String(mockFetch.mock.calls[0][0]);
+    const calledMethod = () => (mockFetch.mock.calls[0][1] as { method: string }).method;
+
+    it('migrateRoute posts oldPath, newPath and the given domain as query params', async () => {
+      mockFetch.mockResolvedValueOnce(okJson({ path: '/new', domain: 'links.example.com' }));
+      await client.migrateRoute('/old', '/new', 'links.example.com');
+      expect(calledMethod()).toBe('POST');
+      expect(calledUrl()).toContain('/api/routes/migrate?');
+      expect(calledUrl()).toContain('oldPath=%2Fold');
+      expect(calledUrl()).toContain('newPath=%2Fnew');
+      expect(calledUrl()).toContain('domain=links.example.com');
+    });
+
+    it('getViews scopes to the given domain and sends no domain param when omitted', async () => {
+      mockFetch.mockResolvedValueOnce(
+        okJson({ items: [], meta: { total: 0, limit: 50, offset: 0, hasMore: false } }),
+      );
+      await client.getViews({ domain: 'example.com', days: 7 });
+      expect(calledUrl()).toContain('/api/analytics/views?');
+      expect(calledUrl()).toContain('domain=example.com');
+      expect(calledUrl()).toContain('days=7');
+
+      mockFetch.mockReset();
+      mockFetch.mockResolvedValueOnce(
+        okJson({ items: [], meta: { total: 0, limit: 50, offset: 0, hasMore: false } }),
+      );
+      await client.getViews({ days: 7 });
+      expect(calledUrl()).not.toContain('domain=');
+    });
+
+    it('listQrs sends the given domain and the optional filters', async () => {
+      mockFetch.mockResolvedValueOnce(okJson({ items: [], meta: { total: 0 } }));
+      await client.listQrs({ domain: 'links.example.com', type: 'url', limit: 5 });
+      expect(calledMethod()).toBe('GET');
+      expect(calledUrl()).toContain('/api/qr?');
+      expect(calledUrl()).toContain('domain=links.example.com');
+      expect(calledUrl()).toContain('type=url');
+      expect(calledUrl()).toContain('limit=5');
+    });
+
+    it('getQr reads by id inside the given domain namespace', async () => {
+      mockFetch.mockResolvedValueOnce(okJson({ id: 'qr_1' }));
+      await client.getQr('qr_1', 'links.example.com');
+      expect(calledMethod()).toBe('GET');
+      expect(calledUrl()).toContain('/api/qr/qr_1?domain=links.example.com');
+    });
+
+    it('createQr posts the body into the given domain namespace', async () => {
+      mockFetch.mockResolvedValueOnce(okJson({ id: 'qr_2' }));
+      await client.createQr(
+        { type: 'url', payload: { url: 'https://target.example.com' } },
+        'links.example.com',
+      );
+      expect(calledMethod()).toBe('POST');
+      expect(calledUrl()).toContain('/api/qr?domain=links.example.com');
+      const init = mockFetch.mock.calls[0][1] as { body: string };
+      expect(JSON.parse(init.body)).toEqual({
+        type: 'url',
+        payload: { url: 'https://target.example.com' },
+      });
+    });
+
+    it('updateQr puts the body to the id inside the given domain namespace', async () => {
+      mockFetch.mockResolvedValueOnce(okJson({ id: 'qr_3' }));
+      await client.updateQr('qr_3', { description: 'renamed' }, 'secondary.example.net');
+      expect(calledMethod()).toBe('PUT');
+      expect(calledUrl()).toContain('/api/qr/qr_3?domain=secondary.example.net');
+    });
+
+    it('deleteQr deletes the id inside the given domain namespace', async () => {
+      mockFetch.mockResolvedValueOnce(okJson({ deleted: true, id: 'qr_4' }));
+      await client.deleteQr('qr_4', 'secondary.example.net');
+      expect(calledMethod()).toBe('DELETE');
+      expect(calledUrl()).toContain('/api/qr/qr_4?domain=secondary.example.net');
+    });
+
+    it('getQrImageSvg fetches the image for the id inside the given domain namespace', async () => {
+      mockFetch.mockResolvedValueOnce(okText('<svg/>'));
+      const svg = await client.getQrImageSvg('qr_5', 'links.example.com');
+      expect(svg).toBe('<svg/>');
+      expect(calledUrl()).toContain('/api/qr/qr_5/image?domain=links.example.com');
+    });
+
+    it('getRouteQrSvg searches the given domain route table for the path', async () => {
+      mockFetch.mockResolvedValueOnce(okText('<svg/>'));
+      const svg = await client.getRouteQrSvg('/linkedin', {
+        domain: 'links.example.com',
+        size: 256,
+      });
+      expect(svg).toBe('<svg/>');
+      expect(calledUrl()).toContain('/api/qr/from-route?');
+      expect(calledUrl()).toContain('domain=links.example.com');
+      expect(calledUrl()).toContain('path=%2Flinkedin');
+      expect(calledUrl()).toContain('size=256');
     });
   });
 
@@ -290,7 +391,7 @@ describe('EdgeRouterClient', () => {
       });
 
       try {
-        await client.getRoute('/notfound');
+        await client.getRoute('/notfound', 'links.example.com');
         expect.fail('Should have thrown');
       } catch (error) {
         expect(error).toBeInstanceOf(EdgeRouterError);
@@ -310,7 +411,7 @@ describe('EdgeRouterClient', () => {
       });
 
       try {
-        await client.listRoutes();
+        await client.listRoutes('links.example.com');
         expect.fail('Should have thrown');
       } catch (error) {
         expect(error).toBeInstanceOf(EdgeRouterError);
@@ -325,11 +426,61 @@ describe('createClientFromEnv', () => {
   it('creates client from env object', () => {
     const client = createClientFromEnv({
       EDGE_ROUTER_API_KEY: 'test-key',
-      EDGE_ROUTER_URL: 'https://custom.com',
-      EDGE_ROUTER_DOMAIN: 'example.com',
+      EDGE_ROUTER_URL: 'https://custom.example.com',
     });
 
     expect(client).toBeInstanceOf(EdgeRouterClient);
+  });
+
+  // v1.35.0 — a stale EDGE_ROUTER_DOMAIN in the operator's environment is read
+  // by nothing. This is the regression guard for RESTORING the default: the
+  // three analytics methods are called with no domain at all, so a
+  // reintroduced client-level fallback would show up as a `domain=` parameter
+  // that nobody asked for. createClientFromEnv builds no fetch of its own, so
+  // the global is stubbed before construction rather than reaching into the
+  // client's private field.
+  describe('a stale EDGE_ROUTER_DOMAIN is ignored end to end', () => {
+    const STALE = 'bifrost.example.com';
+    let fetchMock: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true, data: { routes: [], total: 0, items: [] } }),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    const staleClient = (): EdgeRouterClient =>
+      createClientFromEnv({
+        EDGE_ROUTER_API_KEY: 'test-key',
+        EDGE_ROUTER_URL: 'https://custom.example.com',
+        EDGE_ROUTER_DOMAIN: STALE,
+      });
+
+    it.each([
+      ['getAnalyticsSummary', (c: EdgeRouterClient) => c.getAnalyticsSummary()],
+      ['getClicks', (c: EdgeRouterClient) => c.getClicks()],
+      ['getViews', (c: EdgeRouterClient) => c.getViews()],
+    ])('%s with no domain sends no domain parameter at all', async (_name, call) => {
+      await call(staleClient());
+
+      const url = new URL(fetchMock.mock.calls[0][0] as string);
+      expect(url.searchParams.has('domain')).toBe(false);
+      expect(url.search).not.toContain(STALE);
+    });
+
+    it('sends only the domain the caller names', async () => {
+      await staleClient().listRoutes('secondary.example.net');
+
+      const url = new URL(fetchMock.mock.calls[0][0] as string);
+      expect(url.searchParams.get('domain')).toBe('secondary.example.net');
+      expect(url.search).not.toContain(STALE);
+    });
   });
 
   it('uses default URL when not provided', () => {

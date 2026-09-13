@@ -28,7 +28,11 @@ pnpm -C mcp build
 |----------|---------|-------------|
 | `EDGE_ROUTER_API_KEY` | — | Admin API key (required) |
 | `EDGE_ROUTER_URL` | `https://example.com` | Base URL of your deployed edge router |
-| `EDGE_ROUTER_DOMAIN` | — | Default domain, read by the server process: the seven route tools that take `domain` require it when this is unset (the error lists the supported domains); `transfer_route` needs both domains explicitly (never defaulted); analytics scope and the QR domain namespace fall back to it too. |
+
+There is no default-domain variable. `EDGE_ROUTER_DOMAIN` was removed in
+v1.35.0: every route, QR and slug-stats call names its own domain, and a stale
+key in the environment logs one stderr warning at boot and is otherwise
+ignored.
 
 ### Claude Code
 
@@ -43,8 +47,7 @@ Add to your `~/.claude.json`:
       "args": ["/absolute/path/to/bifrost-router/mcp/dist/index.js"],
       "env": {
         "EDGE_ROUTER_API_KEY": "your-api-key",
-        "EDGE_ROUTER_URL": "https://bifrost.example.com",
-        "EDGE_ROUTER_DOMAIN": "links.example.com"
+        "EDGE_ROUTER_URL": "https://bifrost.example.com"
       }
     }
   }
@@ -72,8 +75,7 @@ Avoid a plaintext API key by injecting it via `op run`:
       ],
       "env": {
         "EDGE_ROUTER_API_KEY": "op://Your-Vault/Cloudflare/ADMIN_API_KEY",
-        "EDGE_ROUTER_URL": "https://bifrost.example.com",
-        "EDGE_ROUTER_DOMAIN": "links.example.com"
+        "EDGE_ROUTER_URL": "https://bifrost.example.com"
       }
     }
   }
@@ -92,8 +94,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
       "args": ["/absolute/path/to/bifrost-router/mcp/dist/index.js"],
       "env": {
         "EDGE_ROUTER_API_KEY": "your-api-key",
-        "EDGE_ROUTER_URL": "https://bifrost.example.com",
-        "EDGE_ROUTER_DOMAIN": "links.example.com"
+        "EDGE_ROUTER_URL": "https://bifrost.example.com"
       }
     }
   }
@@ -106,6 +107,12 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 - Desktop's **Settings → Connectors** UI is for remote (HTTP/OAuth) MCP servers only and does not apply to this stdio server. `claude_desktop_config.json` is the stdio path.
 
 ## Available Tools (29)
+
+**Domain (v1.35.0):** `domain` is REQUIRED and enumerated on every route tool,
+every QR tool and `get_slug_stats` — there is no default and nothing fills a
+missing one in. `transfer_route` requires both `from_domain` and `to_domain`.
+Only `get_analytics_summary`, `get_clicks` and `get_views` take an optional
+`domain`, where omitting it means all domains.
 
 ### Route Management (8 tools)
 
@@ -209,7 +216,7 @@ The MCP server can manage routes for any domain configured in `shared/src/types.
 
 - API key is required for all operations
 - Supports 1Password secret injection (`op run`) to keep the key out of config files
-- All inputs validated with Zod schemas
+- The stdio server enforces the domain contract in its handlers (`requireDomain()` / `NO_DOMAIN_ERROR`) and advertises the JSON-Schema catalog to clients; the low-level SDK `Server` itself validates no arguments, so every other field is re-validated by the REST API
 - Rate limiting handled by Cloudflare WAF
 
 ## Dependencies

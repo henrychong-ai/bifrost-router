@@ -33,7 +33,7 @@ function mockClient(overrides: Partial<Record<string, unknown>> = {}): EdgeRoute
 describe('QR MCP tool handlers', () => {
   it('listQrs formats the summary rows and meta', async () => {
     const client = mockClient();
-    const result = await listQrs(client, { tag: 'office' }, 'links.example.com');
+    const result = await listQrs(client, { tag: 'office', domain: 'links.example.com' });
 
     expect(client.listQrs).toHaveBeenCalledWith(
       expect.objectContaining({ tag: 'office', domain: 'links.example.com' }),
@@ -49,26 +49,22 @@ describe('QR MCP tool handlers', () => {
         meta: { total: 0, count: 0, offset: 0, limit: 0, hasMore: false },
       }),
     });
-    expect(await listQrs(client, {})).toBe('No QR codes found.');
+    expect(await listQrs(client, { domain: 'links.example.com' })).toBe('No QR codes found.');
   });
 
   it('getQr formats the full record including the payload', async () => {
-    const result = await getQr(mockClient(), { id: 'office-wifi' });
+    const result = await getQr(mockClient(), { id: 'office-wifi', domain: 'links.example.com' });
     expect(result).toContain('QR: office-wifi (wifi)');
     expect(result).toContain('"ssid":"Office"');
   });
 
   it('createQr strips domain from the body and passes it as the domain arg', async () => {
     const client = mockClient();
-    await createQr(
-      client,
-      {
-        domain: 'secondary.example.net',
-        type: 'url',
-        payload: { url: 'https://target.example.com' },
-      },
-      'links.example.com',
-    );
+    await createQr(client, {
+      domain: 'secondary.example.net',
+      type: 'url',
+      payload: { url: 'https://target.example.com' },
+    });
     expect(client.createQr).toHaveBeenCalledWith(
       { type: 'url', payload: { url: 'https://target.example.com' } },
       'secondary.example.net',
@@ -77,24 +73,36 @@ describe('QR MCP tool handlers', () => {
 
   it('updateQr maps clearLinkedRoute to an explicit null link', async () => {
     const client = mockClient();
-    await updateQr(client, { id: 'office-wifi', clearLinkedRoute: true, description: 'New' });
+    await updateQr(client, {
+      id: 'office-wifi',
+      domain: 'links.example.com',
+      clearLinkedRoute: true,
+      description: 'New',
+    });
     expect(client.updateQr).toHaveBeenCalledWith(
       'office-wifi',
       { description: 'New', linkedRoute: null },
-      undefined,
+      'links.example.com',
     );
   });
 
   it('deleteQr reports the hard delete', async () => {
-    const result = await deleteQr(mockClient(), { id: 'office-wifi' });
+    const result = await deleteQr(mockClient(), {
+      id: 'office-wifi',
+      domain: 'links.example.com',
+    });
     expect(result).toContain('QR code deleted: office-wifi');
   });
 
   it('getRouteQr returns the SVG source with the ephemeral note', async () => {
     const client = mockClient();
-    const result = await getRouteQr(client, { path: '/linkedin', fg: '#112233' });
+    const result = await getRouteQr(client, {
+      path: '/linkedin',
+      domain: 'links.example.com',
+      fg: '#112233',
+    });
     expect(client.getRouteQrSvg).toHaveBeenCalledWith('/linkedin', {
-      domain: undefined,
+      domain: 'links.example.com',
       fg: '#112233',
       bg: undefined,
       size: undefined,
@@ -107,6 +115,8 @@ describe('QR MCP tool handlers', () => {
     const client = mockClient({
       getQr: vi.fn().mockRejectedValue(new Error('QR code not found: nope')),
     });
-    expect(await getQr(client, { id: 'nope' })).toBe('Error: QR code not found: nope');
+    expect(await getQr(client, { id: 'nope', domain: 'links.example.com' })).toBe(
+      'Error: QR code not found: nope',
+    );
   });
 });

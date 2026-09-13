@@ -14,7 +14,18 @@ import {
   GetAnalyticsSummaryInputSchema,
   GetClicksInputSchema,
   GetSlugStatsInputSchema,
+  GetViewsInputSchema,
+  UpdateRouteToolInputSchema,
 } from './schemas.js';
+import {
+  ListQrsInputSchema,
+  GetQrInputSchema,
+  CreateQrToolInputSchema,
+  UpdateQrToolInputSchema,
+  DeleteQrInputSchema,
+  GetRouteQrInputSchema,
+} from './qr.js';
+import { SUPPORTED_DOMAINS } from './types.js';
 
 describe('schemas', () => {
   describe('DomainSchema', () => {
@@ -113,20 +124,27 @@ describe('schemas', () => {
   });
 
   describe('ListRoutesInputSchema', () => {
-    it('accepts optional domain', () => {
-      expect(ListRoutesInputSchema.safeParse({}).success).toBe(true);
+    it('requires an enumerated domain (v1.35.0 — no default anywhere)', () => {
       expect(ListRoutesInputSchema.safeParse({ domain: 'example.com' }).success).toBe(true);
+      expect(ListRoutesInputSchema.safeParse({}).success).toBe(false);
+      expect(ListRoutesInputSchema.safeParse({ domain: '' }).success).toBe(false);
+      expect(ListRoutesInputSchema.safeParse({ domain: 'evil.example' }).success).toBe(false);
     });
   });
 
   describe('GetRouteInputSchema', () => {
-    it('requires path', () => {
-      expect(GetRouteInputSchema.safeParse({ path: '/test' }).success).toBe(true);
-      expect(GetRouteInputSchema.safeParse({}).success).toBe(false);
+    it('requires path and domain', () => {
+      expect(
+        GetRouteInputSchema.safeParse({ path: '/test', domain: 'links.example.com' }).success,
+      ).toBe(true);
+      expect(GetRouteInputSchema.safeParse({ domain: 'links.example.com' }).success).toBe(false);
+      expect(GetRouteInputSchema.safeParse({ path: '/test' }).success).toBe(false);
     });
 
     it('rejects path not starting with /', () => {
-      expect(GetRouteInputSchema.safeParse({ path: 'test' }).success).toBe(false);
+      expect(
+        GetRouteInputSchema.safeParse({ path: 'test', domain: 'links.example.com' }).success,
+      ).toBe(false);
     });
   });
 
@@ -143,20 +161,40 @@ describe('schemas', () => {
   });
 
   describe('DeleteRouteInputSchema', () => {
-    it('requires path', () => {
-      expect(DeleteRouteInputSchema.safeParse({ path: '/test' }).success).toBe(true);
-      expect(DeleteRouteInputSchema.safeParse({}).success).toBe(false);
+    it('requires path and domain', () => {
+      expect(
+        DeleteRouteInputSchema.safeParse({ path: '/test', domain: 'links.example.com' }).success,
+      ).toBe(true);
+      expect(DeleteRouteInputSchema.safeParse({ domain: 'links.example.com' }).success).toBe(false);
+      expect(DeleteRouteInputSchema.safeParse({ path: '/test' }).success).toBe(false);
     });
   });
 
   describe('ToggleRouteInputSchema', () => {
-    it('requires path and enabled', () => {
-      expect(ToggleRouteInputSchema.safeParse({ path: '/test', enabled: true }).success).toBe(true);
-      expect(ToggleRouteInputSchema.safeParse({ path: '/test', enabled: false }).success).toBe(
-        true,
+    it('requires path, enabled and domain', () => {
+      expect(
+        ToggleRouteInputSchema.safeParse({
+          path: '/test',
+          enabled: true,
+          domain: 'links.example.com',
+        }).success,
+      ).toBe(true);
+      expect(
+        ToggleRouteInputSchema.safeParse({
+          path: '/test',
+          enabled: false,
+          domain: 'links.example.com',
+        }).success,
+      ).toBe(true);
+      expect(
+        ToggleRouteInputSchema.safeParse({ path: '/test', domain: 'links.example.com' }).success,
+      ).toBe(false);
+      expect(
+        ToggleRouteInputSchema.safeParse({ enabled: true, domain: 'links.example.com' }).success,
+      ).toBe(false);
+      expect(ToggleRouteInputSchema.safeParse({ path: '/test', enabled: true }).success).toBe(
+        false,
       );
-      expect(ToggleRouteInputSchema.safeParse({ path: '/test' }).success).toBe(false);
-      expect(ToggleRouteInputSchema.safeParse({ enabled: true }).success).toBe(false);
     });
   });
 
@@ -179,6 +217,22 @@ describe('schemas', () => {
       expect(GetAnalyticsSummaryInputSchema.safeParse({ days: 0 }).success).toBe(false);
       expect(GetAnalyticsSummaryInputSchema.safeParse({ days: 366 }).success).toBe(false);
     });
+
+    // v1.35.0 — the optional domain is an ENUM, so omitting it is fine but
+    // naming an unsupported one is not. Pinned for all three analytics schemas.
+    it.each([
+      ['get_analytics_summary', GetAnalyticsSummaryInputSchema],
+      ['get_clicks', GetClicksInputSchema],
+      ['get_views', GetViewsInputSchema],
+    ])('%s: domain is optional but enumerated', (_name, schema) => {
+      expect(schema.safeParse({}).success).toBe(true);
+      expect(schema.safeParse({ domain: undefined }).success).toBe(true);
+      for (const domain of SUPPORTED_DOMAINS) {
+        expect(schema.safeParse({ domain }).success).toBe(true);
+      }
+      expect(schema.safeParse({ domain: 'evil.example' }).success).toBe(false);
+      expect(schema.safeParse({ domain: '' }).success).toBe(false);
+    });
   });
 
   describe('GetClicksInputSchema', () => {
@@ -197,13 +251,24 @@ describe('schemas', () => {
   });
 
   describe('GetSlugStatsInputSchema', () => {
-    it('requires slug', () => {
-      expect(GetSlugStatsInputSchema.safeParse({ slug: '/linkedin' }).success).toBe(true);
-      expect(GetSlugStatsInputSchema.safeParse({}).success).toBe(false);
+    it('requires slug and domain', () => {
+      expect(
+        GetSlugStatsInputSchema.safeParse({ slug: '/linkedin', domain: 'links.example.com' })
+          .success,
+      ).toBe(true);
+      expect(GetSlugStatsInputSchema.safeParse({ domain: 'links.example.com' }).success).toBe(
+        false,
+      );
+      // v1.35.0 — the domain is required too: the same slug can live on several
+      // domains and an unscoped read silently merges their clicks.
+      expect(GetSlugStatsInputSchema.safeParse({ slug: '/linkedin' }).success).toBe(false);
     });
 
     it('rejects slug not starting with /', () => {
-      expect(GetSlugStatsInputSchema.safeParse({ slug: 'linkedin' }).success).toBe(false);
+      expect(
+        GetSlugStatsInputSchema.safeParse({ slug: 'linkedin', domain: 'links.example.com' })
+          .success,
+      ).toBe(false);
     });
   });
 });
@@ -255,5 +320,72 @@ describe('R2UpdateCommentInputSchema (v1.30.0 — nullable-boundary semantics)',
         comment: 'x'.repeat(1001),
       }).success,
     ).toBe(false);
+  });
+});
+
+/**
+ * v1.35.0 — one matrix over every MCP input schema that requires a domain, so a
+ * schema cannot quietly relax back to the optional string. Each is exercised
+ * with its own minimal valid input plus a domain that is: omitted, empty,
+ * non-string, unsupported, or each supported value in turn.
+ *
+ * Deliberately absent: `migrate_route` and `transfer_route`. Unlike upstream,
+ * this repo has no shared Zod input schema for either — their contract lives in
+ * the JSON-Schema catalog (`shared/src/tools.ts`, pinned by tools.test.ts) and
+ * in the stdio handler guards (pinned by
+ * mcp/src/tools/routes.no-domain.test.ts).
+ */
+describe('v1.35.0 required-domain schema matrix', () => {
+  const CASES: [string, { safeParse: (v: unknown) => { success: boolean } }, object][] = [
+    ['ListRoutesInputSchema', ListRoutesInputSchema, {}],
+    ['GetRouteInputSchema', GetRouteInputSchema, { path: '/x' }],
+    [
+      'CreateRouteToolInputSchema',
+      CreateRouteToolInputSchema,
+      { path: '/x', type: 'redirect', target: 'https://target.example.com' },
+    ],
+    ['UpdateRouteToolInputSchema', UpdateRouteToolInputSchema, { path: '/x' }],
+    ['DeleteRouteInputSchema', DeleteRouteInputSchema, { path: '/x' }],
+    ['ToggleRouteInputSchema', ToggleRouteInputSchema, { path: '/x', enabled: true }],
+    ['GetSlugStatsInputSchema', GetSlugStatsInputSchema, { slug: '/x' }],
+    ['ListQrsInputSchema', ListQrsInputSchema, {}],
+    ['GetQrInputSchema', GetQrInputSchema, { id: 'qr_1' }],
+    [
+      'CreateQrToolInputSchema',
+      CreateQrToolInputSchema,
+      { type: 'url', payload: { url: 'https://target.example.com' } },
+    ],
+    ['UpdateQrToolInputSchema', UpdateQrToolInputSchema, { id: 'qr_1' }],
+    ['DeleteQrInputSchema', DeleteQrInputSchema, { id: 'qr_1' }],
+    ['GetRouteQrInputSchema', GetRouteQrInputSchema, { path: '/x' }],
+  ];
+
+  it('covers the 13 schema-backed required-domain tools', () => {
+    // 14 tools require a domain; migrate_route has no shared schema here.
+    expect(CASES).toHaveLength(13);
+  });
+
+  it.each(CASES)('%s rejects an omitted domain', (_name, schema, base) => {
+    expect(schema.safeParse({ ...base }).success).toBe(false);
+  });
+
+  it.each(CASES)('%s rejects an empty-string domain', (_name, schema, base) => {
+    expect(schema.safeParse({ ...base, domain: '' }).success).toBe(false);
+  });
+
+  it.each(CASES)('%s rejects an unsupported domain', (_name, schema, base) => {
+    expect(schema.safeParse({ ...base, domain: 'evil.example' }).success).toBe(false);
+  });
+
+  it.each(CASES)('%s rejects a non-string domain', (_name, schema, base) => {
+    for (const domain of [123, null, true, {}, []]) {
+      expect(schema.safeParse({ ...base, domain }).success).toBe(false);
+    }
+  });
+
+  it.each(CASES)('%s accepts every supported domain', (_name, schema, base) => {
+    for (const domain of SUPPORTED_DOMAINS) {
+      expect(schema.safeParse({ ...base, domain }).success).toBe(true);
+    }
   });
 });
