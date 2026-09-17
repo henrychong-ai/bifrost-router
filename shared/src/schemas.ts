@@ -156,6 +156,19 @@ function decodedPathHasDelimiter(value: string): boolean {
   return decoded.includes('?') || decoded.includes('#') || decoded.includes('%');
 }
 
+/**
+ * Control characters are refused RAW and ONCE-DECODED: `/p%09x` carries no
+ * literal control character, but `normalizePath()` decodes it into a tab.
+ */
+function pathHasControlCharacter(value: string): boolean {
+  if (hasControlCharacter(value)) return true;
+  try {
+    return hasControlCharacter(decodeURIComponent(value));
+  } catch {
+    return false;
+  }
+}
+
 export const RoutePathSchema = z
   .string()
   .min(1)
@@ -163,7 +176,7 @@ export const RoutePathSchema = z
   // Targets refused C0/DEL from the start; paths did not, so a path holding a
   // tab was stored under a key no request could ever match — the URL parser
   // strips tab, LF and CR from a request URL before routing.
-  .refine(value => !hasControlCharacter(value), {
+  .refine(value => !pathHasControlCharacter(value), {
     message: 'Route path must not contain control characters',
   })
   .refine(value => !decodedPathHasDelimiter(value), {

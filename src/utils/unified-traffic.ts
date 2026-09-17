@@ -352,12 +352,7 @@ function redactUrlText(
       // `/` first keeps `https://app.example/auth/` out of the reported name,
       // which the audit row and the refusal message repeat.
       const head = piece.slice(0, hasQuery ? questionStart : bodyEnd);
-      const rebuiltHead = head
-        .split('/')
-        .map(segment =>
-          segment.includes('=') ? redactPairs(segment, isSensitive, redactedNames) : segment,
-        )
-        .join('/');
+      const rebuiltHead = redactHead(head, isSensitive, redactedNames);
       const rebuiltQuery = hasQuery
         ? `?${redactPairs(piece.slice(questionStart + 1, bodyEnd), isSensitive, redactedNames)}`
         : '';
@@ -370,7 +365,52 @@ function redactUrlText(
     .join(';');
 }
 
-/** A `k=v&k=v` list, each entry also split on `;`. No decoding. */
+/**
+ * The head of a decoded URL text — everything before its first `?`/`#`. It is
+ * one of two things, told apart by the shape of each `&` entry's NAME (the
+ * text before its first `=`):
+ *
+ *  - a URL or a path (`https://app.example/auth/token=SECRET`,
+ *    `/reset-token/k=v`): the name carries `://` or starts with `/`. Scanned
+ *    PATH SEGMENT by path segment so the reported name is the pair's own
+ *    (`token`) and a path segment that merely contains a credential word
+ *    (`reset-token`) is not a false positive.
+ *  - a packed `k=v&k=v` body (`uid=1&access_token/v=LIVE`): read as whole
+ *    pairs, so a `/` inside a name or a value stays part of it.
+ */
+function redactHead(
+  head: string,
+  isSensitive: SensitiveQueryParam,
+  redactedNames: string[],
+): string {
+  return head
+    .split('&')
+    .map(entry => {
+      const eq = entry.indexOf('=');
+      const name = eq === -1 ? entry : entry.slice(0, eq);
+      const looksLikePath = name.includes('://') || name.startsWith('/');
+      if (!looksLikePath) return redactPairs(entry, isSensitive, redactedNames);
+      return entry
+        .split('/')
+        .map(segment =>
+          segment.includes('=') ? redactPairs(segment, isSensitive, redactedNames) : segment,
+        )
+        .join('/');
+    })
+    .join('&');
+}
+
+/**
+ * A `k=v&k=v` list, each entry also split on `;`, each piece read AS A WHOLE
+ * PAIR first and only then split on any further `?`. No decoding.
+ *
+ * The whole-pair reading comes first for the same reason `redactSegment` reads
+ * a segment as one pair before splitting it: a `?` may sit inside the NAME
+ * (`access_token?v=LIVE`) or inside the VALUE after a sensitive name
+ * (`token=prefix?SECRET`), and a server that does not treat `?` specially
+ * inside a query reads both as one pair. Only an innocuous whole name falls
+ * through to the split, which is what catches `a=1?b=2?token=LIVE`.
+ */
 function redactPairs(
   text: string,
   isSensitive: SensitiveQueryParam,
@@ -381,15 +421,14 @@ function redactPairs(
     .map(entry =>
       entry
         .split(';')
-        .map(piece =>
-          // A SECOND `?` inside a value (`a=1?b=2?token=LIVE`) is the sibling of
-          // the duplicated-`?` shape the top-level scan already handles; the
-          // opener consumes only the first `?`, so the rest is split here too.
-          piece
+        .map(piece => {
+          const whole = redactPair(piece, isSensitive, redactedNames);
+          if (whole !== piece) return whole;
+          return piece
             .split('?')
             .map(pair => redactPair(pair, isSensitive, redactedNames))
-            .join('?'),
-        )
+            .join('?');
+        })
         .join(';'),
     )
     .join('&');

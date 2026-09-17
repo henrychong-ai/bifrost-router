@@ -481,10 +481,9 @@ describe('legacy recorder redaction — review-found shapes', () => {
       ),
     ).toEqual(['token']);
 
-    // The trailing pair after the credential is kept, not dropped.
-    expect(legacy('?a=1?token=LIVE?b=2')).toBe(
-      `?a=${encodeURIComponent('1?token=[redacted]?b=2')}`,
-    );
+    // A `?` tail after a sensitive name goes WITH its value — see the
+    // corrections block below.
+    expect(legacy('?a=1?token=LIVE?b=2')).toBe(`?a=${encodeURIComponent('1?token=[redacted]')}`);
 
     // The benign duplicated-`?` control stays byte-identical.
     expect(legacy('?a=1?page=2;b=3')).toBe('?a=1?page=2;b=3');
@@ -533,5 +532,67 @@ describe('legacy recorder redaction — review-found shapes', () => {
     expect(legacy('?password=hunter2&passwd=hunter2')).toBe(
       '?password=[redacted]&passwd=[redacted]',
     );
+  });
+});
+
+/**
+ * Corrections to the shapes above, found by review of the first fix.
+ *
+ * The `?` split inside an already-opened nested query had undone the
+ * whole-pair reading, and the unconditional `/` split had broken a packed body
+ * whose name or value legitimately contains a slash.
+ */
+describe('legacy recorder redaction — corrections to the review-found shapes', () => {
+  const link = (query = '') => new URL(`https://links.example.com/x${query}`);
+  const legacy = (query: string) => legacyQueryString(link(query));
+  const e = encodeURIComponent;
+
+  it('reads each `;` piece as a whole pair before splitting it on `?`', () => {
+    // A `?` may sit inside the NAME or inside the VALUE after a sensitive name,
+    // and a server that does not treat `?` specially inside a query reads both
+    // as one pair. Splitting first undid the whole-pair reading.
+    expect(
+      findCredentialParams(
+        `https://a.example/b?next=${e('https://x.example/?access_token?v=LIVE')}`,
+      ),
+    ).toEqual(['access_token?v']);
+    expect(legacy(`?next=${e('https://x.example/?access_token?v=LIVE')}`)).toBe(
+      `?next=${e('https://x.example/?access_token?v=[redacted]')}`,
+    );
+    expect(legacy(`?next=${e('https://x.example/?token=prefix?SECRET')}`)).toBe(
+      `?next=${e('https://x.example/?token=[redacted]')}`,
+    );
+
+    // An innocuous whole name still falls through to the split — `key` after
+    // the `?` is read as a pair, erring toward redaction by design.
+    expect(legacy(`?next=${e('https://x.example/?label?key=PUBLIC')}`)).toBe(
+      `?next=${e('https://x.example/?label?key=[redacted]')}`,
+    );
+  });
+
+  it('takes a `?` tail after a sensitive name with its value, like a `;` tail', () => {
+    // `LIVE?b=2` is the value as a server that does not treat `?` specially
+    // inside a query reads it, so the tail goes with the credential.
+    expect(legacy('?a=1?token=LIVE?b=2')).toBe(`?a=${e('1?token=[redacted]')}`);
+    // An innocuous name keeps its tail, and the benign control is byte-identical.
+    expect(legacy('?a=1?page=2?b=3')).toBe('?a=1?page=2?b=3');
+    expect(legacy('?a=1?page=2;b=3')).toBe('?a=1?page=2;b=3');
+  });
+
+  it('keeps a `/` that belongs to a packed body name or value', () => {
+    // A packed body is NOT a path: splitting it on `/` broke a name or a value
+    // that legitimately contains one.
+    expect(
+      findCredentialParams(`https://a.example/b?rt=${e('uid=1&access_token/v=LIVE')}`),
+    ).toEqual(['access_token/v']);
+    const slashInValue = e('uid=1&token=prefix/SECRET'); // gitleaks:allow
+    expect(legacy(`?rt=${slashInValue}`)).toBe(`?rt=${e('uid=1&token=[redacted]')}`);
+  });
+
+  it('still path-scans a bare path, so a credential WORD is not a false positive', () => {
+    // No scheme, but a leading `/` — a path. `reset-token` is a path segment,
+    // not a parameter name, so nothing is reported or rewritten.
+    expect(findCredentialParams(`https://a.example/b?next=${e('/reset-token/k=v')}`)).toEqual([]);
+    expect(legacy(`?next=${e('/reset-token/k=v')}`)).toBe(`?next=${e('/reset-token/k=v')}`);
   });
 });

@@ -154,15 +154,23 @@ into its JavaScript bundle, which is served with no credential check.
   a server that does not split on `;` reads it as part of the value.
 - **A second `?` inside a value no longer hides everything after it.**
   `?a=1?b=2?token=LIVE` kept the credential in both the stored row and the
-  guard, because the opener consumes only the first `?`. Trailing pairs after
-  the credential are preserved.
-- **A decoded value whose PATH carries the pair reports the parameter's name.**
-  `https://app.example/auth/token=SECRET` reported the URL text; the head is now
-  scanned path segment by path segment, so the refusal message and the audit row
-  name `token`.
-- **Route paths refuse control characters**, which targets already did. A path
-  holding a tab was stored under a key no request could ever match, because the
-  URL parser strips tab, LF and CR from a request URL before routing.
+  guard, because the opener consumes only the first `?`. Each piece is now read
+  as one pair FIRST and, only when its name is innocuous, split on `?` as well —
+  splitting first undid the whole-pair reading inside an already-opened nested
+  query, leaving `access_token?v=LIVE` raw and `token=prefix?SECRET` leaking its
+  tail. The benign `?a=1?page=2;b=3` stays byte-identical, and a `?` tail after
+  a sensitive name goes with its value, exactly like a `;` tail.
+- **A decoded head is scanned path segment by path segment.** A value that is a
+  URL whose PATH carries a pair (`https://app.example/auth/token=SECRET`)
+  reported the whole URL text as the parameter name in the refusal message and
+  the audit row; it now reports `token`, and a `reset-token` path segment is not
+  a false positive. A packed `k=v&k=v` body — a name carrying neither `://` nor
+  a leading `/` — is still read as whole pairs, so a `/` inside a name or a
+  value stays part of it.
+- **Route paths refuse control characters, raw AND once-decoded**, which targets
+  already did. A path holding a tab — or `%09`, which normalisation decodes into
+  one — was stored under a key no request could ever match, because the URL
+  parser strips tab, LF and CR from a request URL before routing.
 - **`POST /api/routes/transfer` validates its path through `RoutePathSchema`.**
   It was the last write path checking only the leading slash, so a legacy
   non-round-tripping key could still be re-published on a second domain.

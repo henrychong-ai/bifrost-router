@@ -720,7 +720,19 @@ describe('route-path schema on every write path', () => {
   const domain = 'links.example.com';
 
   /** `?`, `#`, a double-encoded `%`, and each control character the parser strips. */
-  const BAD_PATHS = ['/p%3Fx', '/p#x', '/p%253Fx', '/p\tx', '/p\nx', '/px'];
+  // …including the ENCODED control characters, which normalisation would
+  // decode into the real thing (`/p%09x` becomes a tab).
+  const BAD_PATHS = [
+    '/p%3Fx',
+    '/p#x',
+    '/p%253Fx',
+    '/p\tx',
+    '/p\nx',
+    '/p\u007fx',
+    '/p%09x',
+    '/p%0Ax',
+    '/p%7Fx',
+  ];
 
   const call = (path: string, method: string, body?: unknown) =>
     app.fetch(
