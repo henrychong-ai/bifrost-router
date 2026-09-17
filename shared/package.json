@@ -26,7 +26,7 @@
   },
   "dependencies": {
     "qrcode-svg": "^1.1.0",
-    "zod": "^4.6.2"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^25.9.6",

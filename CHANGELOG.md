@@ -6,6 +6,50 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.35.2 (2026-09-17) — Dependency maintenance
+
+**[security] No advisories to clear — `pnpm audit` reports no known
+vulnerabilities across all five workspaces, before and after this sweep.** The
+existing `pnpm.overrides` floors already cover every package an advisory has
+named, so none of them needed raising for a vulnerability.
+
+**[chore] Every `pnpm.overrides` entry now carries an upper bound.** Twelve
+entries were open-ended `>=X` floors, which lets a routine `pnpm update` float a
+transitive across a major boundary with no error. Each now reads
+`>=X <MAJOR+1` — `flatted`, `picomatch`, `yaml`, `devalue`, `qs`, `minimatch`,
+`rollup`, `hono`, `@hono/node-server`, `fast-uri`, `postcss`, and `sharp`. The
+ceilings are all satisfied by the versions already resolved, so nothing moved
+because of them; they exist to make a future major move fail loudly instead of
+landing silently.
+
+**[chore] Two override floors were holding a direct dependency back.** An
+override replaces the specifier for *every* importer, including the workspace
+that declares the package directly, so `hono` at `>=4.13.5` and `yaml` at
+`>=2.8.3` shadowed the manifest ranges and pinned resolution below what the
+manifests asked for. Both floors now sit at the version actually wanted —
+`hono >=4.13.8 <5`, `yaml >=2.9.1 <3`. An override floor is a *pin*, not a
+minimum guarantee.
+
+**[chore] In-range minor/patch sweep across all five workspaces.** `zod` 4.6.5,
+`hono` 4.13.8, `@biomejs/biome` 2.5.14, `oxlint` and `eslint-plugin-oxlint`
+1.83.0, `yaml` 2.9.1, `@tanstack/react-query` 5.103.1, `react-hook-form` 7.88.0,
+`react-router` 8.4.0, `tailwind-merge` 3.7.0, `happy-dom` 20.14.5, and
+`eslint-plugin-react-refresh` 0.5.7. Root and dashboard lint both stay green at
+`--max-warnings=0`; no new rules fired, so no rule disables were added.
+
+**[chore] Wrangler 4.131.0 -> 4.134.0.** Pinned exactly in the root and
+`slackbot` packages. `workerd` moves 1.20260910.1 -> 1.20260917.1 with it, so
+both `worker-configuration.d.ts` runtime-type files are regenerated — the
+`wrangler types --check` gate fails otherwise.
+
+**Held back deliberately** — each is a major-version move that needs its own
+migration pass, not a maintenance bump: `@cloudflare/vitest-pool-workers`
+0.18.x -> 0.22.x, `typescript` 5.9.x -> 7.x, `vitest` and `@vitest/coverage-*`
+4.x -> 5.x, `@tanstack/react-table` 8.x -> 9.x, `@types/node` 25.x -> 26.x, and
+`lucide-react` 0.575.x -> 1.x.
+
+---
+
 ## v1.35.1 (2026-09-13) — MCP: route timestamps render correctly
 
 **Why:** `get_route` — and every other MCP reply that prints a route's details —
