@@ -596,3 +596,64 @@ describe('legacy recorder redaction — corrections to the review-found shapes',
     expect(legacy(`?next=${e('/reset-token/k=v')}`)).toBe(`?next=${e('/reset-token/k=v')}`);
   });
 });
+
+/**
+ * Second review round: the legacy shape test sees the pre-`;` value, path tails
+ * are absorbed into the value they belong to, and a fragment path is read as a
+ * path.
+ */
+describe('legacy recorder redaction — second review round', () => {
+  const link = (query = '') => new URL(`https://links.example.com/x${query}`);
+  const legacy = (query: string) => legacyQueryString(link(query));
+  const e = encodeURIComponent;
+
+  it('judges an ambiguous name on the value UP TO the first `;`', () => {
+    // A campaign code with an attribution tail is not a 24-character
+    // credential. Reading 0 weighs `SUMMER25`, not `SUMMER25;utm_source=mail`.
+    expect(legacy('?code=SUMMER25;utm_source=mail')).toBe('?code=SUMMER25;utm_source=mail');
+    expect(legacy('?code=abc;u=Xy1')).toBe('?code=abc;u=Xy1');
+
+    // A genuinely credential-SHAPED value is still redacted, and the sensitive
+    // name then takes the whole value, tail included.
+    expect(legacy('?session=a3f9c2e1b4d7f0a9;utm=1')).toBe('?session=[redacted]');
+
+    // The route-target guard uses the name-only predicate, so it flags the
+    // campaign code regardless — that is the documented policy difference.
+    expect(findCredentialParams('https://a.example/b?code=SUMMER25;utm_source=mail')).toEqual([
+      'code',
+    ]);
+  });
+
+  it('reads a hash-route PATH in the fragment as a path', () => {
+    // `#/auth/token=SECRET` must report the pair's own name, never the URL text
+    // in front of it — the refusal message and the audit row repeat it.
+    expect(findCredentialParams('https://app.example/#/auth/token=SECRET')).toEqual(['token']);
+  });
+
+  it('treats a scheme-less host-relative head as path-shaped', () => {
+    // `app.example/auth/token=S` has no scheme and no leading `/`, but its
+    // first segment is host-shaped, so it is a path and not a packed body.
+    expect(
+      findCredentialParams(`https://a.example/b?next=${e('app.example/auth/token=SECRET')}`),
+    ).toEqual(['token']);
+  });
+
+  it('absorbs the path segments that are the rest of a redacted value', () => {
+    // A redacted pair's VALUE may itself contain `/` — standard base64, Google
+    // OAuth codes shaped `4/0A…`. The following non-pair segments are the rest
+    // of that value and go with it, rather than being kept as path segments.
+    expect(legacy(`?next=${e('https://app.example/cb/access_token=AAAA/BBBBBBBB')}`)).toBe(
+      `?next=${e('https://app.example/cb/access_token=[redacted]')}`,
+    );
+
+    // A tail that carries its own `=` starts a NEW pair and is read as one.
+    expect(legacy(`?next=${e('https://app.example/cb/token=AAAA/key=SECOND')}`)).toBe(
+      `?next=${e('https://app.example/cb/token=[redacted]/key=[redacted]')}`,
+    );
+
+    // Nothing redacted → the path is byte-identical, absorbing never fires.
+    expect(legacy(`?next=${e('https://app.example/a=1/b/c')}`)).toBe(
+      `?next=${e('https://app.example/a=1/b/c')}`,
+    );
+  });
+});

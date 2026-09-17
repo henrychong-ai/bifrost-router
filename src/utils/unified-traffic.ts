@@ -47,7 +47,10 @@ function decodeQueryComponent(raw: string): string {
  * Credential-bearing parameter NAMES. Short links are used as landing URLs for
  * magic-link / verification flows outside this router's control, and analytics
  * rows are long-lived, so the VALUE of a credential-named parameter never
- * reaches D1. Parameter names survive so analytics shape is kept.
+ * reaches D1. Parameter names survive so analytics shape is kept — except that
+ * a `;` or `?` tail after a SENSITIVE name is part of that name's value and is
+ * replaced with it, so a `key=x` riding behind `token=…;` is not a separate
+ * surviving parameter.
  *
  * Substring stems catch compound provider names (client_secret, oauth_token,
  * session_token, token_hash, SAMLResponse, oobCode, X-Amz-Signature, …);
@@ -216,7 +219,15 @@ function redactSegment(
   // per-piece reading below sees `access_token` as a bare flag and `SECRET` as
   // a valueless piece, and would keep both. So the segment's own name decides
   // first; when it is sensitive the entire value is replaced and no split runs.
-  const wholePair = redactPair(segment, isSensitive, redactedNames);
+  // The legacy ambiguity test (length / shape of the VALUE) must see the value
+  // up to the first `;` only — `code=SUMMER25;utm_source=mail` is a campaign
+  // code with an attribution tail, not a 24-character credential — while a
+  // sensitive NAME still takes the whole value, tail included.
+  const wholePair = redactPair(
+    segment,
+    (name, value) => isSensitive(name, value?.split(';')[0]),
+    redactedNames,
+  );
   if (wholePair !== segment) return wholePair;
 
   const perPiece = segment
@@ -366,15 +377,18 @@ function redactUrlText(
 }
 
 /**
- * The head of a decoded URL text — everything before its first `?`/`#`. It is
- * one of two things, told apart by the shape of each `&` entry's NAME (the
- * text before its first `=`):
+ * The head of a decoded URL text — everything before its first `?`/`#` — and
+ * the body of a fragment. It is one of two things, told apart by the shape of
+ * each `&` entry's NAME (the text before its first `=`):
  *
  *  - a URL or a path (`https://app.example/auth/token=SECRET`,
- *    `/reset-token/k=v`): the name carries `://` or starts with `/`. Scanned
- *    PATH SEGMENT by path segment so the reported name is the pair's own
- *    (`token`) and a path segment that merely contains a credential word
- *    (`reset-token`) is not a false positive.
+ *    `/reset-token/k=v`, `app.example/auth/token=SECRET`): the name carries
+ *    `://`, starts with `/`, or opens with a host-shaped segment (a `.` before
+ *    the first `/`). Scanned PATH SEGMENT by path segment so the reported name
+ *    is the pair's own (`token`) and a path segment that merely contains a
+ *    credential word (`reset-token`) is not a false positive. Within a segment
+ *    the pairs end at the next `/`: `token=AAA/BBB` reads `BBB` as a path
+ *    segment, a documented bound.
  *  - a packed `k=v&k=v` body (`uid=1&access_token/v=LIVE`): read as whole
  *    pairs, so a `/` inside a name or a value stays part of it.
  */
@@ -388,14 +402,27 @@ function redactHead(
     .map(entry => {
       const eq = entry.indexOf('=');
       const name = eq === -1 ? entry : entry.slice(0, eq);
-      const looksLikePath = name.includes('://') || name.startsWith('/');
+      const looksLikePath =
+        name.includes('://') || name.startsWith('/') || name.split('/')[0].includes('.');
       if (!looksLikePath) return redactPairs(entry, isSensitive, redactedNames);
-      return entry
-        .split('/')
-        .map(segment =>
-          segment.includes('=') ? redactPairs(segment, isSensitive, redactedNames) : segment,
-        )
-        .join('/');
+      // Path branch. A redacted pair's VALUE may itself contain `/` (standard
+      // base64, Google OAuth codes `4/0A…`), so once a segment's pair has been
+      // replaced, the following segments that are not pairs themselves are the
+      // rest of that value and are dropped with it — otherwise
+      // `…/access_token=AAAA/BBBB` would keep `BBBB`. A tail that carries its
+      // own `=` starts a new pair and is read as one.
+      const kept: string[] = [];
+      let absorbing = false;
+      for (const segment of entry.split('/')) {
+        if (!segment.includes('=')) {
+          if (!absorbing) kept.push(segment);
+          continue;
+        }
+        const redacted = redactPairs(segment, isSensitive, redactedNames);
+        absorbing = redacted !== segment && redacted.endsWith(REDACTED_VALUE);
+        kept.push(redacted);
+      }
+      return kept.join('/');
     })
     .join('&');
 }
@@ -444,9 +471,12 @@ function redactFragment(
   isSensitive: SensitiveQueryParam,
   redactedNames: string[],
 ): string {
+  // The part before a `?` is a hash-route PATH or a bare pair body — the same
+  // two shapes as a URL head, so it gets the same reading (`#/auth/token=S`
+  // reports `token`, not `/auth/token`). The part after it is a query.
   const questionStart = fragment.indexOf('?');
-  if (questionStart === -1) return redactPairs(fragment, isSensitive, redactedNames);
-  return `${redactPairs(fragment.slice(0, questionStart), isSensitive, redactedNames)}?${redactPairs(
+  if (questionStart === -1) return redactHead(fragment, isSensitive, redactedNames);
+  return `${redactHead(fragment.slice(0, questionStart), isSensitive, redactedNames)}?${redactPairs(
     fragment.slice(questionStart + 1),
     isSensitive,
     redactedNames,
@@ -509,12 +539,16 @@ export function findCredentialParams(target: string): string[] {
   // query, a bare `k=v&k=v` body, or — as OAuth implicit-flow URLs in the wild
   // are — both at once (`#access_token=…&redirect=/a?b=1`). Taking only the
   // text after the first `?` dropped the credential sitting before it.
+  //
+  // The half before a `?` is a hash-route PATH or a bare pair body, so it takes
+  // the path-aware head reading: `#/auth/token=SECRET` reports `token`, never
+  // `/auth/token`. The half after it is a query.
   if (fragment) {
     const fragmentQueryStart = fragment.indexOf('?');
     if (fragmentQueryStart === -1) {
-      scan(fragment);
+      redactHead(fragment, isSensitiveByName, names);
     } else {
-      scan(fragment.slice(0, fragmentQueryStart));
+      redactHead(fragment.slice(0, fragmentQueryStart), isSensitiveByName, names);
       scan(fragment.slice(fragmentQueryStart + 1));
     }
   }

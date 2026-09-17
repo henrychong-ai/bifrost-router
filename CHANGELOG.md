@@ -159,14 +159,24 @@ into its JavaScript bundle, which is served with no credential check.
   splitting first undid the whole-pair reading inside an already-opened nested
   query, leaving `access_token?v=LIVE` raw and `token=prefix?SECRET` leaking its
   tail. The benign `?a=1?page=2;b=3` stays byte-identical, and a `?` tail after
-  a sensitive name goes with its value, exactly like a `;` tail.
+  a sensitive name goes with its value, exactly like a `;` tail. ⚠️ The four
+  ambiguous legacy names weigh the value UP TO the first `;`, so
+  `?code=SUMMER25;utm_source=mail` is still a campaign code rather than a
+  24-character credential; a sensitive NAME still takes the whole value.
 - **A decoded head is scanned path segment by path segment.** A value that is a
   URL whose PATH carries a pair (`https://app.example/auth/token=SECRET`)
   reported the whole URL text as the parameter name in the refusal message and
   the audit row; it now reports `token`, and a `reset-token` path segment is not
-  a false positive. A packed `k=v&k=v` body — a name carrying neither `://` nor
-  a leading `/` — is still read as whole pairs, so a `/` inside a name or a
-  value stays part of it.
+  a false positive. A head is path-shaped when its name carries `://`, starts
+  with `/`, or opens with a host-shaped segment, so a scheme-less
+  `app.example/auth/token=S` is read as a path too; a packed `k=v&k=v` body is
+  still read as whole pairs, so a `/` inside a name or a value stays part of it.
+  Within a path, the non-pair segments after a redacted pair are the rest of
+  that value and go with it — a redacted value may legitimately contain `/`
+  (standard base64, Google OAuth codes), so `…/access_token=AAAA/BBBB` no longer
+  keeps `BBBB`. A tail carrying its own `=` starts a new pair. The same
+  path-aware reading now covers a hash-route fragment, so `#/auth/token=S`
+  reports `token` rather than the URL text in front of it.
 - **Route paths refuse control characters, raw AND once-decoded**, which targets
   already did. A path holding a tab — or `%09`, which normalisation decodes into
   one — was stored under a key no request could ever match, because the URL
@@ -174,6 +184,9 @@ into its JavaScript bundle, which is served with no credential check.
 - **`POST /api/routes/transfer` validates its path through `RoutePathSchema`.**
   It was the last write path checking only the leading slash, so a legacy
   non-round-tripping key could still be re-published on a second domain.
+- **`POST /api/routes/normalize-case` skips a path that fails the route-path
+  schema** rather than re-keying it, which would only mint a fresh, still
+  unmanageable key.
 - **Both changelog gates now run in CI**, not only in `pnpm run check`: the
   freshness check before the build steps, the `admin/dist` scan immediately
   after the dashboard build. A new `check:changelog-chunk` gate caps the
@@ -227,12 +240,17 @@ already in KV were never examined.
   re-examine them. The guard only fires on a write.
 - Scrub historic analytics rows written before this release, which may hold
   credential values in `query_string` or `referrer`.
-- **Legacy `?`/`#` route keys have to be deleted and recreated.** A record
-  stored under such a key before this release cannot be repaired in place:
-  `PUT /api/routes` and `POST /api/routes/migrate` now refuse the path outright,
-  and there is no rename that accepts it. `DELETE /api/routes` deliberately does
-  NOT validate, so the record stays deletable — but delete-then-create loses the
-  original `createdAt`. Capture the record first if that timestamp matters.
+- **Legacy `?`/`#` route keys must be repaired by EXACT KEY, never through the
+  API.** A record stored under such a key before this release cannot be reached
+  by any API call: `PUT /api/routes` and `POST /api/routes/migrate` refuse the
+  path outright, `POST /api/routes/normalize-case` now skips it rather than
+  minting a fresh unmanageable key, and `DELETE /api/routes` is actively
+  DANGEROUS — `deleteRoute()` normalises, so `DELETE ?path=/p?x` resolves to
+  `/p` and would delete a different, live route. Use the KV console or a
+  list-only script that operates on the exact stored key: read the record, write
+  it to a valid path, then delete the old key directly. Recreating through the
+  API loses the original `createdAt`, so capture the record first if that
+  timestamp matters.
 - **Malformed percent-encoding suppresses the nested read.** A value that fails
   `decodeURIComponent` has no second reading, so a credential nested behind a
   broken escape is stored as sent. Documented decision, not an oversight: the

@@ -67,7 +67,12 @@ export default defineConfig({
       exclude: [
         'node_modules/**',
         '**/node_modules/**',
+        '**/dist/**',
         '.claude/worktrees/**',
+        'admin/**',
+        'shared/**',
+        'mcp/**',
+        'slackbot/**',
         'test/**',
         '**/*.test.ts',
         'vitest.config.ts',

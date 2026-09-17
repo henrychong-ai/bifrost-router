@@ -304,8 +304,12 @@ idempotent**: `/p%3Fx` → `/p?x` → `/p`.
   characters. It is carried by `RouteConfigSchema` / `UpdateRouteSchema` (so
   `POST` and `PUT /api/routes` and every seeded route get it) and applied
   explicitly by `POST /api/routes/migrate` (both paths) and
-  `POST /api/routes/transfer`. `DELETE /api/routes` deliberately does NOT
-  validate — a legacy record has to stay deletable.
+  `POST /api/routes/transfer`, and `POST /api/routes/normalize-case` skips a
+  path that fails it rather than re-keying it. `DELETE /api/routes` does NOT
+  validate, which is a hazard rather than an escape hatch: `deleteRoute()`
+  normalises, so `DELETE ?path=/p?x` resolves to `/p` and deletes a different,
+  live route. Repair a legacy record by its EXACT stored key (KV console or a
+  list-only script), never through the API.
 - **Normalise exactly once on each side of a mutation.** Two mirror hazards:
   - `getRoute()` and `getRouteSafe()` NORMALISE, because every mutation
     normalises before it writes. A read that did not would miss on any alias of

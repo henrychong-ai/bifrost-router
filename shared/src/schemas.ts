@@ -194,9 +194,11 @@ export const RouteTargetSchema = z
  * The operator acknowledgement that unlocks a credential-shaped route target.
  *
  * A route whose TARGET carries a credential-named query parameter puts that
- * value in KV, in `link_clicks.target_url`, and in the `Route matched` log —
- * and hands it to anyone who opens the short link. The write paths refuse such
- * a target with `ROUTE_TARGET_CREDENTIAL` unless this flag is `true`.
+ * value in KV and in `link_clicks.target_url` / `proxy_requests.target_url`,
+ * and hands it to anyone who opens the short link. (The Worker's `Route
+ * matched` log line carries only the path, the route path and the route type,
+ * so the target does not reach the logs.) The write paths refuse such a target
+ * with `ROUTE_TARGET_CREDENTIAL` unless this flag is `true`.
  *
  * ⚠️ REQUEST-ONLY. It is never part of a stored route: the stored-shape schemas
  * (`CreateRouteInputSchema`, `UpdateRouteInputSchema`, and the Worker's own

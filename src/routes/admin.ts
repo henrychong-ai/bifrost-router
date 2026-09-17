@@ -1179,6 +1179,15 @@ adminRoutes.post('/routes/normalize-case', async c => {
       continue;
     }
 
+    // A legacy path that fails the route-path schema must not be re-keyed here
+    // either — that would mint a fresh, still-unmanageable key.
+    if (!RoutePathSchema.safeParse(lowerPath).success) {
+      errors.push(
+        `${routeKey(route.domain, route.path)}: path fails the route-path schema, skipping`,
+      );
+      continue;
+    }
+
     try {
       const oldKey = routeKey(route.domain, route.path);
       const newKey = routeKey(route.domain, lowerPath);

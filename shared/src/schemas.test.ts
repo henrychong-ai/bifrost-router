@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  RoutePathSchema,
   R2UpdateCommentInputSchema,
   DomainSchema,
   RouteTypeSchema,
@@ -460,6 +461,41 @@ describe('v1.35.0 required-domain schema matrix', () => {
   it.each(CASES)('%s accepts every supported domain', (_name, schema, base) => {
     for (const domain of SUPPORTED_DOMAINS) {
       expect(schema.safeParse({ ...base, domain }).success).toBe(true);
+    }
+  });
+});
+
+describe('RoutePathSchema', () => {
+  it('refuses ?, #, a % surviving one decode, and controls raw or once-decoded', () => {
+    for (const bad of [
+      '/p?x',
+      '/p#x',
+      '/p%3Fx',
+      '/p%23x',
+      '/p%253Fx',
+      '/a%2520b',
+      '/p\tx',
+      '/p\nx',
+      '/p\u007fx',
+      '/p%09x',
+      '/p%0Ax',
+      '/p%7Fx',
+      'p',
+      '',
+    ]) {
+      expect({ path: bad, ok: RoutePathSchema.safeParse(bad).success }).toEqual({
+        path: bad,
+        ok: false,
+      });
+    }
+  });
+
+  it('accepts ordinary encoded and unicode paths', () => {
+    for (const ok of ['/', '/a', '/a%20b', '/caf%C3%A9', '/A/B-c_d.e', '/x/*']) {
+      expect({ path: ok, ok: RoutePathSchema.safeParse(ok).success }).toEqual({
+        path: ok,
+        ok: true,
+      });
     }
   });
 });
