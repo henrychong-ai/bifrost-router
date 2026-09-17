@@ -127,6 +127,27 @@ Only `get_analytics_summary`, `get_clicks` and `get_views` take an optional
 | `migrate_route` | Migrate a route to a new path (preserves createdAt) |
 | `transfer_route` | Transfer a route to a different domain |
 
+**Credential-bearing targets (v1.36.0).** A route TARGET is stored in KV, copied
+into the click analytics, written to the request log, and exercised by everyone
+who opens the short link. `create_route`, `update_route`, `toggle_route` and
+`transfer_route` are refused with `ROUTE_TARGET_CREDENTIAL` when the target's
+query or fragment carries a credential-named parameter, and the error names the
+parameters. Each of those four tools takes an optional
+`acknowledgeCredentialTarget` to proceed anyway.
+
+> ⚠️ **Ask the human before setting it.** The refusal exists so a person looks at
+> the parameter. Surface the names, ask, and set the flag only on their answer —
+> never on your own initiative. It is request-only and is never stored on the
+> route.
+
+`migrate_route` moves the slug within one domain and needs no acknowledgement; a
+transfer does, because it re-publishes the same target to a different audience.
+
+**`toggle_route` fails closed (v1.36.0).** `enabled` accepts a real boolean or
+the usual string forms (`"true"`/`"1"`/`"yes"`, `"false"`/`"0"`/`"no"`), so
+`"false"` DISABLES. Anything else — `"off"`, `"disabled"`, `"n"` — is answered
+with an error and the route is left untouched.
+
 ### Analytics (4 tools)
 
 | Tool | Description |

@@ -30,3 +30,6 @@ coverage/
 
 # Environment variables
 .env
+
+# Coding-harness isolated worktrees (git worktree add under the repo)
+.claude/worktrees/

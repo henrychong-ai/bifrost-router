@@ -10,6 +10,27 @@ import { SUPPORTED_DOMAINS, SUPPORTED_DOMAINS_LIST, R2_BUCKETS, ALL_R2_BUCKETS }
 import { CommentSchema } from './comment.js';
 
 // =============================================================================
+// MCP boolean coercion
+// =============================================================================
+// MCP tool args may arrive as JSON booleans OR as strings (some clients stringify
+// every arg). Plain `z.coerce.boolean()` is a footgun here: it is JS-truthy, so
+// the string "false" coerces to `true` (an `enabled="false"` call would ENABLE the
+// route). `mcpBoolean()` parses the common string forms explicitly — "true"/"1"/
+// "yes" → true, "false"/"0"/"no"/"" → false (case-insensitive) — and passes real
+// booleans through untouched. Any other value (including JSON numbers `1`/`0` and
+// unrecognised strings) falls through to `z.boolean()`, which rejects it, so a
+// toggle fails closed rather than guessing.
+const mcpBoolean = () =>
+  z.preprocess(v => {
+    if (typeof v === 'string') {
+      const s = v.trim().toLowerCase();
+      if (s === 'true' || s === '1' || s === 'yes') return true;
+      if (s === 'false' || s === '0' || s === 'no' || s === '') return false;
+    }
+    return v;
+  }, z.boolean());
+
+// =============================================================================
 // Domain Schema
 // =============================================================================
 
@@ -78,12 +99,112 @@ export const RedirectStatusCodeSchema = z.union([
 export const R2BucketSchema = z.enum(R2_BUCKETS);
 
 /**
+ * A route TARGET, with control characters refused.
+ *
+ * The WHATWG URL parser STRIPS U+0009 (tab), U+000A and U+000D from anywhere
+ * in a URL, including the middle of a query-parameter NAME. So a target whose
+ * query reads `to<TAB>ken=LIVE` scans clean against any name predicate and is
+ * then served as `?token=LIVE` — the credential guard sees one string and the
+ * redirect emits another. Rejecting C0 and DEL at the schema boundary removes
+ * the divergence at its source; the guard additionally re-scans the parsed URL.
+ *
+ * Nothing legitimate needs a control character in a target: a real URL encodes
+ * them, and an R2 object key that contains one is already rejected downstream.
+ */
+// Tested by code point rather than by a regex character class: matching control
+// characters is exactly the point here, and a `no-control-regex` suppression
+// would read like an oversight rather than the intent.
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const code = character.codePointAt(0) ?? 0;
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+
+/**
+ * A route PATH, with `?`, `#` and a re-encoded `%` refused.
+ *
+ * `normalizePath()` truncates at the first `?` or `#` BEFORE percent-decoding,
+ * and then decodes — so it is not idempotent and a stored path can fail to
+ * round-trip in two ways:
+ *
+ *  - `/p%3Fx` decodes to `/p?x`, is stored under that key and LISTED as
+ *    `path: "/p?x"`, but any later request quoting the listed value normalises
+ *    to `/p` and edits, toggles or deletes a DIFFERENT route;
+ *  - `/p%253Fx` decodes ONCE to `/p%3Fx`, clears the check above, and is stored
+ *    under `/p%3fx` — whose listed value renormalises to `/p?x` and then `/p`,
+ *    leaving the route orphaned and unmanageable.
+ *
+ * Both are refused by requiring that one decode introduces no delimiter and no
+ * further percent-escape. Every management call depends on a path that means
+ * the same thing each time it is read.
+ */
+function decodedPathHasDelimiter(value: string): boolean {
+  let decoded = value;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    // Malformed encoding — judge the raw form; normalizePath does the same.
+  }
+  // A `%` surviving one decode is a second encode level: decoding again would
+  // change the path, so the value is not normalisation-stable.
+  return decoded.includes('?') || decoded.includes('#') || decoded.includes('%');
+}
+
+export const RoutePathSchema = z
+  .string()
+  .min(1)
+  .startsWith('/')
+  .refine(value => !decodedPathHasDelimiter(value), {
+    message: 'Route path must not contain ? or #, or a double-encoded %',
+  });
+
+export const RouteTargetSchema = z
+  .string()
+  .min(1)
+  .refine(value => !hasControlCharacter(value), {
+    message: 'Target must not contain control characters',
+  });
+
+/**
+ * The operator acknowledgement that unlocks a credential-shaped route target.
+ *
+ * A route whose TARGET carries a credential-named query parameter puts that
+ * value in KV, in `link_clicks.target_url`, and in the `Route matched` log —
+ * and hands it to anyone who opens the short link. The write paths refuse such
+ * a target with `ROUTE_TARGET_CREDENTIAL` unless this flag is `true`.
+ *
+ * ⚠️ REQUEST-ONLY. It is never part of a stored route: the stored-shape schemas
+ * (`CreateRouteInputSchema`, `UpdateRouteInputSchema`, and the Worker's own
+ * `RouteConfigSchema`) deliberately do NOT carry it, and Zod strips it on
+ * parse, so it cannot reach KV or a route response.
+ */
+export const ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION =
+  'Set true only after the human operator has confirmed they want a short link whose target carries a credential-named parameter (the names are returned in the ROUTE_TARGET_CREDENTIAL error). Do not set it on your own initiative; ask the human first.';
+
+export const AcknowledgeCredentialTargetSchema = z
+  .boolean()
+  .optional()
+  .describe(ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION);
+
+/**
+ * The same flag for an MCP TOOL input. `mcpBoolean()` accepts the stringified
+ * booleans some clients send; a bare `z.boolean()` answers a Zod type error
+ * instead of the guard, so the operator never sees the parameter names they are
+ * being asked about.
+ */
+export const AcknowledgeCredentialTargetToolSchema = mcpBoolean()
+  .optional()
+  .describe(ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION);
+
+/**
  * Full route configuration schema (from API response)
  */
 export const RouteSchema = z.object({
-  path: z.string().min(1).startsWith('/').describe('URL path pattern (e.g., "/github", "/blog/*")'),
+  path: RoutePathSchema.describe('URL path pattern (e.g., "/github", "/blog/*")'),
   type: RouteTypeSchema.describe('Route handler type'),
-  target: z.string().min(1).describe('Target URL or R2 object key'),
+  target: RouteTargetSchema.describe('Target URL or R2 object key'),
   statusCode: RedirectStatusCodeSchema.optional().describe('HTTP redirect status code'),
   preserveQuery: z.boolean().optional().default(true).describe('Preserve query params on redirect'),
   preservePath: z.boolean().optional().default(false).describe('Preserve path for wildcard routes'),
@@ -106,9 +227,9 @@ export const RouteSchema = z.object({
  * Schema for creating a new route
  */
 export const CreateRouteInputSchema = z.object({
-  path: z.string().min(1).startsWith('/').describe('URL path pattern starting with /'),
+  path: RoutePathSchema.describe('URL path pattern starting with /'),
   type: RouteTypeSchema.describe('Route type: redirect, proxy, or r2'),
-  target: z.string().min(1).describe('Target URL or R2 object key'),
+  target: RouteTargetSchema.describe('Target URL or R2 object key'),
   statusCode: RedirectStatusCodeSchema.optional().describe('HTTP status code (301, 302, 307, 308)'),
   preserveQuery: z.boolean().optional().default(true).describe('Preserve query params on redirect'),
   preservePath: z.boolean().optional().default(false).describe('Preserve path for wildcard routes'),
@@ -130,7 +251,7 @@ export const CreateRouteInputSchema = z.object({
  */
 export const UpdateRouteInputSchema = z.object({
   type: RouteTypeSchema.optional().describe('Route type: redirect, proxy, or r2'),
-  target: z.string().min(1).optional().describe('Target URL or R2 object key'),
+  target: RouteTargetSchema.optional().describe('Target URL or R2 object key'),
   statusCode: RedirectStatusCodeSchema.optional().describe('HTTP status code (301, 302, 307, 308)'),
   preserveQuery: z.boolean().optional().describe('Preserve query params on redirect'),
   preservePath: z.boolean().optional().describe('Preserve path for wildcard routes'),
@@ -206,7 +327,7 @@ export const ListRoutesInputSchema = z.object({
  * get_route tool input schema
  */
 export const GetRouteInputSchema = z.object({
-  path: z.string().startsWith('/').describe('Route path starting with /'),
+  path: RoutePathSchema.describe('Route path starting with /'),
   domain: RequiredDomainSchema,
 });
 
@@ -214,9 +335,9 @@ export const GetRouteInputSchema = z.object({
  * create_route tool input schema
  */
 export const CreateRouteToolInputSchema = z.object({
-  path: z.string().startsWith('/').describe('Route path starting with /'),
+  path: RoutePathSchema.describe('Route path starting with /'),
   type: RouteTypeSchema.describe('Route type: redirect, proxy, or r2'),
-  target: z.string().min(1).describe('Target URL or R2 key'),
+  target: RouteTargetSchema.describe('Target URL or R2 key'),
   statusCode: z.number().optional().describe('HTTP status (301/302/307/308) for redirects'),
   preserveQuery: z.boolean().optional().default(true).describe('Preserve query params on redirect'),
   preservePath: z.boolean().optional().default(false).describe('Preserve path for wildcard routes'),
@@ -231,15 +352,16 @@ export const CreateRouteToolInputSchema = z.object({
     'R2 bucket for file serving (R2 only, default: "files")',
   ),
   domain: RequiredDomainSchema,
+  acknowledgeCredentialTarget: AcknowledgeCredentialTargetToolSchema,
 });
 
 /**
  * update_route tool input schema
  */
 export const UpdateRouteToolInputSchema = z.object({
-  path: z.string().startsWith('/').describe('Route path to update'),
+  path: RoutePathSchema.describe('Route path to update'),
   type: RouteTypeSchema.optional().describe('New route type'),
-  target: z.string().min(1).optional().describe('New target URL or R2 key'),
+  target: RouteTargetSchema.optional().describe('New target URL or R2 key'),
   statusCode: z.number().optional().describe('New HTTP status code'),
   preserveQuery: z.boolean().optional().describe('New preserve query setting'),
   preservePath: z.boolean().optional().describe('New preserve path setting'),
@@ -248,13 +370,14 @@ export const UpdateRouteToolInputSchema = z.object({
   forceDownload: z.boolean().optional().describe('New force download setting (R2 only)'),
   bucket: R2BucketSchema.optional().describe('R2 bucket for file serving (R2 only)'),
   domain: RequiredDomainSchema,
+  acknowledgeCredentialTarget: AcknowledgeCredentialTargetToolSchema,
 });
 
 /**
  * delete_route tool input schema
  */
 export const DeleteRouteInputSchema = z.object({
-  path: z.string().startsWith('/').describe('Route path to delete'),
+  path: RoutePathSchema.describe('Route path to delete'),
   domain: RequiredDomainSchema,
 });
 
@@ -262,9 +385,13 @@ export const DeleteRouteInputSchema = z.object({
  * toggle_route tool input schema
  */
 export const ToggleRouteInputSchema = z.object({
-  path: z.string().startsWith('/').describe('Route path to toggle'),
-  enabled: z.boolean().describe('Enable (true) or disable (false) the route'),
+  path: RoutePathSchema.describe('Route path to toggle'),
+  // `mcpBoolean()` parses string args correctly: "false" → false. A plain
+  // `z.coerce.boolean()` made "false" → true, so `enabled="false"` ENABLED the
+  // route. Real booleans pass through; unrecognised values are rejected.
+  enabled: mcpBoolean().describe('Enable (true) or disable (false) the route'),
   domain: RequiredDomainSchema,
+  acknowledgeCredentialTarget: AcknowledgeCredentialTargetToolSchema,
 });
 
 /**

@@ -10,6 +10,7 @@ import {
   GetRouteInputSchema,
   CreateRouteToolInputSchema,
   DeleteRouteInputSchema,
+  AcknowledgeCredentialTargetToolSchema,
   ToggleRouteInputSchema,
   GetAnalyticsSummaryInputSchema,
   GetClicksInputSchema,
@@ -170,7 +171,80 @@ describe('schemas', () => {
     });
   });
 
+  describe('RoutePathSchema / RouteTargetSchema', () => {
+    const create = (overrides: Record<string, unknown>) =>
+      CreateRouteToolInputSchema.safeParse({
+        path: '/ok',
+        type: 'redirect',
+        target: 'https://app.example/landing',
+        domain: 'links.example.com',
+        ...overrides,
+      });
+
+    it('accepts an ordinary path and target', () => {
+      expect(create({}).success).toBe(true);
+      expect(create({ path: '/a/b-c_d' }).success).toBe(true);
+      expect(create({ path: '/a%20b' }).success).toBe(true);
+    });
+
+    it('refuses a path that cannot round-trip through normalisation', () => {
+      // `normalizePath()` strips `?`/`#` BEFORE decoding, so a stored `/p%3Fx`
+      // is listed back as `/p?x` and renormalises to a DIFFERENT route.
+      expect(create({ path: '/p?x' }).success).toBe(false);
+      expect(create({ path: '/p#x' }).success).toBe(false);
+      expect(create({ path: '/p%3Fx' }).success).toBe(false);
+      // A `%` surviving one decode is a second encode level, which orphans the
+      // record entirely.
+      expect(create({ path: '/p%253Fx' }).success).toBe(false);
+    });
+
+    it('refuses a target carrying a control character', () => {
+      // The URL parser strips tab/LF/CR from anywhere in a URL, so
+      // `to<TAB>ken=LIVE` would scan clean and then be served as `?token=LIVE`.
+      expect(create({ target: 'https://app.example/?to\tken=LIVE' }).success).toBe(false);
+      expect(create({ target: 'https://app.example/\nlanding' }).success).toBe(false);
+      expect(create({ target: 'https://app.example/\u007flanding' }).success).toBe(false);
+    });
+  });
+
+  describe('AcknowledgeCredentialTargetToolSchema', () => {
+    it('is optional, and parses the stringified booleans MCP clients send', () => {
+      expect(create_ack(undefined)).toBe(undefined);
+      expect(create_ack(true)).toBe(true);
+      expect(create_ack('true')).toBe(true);
+      expect(create_ack('false')).toBe(false);
+    });
+
+    it('refuses a value it does not recognise rather than guessing', () => {
+      expect(AcknowledgeCredentialTargetToolSchema.safeParse('maybe').success).toBe(false);
+      expect(AcknowledgeCredentialTargetToolSchema.safeParse(1).success).toBe(false);
+    });
+
+    function create_ack(value: unknown): boolean | undefined {
+      const parsed = AcknowledgeCredentialTargetToolSchema.safeParse(value);
+      expect(parsed.success).toBe(true);
+      return parsed.success ? parsed.data : undefined;
+    }
+  });
+
   describe('ToggleRouteInputSchema', () => {
+    it('parses the string forms and REFUSES an unrecognised value', () => {
+      const parse = (enabled: unknown) =>
+        ToggleRouteInputSchema.safeParse({
+          path: '/test',
+          enabled,
+          domain: 'links.example.com',
+        });
+
+      // ⚠️ `"false"` must DISABLE. A plain truthiness test would enable it.
+      expect(parse('false').success && parse('false').data.enabled).toBe(false);
+      expect(parse('true').success && parse('true').data.enabled).toBe(true);
+      // A toggle is often the response to an abused link, so it fails closed.
+      for (const value of ['off', 'disabled', 'n', 1, 0]) {
+        expect(parse(value).success).toBe(false);
+      }
+    });
+
     it('requires path, enabled and domain', () => {
       expect(
         ToggleRouteInputSchema.safeParse({

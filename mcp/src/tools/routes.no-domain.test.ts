@@ -250,7 +250,13 @@ describe('no-domain guard on every domain-required tool', () => {
     });
 
     expect(transferRoute).toHaveBeenCalledTimes(1);
-    expect(transferRoute).toHaveBeenCalledWith('/x', 'links.example.com', 'secondary.example.net');
+    expect(transferRoute).toHaveBeenCalledWith(
+      '/x',
+      'links.example.com',
+      'secondary.example.net',
+      // No acknowledgement was passed, so none is forwarded.
+      { acknowledgeCredentialTarget: undefined },
+    );
     expect(result).toContain('Route transferred successfully!');
     expect(result).toContain('From: links.example.com');
     expect(result).toContain('To: secondary.example.net');

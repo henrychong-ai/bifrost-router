@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { RoutePathSchema, RouteTargetSchema } from '@bifrost/shared';
 import { R2_BUCKETS } from '../types';
 
 /**
@@ -49,11 +50,16 @@ export function domainPrefix(domain: string): string {
  * Zod schema for route configuration validation
  */
 export const RouteConfigSchema = z.object({
-  path: z.string().min(1).startsWith('/').describe('URL path pattern (e.g., "/github", "/blog/*")'),
+  // A stored path has to round-trip: `normalizePath()` strips `?`/`#` BEFORE
+  // decoding, so `/p%3Fx` would be listed back in a form that normalises to a
+  // DIFFERENT route. The target refuses control characters because the URL
+  // parser strips tab/LF/CR from anywhere in a URL, which would let
+  // `to<TAB>ken=LIVE` scan clean and then serve `?token=LIVE`.
+  path: RoutePathSchema.describe('URL path pattern (e.g., "/github", "/blog/*")'),
 
   type: z.enum(['redirect', 'proxy', 'r2']).describe('Route handler type'),
 
-  target: z.string().min(1).describe('Target URL or R2 object key'),
+  target: RouteTargetSchema.describe('Target URL or R2 object key'),
 
   statusCode: z
     .union([z.literal(301), z.literal(302), z.literal(307), z.literal(308)])

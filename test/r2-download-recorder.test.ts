@@ -1,8 +1,16 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { env } from 'cloudflare:test';
-import worker from '../src/index';
 import { shouldRecordFileDownload } from '../src/db/analytics';
-import { clearAllRoutes, clearR2, seedR2Object, seedRoute, TEST_DOMAIN } from './helpers';
+import {
+  clearAllRoutes,
+  clearR2,
+  createFileDownloadsTable,
+  createSettlingExecutionContext,
+  seedR2Object,
+  seedRoute,
+  serveThroughWorker,
+  TEST_DOMAIN,
+} from './helpers';
 
 /**
  * End-to-end proof of the R2 serve path against a REAL R2 binding.
@@ -20,21 +28,12 @@ import { clearAllRoutes, clearR2, seedR2Object, seedRoute, TEST_DOMAIN } from '.
  * writes dozens of rows per view, each with `file_size` set to the slice and
  * `X-Cache-Status` permanently MISS), and a 304 transfers no bytes at all.
  */
-function createExecutionContext(): { ctx: ExecutionContext; settled: () => Promise<void> } {
-  const pending: Promise<unknown>[] = [];
-  return {
-    ctx: {
-      waitUntil: (p: Promise<unknown>) => {
-        pending.push(p);
-      },
-      passThroughOnException: () => {},
-      props: {},
-    } as unknown as ExecutionContext,
-    settled: async () => {
-      await Promise.allSettled(pending);
-    },
-  };
-}
+/**
+ * Serve through the real worker and settle the recorder's `waitUntil`. The
+ * execution-context helper, this wrapper and the legacy DDL live in
+ * `test/helpers.ts` — the redaction suite needs the same three.
+ */
+const serve = serveThroughWorker;
 
 async function countDownloads(path: string): Promise<number> {
   const row = await env.DB.prepare('SELECT COUNT(*) AS n FROM file_downloads WHERE path = ?')
@@ -43,44 +42,9 @@ async function countDownloads(path: string): Promise<number> {
   return row?.n ?? 0;
 }
 
-/** Serve `path` through the real worker and settle the recorder's waitUntil. */
-async function serve(path: string, headers: HeadersInit = {}): Promise<Response> {
-  const { ctx, settled } = createExecutionContext();
-  const response = await worker.fetch(
-    new Request(`https://${TEST_DOMAIN}${path}`, { headers }),
-    env,
-    ctx,
-  );
-  // Drain the body so the streamed R2 read completes before the assertions.
-  await response.clone().arrayBuffer();
-  await settled();
-  return response;
-}
-
 describe('R2 serve path against a real R2 binding', () => {
   beforeAll(async () => {
-    await env.DB.prepare(`
-      CREATE TABLE IF NOT EXISTS file_downloads (
-        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-        domain TEXT NOT NULL,
-        path TEXT NOT NULL,
-        r2_key TEXT NOT NULL,
-        content_type TEXT,
-        file_size INTEGER,
-        query_string TEXT,
-        referrer TEXT,
-        user_agent TEXT,
-        country TEXT,
-        city TEXT,
-        colo TEXT,
-        continent TEXT,
-        timezone TEXT,
-        http_protocol TEXT,
-        ip_address TEXT,
-        cache_status TEXT,
-        created_at INTEGER DEFAULT (unixepoch()) NOT NULL
-      )
-    `).run();
+    await createFileDownloadsTable();
   });
 
   beforeEach(async () => {
@@ -207,7 +171,10 @@ describe('R2 serve path against a real R2 binding', () => {
   it('does not record a HEAD probe as a download (real worker)', async () => {
     await seed('/rec-head', 'recorder/head.txt');
 
-    const { ctx, settled } = createExecutionContext();
+    // A HEAD has no body to drain, so it drives the worker directly rather
+    // than going through serveThroughWorker().
+    const { default: worker } = await import('../src/index');
+    const { ctx, settled } = createSettlingExecutionContext();
     const response = await worker.fetch(
       new Request(`https://${TEST_DOMAIN}/rec-head`, { method: 'HEAD' }),
       env,

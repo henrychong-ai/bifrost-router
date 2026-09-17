@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Bifrost Admin API
   description: Edge router management API for route configuration and analytics
-  version: 1.35.1
+  version: 1.36.0
   contact:
     name: Bifrost Maintainers
     url: https://example.com
@@ -27,6 +27,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
+
+  # Engineering changelog (authenticated; never bundled into the dashboard)
+  /api/changelog:
+    get:
+      summary: The engineering changelog as Markdown
+      tags:
+        - Admin
+      responses:
+        '200':
+          description: CHANGELOG.md, verbatim.
+          content:
+            text/markdown:
+              schema:
+                type: string
 
   # Route management
   /api/routes:

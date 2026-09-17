@@ -6,6 +6,9 @@
  */
 
 import { SUPPORTED_DOMAINS, SUPPORTED_DOMAINS_LIST, R2_BUCKETS, ALL_R2_BUCKETS } from './types.js';
+// Single source for the wording — the Zod tool schemas describe the same flag,
+// and a drifted description is a drifted instruction to an agent.
+import { ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION } from './schemas.js';
 
 /**
  * JSON Schema property definition
@@ -170,6 +173,10 @@ export const toolDefinitions: ToolDefinition[] = [
           description: `R2 bucket for file serving (R2 only). Available: ${R2_BUCKETS.join(', ')}. Default: files`,
           enum: [...R2_BUCKETS],
         },
+        acknowledgeCredentialTarget: {
+          type: 'boolean',
+          description: ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION,
+        },
         domain: routeDomainProperty,
       },
       required: ['domain', 'path', 'type', 'target'],
@@ -216,6 +223,10 @@ export const toolDefinitions: ToolDefinition[] = [
           description: `R2 bucket for file serving (R2 only). Available: ${R2_BUCKETS.join(', ')}`,
           enum: [...R2_BUCKETS],
         },
+        acknowledgeCredentialTarget: {
+          type: 'boolean',
+          description: ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION,
+        },
         domain: routeDomainProperty,
       },
       required: ['domain', 'path'],
@@ -249,6 +260,10 @@ export const toolDefinitions: ToolDefinition[] = [
         enabled: {
           type: 'boolean',
           description: 'Enable (true) or disable (false) the route',
+        },
+        acknowledgeCredentialTarget: {
+          type: 'boolean',
+          description: ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION,
         },
         domain: routeDomainProperty,
       },
@@ -288,6 +303,10 @@ export const toolDefinitions: ToolDefinition[] = [
         },
         from_domain: sourceDomainProperty,
         to_domain: destinationDomainProperty,
+        acknowledgeCredentialTarget: {
+          type: 'boolean',
+          description: ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION,
+        },
       },
       required: ['path', 'from_domain', 'to_domain'],
     },

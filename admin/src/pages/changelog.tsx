@@ -3,15 +3,14 @@ import { Search } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useChangelog } from '@/hooks';
 import {
   parseChangelog,
   getSectionBadgeClasses,
   renderInlineCode,
   type ChangelogVersion,
 } from '@/lib/parse-changelog';
-import changelogRaw from '../../../CHANGELOG.md?raw';
-
-const allVersions = parseChangelog(changelogRaw);
 
 /** "2026-06-24" → "24 Jun 2026" (en-GB, UTC-pinned so the date never shifts). */
 function formatReleaseDate(isoDate: string): string {
@@ -36,14 +35,41 @@ function matchesSearch(version: ChangelogVersion, lowerQuery: string): boolean {
   return false;
 }
 
+/**
+ * The changelog page.
+ *
+ * ⚠️ The markdown is FETCHED from the authenticated `GET /api/changelog` route,
+ * never imported. `import '../../../CHANGELOG.md?raw'` compiled the whole
+ * document into a JS chunk under `/assets`, which the dashboard host serves
+ * with no credential check — the entire engineering changelog was readable by
+ * anyone who could reach it. `pnpm run check` fails the build if a release
+ * heading reappears in the bundle, so re-adding the import cannot ship
+ * silently.
+ */
 export function ChangelogPage() {
   const [search, setSearch] = useState('');
+  const { data: markdown, isLoading, error } = useChangelog();
+
+  const allVersions = useMemo(() => (markdown ? parseChangelog(markdown) : []), [markdown]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase().replace(/^v/, '');
     if (!q) return allVersions;
     return allVersions.filter(v => matchesSearch(v, q));
-  }, [search]);
+  }, [search, allVersions]);
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <h1 className="font-inter text-huge font-bold text-blue-950">Changelog</h1>
+        <Card className="border-destructive">
+          <CardContent className="pt-6">
+            <p className="font-inter text-destructive">Failed to load changelog: {error.message}</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -74,12 +100,18 @@ export function ChangelogPage() {
           />
         </div>
         <span aria-live="polite" className="font-inter text-small text-muted-foreground">
-          {filtered.length} of {allVersions.length} versions
+          {isLoading ? 'Loading...' : `${filtered.length} of ${allVersions.length} versions`}
         </span>
       </div>
 
       {/* Version cards */}
-      {filtered.length === 0 ? (
+      {isLoading ? (
+        <div className="space-y-4">
+          {['a', 'b', 'c', 'd'].map(placeholder => (
+            <Skeleton key={placeholder} className="h-40 w-full" />
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
         <Card className="animate-fade-in border-border/50">
           <CardContent className="py-12 text-center">
             <p className="font-inter text-muted-foreground">No versions match your search.</p>

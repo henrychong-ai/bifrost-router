@@ -70,6 +70,26 @@ export class EdgeRouterError extends Error {
 }
 
 /**
+ * The request-only acknowledgement that unlocks a credential-shaped route
+ * target. It is NOT part of a stored route: it travels in the write request,
+ * the Worker reads it off the raw body, and the stored-shape Zod schema strips
+ * it before anything reaches KV.
+ */
+export interface CredentialTargetAcknowledgement {
+  acknowledgeCredentialTarget?: boolean;
+}
+
+/** Attach the acknowledgement to a write body only when it was actually set. */
+function withCredentialTargetAcknowledgement<T extends object>(
+  input: T,
+  options: CredentialTargetAcknowledgement,
+): T | (T & { acknowledgeCredentialTarget: boolean }) {
+  return options.acknowledgeCredentialTarget === undefined
+    ? input
+    : { ...input, acknowledgeCredentialTarget: options.acknowledgeCredentialTarget };
+}
+
+/**
  * HTTP client for Bifrost Admin API
  */
 export class EdgeRouterClient {
@@ -127,10 +147,17 @@ export class EdgeRouterClient {
 
     // Handle errors
     if (!response.ok || !data.success) {
+      // The central error envelope carries only `error`. A handler that ALSO
+      // sends `message` is using `error` as a machine CODE
+      // (`ROUTE_TARGET_CREDENTIAL`), and the sentence is the part a human or an
+      // MCP caller needs — so carry both. Bodies without `message` are
+      // byte-identical to before.
+      const body = data as ApiResponse & { message?: string };
+      const code = body.error ?? `Request failed: ${response.statusText}`;
       throw new EdgeRouterError(
-        (data as ApiResponse).error ?? `Request failed: ${response.statusText}`,
+        typeof body.message === 'string' && body.message ? `${code}: ${body.message}` : code,
         response.status,
-        (data as ApiResponse).details,
+        body.details,
       );
     }
 
@@ -245,9 +272,13 @@ export class EdgeRouterClient {
   /**
    * Create a new route
    */
-  async createRoute(input: CreateRouteInput, domain: string): Promise<Route> {
+  async createRoute(
+    input: CreateRouteInput,
+    domain: string,
+    options: CredentialTargetAcknowledgement = {},
+  ): Promise<Route> {
     return this.request<Route>('POST', '/api/routes', {
-      body: input,
+      body: withCredentialTargetAcknowledgement(input, options),
       params: { domain },
     });
   }
@@ -257,9 +288,14 @@ export class EdgeRouterClient {
    *
    * Uses query parameter for path to handle "/" and other special characters correctly.
    */
-  async updateRoute(path: string, input: UpdateRouteInput, domain: string): Promise<Route> {
+  async updateRoute(
+    path: string,
+    input: UpdateRouteInput,
+    domain: string,
+    options: CredentialTargetAcknowledgement = {},
+  ): Promise<Route> {
     return this.request<Route>('PUT', '/api/routes', {
-      body: input,
+      body: withCredentialTargetAcknowledgement(input, options),
       params: { path, domain },
     });
   }
@@ -278,8 +314,13 @@ export class EdgeRouterClient {
   /**
    * Toggle a route's enabled status
    */
-  async toggleRoute(path: string, enabled: boolean, domain: string): Promise<Route> {
-    return this.updateRoute(path, { enabled }, domain);
+  async toggleRoute(
+    path: string,
+    enabled: boolean,
+    domain: string,
+    options: CredentialTargetAcknowledgement = {},
+  ): Promise<Route> {
+    return this.updateRoute(path, { enabled }, domain, options);
   }
 
   /**
@@ -294,9 +335,14 @@ export class EdgeRouterClient {
   /**
    * Transfer a route to a different domain
    */
-  async transferRoute(path: string, fromDomain: string, toDomain: string): Promise<Route> {
+  async transferRoute(
+    path: string,
+    fromDomain: string,
+    toDomain: string,
+    options: CredentialTargetAcknowledgement = {},
+  ): Promise<Route> {
     return this.request<Route>('POST', '/api/routes/transfer', {
-      body: { path, fromDomain, toDomain },
+      body: withCredentialTargetAcknowledgement({ path, fromDomain, toDomain }, options),
     });
   }
 
@@ -608,6 +654,18 @@ export class EdgeRouterClient {
       `/api/qr/${encodeURIComponent(id)}`,
       { params: { domain } },
     );
+  }
+
+  /**
+   * Fetch the engineering changelog as Markdown.
+   *
+   * The dashboard used to compile CHANGELOG.md into its public JS bundle,
+   * which published every release note to anonymous callers. The document is
+   * now served only from this authenticated route.
+   */
+  async getChangelogMarkdown(): Promise<string> {
+    const response = await this.requestRaw('GET', '/api/changelog');
+    return response.text();
   }
 
   /** Fetch the rendered QR SVG source for a stored record. */

@@ -16,6 +16,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useRoutesFilters, SUPPORTED_DOMAINS, type SupportedDomain } from '@/context';
 import { QRDesignSchema, renderQrSvg, type QRDesign } from '@bifrost/shared';
 import { QrPreview } from '@/components/qr-preview';
+import { CredentialTargetDialog } from '@/components/credential-target-dialog';
+import { credentialTargetParametersFromError } from '@/lib/credential-target';
 import { useCreateQr, useQrCodes } from '@/hooks';
 import { downloadPng, downloadSvg } from '@/lib/svg-to-png';
 import type { Route, CreateRouteInput, UpdateRouteInput, R2BucketName } from '@/lib/schemas';
@@ -724,6 +726,16 @@ export function RoutesPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editRoute, setEditRoute] = useState<Route | null>(null);
   const [deleteConfirmRoute, setDeleteConfirmRoute] = useState<Route | null>(null);
+  // A route write refused because its TARGET carries a credential-named
+  // parameter. The retry closes over the original submission and re-sends it
+  // with the acknowledgement, so the operator confirms the exact write they
+  // already made.
+  const [credentialConfirm, setCredentialConfirm] = useState<{
+    parameters: string[];
+    verb: string;
+    retry: () => Promise<void>;
+  } | null>(null);
+  const [credentialConfirmPending, setCredentialConfirmPending] = useState(false);
   const [transferTarget, setTransferTarget] = useState<{
     path: string;
     fromDomain: string;
@@ -784,19 +796,39 @@ export function RoutesPage() {
     setOffset(0);
   };
 
-  const handleCreate = async (data: CreateRouteInput, domain: string) => {
+  const handleCreate = async (
+    data: CreateRouteInput,
+    domain: string,
+    acknowledgeCredentialTarget?: boolean,
+  ) => {
     try {
-      await createRoute.mutateAsync({ data, domain });
+      await createRoute.mutateAsync({ data, domain, acknowledgeCredentialTarget });
       toast.success(`Route created successfully on ${domain}`);
       setCreateDialogOpen(false);
+      setCredentialConfirm(null);
     } catch (err) {
+      const parameters = credentialTargetParametersFromError(err);
+      if (parameters && !acknowledgeCredentialTarget) {
+        setCredentialConfirm({
+          parameters,
+          verb: 'Create',
+          retry: () => handleCreate(data, domain, true),
+        });
+        return;
+      }
+      setCredentialConfirm(null);
       toast.error(
         `Failed to create route: ${err instanceof Error ? err.message : 'Unknown error'}`,
       );
     }
   };
 
-  const handleUpdate = async (data: UpdateRouteInput, pathChanged: boolean, newPath?: string) => {
+  const handleUpdate = async (
+    data: UpdateRouteInput,
+    pathChanged: boolean,
+    newPath?: string,
+    acknowledgeCredentialTarget?: boolean,
+  ) => {
     if (!editRoute) return;
 
     if (pathChanged && newPath) {
@@ -809,16 +841,32 @@ export function RoutesPage() {
       return;
     }
 
+    // Captured before the await: the retry re-sends the SAME write, and
+    // `editRoute` may have been cleared by then.
+    const target = editRoute;
+
     // Normal update (no path change)
     try {
       await updateRoute.mutateAsync({
-        path: editRoute.path,
+        path: target.path,
         data,
-        domain: editRoute.domain ?? filters.domain,
+        domain: target.domain ?? filters.domain,
+        acknowledgeCredentialTarget,
       });
       toast.success('Route updated successfully');
       setEditRoute(null);
+      setCredentialConfirm(null);
     } catch (err) {
+      const parameters = credentialTargetParametersFromError(err);
+      if (parameters && !acknowledgeCredentialTarget) {
+        setCredentialConfirm({
+          parameters,
+          verb: 'Save',
+          retry: () => handleUpdate(data, false, undefined, true),
+        });
+        return;
+      }
+      setCredentialConfirm(null);
       toast.error(
         `Failed to update route: ${err instanceof Error ? err.message : 'Unknown error'}`,
       );
@@ -842,19 +890,42 @@ export function RoutesPage() {
     }
   };
 
-  const handleToggle = async (route: Route) => {
+  const handleToggle = async (route: Route, acknowledgeCredentialTarget?: boolean) => {
     try {
       // Pass domain from route when in all-domains view to ensure correct mutation
       await toggleRoute.mutateAsync({
         path: route.path,
         enabled: !route.enabled,
         domain: route.domain ?? filters.domain,
+        acknowledgeCredentialTarget,
       });
       toast.success(`Route ${route.enabled ? 'disabled' : 'enabled'}`);
+      setCredentialConfirm(null);
     } catch (err) {
+      const parameters = credentialTargetParametersFromError(err);
+      if (parameters && !acknowledgeCredentialTarget) {
+        setCredentialConfirm({
+          parameters,
+          verb: 'Enable',
+          retry: () => handleToggle(route, true),
+        });
+        return;
+      }
+      setCredentialConfirm(null);
       toast.error(
         `Failed to toggle route: ${err instanceof Error ? err.message : 'Unknown error'}`,
       );
+    }
+  };
+
+  /** Re-send the refused write with the operator's acknowledgement. */
+  const handleConfirmCredentialTarget = async () => {
+    if (!credentialConfirm) return;
+    setCredentialConfirmPending(true);
+    try {
+      await credentialConfirm.retry();
+    } finally {
+      setCredentialConfirmPending(false);
     }
   };
 
@@ -882,14 +953,26 @@ export function RoutesPage() {
     }
   };
 
-  const handleTransferConfirm = async () => {
+  const handleTransferConfirm = async (acknowledgeCredentialTarget?: boolean) => {
     if (!transferTarget) return;
+    const target = transferTarget;
     try {
-      await transferRoute.mutateAsync(transferTarget);
-      toast.success(`Route transferred to ${transferTarget.toDomain}`);
+      await transferRoute.mutateAsync({ ...target, acknowledgeCredentialTarget });
+      toast.success(`Route transferred to ${target.toDomain}`);
       setTransferTarget(null);
       setEditRoute(null);
+      setCredentialConfirm(null);
     } catch (err) {
+      const parameters = credentialTargetParametersFromError(err);
+      if (parameters && !acknowledgeCredentialTarget) {
+        setCredentialConfirm({
+          parameters,
+          verb: 'Transfer',
+          retry: () => handleTransferConfirm(true),
+        });
+        return;
+      }
+      setCredentialConfirm(null);
       toast.error(`Transfer failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
@@ -1407,6 +1490,14 @@ export function RoutesPage() {
         </DialogContent>
       </Dialog>
 
+      <CredentialTargetDialog
+        parameters={credentialConfirm?.parameters ?? null}
+        verb={credentialConfirm?.verb ?? 'Save'}
+        pending={credentialConfirmPending}
+        onConfirm={handleConfirmCredentialTarget}
+        onCancel={() => setCredentialConfirm(null)}
+      />
+
       {/* Migration Confirmation Dialog */}
       <AlertDialog open={!!migrationConfirm} onOpenChange={() => setMigrationConfirm(null)}>
         <AlertDialogContent>
@@ -1470,7 +1561,7 @@ export function RoutesPage() {
           <AlertDialogFooter>
             <AlertDialogCancel className="font-inter">Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleTransferConfirm}
+              onClick={() => handleTransferConfirm()}
               disabled={transferRoute.isPending}
               className="bg-blue-950 font-inter hover:bg-blue-900"
             >

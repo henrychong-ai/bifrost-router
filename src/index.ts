@@ -29,6 +29,8 @@ import {
   boundedUnifiedLatencyMs,
   classifyUnifiedTraffic,
   isUnifiedTrafficRequestEligible,
+  legacyQueryString,
+  legacyReferrer,
   parseUnifiedTrafficCutoverAt,
   parseUnifiedTrafficRetentionDays,
   privacySafeUnifiedAnalyticsPath,
@@ -351,8 +353,13 @@ app.all('*', async c => {
           recordPageView(c.env.DB, {
             domain: url.hostname,
             path: path,
-            queryString: url.search || null,
             ...analyticsData,
+            // Sanitised fields are asserted AFTER the spread so a future
+            // getAnalyticsData extension can never silently clobber a
+            // redaction. Both the query string and the Referer header carry
+            // credentials on magic-link / OAuth landing flows.
+            queryString: legacyQueryString(url),
+            referrer: legacyReferrer(analyticsData.referrer),
           }),
         );
       }
@@ -398,8 +405,9 @@ app.all('*', async c => {
         domain: url.hostname,
         slug: path,
         targetUrl: route.target,
-        queryString: url.search || null,
         ...analyticsData,
+        queryString: legacyQueryString(url),
+        referrer: legacyReferrer(analyticsData.referrer),
       }),
     );
   }
@@ -426,8 +434,9 @@ app.all('*', async c => {
         contentType,
         fileSize,
         cacheStatus,
-        queryString: url.search || null,
         ...analyticsData,
+        queryString: legacyQueryString(url),
+        referrer: legacyReferrer(analyticsData.referrer),
       }),
     );
   }
@@ -447,8 +456,9 @@ app.all('*', async c => {
         responseStatus: response.status,
         contentType,
         contentLength,
-        queryString: url.search || null,
         ...analyticsData,
+        queryString: legacyQueryString(url),
+        referrer: legacyReferrer(analyticsData.referrer),
       }),
     );
   }

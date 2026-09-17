@@ -53,7 +53,9 @@
       "!**/*.min.js",
       "!**/*.bundle.js",
       "!**/.pnpm-store/**",
-      "!**/worker-configuration.d.ts"
+      "!**/worker-configuration.d.ts",
+      "!src/generated/**",
+      "!.claude/worktrees/**"
     ]
   }
 }

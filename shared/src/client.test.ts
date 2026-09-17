@@ -497,3 +497,119 @@ describe('createClientFromEnv', () => {
     );
   });
 });
+
+describe('EdgeRouterClient credential-target acknowledgement and changelog', () => {
+  const mockFetch = vi.fn();
+  let client: EdgeRouterClient;
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    client = new EdgeRouterClient({
+      baseUrl: 'https://test.example.com',
+      apiKey: 'test-api-key',
+      fetch: mockFetch,
+    });
+  });
+
+  const okRoute = () => ({
+    ok: true,
+    json: async () => ({ success: true, data: { path: '/x' } }),
+  });
+
+  const sentBody = () => JSON.parse(mockFetch.mock.calls[0][1].body as string);
+
+  it('omits the flag entirely when it was not set', async () => {
+    mockFetch.mockResolvedValueOnce(okRoute());
+
+    await client.createRoute(
+      { path: '/x', type: 'redirect', target: 'https://app.example/ok' },
+      'links.example.com',
+    );
+
+    expect(sentBody()).not.toHaveProperty('acknowledgeCredentialTarget');
+  });
+
+  it('attaches the flag on create, update, toggle and transfer when set', async () => {
+    mockFetch.mockResolvedValue(okRoute());
+
+    await client.createRoute(
+      { path: '/x', type: 'redirect', target: 'https://app.example/ok' },
+      'links.example.com',
+      { acknowledgeCredentialTarget: true },
+    );
+    expect(sentBody().acknowledgeCredentialTarget).toBe(true);
+
+    mockFetch.mockClear();
+    await client.updateRoute('/x', { enabled: true }, 'links.example.com', {
+      acknowledgeCredentialTarget: true,
+    });
+    expect(sentBody().acknowledgeCredentialTarget).toBe(true);
+
+    mockFetch.mockClear();
+    await client.toggleRoute('/x', true, 'links.example.com', {
+      acknowledgeCredentialTarget: true,
+    });
+    expect(sentBody()).toMatchObject({ enabled: true, acknowledgeCredentialTarget: true });
+
+    mockFetch.mockClear();
+    await client.transferRoute('/x', 'links.example.com', 'secondary.example.net', {
+      acknowledgeCredentialTarget: true,
+    });
+    expect(sentBody().acknowledgeCredentialTarget).toBe(true);
+  });
+
+  it('carries the refusal CODE and its sentence, and keeps the details', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      statusText: 'Bad Request',
+      json: async () => ({
+        success: false,
+        error: 'ROUTE_TARGET_CREDENTIAL',
+        message: 'This route target carries credential-named parameters (token).',
+        details: { parameters: ['token'] },
+      }),
+    });
+
+    await expect(
+      client.createRoute(
+        { path: '/x', type: 'redirect', target: 'https://app.example/cb?token=LIVE' },
+        'links.example.com',
+      ),
+    ).rejects.toMatchObject({
+      message:
+        'ROUTE_TARGET_CREDENTIAL: This route target carries credential-named parameters (token).',
+      status: 400,
+      details: { parameters: ['token'] },
+    });
+  });
+
+  it('leaves an ordinary error body byte-identical', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+      json: async () => ({ success: false, error: 'Route not found: /x' }),
+    });
+
+    await expect(client.getRoute('/x', 'links.example.com')).rejects.toThrow(
+      new EdgeRouterError('Route not found: /x', 404),
+    );
+  });
+
+  it('fetches the changelog as raw markdown', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () => '# Changelog\n\n## v1.36.0 (2026-09-17)\n',
+    });
+
+    const markdown = await client.getChangelogMarkdown();
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://test.example.com/api/changelog',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(markdown).toMatch(/^# Changelog/);
+  });
+});

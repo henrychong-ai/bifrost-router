@@ -27,9 +27,11 @@ import { recordAuditLog } from '../db/analytics';
 import type { AuditAction } from '../db/analytics';
 import { checkBackupHealth } from '../backup/health';
 import { parseOpenGraph, SSRFBlockedError, ResponseTooLargeError } from '../utils/og-parser';
-import { RoutesListQuerySchema, redactSensitive } from '@bifrost/shared';
+import { RoutePathSchema, RoutesListQuerySchema, redactSensitive } from '@bifrost/shared';
 import { normalizePath } from '../kv/lookup';
 import { purgeRouteUrl } from '../utils/cache';
+import { findCredentialParams } from '../utils/unified-traffic';
+import { CHANGELOG_MARKDOWN } from '../generated/changelog-text';
 import {
   getDomainFromRequest,
   getRequiredDomainFromRequest,
@@ -96,6 +98,95 @@ function purgeRouteUrlIfR2(
   } catch {
     // executionCtx not available (e.g., in tests) - skip cache purge
   }
+}
+
+/**
+ * Refuse a route write whose TARGET carries a credential-named query parameter,
+ * unless the operator acknowledged it.
+ *
+ * A configured target is not request data — it is stored in KV, copied into
+ * `link_clicks.target_url` and `proxy_requests.target_url`, and written to the
+ * `Route matched` log. The recorder redaction stops the analytics tables
+ * holding a credential that arrived in the REQUEST; this stops one being
+ * planted in the route itself. A short link is a public handle: anyone who
+ * opens it exercises the credential.
+ *
+ * The predicate is the NAME-ONLY predicate, deliberately NOT the narrowed
+ * legacy rule, so `?code=SUMMER25` IS flagged as `code`. A human can look at it
+ * and acknowledge; a silent shape heuristic cannot.
+ *
+ * Scope:
+ *  - Only a write that leaves the route ENABLED is guarded. Disabling, or
+ *    creating something already disabled, serves nothing — and refusing a
+ *    DISABLE would block the very action that reduces exposure. Enabling is
+ *    guarded, so a credential-bearing route can never be live unacknowledged.
+ *  - `r2` targets are object keys, not URLs, and have no query component.
+ *
+ * Returns the refusal body, or `null` when the write may proceed. The caller
+ * keeps the parameter names for the audit row when it proceeds WITH the
+ * acknowledgement; values are never read, returned, or logged.
+ */
+interface CredentialTargetRefusal {
+  success: false;
+  error: 'ROUTE_TARGET_CREDENTIAL';
+  message: string;
+  details: { parameters: string[] };
+}
+
+/**
+ * ⚠️ The WHATWG URL parser STRIPS tab, LF and CR from anywhere in a URL, so a
+ * target whose query reads `to<TAB>ken=LIVE` scans clean and then SERVES
+ * `?token=LIVE`. The schema now refuses control characters outright, but the
+ * guard must not depend on that alone — a stored route predating this release,
+ * or any future caller bypassing the schema, would slip through. So the scan
+ * runs on the target with those three characters removed, and for a URL target
+ * it ALSO scans what the parser actually produced, taking the union.
+ */
+const URL_STRIPPED_CHARACTERS = /[\t\n\r]/g;
+
+export function credentialTargetParameters(route: {
+  type?: string;
+  target?: string;
+  enabled?: boolean;
+}): string[] {
+  if (route.enabled === false) return [];
+  if (route.type === 'r2') return [];
+  if (!route.target) return [];
+
+  const names = new Set(findCredentialParams(route.target.replace(URL_STRIPPED_CHARACTERS, '')));
+
+  // What the redirect/proxy handler will actually emit, as the parser sees it.
+  try {
+    const parsed = new URL(route.target);
+    for (const name of findCredentialParams(`${parsed.search}${parsed.hash}`)) names.add(name);
+  } catch {
+    // Not an absolute URL (a relative target, or an R2-shaped one on a
+    // mistyped type) — the raw scan above is the whole answer.
+  }
+
+  return [...names];
+}
+
+function credentialTargetRefusal(parameters: string[], subject: string): CredentialTargetRefusal {
+  return {
+    success: false,
+    error: 'ROUTE_TARGET_CREDENTIAL',
+    message: `${subject} carries credential-named parameter${parameters.length === 1 ? '' : 's'} (${parameters.join(', ')}); anyone with the short link can use ${parameters.length === 1 ? 'it' : 'them'}. Re-send with acknowledgeCredentialTarget: true to store it anyway.`,
+    details: { parameters },
+  };
+}
+
+/**
+ * The raw request body's acknowledgement flag. Read from the RAW body on
+ * purpose: the stored-shape schemas do not carry it, so Zod strips it on parse
+ * and it can never reach KV or a route response.
+ */
+function readCredentialAcknowledgement(body: unknown): boolean {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    (body as { acknowledgeCredentialTarget?: unknown }).acknowledgeCredentialTarget === true
+  );
 }
 
 /**
@@ -361,6 +452,13 @@ adminRoutes.post('/routes', async c => {
     );
   }
 
+  // Credential-shaped target guard. After validation and before the existence
+  // check: a refusal must not disclose whether the path is already taken.
+  const credentialParams = credentialTargetParameters(result.data);
+  if (credentialParams.length > 0 && !readCredentialAcknowledgement(body)) {
+    return c.json(credentialTargetRefusal(credentialParams, 'This route target'), 400);
+  }
+
   // Check if route already exists
   const existing = await getRoute(c.env.ROUTES, domain, result.data.path);
   if (existing) {
@@ -385,7 +483,14 @@ adminRoutes.post('/routes', async c => {
         actorLogin: actor.login,
         actorName: actor.name,
         path: result.data.path,
-        details: JSON.stringify({ route }),
+        details: JSON.stringify({
+          route,
+          // Names only, never values — the operator overrode the guard and the
+          // audit row must say so.
+          ...(credentialParams.length > 0
+            ? { credentialTargetAcknowledged: credentialParams }
+            : {}),
+        }),
         ipAddress: c.req.header('CF-Connecting-IP') || null,
       }),
     );
@@ -457,14 +562,32 @@ adminRoutes.put('/routes', async c => {
   // Get current route state before update
   const beforeRoute = await getRoute(c.env.ROUTES, domain, path);
 
+  // Credential-shaped target guard — on the EFFECTIVE post-update route, so a
+  // patch that leaves a credential target in place, or a re-enable of a stored
+  // one, is guarded exactly like a fresh target.
+  const effectiveRoute = { ...beforeRoute, ...result.data };
+  const credentialParams = credentialTargetParameters(effectiveRoute);
+  if (credentialParams.length > 0 && !readCredentialAcknowledgement(body)) {
+    return c.json(
+      credentialTargetRefusal(
+        credentialParams,
+        result.data.target === undefined ? "This route's stored target" : 'This route target',
+      ),
+      400,
+    );
+  }
+
   const route = await updateRoute(c.env.ROUTES, domain, path, result.data);
 
   if (!route) {
     throw new HTTPException(404, { message: `Route not found: ${path}` });
   }
 
-  // Determine if this is a toggle action or general update
-  const isToggle = Object.keys(body).length === 1 && 'enabled' in body;
+  // Determine if this is a toggle action or general update. The
+  // acknowledgement is a request-only flag, not an edited field, so it must not
+  // turn a toggle into an 'update' in the audit trail.
+  const editedKeys = Object.keys(body).filter(key => key !== 'acknowledgeCredentialTarget');
+  const isToggle = editedKeys.length === 1 && editedKeys[0] === 'enabled';
   const action: AuditAction = isToggle ? 'toggle' : 'update';
 
   // Record audit log (non-blocking) - only if executionCtx is available
@@ -477,9 +600,12 @@ adminRoutes.put('/routes', async c => {
         actorLogin: actor.login,
         actorName: actor.name,
         path,
-        details: isToggle
-          ? JSON.stringify({ enabled: body.enabled })
-          : JSON.stringify({ before: beforeRoute, after: route }),
+        details: JSON.stringify({
+          ...(isToggle ? { enabled: body.enabled } : { before: beforeRoute, after: route }),
+          ...(credentialParams.length > 0
+            ? { credentialTargetAcknowledged: credentialParams }
+            : {}),
+        }),
         ipAddress: c.req.header('CF-Connecting-IP') || null,
       }),
     );
@@ -603,10 +729,22 @@ adminRoutes.post('/routes/seed', async c => {
   // Validate all routes
   const validRoutes = [];
   const errors = [];
+  // Credential-target names and the paths carrying them, unioned across the batch.
+  const seedCredentialParams = new Set<string>();
+  const seedCredentialPaths = new Set<string>();
 
   for (const route of body.routes) {
     const result = CreateRouteSchema.safeParse(route);
     if (result.success) {
+      // Seed takes full route bodies, so it can plant exactly what create
+      // refuses; one acknowledgement covers the whole batch, and the refusal
+      // names the offending paths so an operator can find them in a 50-route
+      // payload.
+      const routeCredentialParams = credentialTargetParameters(result.data);
+      if (routeCredentialParams.length > 0) {
+        for (const name of routeCredentialParams) seedCredentialParams.add(name);
+        seedCredentialPaths.add(result.data.path);
+      }
       validRoutes.push(result.data);
     } else {
       errors.push({ path: route.path, issues: result.error.issues });
@@ -619,6 +757,20 @@ adminRoutes.post('/routes/seed', async c => {
         success: false,
         error: 'Some routes failed validation',
         details: errors,
+      },
+      400,
+    );
+  }
+
+  // Credential-shaped target guard — AFTER validation, so a malformed batch
+  // reports what is malformed instead of sending the operator round the
+  // acknowledgement loop first.
+  if (seedCredentialParams.size > 0 && !readCredentialAcknowledgement(body)) {
+    const parameters = [...seedCredentialParams];
+    return c.json(
+      {
+        ...credentialTargetRefusal(parameters, 'A seeded route target'),
+        details: { parameters, paths: [...seedCredentialPaths] },
       },
       400,
     );
@@ -639,6 +791,9 @@ adminRoutes.post('/routes/seed', async c => {
         details: JSON.stringify({
           count: validRoutes.length,
           paths: validRoutes.map(r => r.path),
+          ...(seedCredentialParams.size > 0
+            ? { credentialTargetAcknowledged: [...seedCredentialParams] }
+            : {}),
         }),
         ipAddress: c.req.header('CF-Connecting-IP') || null,
       }),
@@ -671,6 +826,15 @@ adminRoutes.post('/routes/migrate', async c => {
   }
   if (!newPath.startsWith('/')) {
     return c.json({ success: false, error: 'newPath must start with /' }, 400);
+  }
+  // Migrate validated the leading slash and nothing else, so a `newPath`
+  // carrying an encoded `?` or `#` was stored under a key that its own listed
+  // value can never resolve again. Same schema as every other path.
+  for (const candidate of [oldPath, newPath]) {
+    const parsed = RoutePathSchema.safeParse(candidate);
+    if (!parsed.success) {
+      return c.json({ success: false, error: parsed.error.issues[0].message }, 400);
+    }
   }
 
   const domainResult = getRequiredDomainFromRequest(c);
@@ -733,6 +897,32 @@ adminRoutes.post('/routes/migrate', async c => {
     throw error;
   }
 });
+
+/**
+ * GET /api/changelog - The engineering changelog, for authenticated callers
+ *
+ * The dashboard used to `import '../../../CHANGELOG.md?raw'`, which compiled
+ * the whole changelog into a JS chunk under `/assets` — served by nginx with no
+ * credential check at all, so every release note was readable by anyone who
+ * could reach the dashboard host.
+ *
+ * It is served from the admin chain, so the same `ADMIN_API_KEY` middleware
+ * that guards route management applies and an unauthenticated caller gets 401.
+ *
+ * `private, max-age=300`: a per-browser cache only. It must never become
+ * `public` — a shared cache in front of this route would hand the body to
+ * unauthenticated callers again, by a different mechanism.
+ *
+ * The body comes from `src/generated/changelog-text.ts`, generated from
+ * CHANGELOG.md by `pnpm run changelog:generate` and freshness-gated in
+ * `pnpm run check`.
+ */
+adminRoutes.get('/changelog', c =>
+  c.text(CHANGELOG_MARKDOWN, 200, {
+    'Content-Type': 'text/markdown; charset=utf-8',
+    'Cache-Control': 'private, max-age=300',
+  }),
+);
 
 /**
  * GET /api/backups/health - Check backup system health
@@ -848,6 +1038,8 @@ adminRoutes.post('/routes/transfer', async c => {
     path?: string;
     fromDomain?: string;
     toDomain?: string;
+    /** Request-only operator override; never stored. */
+    acknowledgeCredentialTarget?: boolean;
   }>();
 
   const { path, fromDomain, toDomain } = body;
@@ -883,6 +1075,20 @@ adminRoutes.post('/routes/transfer', async c => {
     );
   }
 
+  // A transfer cannot CHANGE a target, but it re-publishes it on a different
+  // host with a different audience — a link acknowledged for one brand's domain
+  // was never acknowledged for another's.
+  const existingForTransfer = await getRoute(c.env.ROUTES, fromDomain, path);
+  const transferCredentialParams = existingForTransfer
+    ? credentialTargetParameters(existingForTransfer)
+    : [];
+  if (transferCredentialParams.length > 0 && !readCredentialAcknowledgement(body)) {
+    return c.json(
+      credentialTargetRefusal(transferCredentialParams, "This route's stored target"),
+      400,
+    );
+  }
+
   try {
     const route = await transferRoute(c.env.ROUTES, fromDomain, toDomain, path);
 
@@ -900,7 +1106,14 @@ adminRoutes.post('/routes/transfer', async c => {
           path,
           actorLogin: actor.login,
           actorName: actor.name,
-          details: JSON.stringify({ fromDomain, toDomain, path }),
+          details: JSON.stringify({
+            fromDomain,
+            toDomain,
+            path,
+            ...(transferCredentialParams.length > 0
+              ? { credentialTargetAcknowledged: transferCredentialParams }
+              : {}),
+          }),
           ipAddress: c.req.header('CF-Connecting-IP') || null,
         }),
       );

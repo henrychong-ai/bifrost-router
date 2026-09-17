@@ -25,6 +25,11 @@ export {
   RouteTypeSchema,
   RedirectStatusCodeSchema,
   RouteSchema,
+  RoutePathSchema,
+  RouteTargetSchema,
+  AcknowledgeCredentialTargetSchema,
+  AcknowledgeCredentialTargetToolSchema,
+  ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION,
   CreateRouteInputSchema,
   UpdateRouteInputSchema,
   // Analytics query schemas

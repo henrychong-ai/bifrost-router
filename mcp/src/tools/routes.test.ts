@@ -7,6 +7,7 @@ import {
   updateRoute,
   deleteRoute,
   toggleRoute,
+  handleTransferRoute,
 } from './routes.js';
 
 describe('Route tool handlers', () => {
@@ -180,15 +181,17 @@ describe('Route tool handlers', () => {
       });
 
       expect(mockClient.createRoute).toHaveBeenCalledWith(
-        {
+        expect.objectContaining({
           path: '/test',
           type: 'redirect',
           target: 'https://example.com',
           statusCode: 301,
           preserveQuery: false,
           cacheControl: 'max-age=3600',
-        },
+        }),
         'links.example.com',
+        // No acknowledgement was passed, so none is forwarded.
+        { acknowledgeCredentialTarget: undefined },
       );
     });
 
@@ -306,5 +309,111 @@ describe('Route tool handlers', () => {
       expect(result).toContain('Error toggling route');
       expect(result).toContain('Route not found');
     });
+  });
+});
+
+/**
+ * The stdio server hands raw JSON-RPC arguments straight to these handlers with
+ * no schema in front, so both flags may arrive stringified.
+ */
+describe('credential-target acknowledgement and enabled parsing', () => {
+  let mockClient: EdgeRouterClient;
+
+  const mockRoute: Route = {
+    path: '/github',
+    type: 'redirect',
+    target: 'https://github.com/example-user',
+    statusCode: 302,
+    preserveQuery: true,
+    enabled: true,
+    createdAt: 1704067200000,
+    updatedAt: 1704067200000,
+  };
+
+  beforeEach(() => {
+    mockClient = {
+      createRoute: vi.fn().mockResolvedValue(mockRoute),
+      updateRoute: vi.fn().mockResolvedValue(mockRoute),
+      toggleRoute: vi.fn().mockResolvedValue(mockRoute),
+      transferRoute: vi.fn().mockResolvedValue(mockRoute),
+    } as unknown as EdgeRouterClient;
+  });
+
+  const createArgs = {
+    path: '/cred',
+    type: 'redirect' as const,
+    target: 'https://app.example/cb?token=LIVE',
+    domain: 'links.example.com',
+  };
+
+  it('create_route forwards a real boolean and a stringified one alike', async () => {
+    await createRoute(mockClient, { ...createArgs, acknowledgeCredentialTarget: true });
+    expect(vi.mocked(mockClient.createRoute).mock.calls[0][2]).toEqual({
+      acknowledgeCredentialTarget: true,
+    });
+
+    await createRoute(mockClient, { ...createArgs, acknowledgeCredentialTarget: 'true' });
+    expect(vi.mocked(mockClient.createRoute).mock.calls[1][2]).toEqual({
+      acknowledgeCredentialTarget: true,
+    });
+  });
+
+  it('an absent flag stays absent, and an unrecognised one is dropped', async () => {
+    await createRoute(mockClient, createArgs);
+    expect(vi.mocked(mockClient.createRoute).mock.calls[0][2]).toEqual({
+      acknowledgeCredentialTarget: undefined,
+    });
+
+    // Never coerced to `true` by truthiness — the guard must still fire.
+    await createRoute(mockClient, { ...createArgs, acknowledgeCredentialTarget: 'maybe' });
+    expect(vi.mocked(mockClient.createRoute).mock.calls[1][2]).toEqual({
+      acknowledgeCredentialTarget: undefined,
+    });
+  });
+
+  it('update_route and transfer_route forward the flag too', async () => {
+    await updateRoute(mockClient, {
+      path: '/cred',
+      domain: 'links.example.com',
+      acknowledgeCredentialTarget: 'yes',
+    });
+    expect(vi.mocked(mockClient.updateRoute).mock.calls[0][3]).toEqual({
+      acknowledgeCredentialTarget: true,
+    });
+
+    await handleTransferRoute(mockClient, {
+      path: '/cred',
+      from_domain: 'links.example.com',
+      to_domain: 'secondary.example.net',
+      acknowledgeCredentialTarget: true,
+    });
+    expect(vi.mocked(mockClient.transferRoute).mock.calls[0][3]).toEqual({
+      acknowledgeCredentialTarget: true,
+    });
+  });
+
+  it('toggle_route treats the string "false" as DISABLE, not enable', async () => {
+    const result = await toggleRoute(mockClient, {
+      path: '/cred',
+      enabled: 'false',
+      domain: 'links.example.com',
+    });
+
+    expect(vi.mocked(mockClient.toggleRoute).mock.calls[0][1]).toBe(false);
+    expect(result).toContain('disabled');
+  });
+
+  it('toggle_route REFUSES an unrecognised enabled value and changes nothing', async () => {
+    for (const value of ['off', 'disabled', 'n']) {
+      const result = await toggleRoute(mockClient, {
+        path: '/cred',
+        enabled: value,
+        domain: 'links.example.com',
+      });
+
+      expect(result).toContain('must be true or false');
+      expect(result).toContain('The route was not changed.');
+    }
+    expect(mockClient.toggleRoute).not.toHaveBeenCalled();
   });
 });

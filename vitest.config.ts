@@ -27,7 +27,33 @@ export default defineConfig({
     // Per-file afterAll restores stubbed globals + spies (intra-file stub
     // hygiene; cross-file leaks are structurally gone under per-file workers).
     setupFiles: ['./test/setup.ts'],
-    exclude: ['node_modules', 'admin', 'shared', 'mcp', 'slackbot', 'scripts'],
+    // The explicit list REPLACES vitest's defaults, so nested node_modules and
+    // the coding harness's isolated worktrees under `.claude/worktrees/` must
+    // be named too — a sibling checkout there drags a dependency's own test
+    // sources into this pool and crashes it.
+    exclude: [
+      'node_modules',
+      '**/node_modules/**',
+      '.claude/worktrees/**',
+      'admin',
+      'shared',
+      'mcp',
+      'slackbot',
+      'scripts',
+    ],
+    // `vitest bench <file>` filters by SUBSTRING, so a sibling worktree's copy
+    // of a bench file matches too and doubles the measurement count the routing
+    // gate asserts on. Benchmarks have their own exclude list.
+    benchmark: {
+      exclude: [
+        '**/node_modules/**',
+        '.claude/worktrees/**',
+        'admin/**',
+        'shared/**',
+        'mcp/**',
+        'slackbot/**',
+      ],
+    },
     coverage: {
       // The Workers pool runs in workerd, which does not expose V8's inspector
       // coverage API. Cloudflare requires instrumented Istanbul coverage here.

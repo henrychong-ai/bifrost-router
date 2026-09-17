@@ -2,7 +2,7 @@
 
 Guidance for Claude Code when working with this repository.
 
-**Version:** 1.35.1 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.36.0 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Public repository — sanitisation (MANDATORY)
 
@@ -53,6 +53,7 @@ pnpm run format       # Format (biome)
 pnpm run format:check # Format check (CI)
 pnpm run typecheck    # TypeScript check
 pnpm run check        # Full quality, test, build, performance, dry-run, and public gate
+pnpm run changelog:generate # Regenerate src/generated/changelog-text.ts from CHANGELOG.md
 ```
 
 ### Local Development
@@ -182,6 +183,7 @@ interface KVRouteConfig {
 | `POST /api/routes/transfer` | Transfer route between domains |
 | `POST /api/routes/normalize-case` | One-time migration: convert all route paths to lowercase |
 | `GET /api/routes/by-target` | Find routes serving an R2 object |
+| `GET /api/changelog` | The engineering changelog as Markdown (authenticated) |
 | `GET /api/analytics/*` | Analytics endpoints |
 | `GET /api/storage/buckets` | List R2 buckets |
 | `GET /api/storage/:bucket/objects` | List objects |
@@ -229,6 +231,82 @@ target URL. `UNIFIED_TRAFFIC_RETENTION_DAYS` controls daily pruning after cutove
 Pruning is dispatched by the `0 20 * * *` cron. The public example leaves
 `env.dev.triggers.crons` empty, so a long-running development shadow deployment
 must opt into that schedule explicitly.
+
+## Analytics credential redaction (v1.36.0)
+
+The four per-feature recorders (`link_clicks`, `page_views`, `file_downloads`,
+`proxy_requests`) store `[redacted]` for credential-named query VALUES, in both
+`query_string` and `referrer`. One wrapper each — `legacyQueryString(url)` and
+`legacyReferrer(header)` in `src/utils/unified-traffic.ts` — used at all four
+call sites in `src/index.ts`. **Sanitised fields must stay AFTER the
+`...analyticsData` spread**, or a future `getAnalyticsData` field silently
+clobbers the redaction.
+
+- **Matched by NAME.** Exact names (with or without a `[]` / `[n]` suffix):
+  `code`, `key`, `auth`, `sig`, `session`, `state`, `api_key`, `api-key`,
+  `apikey`, `code_verifier`. Any name containing `token`, `secret`, `passw`,
+  `credential`, `assert`, `saml`, `signature`, `jwt`, `otp`, `ticket`, `nonce`,
+  `oob`. Any name starting `x-amz-`.
+- **Four ambiguous names weigh the VALUE.** `code`, `state`, `session`, `ticket`
+  are redacted only when credential-SHAPED (20+ chars decoded, all-hex at 12+,
+  or upper+lower+digit at 10+), so `?code=SUMMER25` survives for campaign
+  attribution. ⚠️ A mixed-case campaign value with a digit (`Summer2026Sale`) IS
+  redacted — name it `promo=` or `tier=`, or keep it single-case.
+- **One bounded second look, depth exactly one.** `;` sub-pairs, a nested query,
+  a nested fragment and a packed `k=v&k=v` body inside a decoded value are all
+  scanned; both readings are COMBINED so neither discards the other's
+  redactions. Double-encoded nesting is out of scope by design.
+- **Byte fidelity:** nothing redacted → stored byte-identically; something
+  redacted → re-encoded. No clamp, no scheme filter, no wholesale drop.
+- The unified stream stores no query string or referrer at all, so it is
+  unaffected.
+
+## Route-target credential guard (v1.36.0)
+
+Create / update / re-enable / seed / transfer refuse a target whose query OR
+fragment carries a credential-named parameter, with
+`400 { success: false, error: 'ROUTE_TARGET_CREDENTIAL', message, details: { parameters } }`.
+The write proceeds only with `acknowledgeCredentialTarget: true` in the raw
+body.
+
+- **`acknowledgeCredentialTarget` is REQUEST-ONLY.** The stored-shape schemas do
+  not declare it, so Zod strips it before KV. Never add it to
+  `RouteConfigSchema`, `CreateRouteInputSchema` or `UpdateRouteInputSchema`.
+- **The guard uses the NAME-ONLY predicate** (`findCredentialParams`),
+  deliberately not the narrowed legacy rule — a human is being asked, so
+  `?code=SUMMER25` is surfaced and the operator decides.
+- **Disabled writes are not guarded**, and `r2` targets are object keys, not
+  URLs. Refusing a DISABLE would block the action that reduces exposure.
+- **Targets refuse control characters at the schema** (`RouteTargetSchema`); the
+  guard additionally scans the parsed URL, because the URL parser strips
+  tab/LF/CR and a stored route may predate the schema.
+- **Write-time only.** Targets already in KV were never examined — the sweep is
+  tracked in the v1.36.0 **Follow-ups** list in [CHANGELOG.md](./CHANGELOG.md).
+
+## Route paths must round-trip (v1.36.0)
+
+`normalizePath()` strips `?`/`#` BEFORE percent-decoding, so it is **not
+idempotent**: `/p%3Fx` → `/p?x` → `/p`.
+
+- `RoutePathSchema` refuses `?`, `#` and a `%` surviving one decode, on every
+  write path including `POST /api/routes/migrate`.
+- Every mutation normalises ONCE and then reads through
+  `getRouteByNormalizedPath()`, never `getRoute()` — a second normalisation
+  makes the read resolve a different key from the write, which could publish an
+  unexamined second copy of a route.
+
+## Changelog delivery (v1.36.0)
+
+`CHANGELOG.md` must **never** be imported into the dashboard bundle — the built
+assets are served with no credential check, so `?raw` publishes every release
+note. The page fetches `GET /api/changelog` instead, which is mounted on
+`adminRoutes` and inherits the `ADMIN_API_KEY` middleware, returning
+`text/markdown` with `private, max-age=300` (never `public`).
+
+**Release step:** run `pnpm run changelog:generate` after ANY `CHANGELOG.md`
+edit. `pnpm run check` runs `changelog:check` (freshness) and, after the
+dashboard build, `check:changelog-bundle` (fails if a release heading reappears
+under `admin/dist`).
 
 ## API Shield
 
@@ -543,7 +621,8 @@ If switching to Workers Static Assets in future, add a KV-route-precedence check
 5. Update `openapi/bifrost-api.yaml` `info.version`
 6. Update the expected `info.version` in `scripts/check-openapi.test.mjs` (the `test:gates` OpenAPI check asserts it)
 7. **Update `CHANGELOG.md`** with new version entry
-8. Commit, tag (`git tag v1.x.x`), and push with tags (`git push origin main --tags`)
+8. Run `pnpm run changelog:generate` (the Worker serves the generated module; `pnpm run check` fails while it is stale)
+9. Commit, tag (`git tag v1.x.x`), and push with tags (`git push origin main --tags`)
 
 Release tags run the same CI checks as other pushes. This template does not
 automatically deploy from tags; deploy manually with `pnpm run deploy` or enable

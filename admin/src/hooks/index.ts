@@ -41,6 +41,9 @@ export {
   type BackupHealthResponse,
 } from './use-backup-health';
 
+// Changelog hooks
+export { changelogKeys, useChangelog } from './use-changelog';
+
 // Link preview hooks
 export { useLinkPreview } from './use-link-preview';
 

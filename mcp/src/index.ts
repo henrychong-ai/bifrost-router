@@ -122,6 +122,8 @@ async function main(): Promise<void> {
               forceDownload?: boolean;
               bucket?: string;
               domain?: string;
+              /** Request-only override; may arrive stringified. */
+              acknowledgeCredentialTarget?: boolean | string;
             },
           );
           break;
@@ -141,6 +143,8 @@ async function main(): Promise<void> {
               forceDownload?: boolean;
               bucket?: string;
               domain?: string;
+              /** Request-only override; may arrive stringified. */
+              acknowledgeCredentialTarget?: boolean | string;
             },
           );
           break;
@@ -152,7 +156,14 @@ async function main(): Promise<void> {
         case 'toggle_route':
           result = await toggleRoute(
             client,
-            args as { path: string; enabled: boolean; domain?: string },
+            args as {
+              path: string;
+              /** Raw JSON-RPC, so a client may send the string form. */
+              enabled: boolean | string;
+              domain?: string;
+              /** Request-only override; may arrive stringified. */
+              acknowledgeCredentialTarget?: boolean | string;
+            },
           );
           break;
 
@@ -166,7 +177,13 @@ async function main(): Promise<void> {
         case 'transfer_route':
           result = await handleTransferRoute(
             client,
-            args as { path: string; from_domain?: string; to_domain?: string },
+            args as {
+              path: string;
+              from_domain?: string;
+              to_domain?: string;
+              /** Request-only override; may arrive stringified. */
+              acknowledgeCredentialTarget?: boolean | string;
+            },
           );
           break;
 

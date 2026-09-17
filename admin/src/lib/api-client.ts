@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { env } from '@/env';
+import { ApiError } from './api-error';
 import {
   type Route,
   type RouteWithDomain,
@@ -42,16 +43,6 @@ import {
 const API_BASE = env.VITE_API_URL;
 const API_KEY = env.ADMIN_API_KEY;
 
-class ApiError extends Error {
-  status: number;
-
-  constructor(status: number, message: string) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-  }
-}
-
 // =============================================================================
 // Base Fetch Functions
 // =============================================================================
@@ -74,7 +65,11 @@ async function fetchApi<T>(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new ApiError(response.status, error.error || `HTTP ${response.status}`);
+    throw new ApiError(
+      response.status,
+      error.error || `HTTP ${response.status}`,
+      (error as { details?: unknown }).details,
+    );
   }
 
   const data = await response.json();
@@ -148,11 +143,19 @@ export const routesApi = {
    * @param data - Route configuration
    * @param domain - Target domain for the route
    */
-  async create(data: CreateRouteInput, domain?: string): Promise<Route> {
+  async create(
+    data: CreateRouteInput,
+    domain?: string,
+    acknowledgeCredentialTarget?: boolean,
+  ): Promise<Route> {
     const query = domain ? buildQueryString({ domain }) : '';
+    // Request-only override, never part of the stored route — the Worker reads
+    // it off the raw body and Zod strips it before KV.
     const response = await fetchApi(`/api/routes${query}`, RouteResponseSchema, {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(
+        acknowledgeCredentialTarget ? { ...data, acknowledgeCredentialTarget } : data,
+      ),
     });
     if (!response.success || !response.data) {
       throw new ApiError(400, response.error || 'Failed to create route');
@@ -166,11 +169,18 @@ export const routesApi = {
    * @param data - Update data
    * @param domain - Target domain (required when viewing all domains)
    */
-  async update(path: string, data: UpdateRouteInput, domain?: string): Promise<Route> {
+  async update(
+    path: string,
+    data: UpdateRouteInput,
+    domain?: string,
+    acknowledgeCredentialTarget?: boolean,
+  ): Promise<Route> {
     const query = buildQueryString({ path, domain });
     const response = await fetchApi(`/api/routes${query}`, RouteResponseSchema, {
       method: 'PUT',
-      body: JSON.stringify(data),
+      body: JSON.stringify(
+        acknowledgeCredentialTarget ? { ...data, acknowledgeCredentialTarget } : data,
+      ),
     });
     if (!response.success || !response.data) {
       throw new ApiError(400, response.error || 'Failed to update route');
@@ -215,10 +225,22 @@ export const routesApi = {
    * @param fromDomain - Current domain
    * @param toDomain - Target domain
    */
-  async transfer(path: string, fromDomain: string, toDomain: string): Promise<Route> {
+  async transfer(
+    path: string,
+    fromDomain: string,
+    toDomain: string,
+    acknowledgeCredentialTarget?: boolean,
+  ): Promise<Route> {
     const response = await fetchApi(`/api/routes/transfer`, RouteResponseSchema, {
       method: 'POST',
-      body: JSON.stringify({ path, fromDomain, toDomain }),
+      // A transfer re-publishes the target to a new audience, so it needs its
+      // own acknowledgement.
+      body: JSON.stringify({
+        path,
+        fromDomain,
+        toDomain,
+        ...(acknowledgeCredentialTarget ? { acknowledgeCredentialTarget } : {}),
+      }),
     });
     if (!response.success || !response.data) {
       throw new ApiError(400, response.error || 'Failed to transfer route');
@@ -1136,10 +1158,39 @@ export const qrApi = {
 // Combined API Export
 // =============================================================================
 
+/**
+ * The engineering changelog, fetched from the AUTHENTICATED `GET /api/changelog`
+ * route.
+ *
+ * It used to be `import '../../../CHANGELOG.md?raw'` in the page, which
+ * compiled the whole document into a JS chunk under `/assets` — served with no
+ * credential check, so every release note was readable by anyone who could
+ * reach the dashboard host. ⚠️ Never re-import the markdown into this bundle;
+ * `pnpm run check` fails the build if a release heading reappears under
+ * `admin/dist`.
+ *
+ * Deliberately not routed through `fetchApi`, which parses JSON: the body is
+ * `text/markdown`.
+ */
+export const changelogApi = {
+  async get(): Promise<string> {
+    const url = new URL('/api/changelog', API_BASE);
+    const response = await fetch(url.toString(), {
+      headers: { 'X-Admin-Key': API_KEY },
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new ApiError(response.status, error.error || `HTTP ${response.status}`);
+    }
+    return response.text();
+  },
+};
+
 export const api = {
   routes: routesApi,
   analytics: analyticsApi,
   backup: backupApi,
+  changelog: changelogApi,
   metadata: metadataApi,
   storage: storageApi,
   feedback: feedbackApi,

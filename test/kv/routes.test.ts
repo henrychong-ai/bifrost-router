@@ -13,7 +13,7 @@ import {
   deleteRoute,
   seedRoutes,
 } from '../../src/kv/routes';
-import { SCHEMA_VERSION } from '../../src/kv/schema';
+import { SCHEMA_VERSION, routeKey } from '../../src/kv/schema';
 import { matchRoute } from '../../src/kv/lookup';
 import { clearRoutes } from '../helpers';
 
@@ -513,5 +513,84 @@ describe('parseRouteKey (re-export)', () => {
     const [domain, path] = parseRouteKey('links.example.com:/github');
     expect(domain).toBe('links.example.com');
     expect(path).toBe('/github');
+  });
+});
+
+/**
+ * ONE key per mutation.
+ *
+ * `normalizePath()` strips `?` and `#` BEFORE percent-decoding, so it is not
+ * idempotent: `/p%3Fx` → `/p?x` → `/p`. Every mutating function normalises
+ * once and must then read through a helper that does NOT normalise again —
+ * otherwise the READ resolves a different key from the WRITE, and an update can
+ * publish a second, unexamined copy of a route.
+ */
+describe('KV single-key discipline', () => {
+  const singleKeyDomain = 'single-key.example.com';
+
+  beforeEach(async () => {
+    await clearRoutes(singleKeyDomain);
+  });
+
+  /** Plant a record under a key a second normalisation pass would not resolve. */
+  async function plantNonIdempotentKey(): Promise<string> {
+    const storedPath = '/p?x';
+    await env.ROUTES.put(
+      routeKey(singleKeyDomain, storedPath),
+      JSON.stringify({
+        path: storedPath,
+        type: 'redirect',
+        target: 'https://app.example/original',
+        enabled: true,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+    return storedPath;
+  }
+
+  it('updates the record it read, never a second copy', async () => {
+    const storedPath = await plantNonIdempotentKey();
+
+    // `/p%3Fx` normalises ONCE to the stored `/p?x`.
+    const updated = await updateRoute(env.ROUTES, singleKeyDomain, '/p%3Fx', {
+      target: 'https://app.example/updated',
+    });
+
+    expect(updated?.target).toBe('https://app.example/updated');
+    // Exactly one record exists for this domain — no phantom copy at `/p`.
+    const keys = await env.ROUTES.list({ prefix: `${singleKeyDomain}:` });
+    expect(keys.keys.map(k => k.name)).toEqual([routeKey(singleKeyDomain, storedPath)]);
+  });
+
+  it('deletes the record it read', async () => {
+    const storedPath = await plantNonIdempotentKey();
+
+    expect(await deleteRoute(env.ROUTES, singleKeyDomain, '/p%3Fx')).toBe(true);
+    expect(await env.ROUTES.get(routeKey(singleKeyDomain, storedPath))).toBeNull();
+  });
+
+  it('migrates the record it read', async () => {
+    await plantNonIdempotentKey();
+
+    const migrated = await migrateRoute(env.ROUTES, singleKeyDomain, '/p%3Fx', '/moved');
+
+    expect(migrated?.path).toBe('/moved');
+    const keys = await env.ROUTES.list({ prefix: `${singleKeyDomain}:` });
+    expect(keys.keys.map(k => k.name)).toEqual([routeKey(singleKeyDomain, '/moved')]);
+  });
+
+  it('normalises a delete exactly once, like create and update', async () => {
+    // Create normalises (lowercase, trailing slash); delete must resolve the
+    // same key from the same raw input.
+    await createRoute(env.ROUTES, singleKeyDomain, {
+      path: '/Case-Test/',
+      type: 'redirect',
+      target: 'https://app.example/ok',
+    });
+
+    expect(await getRoute(env.ROUTES, singleKeyDomain, '/case-test')).not.toBeNull();
+    expect(await deleteRoute(env.ROUTES, singleKeyDomain, '/Case-Test/')).toBe(true);
+    expect(await getRoute(env.ROUTES, singleKeyDomain, '/case-test')).toBeNull();
   });
 });

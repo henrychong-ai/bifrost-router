@@ -93,8 +93,16 @@ export function useCreateRoute() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ data, domain }: { data: CreateRouteInput; domain?: string }) =>
-      api.routes.create(data, domain),
+    mutationFn: ({
+      data,
+      domain,
+      acknowledgeCredentialTarget,
+    }: {
+      data: CreateRouteInput;
+      domain?: string;
+      /** Set only after the operator confirmed the credential-target dialog. */
+      acknowledgeCredentialTarget?: boolean;
+    }) => api.routes.create(data, domain, acknowledgeCredentialTarget),
     onSuccess: () => {
       // Invalidate routes list to refetch
       queryClient.invalidateQueries({ queryKey: routeKeys.all });
@@ -114,11 +122,14 @@ export function useUpdateRoute() {
       path,
       data,
       domain,
+      acknowledgeCredentialTarget,
     }: {
       path: string;
       data: UpdateRouteInput;
       domain?: string;
-    }) => api.routes.update(path, data, domain),
+      /** Set only after the operator confirmed the credential-target dialog. */
+      acknowledgeCredentialTarget?: boolean;
+    }) => api.routes.update(path, data, domain, acknowledgeCredentialTarget),
     onSuccess: (_data, variables) => {
       // Invalidate both the list and the specific route
       queryClient.invalidateQueries({ queryKey: routeKeys.all });
@@ -155,8 +166,18 @@ export function useToggleRoute() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ path, enabled, domain }: { path: string; enabled: boolean; domain?: string }) =>
-      api.routes.update(path, { enabled }, domain),
+    mutationFn: ({
+      path,
+      enabled,
+      domain,
+      acknowledgeCredentialTarget,
+    }: {
+      path: string;
+      enabled: boolean;
+      domain?: string;
+      /** Set only after the operator confirmed the credential-target dialog. */
+      acknowledgeCredentialTarget?: boolean;
+    }) => api.routes.update(path, { enabled }, domain, acknowledgeCredentialTarget),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: routeKeys.all });
       queryClient.invalidateQueries({
@@ -203,11 +224,14 @@ export function useTransferRoute() {
       path,
       fromDomain,
       toDomain,
+      acknowledgeCredentialTarget,
     }: {
       path: string;
       fromDomain: string;
       toDomain: string;
-    }) => api.routes.transfer(path, fromDomain, toDomain),
+      /** Set only after the operator confirmed the credential-target dialog. */
+      acknowledgeCredentialTarget?: boolean;
+    }) => api.routes.transfer(path, fromDomain, toDomain, acknowledgeCredentialTarget),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: routeKeys.all });
     },

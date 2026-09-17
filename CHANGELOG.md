@@ -6,6 +6,181 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.36.0 (2026-09-17) — Credential redaction in the analytics recorders, a route-target guard, and an authenticated changelog
+
+**Why:** ported from upstream Bifrost. A short link is routinely used as the
+landing URL of a magic-link, verification or OAuth flow, so a request arriving
+at one can carry a live credential in its query string — and the page that
+redirected through it can carry another in its `Referer`. The four per-feature
+analytics recorders stored both verbatim, and nothing stopped an operator
+configuring a route whose TARGET carried one, which is worse: a target is
+stored in KV, copied into the click analytics, written to the request log, and
+exercised by every visitor. Separately, the dashboard compiled this changelog
+into its JavaScript bundle, which is served with no credential check.
+
+### Security and analytics
+
+- **`link_clicks`, `page_views`, `file_downloads` and `proxy_requests` store
+  `[redacted]` for credential-named query values.** One wrapper,
+  `legacyQueryString(url)` in `src/utils/unified-traffic.ts`, used at all four
+  recorder sites in `src/index.ts`. Every non-sensitive parameter — `utm_*`
+  included — stays byte-identical, because these tables are the
+  campaign-attribution source.
+- **The same rows no longer keep a raw `Referer`.** `legacyReferrer()` redacts
+  the referrer's query with the same predicate — a plain string scan, no URL
+  parsing, no clamp, no scheme filter — so everything else in the referrer is
+  byte-identical. A referrer whose only `?` sits inside its fragment is a hash
+  route, not a query, and is returned untouched.
+- **Sanitised fields sit AFTER the `...analyticsData` spread** at all four
+  sites, so a future `getAnalyticsData` field can never overwrite a redaction.
+- **The four ambiguous names keep SHORT values.** `code`, `state`, `session`
+  and `ticket` read equally as campaign data and as bearer material, so they are
+  redacted only when the value is credential-SHAPED: 20+ characters, OR all-hex
+  at 12+, OR upper-plus-lower-plus-digit at 10+. `?code=SUMMER25`, `?state=CA`,
+  `?session=morning` and `?ticket=vip` are stored as sent; an OAuth
+  authorisation code or a CSRF state is not. ⚠️ The third test has a cost: a
+  mixed-case campaign value carrying a digit, such as `Summer2026Sale`, is
+  redacted too — name those parameters `promo=` or `tier=`, which are never
+  matched, or keep the value single-case. A documented residual: an all-numeric
+  OTP-shaped code stays raw.
+- **Only the BARE names are ambiguous.** `cas_ticket`, `ticket_id` and
+  `code_verifier` are always redacted, and `key` is unchanged because it is the
+  conventional API-key parameter.
+- **A credential nested inside a non-sensitive value is caught.** Before a
+  segment whose own name is innocuous is stored, one bounded second look checks
+  a `;` sub-pair (`?utm_source=x;token=…`), a nested query inside the decoded
+  value (`?next=https%3A%2F%2Fapp%3Ftoken%3D…`, and the duplicated-`?` form
+  `?a=1?token=…`), a nested FRAGMENT, and a packed `k=v&k=v` body
+  (`?rt=uid%3D1%26access_token%3D…`). Both readings are COMBINED rather than
+  alternatives, so neither discards the other's redactions. Depth is exactly
+  one — no recursion, no decode loop — so double-encoded nesting is out of
+  scope by design. An encoded tab, LF or CR is stripped from the decoded value
+  first, because the URL parser strips it and a browser would then send
+  `token=…` from a value that scanned clean.
+- **Stored fidelity is explicit:** a value in which nothing was redacted is
+  stored byte-identically; a value in which something was redacted is
+  re-encoded. The legacy wrappers apply no length clamp.
+
+### Route targets
+
+- **A route TARGET can no longer carry a credential unnoticed.** `POST /api/routes`,
+  `PUT /api/routes` (update and re-enable), `POST /api/routes/seed` and
+  `POST /api/routes/transfer` refuse a target whose query or fragment carries a
+  credential-named parameter, answering `400` with `ROUTE_TARGET_CREDENTIAL` and
+  the parameter NAMES — never the values. The write proceeds only when the
+  request sets `acknowledgeCredentialTarget: true`, a request-only flag stripped
+  before anything reaches KV. Disabling a route is never refused, and `r2`
+  object keys are not URLs so they are not examined.
+- **The guard errs wide on purpose.** It uses the name-only predicate, not the
+  narrowed rule above, so `?code=SUMMER25` in a TARGET is flagged. A human is
+  being asked and can acknowledge in one click; the narrowed rule exists for
+  stored rows that nobody reviews. ⚠️ It is write-time only — targets already in
+  KV were never examined; see **Follow-ups**.
+- **The guard also scans the target's FRAGMENT.** A referrer's fragment is left
+  alone because browsers strip it before sending one, but a route target travels
+  the other way: the Worker puts it in `Location:` and the browser keeps it. So
+  `https://app/#/reset?token=…` and an implicit-flow `#access_token=…` are
+  caught, in both the hash-routed-query and the bare `k=v` shapes.
+- **Control characters can no longer hide a parameter name.** The URL parser
+  strips tab, LF and CR from anywhere in a URL, so a target reading
+  `to<TAB>ken=LIVE` scanned clean and then served `?token=LIVE`. Targets now
+  refuse control characters at the schema, and the guard scans both the
+  control-stripped target and the parsed URL, so a route stored before this
+  release is examined properly too.
+- **A TRANSFER needs its own acknowledgement.** It cannot change a target, but
+  it re-publishes it on another host: a link acknowledged for one brand's domain
+  was never acknowledged for another's audience. A migrate, which only moves the
+  slug within one domain, is unchanged.
+- **The dashboard asks, rather than failing.** A refused create, save, enable or
+  transfer raises a confirmation naming the parameters, and confirming re-sends
+  the same write with the acknowledgement. An acknowledged write records the
+  parameter names in the audit row.
+- **`create_route`, `update_route`, `toggle_route` and `transfer_route` expose
+  the same optional flag**, described so an agent asks the human before setting
+  it. The flag is parsed through the shared MCP boolean coercion, so a client
+  that stringifies its arguments is understood rather than refused for ever.
+
+### Fixed
+
+- **Route reads and writes now use ONE key.** Path normalisation strips `?` and
+  `#` before decoding, so it was not idempotent — `/p%3Fx` collapsed to `/p` on
+  a second pass. Update, delete, migrate and transfer normalised once and then
+  read through a function that normalised again, so the read could resolve a
+  different record from the write. A general correctness fix, and it closes a
+  route by which an update could publish a second, unexamined copy of a route.
+  `deleteRoute()` also now normalises its path exactly once, like every other
+  mutation.
+- **Route paths refuse `?`, `#` and a double-encoded `%`.** A path such as
+  `/p%3Fx` was accepted, stored under a key containing `?`, and listed back in a
+  form that normalised to a DIFFERENT route — so an edit or delete aimed at the
+  listed value hit the wrong record. `/p%253Fx` orphaned the route entirely. The
+  same check now runs on `POST /api/routes/migrate`, which previously validated
+  only the leading slash.
+- **The stdio `toggle_route` refuses an unrecognised `enabled` value.** `"false"`
+  now disables (it used to be truthy and ENABLE), and anything the shared schema
+  does not recognise — `"off"`, `"disabled"`, `"n"` — is answered with an error
+  and the route is left untouched, rather than guessed at. A toggle is often the
+  response to an abused link, so it fails closed.
+- **The API client carries a refusal's sentence as well as its code.** A handler
+  that sends both `error` and `message` is using `error` as a machine code, and
+  the sentence is the part a human or an MCP caller needs. Bodies without
+  `message` are byte-identical to before.
+
+### Changed
+
+- **The changelog is served from an authenticated route.** The dashboard used to
+  compile `CHANGELOG.md` into its JavaScript bundle, and the built assets are
+  served with no credential check. The page now fetches `GET /api/changelog`,
+  which is mounted on the admin chain and so inherits the same `ADMIN_API_KEY`
+  middleware as route management, returning `text/markdown` with
+  `private, max-age=300`. A build gate (`pnpm run check:changelog-bundle`) fails
+  the release if a release heading reappears anywhere under `admin/dist`, so the
+  import cannot return silently.
+- **`CHANGELOG.md` now has a generated companion the Worker serves.** Run
+  `pnpm run changelog:generate` after ANY changelog edit; `pnpm run check` fails
+  while `src/generated/changelog-text.ts` is stale. Wrangler can load a Markdown
+  text module, but the Workers test pool refuses a `.md` specifier, so the
+  document is a checked-in module instead.
+- **Recorder test harness lifted.** The execution-context helper, the
+  worker-serving helper and the four legacy analytics DDLs live in
+  `test/helpers.ts` rather than being copy-pasted per suite. The worker is
+  imported lazily there, so suites that never serve a request do not pull the
+  generated changelog module into their bundle.
+- **`ApiError` moved to `admin/src/lib/api-error.ts`**, so a caller that needs
+  only the error shape does not import the API client, which validates the
+  runtime environment at module load.
+- **Tooling:** the root lint, format, Workers-pool test and benchmark sweeps now
+  ignore `.claude/worktrees/**`, where a coding harness places isolated
+  worktrees, and the test sweep excludes nested `node_modules` explicitly (its
+  exclude list replaces vitest's defaults). `vitest bench <file>` filters by
+  substring, so a sibling copy would double the routing gate's measurements.
+
+### Behaviour to know about
+
+Neither the recorders nor the guard rewrites anything already stored. Rows
+written before this release keep whatever they captured, and route targets
+already in KV were never examined.
+
+### Follow-ups
+
+- Sweep the route store for targets that predate the write-time guard, and
+  re-examine them. The guard only fires on a write.
+- Scrub historic analytics rows written before this release, which may hold
+  credential values in `query_string` or `referrer`.
+
+### Tests
+
+Unit matrix for the redaction rules (ambiguous-name shape, `;` sub-pairs,
+nested query and fragment, packed pair lists, control stripping, byte fidelity,
+`findCredentialParams`); worker-driven tests that read the persisted D1 row back
+for all four recorders across both columns; guard tests for create, update,
+re-enable, seed, transfer and migrate, including that the acknowledgement never
+reaches KV; single-key regression tests for update, delete and migrate; an
+authenticated-changelog route test; catalog and schema tests for the
+acknowledgement flag; and a node-native gate test for the bundle scanner.
+
+---
+
 ## v1.35.1 (2026-09-13) — MCP: route timestamps render correctly
 
 **Why:** `get_route` — and every other MCP reply that prints a route's details —

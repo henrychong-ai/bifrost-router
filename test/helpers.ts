@@ -113,6 +113,166 @@ export async function clearR2(): Promise<void> {
 }
 
 /**
+ * An ExecutionContext whose `waitUntil` work can be AWAITED.
+ *
+ * Deliberately NOT named `createExecutionContext`: `cloudflare:test` exports a
+ * function of that name with a different contract (it pairs with
+ * `waitOnExecutionContext`). This one is for suites that drive
+ * `worker.fetch()` directly and must settle the recorder's background write
+ * before reading the row back.
+ */
+export function createSettlingExecutionContext(): {
+  ctx: ExecutionContext;
+  settled: () => Promise<void>;
+} {
+  const pending: Promise<unknown>[] = [];
+  return {
+    ctx: {
+      waitUntil: (promise: Promise<unknown>) => {
+        pending.push(promise);
+      },
+      passThroughOnException: () => {},
+      props: {},
+    } as unknown as ExecutionContext,
+    settled: async () => {
+      await Promise.allSettled(pending);
+    },
+  };
+}
+
+/**
+ * Serve `path` through the REAL worker on `domain` and settle the recorder's
+ * `waitUntil`, so an analytics row is readable immediately afterwards. The body
+ * is drained first: a streamed R2 or proxy read must complete before the
+ * assertions.
+ */
+export async function serveThroughWorker(
+  path: string,
+  headers: HeadersInit = {},
+  domain = TEST_DOMAIN,
+): Promise<Response> {
+  // Imported lazily: a STATIC import would pull the whole Worker — including
+  // the generated changelog module — into every suite that imports these
+  // helpers, most of which never serve a request.
+  const { default: worker } = await import('../src/index');
+  const { ctx, settled } = createSettlingExecutionContext();
+  const response = await worker.fetch(
+    new Request(`https://${domain}${path}`, { headers }),
+    env,
+    ctx,
+  );
+  await response.clone().arrayBuffer();
+  await settled();
+  return response;
+}
+
+/**
+ * The legacy analytics DDL the recorder suites need. The Workers pool gives
+ * each test FILE its own D1, so every suite that reads a legacy table creates
+ * it first.
+ */
+export async function createFileDownloadsTable(): Promise<void> {
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS file_downloads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+      domain TEXT NOT NULL,
+      path TEXT NOT NULL,
+      r2_key TEXT NOT NULL,
+      content_type TEXT,
+      file_size INTEGER,
+      query_string TEXT,
+      referrer TEXT,
+      user_agent TEXT,
+      country TEXT,
+      city TEXT,
+      colo TEXT,
+      continent TEXT,
+      timezone TEXT,
+      http_protocol TEXT,
+      ip_address TEXT,
+      cache_status TEXT,
+      created_at INTEGER DEFAULT (unixepoch()) NOT NULL
+    )
+  `).run();
+}
+
+export async function createLinkClicksTable(): Promise<void> {
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS link_clicks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+      domain TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      target_url TEXT NOT NULL,
+      query_string TEXT,
+      referrer TEXT,
+      user_agent TEXT,
+      country TEXT,
+      city TEXT,
+      colo TEXT,
+      continent TEXT,
+      http_protocol TEXT,
+      timezone TEXT,
+      ip_address TEXT,
+      created_at INTEGER DEFAULT (unixepoch()) NOT NULL
+    )
+  `).run();
+}
+
+export async function createProxyRequestsTable(): Promise<void> {
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS proxy_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+      domain TEXT NOT NULL,
+      path TEXT NOT NULL,
+      target_url TEXT NOT NULL,
+      response_status INTEGER,
+      content_type TEXT,
+      content_length INTEGER,
+      query_string TEXT,
+      referrer TEXT,
+      user_agent TEXT,
+      country TEXT,
+      city TEXT,
+      colo TEXT,
+      continent TEXT,
+      timezone TEXT,
+      http_protocol TEXT,
+      ip_address TEXT,
+      created_at INTEGER DEFAULT (unixepoch()) NOT NULL
+    )
+  `).run();
+}
+
+export async function createPageViewsTable(): Promise<void> {
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS page_views (
+      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+      domain TEXT NOT NULL,
+      path TEXT NOT NULL,
+      query_string TEXT,
+      referrer TEXT,
+      user_agent TEXT,
+      country TEXT,
+      city TEXT,
+      colo TEXT,
+      continent TEXT,
+      timezone TEXT,
+      http_protocol TEXT,
+      ip_address TEXT,
+      created_at INTEGER DEFAULT (unixepoch()) NOT NULL
+    )
+  `).run();
+}
+
+/** All four legacy per-feature recorder tables. */
+export async function createLegacyRecorderTables(): Promise<void> {
+  await createLinkClicksTable();
+  await createFileDownloadsTable();
+  await createProxyRequestsTable();
+  await createPageViewsTable();
+}
+
+/**
  * Parse JSON response body
  */
 export async function parseJsonResponse<T>(response: Response): Promise<T> {

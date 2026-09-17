@@ -62,6 +62,8 @@ A lightweight, high-performance edge router and URL shortener built on Cloudflar
 - **Path Traversal Protection** — R2 keys sanitized to prevent directory traversal
 - **Rate Limiting** — Via Cloudflare WAF (Worker middleware available if needed). **Recommended if you serve large public R2 objects:** add a WAF rate-limit rule scoped to your R2-serving paths and keyed on client IP. Range and conditional requests bypass the edge cache by design, and a *malformed* conditional header degrades to a full, cache-bypassed 200 that is also recorded as a download — so a client repeating one drives your download count up and your cache-hit rate to zero while every request hits R2. Never key such a rule on a caller-controlled header; an attacker just rotates it.
 - **Service-Binding Fetch Resilience** — Worker-to-Worker service-binding calls are wrapped in `try/catch` via the `safeServiceFetch` helper, so URL-parse errors and binding failures become 404s + warn logs instead of `scriptThrewException` worker errors
+- **Credential Redaction in Analytics (v1.36.0)** — short links are routinely used as the landing URL of a magic-link or OAuth flow, so the four per-feature recorders store `[redacted]` for credential-named query values in both `query_string` and `referrer`. Campaign parameters (`utm_*` and the rest) stay byte-identical. See [Analytics credential redaction](#analytics-credential-redaction-v1360)
+- **Route-Target Credential Guard (v1.36.0)** — creating, updating, re-enabling, seeding or transferring a route whose TARGET carries a credential-named parameter is refused unless the operator acknowledges it. A target is stored in KV, copied into the click analytics and exercised by every visitor to the short link
 
 ### Project Structure
 
@@ -450,6 +452,7 @@ All admin endpoints require `X-Admin-Key` header or `Authorization: Bearer <key>
 | `POST` | `/api/routes/transfer` | Transfer route between domains |
 | `POST` | `/api/routes/normalize-case` | One-time migration: convert all route paths to lowercase (run after upgrading to v1.22.0+ if you have pre-existing uppercase routes) |
 | `GET` | `/api/routes/by-target` | Find routes serving an R2 object (`?bucket=&target=`) |
+| `GET` | `/api/changelog` | The engineering changelog as Markdown (`text/markdown`, `private, max-age=300`) |
 | `POST` | `/api/routes/seed` | Bulk import routes |
 | `GET` | `/api/analytics/summary` | Domain-aware operational overview (`?domain=&days=&country=&search=&includeMonitoring=`) |
 | `GET` | `/api/analytics/clicks` | Click records (paginated) |
@@ -465,6 +468,60 @@ All admin endpoints require `X-Admin-Key` header or `Authorization: Bearer <key>
 | `POST` | `/api/storage/:bucket/move` | Move object to different bucket |
 | `PUT` | `/api/storage/:bucket/metadata/:key` | Update object HTTP metadata |
 | `POST` | `/api/storage/:bucket/purge-cache/:key` | Purge CDN cache for R2 object |
+
+### Analytics credential redaction (v1.36.0)
+
+The four per-feature recorders — `link_clicks`, `page_views`, `file_downloads`
+and `proxy_requests` — never store a credential-named parameter's VALUE. Both
+`query_string` and `referrer` are sanitised, and every non-sensitive parameter
+is stored byte-identically, because these tables are your campaign-attribution
+source.
+
+Redacted by NAME: exact `code`, `key`, `auth`, `sig`, `session`, `state`,
+`api_key`, `api-key`, `apikey`, `code_verifier` (a `[]` or `[n]` array suffix is
+tolerated); any name containing `token`, `secret`, `passw`, `credential`,
+`assert`, `saml`, `signature`, `jwt`, `otp`, `ticket`, `nonce`, `oob`; any name
+starting `x-amz-`.
+
+`code`, `state`, `session` and `ticket` read equally as campaign data and as
+bearer material, so they are redacted only when the value looks like a
+credential — 20+ characters, all-hex at 12+, or upper-plus-lower-plus-digit at
+10+. `?code=SUMMER25`, `?state=CA` and `?ticket=vip` are kept.
+
+> ⚠️ **Naming your campaign parameters.** A mixed-case value carrying a digit,
+> such as `?code=Summer2026Sale`, matches the generated-token shape and IS
+> redacted. Use `promo=` or `tier=`, which are never matched, or keep the value
+> single-case (`?code=SUMMER2026SALE`).
+
+A credential nested one level inside an ordinary value is also caught — a `;`
+sub-pair, a nested query or fragment in a percent-encoded URL, and a packed
+`k=v&k=v` body. Nesting stops at exactly one decode by design.
+
+Rows written before v1.36.0 keep whatever they captured; nothing is rewritten.
+
+### Route-target credential guard (v1.36.0)
+
+A route TARGET is not request data: it is stored in KV, copied into the click
+and proxy analytics, written to the request log, and exercised by everyone who
+opens the short link. A write that would leave such a target ENABLED is refused:
+
+```json
+{
+  "success": false,
+  "error": "ROUTE_TARGET_CREDENTIAL",
+  "message": "This route target carries credential-named parameter (token); ...",
+  "details": { "parameters": ["token"] }
+}
+```
+
+Re-send the same write with `"acknowledgeCredentialTarget": true` to store it
+anyway. The flag is request-only and never persisted. Parameter NAMES are
+returned; values never are.
+
+Disabling a route is never refused, `r2` targets are object keys rather than
+URLs and are not examined, and a transfer needs its own acknowledgement because
+it re-publishes the target to a different audience. The guard is write-time
+only — targets stored before v1.36.0 were never examined.
 
 ### Optional: unified request analytics (v1.32.0)
 

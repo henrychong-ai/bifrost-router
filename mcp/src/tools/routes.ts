@@ -2,7 +2,11 @@
  * Route management tool handlers for MCP server
  */
 
-import { SUPPORTED_DOMAINS_LIST } from '@bifrost/shared';
+import {
+  AcknowledgeCredentialTargetToolSchema,
+  SUPPORTED_DOMAINS_LIST,
+  ToggleRouteInputSchema,
+} from '@bifrost/shared';
 import type { EdgeRouterClient, Route } from '@bifrost/shared';
 
 /**
@@ -142,6 +146,33 @@ export async function getRoute(
 }
 
 /**
+ * Parse the operator acknowledgement through the shared boolean coercion. The
+ * stdio server hands raw JSON-RPC arguments straight to these handlers with no
+ * schema in front, so a client that stringifies booleans sends `"true"` — which
+ * would reach the Worker as a string, fail its `=== true` test and refuse the
+ * write for ever. `undefined` stays `undefined`, so an absent flag is still
+ * absent.
+ */
+function parseAcknowledgement(value: unknown): boolean | undefined {
+  const parsed = AcknowledgeCredentialTargetToolSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/**
+ * Parse `enabled` through the same shared schema. Same reason as the
+ * acknowledgement above, with a sharper edge: a client sending the string
+ * `"false"` would DISABLE nothing and ENABLE the route, because a non-empty
+ * string is truthy. `mcpBoolean()` inside the shared schema recognises the
+ * usual string forms; anything else is `null` and the handler REFUSES rather
+ * than guessing — a toggle is often the response to an abused link, so it must
+ * fail closed, never enable by accident.
+ */
+function parseEnabled(value: boolean | string): boolean | null {
+  const parsed = ToggleRouteInputSchema.shape.enabled.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
  * Create a new route
  */
 export async function createRoute(
@@ -158,6 +189,9 @@ export async function createRoute(
     forceDownload?: boolean;
     bucket?: string;
     domain?: string;
+    /** Request-only operator override; never stored. Raw JSON-RPC, so a client
+     * may send the string form. */
+    acknowledgeCredentialTarget?: boolean | string;
   },
 ): Promise<string> {
   const domain = requireDomain(args.domain);
@@ -189,6 +223,7 @@ export async function createRoute(
           | undefined,
       },
       domain,
+      { acknowledgeCredentialTarget: parseAcknowledgement(args.acknowledgeCredentialTarget) },
     );
 
     return `Route created successfully!\n\n${formatRouteDetails(route, domain)}`;
@@ -214,6 +249,9 @@ export async function updateRoute(
     forceDownload?: boolean;
     bucket?: string;
     domain?: string;
+    /** Request-only operator override; never stored. Raw JSON-RPC, so a client
+     * may send the string form. */
+    acknowledgeCredentialTarget?: boolean | string;
   },
 ): Promise<string> {
   const domain = requireDomain(args.domain);
@@ -245,6 +283,7 @@ export async function updateRoute(
           | undefined,
       },
       domain,
+      { acknowledgeCredentialTarget: parseAcknowledgement(args.acknowledgeCredentialTarget) },
     );
 
     return `Route updated successfully!\n\n${formatRouteDetails(route, domain)}`;
@@ -278,16 +317,31 @@ export async function deleteRoute(
  */
 export async function toggleRoute(
   client: EdgeRouterClient,
-  args: { path: string; enabled: boolean; domain?: string },
+  args: {
+    path: string;
+    /** Raw JSON-RPC, so a client may send the string form. */
+    enabled: boolean | string;
+    domain?: string;
+    /** Request-only operator override; never stored. Raw JSON-RPC, so a client
+     * may send the string form. */
+    acknowledgeCredentialTarget?: boolean | string;
+  },
 ): Promise<string> {
   const domain = requireDomain(args.domain);
   if (!domain) {
     return NO_DOMAIN_ERROR;
   }
 
+  const enabled = parseEnabled(args.enabled);
+  if (enabled === null) {
+    return `Error toggling route: 'enabled' must be true or false (received ${JSON.stringify(args.enabled)}). The route was not changed.`;
+  }
+
   try {
-    const route = await client.toggleRoute(args.path, args.enabled, domain);
-    const action = args.enabled ? 'enabled' : 'disabled';
+    const route = await client.toggleRoute(args.path, enabled, domain, {
+      acknowledgeCredentialTarget: parseAcknowledgement(args.acknowledgeCredentialTarget),
+    });
+    const action = enabled ? 'enabled' : 'disabled';
     return `Route ${args.path} ${action} successfully!\n\n${formatRouteDetails(route, domain)}`;
   } catch (error) {
     return `Error toggling route: ${error instanceof Error ? error.message : String(error)}`;
@@ -319,7 +373,14 @@ export async function migrateRoute(
  */
 export async function handleTransferRoute(
   client: EdgeRouterClient,
-  args: { path: string; from_domain?: string; to_domain?: string },
+  args: {
+    path: string;
+    from_domain?: string;
+    to_domain?: string;
+    /** Request-only operator override; never stored. Raw JSON-RPC, so a client
+     * may send the string form. */
+    acknowledgeCredentialTarget?: boolean | string;
+  },
 ): Promise<string> {
   // Both domains are explicit, never defaulted: a transfer deletes the route
   // from the source, so guessing the source would delete from a domain the
@@ -336,7 +397,9 @@ export async function handleTransferRoute(
   }
 
   try {
-    const route = await client.transferRoute(args.path, fromDomain, toDomain);
+    const route = await client.transferRoute(args.path, fromDomain, toDomain, {
+      acknowledgeCredentialTarget: parseAcknowledgement(args.acknowledgeCredentialTarget),
+    });
     return [
       'Route transferred successfully!',
       '',

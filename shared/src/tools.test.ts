@@ -12,6 +12,7 @@ import {
   qrTools,
 } from './tools.js';
 import { SUPPORTED_DOMAINS } from './types.js';
+import { ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION } from './schemas.js';
 
 describe('tools', () => {
   describe('toolDefinitions', () => {
@@ -284,5 +285,40 @@ describe('v1.35.0 domain contract (catalog)', () => {
       .map(tool => tool.name)
       .sort();
     expect(withDomain).toEqual([...REQUIRED_DOMAIN_TOOLS, ...OPTIONAL_DOMAIN_TOOLS].slice().sort());
+  });
+});
+
+/**
+ * The route-target acknowledgement is advertised on exactly the four write
+ * tools that can publish a credential-bearing target, with the SAME wording as
+ * the Zod tool schemas — a drifted description is a drifted instruction to an
+ * agent.
+ */
+describe('credential-target acknowledgement (catalog)', () => {
+  const ACK_TOOLS = ['create_route', 'update_route', 'toggle_route', 'transfer_route'] as const;
+  /** A migrate moves the slug within one domain, so it needs no acknowledgement. */
+  const NON_ACK_TOOLS = ['get_route', 'delete_route', 'migrate_route', 'list_routes'] as const;
+
+  it.each(ACK_TOOLS)('%s advertises the flag with the shared wording', name => {
+    const property = getToolDefinition(name)?.inputSchema.properties?.acknowledgeCredentialTarget as
+      | { type?: string; description?: string }
+      | undefined;
+    expect(property).toBeDefined();
+    expect(property?.type).toBe('boolean');
+    expect(property?.description).toBe(ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION);
+    // It tells the agent to ask the human rather than set it on its own.
+    expect(property?.description).toMatch(/ask the human/i);
+  });
+
+  it.each(ACK_TOOLS)('%s never REQUIRES the flag', name => {
+    expect(getToolDefinition(name)?.inputSchema.required ?? []).not.toContain(
+      'acknowledgeCredentialTarget',
+    );
+  });
+
+  it.each(NON_ACK_TOOLS)('%s does not advertise the flag', name => {
+    expect(
+      getToolDefinition(name)?.inputSchema.properties?.acknowledgeCredentialTarget,
+    ).toBeUndefined();
   });
 });

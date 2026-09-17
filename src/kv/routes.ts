@@ -35,6 +35,31 @@ export async function getRoute(
 }
 
 /**
+ * Read a route by a path that has ALREADY been normalised — builds the key
+ * without normalising again.
+ *
+ * ⚠️ `normalizePath()` is NOT idempotent. It strips `?`/`#` BEFORE percent-
+ * decoding, so a second pass eats anything the first decode produced:
+ * `/p%3Fx` → `/p?x` → `/p`. Every mutating function below normalises once and
+ * then called `getRoute()`, which normalised again — so the READ could resolve
+ * a different key from the WRITE. `PUT ?path=%2Fp%253Fx` read the record at
+ * `/p` and wrote the merged result under `/p?x`, publishing a second, enabled
+ * copy of a route the guard never examined. Read and write must use ONE key.
+ */
+export async function getRouteByNormalizedPath(
+  kv: KVNamespace,
+  domain: string,
+  normalizedPath: string,
+): Promise<KVRouteConfig | null> {
+  const key = routeKey(domain, normalizedPath);
+  try {
+    return await kv.get<KVRouteConfig>(key, 'json');
+  } catch (error) {
+    throw new KVReadError(key, error instanceof Error ? error : new Error(String(error)));
+  }
+}
+
+/**
  * Get a single route by domain and path with result type
  * Safer alternative that doesn't throw
  */
@@ -191,7 +216,7 @@ export async function updateRoute(
   updates: Partial<CreateRouteInput>,
 ): Promise<KVRouteConfig | null> {
   const normalizedPath = normalizePath(path);
-  const existing = await getRoute(kv, domain, normalizedPath);
+  const existing = await getRouteByNormalizedPath(kv, domain, normalizedPath);
   if (!existing) return null;
 
   const key = routeKey(domain, normalizedPath);
@@ -216,10 +241,11 @@ export async function updateRoute(
  * Returns false if not found, throws KVDeleteError on failure
  */
 export async function deleteRoute(kv: KVNamespace, domain: string, path: string): Promise<boolean> {
-  const existing = await getRoute(kv, domain, path);
+  const normalizedPath = normalizePath(path);
+  const existing = await getRouteByNormalizedPath(kv, domain, normalizedPath);
   if (!existing) return false;
 
-  const key = routeKey(domain, path);
+  const key = routeKey(domain, normalizedPath);
   try {
     await kv.delete(key);
     return true;
@@ -286,13 +312,13 @@ export async function migrateRoute(
   }
 
   // Get existing route at oldPath
-  const existing = await getRoute(kv, domain, normalizedOldPath);
+  const existing = await getRouteByNormalizedPath(kv, domain, normalizedOldPath);
   if (!existing) {
     return null;
   }
 
   // Check if newPath already exists
-  const existingAtNew = await getRoute(kv, domain, normalizedNewPath);
+  const existingAtNew = await getRouteByNormalizedPath(kv, domain, normalizedNewPath);
   if (existingAtNew) {
     throw new Error(`Route already exists at path: ${normalizedNewPath}`);
   }
@@ -346,12 +372,12 @@ export async function transferRoute(
     throw new Error('Source and destination domains cannot be the same');
   }
 
-  const existing = await getRoute(kv, fromDomain, normalizedPath);
+  const existing = await getRouteByNormalizedPath(kv, fromDomain, normalizedPath);
   if (!existing) {
     return null;
   }
 
-  const existingAtTarget = await getRoute(kv, toDomain, normalizedPath);
+  const existingAtTarget = await getRouteByNormalizedPath(kv, toDomain, normalizedPath);
   if (existingAtTarget) {
     throw new Error(`Route already exists at ${toDomain}:${normalizedPath}`);
   }
