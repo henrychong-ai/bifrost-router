@@ -93,7 +93,7 @@ describe('stateFromQr — edit round-trip', () => {
     const qr = {
       id: 'x',
       type: 'url',
-      payload: { url: 'https://x' },
+      payload: { url: 'https://x.example' },
       design: {
         fg: '#001757',
         bg: '#ffffff',
@@ -113,7 +113,7 @@ describe('stateFromQr — edit round-trip', () => {
     const qr = {
       id: 'x',
       type: 'url',
-      payload: { url: 'https://x' },
+      payload: { url: 'https://x.example' },
       design: { fg: '#111111', bg: '#ffffff', size: 512, margin: 4, errorCorrection: 'M' },
     } as unknown as QRCode;
     expect(stateFromQr(qr).brandSel).toBe('custom');

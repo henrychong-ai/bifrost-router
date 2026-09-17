@@ -221,7 +221,7 @@ describe('legacy recorder credential redaction', () => {
 
     // The route-target guard uses the NAME-ONLY predicate, so it still flags
     // the short campaign values. That is the one documented policy difference.
-    expect(findCredentialParams('https://a/b?code=SUMMER25')).toEqual(['code']);
+    expect(findCredentialParams('https://a.example/b?code=SUMMER25')).toEqual(['code']);
     // …and the legacy referrer follows the legacy policy, not the name-only one.
     expect(legacyReferrer('https://news.example/i?code=SUMMER25')).toBe(
       'https://news.example/i?code=SUMMER25',
@@ -271,30 +271,32 @@ describe('legacy recorder credential redaction', () => {
 
   it('takes one bounded second look inside a nested query', () => {
     // A credential in a return-URL parameter, the shape that motivated this.
-    expect(legacy('?next=https%3A%2F%2Fapp%2Fverify%3Ftoken%3DLIVE')).toBe(
-      '?next=https%3A%2F%2Fapp%2Fverify%3Ftoken%3D%5Bredacted%5D',
+    expect(legacy('?next=https%3A%2F%2Fapp.example%2Fverify%3Ftoken%3DLIVE')).toBe(
+      '?next=https%3A%2F%2Fapp.example%2Fverify%3Ftoken%3D%5Bredacted%5D',
     );
     // A duplicated `?` inside an ordinary value is a nested query too.
     expect(legacy('?a=1?token=LIVE')).toBe('?a=1%3Ftoken%3D%5Bredacted%5D');
     // The decoded value's fragment survives the rebuild…
-    expect(legacy('?next=https%3A%2F%2Fapp%3Ftoken%3DLIVE%23done')).toBe(
-      '?next=https%3A%2F%2Fapp%3Ftoken%3D%5Bredacted%5D%23done',
+    expect(legacy('?next=https%3A%2F%2Fapp.example%3Ftoken%3DLIVE%23done')).toBe(
+      '?next=https%3A%2F%2Fapp.example%3Ftoken%3D%5Bredacted%5D%23done',
     );
     // …and a `?` inside the decoded FRAGMENT is scanned too: a fragment reaches
     // the browser intact, so a hash-routed reset link is a live credential.
-    expect(legacy('?next=https%3A%2F%2Fapp%23%2Fr%3Ftoken%3DLIVE')).toBe(
-      `?next=${encodeURIComponent('https://app#/r?token=[redacted]')}`,
+    expect(legacy('?next=https%3A%2F%2Fapp.example%23%2Fr%3Ftoken%3DLIVE')).toBe(
+      `?next=${encodeURIComponent('https://app.example#/r?token=[redacted]')}`,
     );
     // FIDELITY: nothing redacted → stored byte-identically, never re-encoded.
-    expect(legacy('?next=https%3A%2F%2Fapp%3Fpage%3D2')).toBe('?next=https%3A%2F%2Fapp%3Fpage%3D2');
+    expect(legacy('?next=https%3A%2F%2Fapp.example%3Fpage%3D2')).toBe(
+      '?next=https%3A%2F%2Fapp.example%3Fpage%3D2',
+    );
     // Malformed encoding → no second reading of the value exists; kept as sent.
     expect(legacy('?next=%FF%3Ftoken%3DLIVE')).toBe('?next=%FF%3Ftoken%3DLIVE');
     // Depth is exactly ONE: no recursion, no decode loop.
-    const twoDeep = `?next=${encodeURIComponent(`https://a?next2=${encodeURIComponent('https://b?token=LIVE')}`)}`;
+    const twoDeep = `?next=${encodeURIComponent(`https://a.example?next2=${encodeURIComponent('https://b.example?token=LIVE')}`)}`;
     expect(legacy(twoDeep)).toBe(twoDeep);
     // The legacy predicate applies INSIDE the nesting too.
-    expect(legacy('?next=https%3A%2F%2Fapp%3Fcode%3DSG')).toBe(
-      '?next=https%3A%2F%2Fapp%3Fcode%3DSG',
+    expect(legacy('?next=https%3A%2F%2Fapp.example%3Fcode%3DSG')).toBe(
+      '?next=https%3A%2F%2Fapp.example%3Fcode%3DSG',
     );
   });
 
@@ -304,7 +306,7 @@ describe('legacy recorder credential redaction', () => {
     // from the STORED bytes. Exact bytes — what is persisted is the point.
 
     // 1. A `;` sub-pair AND a nested query in a later piece.
-    expect(findCredentialParams('https://a/b?a=1;token=LIVE;b=x?key=SECOND')).toEqual([
+    expect(findCredentialParams('https://a.example/b?a=1;token=LIVE;b=x?key=SECOND')).toEqual([
       'token',
       'key',
     ]);
@@ -315,7 +317,7 @@ describe('legacy recorder credential redaction', () => {
     // 2. A nested query in EACH piece. `code=SECRET` is an ambiguous NAME with
     // a single-case word value, so the legacy rule keeps it; `token` is
     // redacted, which is the fix.
-    expect(findCredentialParams('https://a/b?a=x?code=SECRET;b=y?token=LIVE')).toEqual([
+    expect(findCredentialParams('https://a.example/b?a=x?code=SECRET;b=y?token=LIVE')).toEqual([
       'code',
       'token',
     ]);
@@ -325,7 +327,9 @@ describe('legacy recorder credential redaction', () => {
 
     // 3. The control: it must stay correct AND leave the innocuous piece
     // byte-identical.
-    expect(findCredentialParams('https://a/b?a=x?page=1;b=y?token=LIVE')).toEqual(['token']);
+    expect(findCredentialParams('https://a.example/b?a=x?page=1;b=y?token=LIVE')).toEqual([
+      'token',
+    ]);
     expect(legacy('?a=x?page=1;b=y?token=LIVE')).toBe(
       `?a=x?page=1;b=${encodeURIComponent('y?token=[redacted]')}`,
     );
@@ -340,9 +344,9 @@ describe('legacy recorder credential redaction', () => {
     // A decoded value with no `?` and no `#` may itself be a packed query body.
     // Judging the head as ONE pair read only its first name, so the credential
     // after the `&` survived in the stored row and passed the target guard.
-    expect(findCredentialParams('https://app/redir?rt=uid%3D1%26access_token%3Dey.J.9')).toEqual([
-      'access_token',
-    ]);
+    expect(
+      findCredentialParams('https://app.example/redir?rt=uid%3D1%26access_token%3Dey.J.9'),
+    ).toEqual(['access_token']);
     expect(legacy('?rt=uid%3D1%26access_token%3Dey.J.9')).toBe(
       `?rt=${encodeURIComponent('uid=1&access_token=[redacted]')}`,
     );
@@ -354,9 +358,9 @@ describe('legacy recorder credential redaction', () => {
     // The outer name is `state`: the NAME-ONLY predicate (and so the guard)
     // flags it and stops there, while the legacy rule keeps its short value as
     // a campaign parameter — and must still scan the PACKED body it carries.
-    expect(findCredentialParams('https://app/redir?state=uid%3D1%26token%3Dabc123')).toEqual([
-      'state',
-    ]);
+    expect(
+      findCredentialParams('https://app.example/redir?state=uid%3D1%26token%3Dabc123'),
+    ).toEqual(['state']);
     expect(legacy('?state=uid%3D1%26token%3Dabc123')).toBe(
       `?state=${encodeURIComponent('uid=1&token=[redacted]')}`,
     );
@@ -375,11 +379,11 @@ describe('legacy recorder credential redaction', () => {
     expect(legacy(encodedTab)).toBe(
       `?next=${encodeURIComponent('https://idp.example/?token=[redacted]')}`,
     );
-    expect(findCredentialParams(`https://a/b${encodedTab}`)).toEqual(['token']);
+    expect(findCredentialParams(`https://a.example/b${encodedTab}`)).toEqual(['token']);
 
     // Nothing sensitive behind the control: byte-identical, not re-encoded.
-    expect(legacy('?next=https%3A%2F%2Fidp%2F%3Fpa%09ge%3D2')).toBe(
-      '?next=https%3A%2F%2Fidp%2F%3Fpa%09ge%3D2',
+    expect(legacy('?next=https%3A%2F%2Fidp.example%2F%3Fpa%09ge%3D2')).toBe(
+      '?next=https%3A%2F%2Fidp.example%2F%3Fpa%09ge%3D2',
     );
   });
 
@@ -391,27 +395,25 @@ describe('legacy recorder credential redaction', () => {
     expect(findCredentialParams('https://app.example/cb')).toEqual([]);
     expect(findCredentialParams('')).toEqual([]);
     // Distinct names in encounter order; VALUES are never returned.
-    expect(findCredentialParams('https://a/b?token=1&secret=2&token=3')).toEqual([
+    expect(findCredentialParams('https://a.example/b?token=1&secret=2&token=3')).toEqual([
       'token',
       'secret',
     ]);
     // The NAME-ONLY predicate: an ambiguous name surfaces at any length, so the
     // operator decides.
-    expect(findCredentialParams('https://a/b?state=CA&session=morning&ticket=vip')).toEqual([
-      'state',
-      'session',
-      'ticket',
-    ]);
+    expect(findCredentialParams('https://a.example/b?state=CA&session=morning&ticket=vip')).toEqual(
+      ['state', 'session', 'ticket'],
+    );
     // Names found by the second look are reported under their OWN name.
-    expect(findCredentialParams('https://a/b?next=https%3A%2F%2Fapp%3Ftoken%3DLIVE')).toEqual([
-      'token',
-    ]);
-    expect(findCredentialParams('https://a/b?utm_source=x;api_key=k')).toEqual(['api_key']);
+    expect(
+      findCredentialParams('https://a.example/b?next=https%3A%2F%2Fapp.example%3Ftoken%3DLIVE'),
+    ).toEqual(['token']);
+    expect(findCredentialParams('https://a.example/b?utm_source=x;api_key=k')).toEqual(['api_key']);
     // The name is decoded and trimmed, with its case as the caller wrote it.
-    expect(findCredentialParams('https://a/b?%20Api%5FKey%20=zz')).toEqual(['Api_Key']);
+    expect(findCredentialParams('https://a.example/b?%20Api%5FKey%20=zz')).toEqual(['Api_Key']);
     // ⚠️ The FRAGMENT is scanned here, unlike the recorders: a route target's
     // fragment is emitted in `Location:` and the browser KEEPS it.
-    expect(findCredentialParams('https://a/b#/r?token=LIVE')).toEqual(['token']);
+    expect(findCredentialParams('https://a.example/b#/r?token=LIVE')).toEqual(['token']);
     // An implicit-flow fragment body is a segment set, not a path+query.
     expect(findCredentialParams('https://idp.example/cb#access_token=LIVE&state=x')).toEqual([
       'access_token',
@@ -419,15 +421,117 @@ describe('legacy recorder credential redaction', () => {
     ]);
     // BOTH halves of a fragment are scanned: taking only the text after the
     // first `?` dropped the credential sitting before it.
-    expect(findCredentialParams('https://app/#access_token=LIVE&redirect=/a?b=1')).toEqual([
+    expect(findCredentialParams('https://app.example/#access_token=LIVE&redirect=/a?b=1')).toEqual([
       'access_token',
     ]);
-    expect(findCredentialParams('https://app/#access_token=LIVE?x=1')).toEqual(['access_token']);
+    expect(findCredentialParams('https://app.example/#access_token=LIVE?x=1')).toEqual([
+      'access_token',
+    ]);
     // A plain anchor yields nothing.
-    expect(findCredentialParams('https://a/b#section')).toEqual([]);
-    expect(findCredentialParams('https://a/b?token=LIVE#access_token=x')).toEqual([
+    expect(findCredentialParams('https://a.example/b#section')).toEqual([]);
+    expect(findCredentialParams('https://a.example/b?token=LIVE#access_token=x')).toEqual([
       'token',
       'access_token',
     ]);
+  });
+});
+
+/**
+ * Shapes found by the downstream port reviews and fixed upstream first. Each
+ * one hid a credential from the stored row AND from the route-target guard.
+ */
+describe('legacy recorder redaction — review-found shapes', () => {
+  const link = (query = '') => new URL(`https://links.example.com/x${query}`);
+  const legacy = (query: string) => legacyQueryString(link(query));
+
+  it('reads the segment as ONE pair before any `;` split', () => {
+    // A `;` may sit inside the parameter NAME (`access_token;v=LIVE`: the name
+    // is `access_token;v`, which carries the `token` stem) or inside the VALUE
+    // after a sensitive name (`token=prefix;SECRET`: the whole value is the
+    // secret). The per-piece reading sees `access_token` as a bare flag and
+    // `SECRET` as a valueless piece, and would keep both.
+    const inName = '?access_token;v=LIVE';
+    expect(findCredentialParams(`https://a.example/b${inName}`)).toEqual(['access_token;v']);
+    expect(legacy(inName)).toBe('?access_token;v=[redacted]');
+
+    const inValue = '?token=prefix;SECRET';
+    expect(findCredentialParams(`https://a.example/b${inValue}`)).toEqual(['token']);
+    expect(legacy(inValue)).toBe('?token=[redacted]');
+
+    // Documented cost: a `;`-joined attribution tail after a sensitive name is
+    // redacted with it, because a server that does not split on `;` reads it as
+    // part of the value. A stored credential is irreversible; the tail is not.
+    expect(legacy('?token=x;utm_source=mail')).toBe('?token=[redacted]');
+    expect(legacy('?token=LIVE;key=x')).toBe('?token=[redacted]');
+
+    // Innocuous segment names still split and still catch the inner pair.
+    expect(legacy('?utm_source=x;token=LIVE')).toBe('?utm_source=x;token=[redacted]');
+  });
+
+  it('splits a value on a SECOND `?` as well as the first', () => {
+    // The opener consumes only the first `?`, so everything after a second one
+    // was never read as a pair list.
+    const doubleQ = '?a=1?b=2?token=LIVE';
+    expect(findCredentialParams(`https://a.example/b${doubleQ}`)).toEqual(['token']);
+    expect(legacy(doubleQ)).toBe(`?a=${encodeURIComponent('1?b=2?token=[redacted]')}`);
+
+    expect(
+      findCredentialParams(
+        `https://a.example/b?next=${encodeURIComponent('https://x.example/?a=1?token=LIVE')}`,
+      ),
+    ).toEqual(['token']);
+
+    // The trailing pair after the credential is kept, not dropped.
+    expect(legacy('?a=1?token=LIVE?b=2')).toBe(
+      `?a=${encodeURIComponent('1?token=[redacted]?b=2')}`,
+    );
+
+    // The benign duplicated-`?` control stays byte-identical.
+    expect(legacy('?a=1?page=2;b=3')).toBe('?a=1?page=2;b=3');
+  });
+
+  it('reports the pair name, not the URL text, when a decoded PATH carries it', () => {
+    // A decoded value that is a URL whose PATH carries the pair must report the
+    // parameter's own name — the audit row and the refusal message repeat it.
+    const urlHead = `?next=${encodeURIComponent('https://app.example/auth/token=SECRET')}`;
+    expect(findCredentialParams(`https://a.example/b${urlHead}`)).toEqual(['token']);
+    expect(legacy(urlHead)).toBe(
+      `?next=${encodeURIComponent('https://app.example/auth/token=[redacted]')}`,
+    );
+
+    // …and a packed body with no slashes is still read as one pair list.
+    expect(findCredentialParams('https://a.example/b?rt=uid%3D1%26access_token%3DLIVE')).toEqual([
+      'access_token',
+    ]);
+  });
+
+  it('combines a `;` sub-pair with an encoded URL in the same segment', () => {
+    // Both shapes at once: the piecewise reading catches the sub-pair, the
+    // whole-value reading catches the nesting, and neither discards the other.
+    const combined = '?utm_source=x;next=https%3A%2F%2Fapp.example%3Ftoken%3DLIVE';
+    expect(findCredentialParams(`https://a.example/b${combined}`)).toEqual(['token']);
+    expect(legacy(combined)).toBe(
+      `?utm_source=x;next=${encodeURIComponent('https://app.example?token=[redacted]')}`,
+    );
+  });
+
+  it('catches a nested query in either ordering of the two pieces', () => {
+    // Reversed from the case above: the credential sits in the FIRST piece.
+    expect(legacy('?a=y?token=LIVE;b=1')).toBe(
+      `?a=${encodeURIComponent('y?token=[redacted]')};b=1`,
+    );
+    expect(legacy('?a=1;b=y?token=LIVE')).toBe(
+      `?a=1;b=${encodeURIComponent('y?token=[redacted]')}`,
+    );
+  });
+
+  it('keeps `pwd` — it is a path/directory parameter, not a password', () => {
+    // `passw` is the stem, so `password` and `passwd` are redacted while the
+    // bare `pwd` (conventionally "present working directory") is not.
+    expect(legacy('?pwd=/reports/q3')).toBe('?pwd=/reports/q3');
+    expect(findCredentialParams('https://a.example/b?pwd=/reports/q3')).toEqual([]);
+    expect(legacy('?password=hunter2&passwd=hunter2')).toBe(
+      '?password=[redacted]&passwd=[redacted]',
+    );
   });
 });

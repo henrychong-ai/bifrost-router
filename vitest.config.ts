@@ -46,7 +46,12 @@ export default defineConfig({
     // gate asserts on. Benchmarks have their own exclude list.
     benchmark: {
       exclude: [
+        // vitest's own defaults, restored — naming an exclude list REPLACES
+        // them, so dropping these would sweep build output and tool caches.
         '**/node_modules/**',
+        '**/dist/**',
+        '**/cypress/**',
+        '**/.{idea,git,cache,output,temp}/**',
         '.claude/worktrees/**',
         'admin/**',
         'shared/**',
@@ -59,7 +64,14 @@ export default defineConfig({
       // coverage API. Cloudflare requires instrumented Istanbul coverage here.
       provider: 'istanbul',
       reporter: ['text', 'json', 'html'],
-      exclude: ['node_modules/**', 'test/**', '**/*.test.ts', 'vitest.config.ts'],
+      exclude: [
+        'node_modules/**',
+        '**/node_modules/**',
+        '.claude/worktrees/**',
+        'test/**',
+        '**/*.test.ts',
+        'vitest.config.ts',
+      ],
       thresholds: { statements: 69, branches: 58, functions: 67, lines: 70 },
     },
   },

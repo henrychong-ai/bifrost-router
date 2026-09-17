@@ -502,8 +502,7 @@ Rows written before v1.36.0 keep whatever they captured; nothing is rewritten.
 ### Route-target credential guard (v1.36.0)
 
 A route TARGET is not request data: it is stored in KV, copied into the click
-and proxy analytics, written to the request log, and exercised by everyone who
-opens the short link. A write that would leave such a target ENABLED is refused:
+and proxy analytics, and exercised by everyone who opens the short link. A write that would leave such a target ENABLED is refused:
 
 ```json
 {

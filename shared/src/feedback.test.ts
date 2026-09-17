@@ -127,7 +127,7 @@ describe('redactSensitive', () => {
   });
 
   it('strips token-bearing URL query params (value only, keeps key)', () => {
-    const out = redactSensitive('https://x/cb?access_token=secret12345&ok=1');
+    const out = redactSensitive('https://x.example/cb?access_token=secret12345&ok=1');
     expect(out).toContain('[REDACTED]');
     expect(out).not.toContain('secret12345');
     expect(out).toContain('access_token=');
@@ -149,7 +149,7 @@ describe('redactCaptureBundle', () => {
   it('redacts console messages, network urls, and breadcrumbs', () => {
     const out = redactCaptureBundle({
       console: [{ level: 'error', message: 'failed Bearer abc.def.ghi', ts: 1 }],
-      network: [{ method: 'GET', url: 'https://x/?session_jwt=zzz', status: 500, ts: 1 }],
+      network: [{ method: 'GET', url: 'https://x.example/?session_jwt=zzz', status: 500, ts: 1 }],
       breadcrumbs: [
         {
           type: 'nav',

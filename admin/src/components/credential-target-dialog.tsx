@@ -52,8 +52,8 @@ export function CredentialTargetDialog({
             <br />
             <br />A short link is a public handle: anyone who opens it exercises whatever{' '}
             {plural ? 'those parameters carry' : 'that parameter carries'}, and the target is stored
-            in the route, in the click analytics and in the request log. Continue only if the value
-            is genuinely not a secret.
+            in the route and copied into the click analytics. Continue only if the value is
+            genuinely not a secret.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

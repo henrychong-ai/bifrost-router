@@ -209,6 +209,16 @@ function redactSegment(
   isSensitive: SensitiveQueryParam,
   redactedNames: string[],
 ): string {
+  // Reading 0 — the segment AS ONE PAIR, before any `;` split. A `;` may sit
+  // inside the parameter NAME (`access_token;v=LIVE`: the name is
+  // `access_token;v`, which carries `token`) or inside the VALUE after a
+  // sensitive name (`token=prefix;SECRET`: the whole value is the secret). The
+  // per-piece reading below sees `access_token` as a bare flag and `SECRET` as
+  // a valueless piece, and would keep both. So the segment's own name decides
+  // first; when it is sensitive the entire value is replaced and no split runs.
+  const wholePair = redactPair(segment, isSensitive, redactedNames);
+  if (wholePair !== segment) return wholePair;
+
   const perPiece = segment
     .split(';')
     .map(piece => redactPiece(piece, isSensitive, redactedNames))
@@ -249,7 +259,9 @@ function redactPiece(
  * Returns the pair unchanged when the name is innocuous, when there is no value
  * to replace (a bare flag — the NAME is never the secret), or when the value is
  * ALREADY `[redacted]`: reading the same pair twice under two interpretations
- * must not report a second find.
+ * must not report a second find. The whole-segment reading in `redactSegment`
+ * passes a segment that may contain `;` — the name is everything before the
+ * first `=`, exactly as a server that does not split on `;` would read it.
  */
 function redactPair(
   pair: string,
@@ -272,7 +284,7 @@ function redactPair(
  * are both scanned for credential-named pairs.
  *
  * ⚠️ Tab, LF and CR are stripped from the DECODED value before scanning.
- * `?next=https%3A%2F%2Fidp%2F%3Fto%09ken%3DLIVE` carries no literal control
+ * `?next=https%3A%2F%2Fidp.example%2F%3Fto%09ken%3DLIVE` carries no literal control
  * character, so the schema and the outer scans see nothing — but the one
  * permitted decode yields `to<TAB>ken=LIVE`, and a browser following that URL
  * strips the tab and sends `token=LIVE`.
@@ -333,12 +345,19 @@ function redactUrlText(
 
       // The piece is always split before anything is judged, so a reported NAME
       // is the parameter's own name and never the URL text in front of it. The
-      // head is scanned as a PAIR LIST, not one pair: a decoded value with no `?`
-      // and no `#` may itself be a packed `k=v&k=v` body
-      // (`?rt=uid%3D1%26token%3D…`), and a single-pair read would judge only its
-      // first name.
+      // head is scanned PATH SEGMENT BY PATH SEGMENT, each segment as a PAIR
+      // LIST: a decoded value with no `?` and no `#` may be a packed `k=v&k=v`
+      // body (`?rt=uid%3D1%26token%3D…`, one segment), or a URL whose PATH
+      // carries a pair (`https://app.example/auth/token=SECRET`) — splitting on
+      // `/` first keeps `https://app.example/auth/` out of the reported name,
+      // which the audit row and the refusal message repeat.
       const head = piece.slice(0, hasQuery ? questionStart : bodyEnd);
-      const rebuiltHead = redactPairs(head, isSensitive, redactedNames);
+      const rebuiltHead = head
+        .split('/')
+        .map(segment =>
+          segment.includes('=') ? redactPairs(segment, isSensitive, redactedNames) : segment,
+        )
+        .join('/');
       const rebuiltQuery = hasQuery
         ? `?${redactPairs(piece.slice(questionStart + 1, bodyEnd), isSensitive, redactedNames)}`
         : '';
@@ -362,7 +381,15 @@ function redactPairs(
     .map(entry =>
       entry
         .split(';')
-        .map(pair => redactPair(pair, isSensitive, redactedNames))
+        .map(piece =>
+          // A SECOND `?` inside a value (`a=1?b=2?token=LIVE`) is the sibling of
+          // the duplicated-`?` shape the top-level scan already handles; the
+          // opener consumes only the first `?`, so the rest is split here too.
+          piece
+            .split('?')
+            .map(pair => redactPair(pair, isSensitive, redactedNames))
+            .join('?'),
+        )
         .join(';'),
     )
     .join('&');
@@ -436,7 +463,7 @@ export function findCredentialParams(target: string): string[] {
   // alone for REFERRERS because browsers strip a fragment before sending one —
   // but a route target travels the opposite direction: the Worker puts it in
   // `Location:` and the browser KEEPS the fragment, so
-  // `https://app/#/reset?token=…` and an implicit-flow `#access_token=…` are
+  // `https://app.example/#/reset?token=…` and an implicit-flow `#access_token=…` are
   // live credentials handed to every visitor.
   //
   // BOTH halves are scanned: a fragment can be a hash-routed path with its own

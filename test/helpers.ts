@@ -264,6 +264,24 @@ export async function createPageViewsTable(): Promise<void> {
   `).run();
 }
 
+/** The audit-log table, for suites that assert on what a mutation recorded. */
+export async function createAuditLogsTable(): Promise<void> {
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+      domain TEXT NOT NULL,
+      action TEXT NOT NULL,
+      actor_login TEXT,
+      actor_name TEXT,
+      path TEXT,
+      details TEXT,
+      ip_address TEXT,
+      source TEXT NOT NULL DEFAULT 'bifrost',
+      created_at INTEGER DEFAULT (unixepoch()) NOT NULL
+    )
+  `).run();
+}
+
 /** All four legacy per-feature recorder tables. */
 export async function createLegacyRecorderTables(): Promise<void> {
   await createLinkClicksTable();

@@ -14,8 +14,7 @@ at one can carry a live credential in its query string — and the page that
 redirected through it can carry another in its `Referer`. The four per-feature
 analytics recorders stored both verbatim, and nothing stopped an operator
 configuring a route whose TARGET carried one, which is worse: a target is
-stored in KV, copied into the click analytics, written to the request log, and
-exercised by every visitor. Separately, the dashboard compiled this changelog
+stored in KV, copied into the click analytics, and exercised by every visitor. Separately, the dashboard compiled this changelog
 into its JavaScript bundle, which is served with no credential check.
 
 ### Security and analytics
@@ -49,7 +48,7 @@ into its JavaScript bundle, which is served with no credential check.
 - **A credential nested inside a non-sensitive value is caught.** Before a
   segment whose own name is innocuous is stored, one bounded second look checks
   a `;` sub-pair (`?utm_source=x;token=…`), a nested query inside the decoded
-  value (`?next=https%3A%2F%2Fapp%3Ftoken%3D…`, and the duplicated-`?` form
+  value (`?next=https%3A%2F%2Fapp.example%3Ftoken%3D…`, and the duplicated-`?` form
   `?a=1?token=…`), a nested FRAGMENT, and a packed `k=v&k=v` body
   (`?rt=uid%3D1%26access_token%3D…`). Both readings are COMBINED rather than
   alternatives, so neither discards the other's redactions. Depth is exactly
@@ -79,7 +78,7 @@ into its JavaScript bundle, which is served with no credential check.
 - **The guard also scans the target's FRAGMENT.** A referrer's fragment is left
   alone because browsers strip it before sending one, but a route target travels
   the other way: the Worker puts it in `Location:` and the browser keeps it. So
-  `https://app/#/reset?token=…` and an implicit-flow `#access_token=…` are
+  `https://app.example/#/reset?token=…` and an implicit-flow `#access_token=…` are
   caught, in both the hash-routed-query and the bare `k=v` shapes.
 - **Control characters can no longer hide a parameter name.** The URL parser
   strips tab, LF and CR from anywhere in a URL, so a target reading
@@ -102,29 +101,82 @@ into its JavaScript bundle, which is served with no credential check.
 
 ### Fixed
 
-- **Route reads and writes now use ONE key.** Path normalisation strips `?` and
-  `#` before decoding, so it was not idempotent — `/p%3Fx` collapsed to `/p` on
-  a second pass. Update, delete, migrate and transfer normalised once and then
-  read through a function that normalised again, so the read could resolve a
-  different record from the write. A general correctness fix, and it closes a
-  route by which an update could publish a second, unexamined copy of a route.
-  `deleteRoute()` also now normalises its path exactly once, like every other
-  mutation.
+- **Route reads and writes now use ONE key, in both directions.** Path
+  normalisation strips `?` and `#` before decoding, so it is not idempotent —
+  `/p%3Fx` collapses to `/p` on a second pass — and every mutation normalises
+  before it writes. Two mirror defects followed.
+  - **A read that did not normalise at all.** `getRoute()` built its key from
+    the RAW path, so it missed on any alias of a stored path: `/Promo`,
+    `/promo/`, `//promo`, `/pro%6do`. All four admin pre-reads used it, and a
+    miss is silent — so re-enabling or transferring a stored credential-bearing
+    route through an alias SKIPPED the new target guard entirely, a create
+    through an alias overwrote the aliased record instead of answering `409`,
+    and a delete audited an empty before-state. `getRoute()` and
+    `getRouteSafe()` now normalise, which is also what `POST /api/routes/seed`
+    needs for its existence check. Every one of those aliases passes
+    `RoutePathSchema`, so nothing refused them earlier.
+  - **A read that normalised twice.** `updateRoute`, `deleteRoute`,
+    `migrateRoute` and `transferRoute` normalise once themselves, so they now
+    read through `getRouteByNormalizedPath()` rather than normalising again —
+    otherwise the read resolves a different record from the write, by which an
+    update could publish a second, unexamined copy of a route. `deleteRoute()`
+    also now normalises its path exactly once, like every other mutation.
 - **Route paths refuse `?`, `#` and a double-encoded `%`.** A path such as
   `/p%3Fx` was accepted, stored under a key containing `?`, and listed back in a
   form that normalised to a DIFFERENT route — so an edit or delete aimed at the
   listed value hit the wrong record. `/p%253Fx` orphaned the route entirely. The
   same check now runs on `POST /api/routes/migrate`, which previously validated
   only the leading slash.
-- **The stdio `toggle_route` refuses an unrecognised `enabled` value.** `"false"`
-  now disables (it used to be truthy and ENABLE), and anything the shared schema
-  does not recognise — `"off"`, `"disabled"`, `"n"` — is answered with an error
-  and the route is left untouched, rather than guessed at. A toggle is often the
-  response to an abused link, so it fails closed.
+- **The stdio `toggle_route` understands a stringified `enabled`, and names what
+  it refuses.** Some MCP clients stringify every argument. This template's
+  schema was a bare `z.boolean()`, so `enabled: "false"` was REFUSED with a
+  schema type error — safe (the route was never wrongly enabled) but opaque, and
+  the caller never learned that its own serialisation was the problem. `"false"`
+  now disables, and anything the shared schema does not recognise — `"off"`,
+  `"disabled"`, `"n"` — is answered with a message naming the received value,
+  leaving the route untouched. A toggle is often the response to an abused link,
+  so it fails closed either way. ⚠️ The coercion is deliberately explicit rather
+  than `z.coerce.boolean()`, which is JS-truthy and would turn `"false"` into an
+  ENABLE.
 - **The API client carries a refusal's sentence as well as its code.** A handler
   that sends both `error` and `message` is using `error` as a machine code, and
   the sentence is the part a human or an MCP caller needs. Bodies without
   `message` are byte-identical to before.
+
+### Also in this release (review round)
+
+- **Two upstream hotfix shapes, ported before this release shipped.** A `;`
+  inside a parameter NAME (`?access_token;v=LIVE`) or inside the VALUE after a
+  sensitive name (`?token=prefix;SECRET`) escaped both the stored row and the
+  target guard, because the per-piece reading saw a bare flag and a valueless
+  piece. The segment is now read as ONE pair first. ⚠️ Documented cost: a
+  `;`-joined attribution tail after a sensitive name is redacted with it, since
+  a server that does not split on `;` reads it as part of the value.
+- **A second `?` inside a value no longer hides everything after it.**
+  `?a=1?b=2?token=LIVE` kept the credential in both the stored row and the
+  guard, because the opener consumes only the first `?`. Trailing pairs after
+  the credential are preserved.
+- **A decoded value whose PATH carries the pair reports the parameter's name.**
+  `https://app.example/auth/token=SECRET` reported the URL text; the head is now
+  scanned path segment by path segment, so the refusal message and the audit row
+  name `token`.
+- **Route paths refuse control characters**, which targets already did. A path
+  holding a tab was stored under a key no request could ever match, because the
+  URL parser strips tab, LF and CR from a request URL before routing.
+- **`POST /api/routes/transfer` validates its path through `RoutePathSchema`.**
+  It was the last write path checking only the leading slash, so a legacy
+  non-round-tripping key could still be re-published on a second domain.
+- **Both changelog gates now run in CI**, not only in `pnpm run check`: the
+  freshness check before the build steps, the `admin/dist` scan immediately
+  after the dashboard build. A new `check:changelog-chunk` gate caps the
+  changelog route chunk at 32,768 deterministic gzip bytes and fails closed on
+  zero or multiple matches — a size tripwire that is really a security one,
+  since a jump past it means the markdown is back in a publicly served bundle.
+- **The public sanitisation gate flags single-label `https://` hosts.** RFC 2606
+  reserves `.example` precisely so a written example cannot collide with a real
+  name, while a host with no dot in it — a bare `app`, `idp` or `x` after the
+  scheme — reads as an internal hostname and may one day resolve. Existing
+  examples across the docs and tests moved to `.example` names.
 
 ### Changed
 
@@ -167,6 +219,33 @@ already in KV were never examined.
   re-examine them. The guard only fires on a write.
 - Scrub historic analytics rows written before this release, which may hold
   credential values in `query_string` or `referrer`.
+- **Legacy `?`/`#` route keys have to be deleted and recreated.** A record
+  stored under such a key before this release cannot be repaired in place:
+  `PUT /api/routes` and `POST /api/routes/migrate` now refuse the path outright,
+  and there is no rename that accepts it. `DELETE /api/routes` deliberately does
+  NOT validate, so the record stays deletable — but delete-then-create loses the
+  original `createdAt`. Capture the record first if that timestamp matters.
+- **Malformed percent-encoding suppresses the nested read.** A value that fails
+  `decodeURIComponent` has no second reading, so a credential nested behind a
+  broken escape is stored as sent. Documented decision, not an oversight: the
+  alternative is guessing at what the bytes meant.
+- **The referrer's own parameter names are not control-stripped.** The nested
+  reading strips tab/LF/CR from a decoded value, but the outer referrer scan
+  reads the header as received. Not exploitable in practice — a browser strips
+  those characters before sending a `Referer`, so only a hand-built header
+  reaches it, and such a client can simply omit the header instead.
+- **The whole-segment re-encode folds `;` pieces.** When the second reading
+  fires on a segment, the rebuilt value is re-encoded as one unit, so `;`
+  separators inside it come back percent-encoded. A fidelity cost on a row that
+  already had something redacted, never a correctness one.
+- **The legacy shape predicate decodes a nested value a second time.** Inside a
+  nested reading the ambiguous-name rule decodes the value it is weighing, which
+  is one decode past the documented depth bound. It can only fail OPEN — a value
+  that decodes to something under the length and shape floors — so it never
+  stores more than the rule intends.
+- **An empty-value `?token=` is refused by the route-target guard.** The name
+  matches, so the write is refused even though there is no credential to leak.
+  Fail-safe, and one acknowledgement clears it.
 
 ### Tests
 

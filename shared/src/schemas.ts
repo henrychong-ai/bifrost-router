@@ -13,13 +13,17 @@ import { CommentSchema } from './comment.js';
 // MCP boolean coercion
 // =============================================================================
 // MCP tool args may arrive as JSON booleans OR as strings (some clients stringify
-// every arg). Plain `z.coerce.boolean()` is a footgun here: it is JS-truthy, so
-// the string "false" coerces to `true` (an `enabled="false"` call would ENABLE the
-// route). `mcpBoolean()` parses the common string forms explicitly — "true"/"1"/
-// "yes" → true, "false"/"0"/"no"/"" → false (case-insensitive) — and passes real
-// booleans through untouched. Any other value (including JSON numbers `1`/`0` and
-// unrecognised strings) falls through to `z.boolean()`, which rejects it, so a
-// toggle fails closed rather than guessing.
+// every arg). A bare `z.boolean()` — what this template used before — refuses
+// every one of those calls, which is SAFE but opaque: the caller gets a type
+// error rather than the answer it asked for. `mcpBoolean()` parses the common
+// string forms explicitly — "true"/"1"/"yes" → true, "false"/"0"/"no"/"" → false
+// (case-insensitive) — and passes real booleans through untouched.
+//
+// ⚠️ Never reach for `z.coerce.boolean()` here instead: it is JS-truthy, so the
+// string "false" would coerce to `true` and an `enabled="false"` call would
+// ENABLE the route. Any value `mcpBoolean()` does not recognise (including JSON
+// numbers `1`/`0` and unrecognised strings) falls through to `z.boolean()`,
+// which rejects it, so a toggle still fails closed rather than guessing.
 const mcpBoolean = () =>
   z.preprocess(v => {
     if (typeof v === 'string') {
@@ -156,6 +160,12 @@ export const RoutePathSchema = z
   .string()
   .min(1)
   .startsWith('/')
+  // Targets refused C0/DEL from the start; paths did not, so a path holding a
+  // tab was stored under a key no request could ever match — the URL parser
+  // strips tab, LF and CR from a request URL before routing.
+  .refine(value => !hasControlCharacter(value), {
+    message: 'Route path must not contain control characters',
+  })
   .refine(value => !decodedPathHasDelimiter(value), {
     message: 'Route path must not contain ? or #, or a double-encoded %',
   });
@@ -386,9 +396,10 @@ export const DeleteRouteInputSchema = z.object({
  */
 export const ToggleRouteInputSchema = z.object({
   path: RoutePathSchema.describe('Route path to toggle'),
-  // `mcpBoolean()` parses string args correctly: "false" → false. A plain
-  // `z.coerce.boolean()` made "false" → true, so `enabled="false"` ENABLED the
-  // route. Real booleans pass through; unrecognised values are rejected.
+  // `mcpBoolean()` parses string args correctly: "false" → false. This field was
+  // a bare `z.boolean()`, so a stringified argument was refused outright rather
+  // than misread — safe, but the caller never learned why. Real booleans pass
+  // through; unrecognised values are still rejected.
   enabled: mcpBoolean().describe('Enable (true) or disable (false) the route'),
   domain: RequiredDomainSchema,
   acknowledgeCredentialTarget: AcknowledgeCredentialTargetToolSchema,

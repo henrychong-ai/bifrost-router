@@ -43,8 +43,35 @@ export function sanitizationFindings(files) {
     for (const pattern of FORBIDDEN_CONTENT) {
       if (pattern.test(text)) findings.push(`${file}: contains ${pattern}`);
     }
+    for (const host of singleLabelHostFindings(text)) {
+      findings.push(`${file}: single-label example host ${host} (use an RFC 2606 name)`);
+    }
   }
   return findings;
+}
+
+/**
+ * Single-label `https://` hosts in documentation and tests — `https://app/`,
+ * `https://a/b`, and the percent-encoded `https%3A%2F%2Fapp%3F` form.
+ *
+ * RFC 2606 reserves `.example` (and example.com/net/org) precisely so a written
+ * example cannot collide with a real registrable name. A single-label host is
+ * not reserved by anything: it reads as an internal hostname to a stranger, and
+ * one day it may resolve for somebody. The redaction matrix is full of URL
+ * examples, so this is easy to reintroduce by copying a neighbouring line.
+ *
+ * `localhost` is exempt — it is reserved and means what it says.
+ */
+const SINGLE_LABEL_HOST = /https(?::\/\/|%3A%2F%2F)([a-z0-9-]+)(?=[/?#'"`\\)\]\s]|%2F|%3F|%23|$)/gi;
+const ALLOWED_SINGLE_LABEL_HOSTS = new Set(['localhost']);
+
+export function singleLabelHostFindings(text) {
+  const findings = new Set();
+  for (const match of text.matchAll(SINGLE_LABEL_HOST)) {
+    const host = match[1].toLowerCase();
+    if (!ALLOWED_SINGLE_LABEL_HOSTS.has(host)) findings.add(match[0]);
+  }
+  return [...findings];
 }
 
 export function wranglerIdentifierFindings(text) {

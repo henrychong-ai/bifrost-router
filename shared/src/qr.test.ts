@@ -60,12 +60,12 @@ describe('qr contract', () => {
     });
 
     it('enforces the 1024-char cap', () => {
-      expect(UrlPayloadSchema.safeParse({ url: `https://x/${'a'.repeat(1014)}` }).success).toBe(
-        true,
-      );
-      expect(UrlPayloadSchema.safeParse({ url: `https://x/${'a'.repeat(1015)}` }).success).toBe(
-        false,
-      );
+      expect(
+        UrlPayloadSchema.safeParse({ url: `https://x.example/${'a'.repeat(1006)}` }).success,
+      ).toBe(true);
+      expect(
+        UrlPayloadSchema.safeParse({ url: `https://x.example/${'a'.repeat(1007)}` }).success,
+      ).toBe(false);
     });
   });
 
@@ -523,7 +523,9 @@ describe('qr contract', () => {
 
   describe('serializePayload', () => {
     it('returns url and text verbatim (no escaping)', () => {
-      expect(serializePayload('url', { url: 'https://x/?a=1;b=2' })).toBe('https://x/?a=1;b=2');
+      expect(serializePayload('url', { url: 'https://x.example/?a=1;b=2' })).toBe(
+        'https://x.example/?a=1;b=2',
+      );
       expect(serializePayload('text', { text: 'plain; text: here' })).toBe('plain; text: here');
     });
 

@@ -10,6 +10,14 @@ This repo is **public**. Keep every file fully sanitised at all times — `CLAUD
 
 **Allowed exception:** `assets.fusang.co` references (fonts, logos, brand assets) may remain — it is a public R2 CDN bucket that exists precisely to serve those assets publicly, and is the documented default font/asset host for this template.
 
+**RFC 2606 placeholders in examples.** Use `example.com` / `example.net` or a
+`.example` name (`app.example`, `idp.example`) in every documented or tested
+URL. A host with no dot in it — a bare `app`, `idp` or `x` after the scheme — is
+reserved by nothing, reads as an internal hostname, and may one day resolve for
+somebody. `pnpm run public:check` flags them, in the percent-encoded form too;
+`localhost` is exempt. (The gate scans its own rule file too, so describe the
+bad shape rather than writing one out.)
+
 **No `plans/` directory:** do not create a `plans/` dir or commit planning / design / strategy docs in this repo — planning artefacts are kept out of this public template. (Reference docs that ship with the product belong in `docs/`; the existing `mcp/PLAN.md` is a sanitised package design note, not a planning dir.)
 
 ## Project Overview
@@ -263,6 +271,10 @@ clobbers the redaction.
 
 ## Route-target credential guard (v1.36.0)
 
+A route target is stored in KV and copied into `link_clicks.target_url` and
+`proxy_requests.target_url`; this Worker's `Route matched` log line carries only
+path/routePath/routeType, so the target does not reach the logs.
+
 Create / update / re-enable / seed / transfer refuse a target whose query OR
 fragment carries a credential-named parameter, with
 `400 { success: false, error: 'ROUTE_TARGET_CREDENTIAL', message, details: { parameters } }`.
@@ -288,12 +300,26 @@ body.
 `normalizePath()` strips `?`/`#` BEFORE percent-decoding, so it is **not
 idempotent**: `/p%3Fx` → `/p?x` → `/p`.
 
-- `RoutePathSchema` refuses `?`, `#` and a `%` surviving one decode, on every
-  write path including `POST /api/routes/migrate`.
-- Every mutation normalises ONCE and then reads through
-  `getRouteByNormalizedPath()`, never `getRoute()` — a second normalisation
-  makes the read resolve a different key from the write, which could publish an
-  unexamined second copy of a route.
+- `RoutePathSchema` refuses `?`, `#`, a `%` surviving one decode, and control
+  characters. It is carried by `RouteConfigSchema` / `UpdateRouteSchema` (so
+  `POST` and `PUT /api/routes` and every seeded route get it) and applied
+  explicitly by `POST /api/routes/migrate` (both paths) and
+  `POST /api/routes/transfer`. `DELETE /api/routes` deliberately does NOT
+  validate — a legacy record has to stay deletable.
+- **Normalise exactly once on each side of a mutation.** Two mirror hazards:
+  - `getRoute()` and `getRouteSafe()` NORMALISE, because every mutation
+    normalises before it writes. A read that did not would miss on any alias of
+    a stored path (`/Promo`, `/promo/`, `//promo`, `/pro%6do`) — and the miss is
+    silent, so a re-enable or transfer would skip the credential-target guard, a
+    create would overwrite instead of answering 409, and a delete would audit
+    the wrong before-state.
+  - A caller that has ALREADY normalised must use `getRouteByNormalizedPath()`,
+    never `getRoute()`. `normalizePath()` is not idempotent, so a second pass
+    resolves a different key from the write and could publish an unexamined
+    second copy of a route.
+  `updateRoute`, `deleteRoute`, `migrateRoute` and `transferRoute` normalise
+  themselves and use the second helper; every admin pre-read and existence check
+  passes the raw path to `getRoute()` and lets it normalise.
 
 ## Changelog delivery (v1.36.0)
 
@@ -304,9 +330,19 @@ note. The page fetches `GET /api/changelog` instead, which is mounted on
 `text/markdown` with `private, max-age=300` (never `public`).
 
 **Release step:** run `pnpm run changelog:generate` after ANY `CHANGELOG.md`
-edit. `pnpm run check` runs `changelog:check` (freshness) and, after the
-dashboard build, `check:changelog-bundle` (fails if a release heading reappears
-under `admin/dist`).
+edit. Three gates back this up, in `pnpm run check` AND listed explicitly in
+`.github/workflows/ci.yml` (that job enumerates its commands inline and does not
+invoke `check`):
+
+| Gate | What it proves |
+|---|---|
+| `changelog:check` | `src/generated/changelog-text.ts` matches `CHANGELOG.md` |
+| `check:changelog-bundle` | no release heading anywhere under `admin/dist` |
+| `check:changelog-chunk` | the changelog route chunk is ≤ 32,768 gzip bytes |
+
+The chunk ceiling is a security tripwire, not a performance budget: a jump past
+it means the markdown is back in a publicly served bundle. It fails closed when
+the chunk pattern matches zero files or more than one.
 
 ## API Shield
 

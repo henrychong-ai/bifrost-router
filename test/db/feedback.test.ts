@@ -42,7 +42,7 @@ function data(overrides: Partial<CreateFeedbackData> = {}): CreateFeedbackData {
     type: 'bug',
     title: 'Title',
     description: 'Description',
-    context: { url: 'https://x', timestamp: '2026-05-30T00:00:00Z' },
+    context: { url: 'https://x.example', timestamp: '2026-05-30T00:00:00Z' },
     screenshotKeys: [],
     captureKey: null,
     submitterEmail: 'a@example.com',
@@ -96,7 +96,7 @@ describe('db/feedback', () => {
   it('round-trips context + array fields', async () => {
     const created = await createFeedback(env.DB, data({ screenshotKeys: ['feedback/x/s-0.png'] }));
     const got = await getFeedbackById(env.DB, created.id);
-    expect(got?.context?.url).toBe('https://x');
+    expect(got?.context?.url).toBe('https://x.example');
     expect(got?.screenshotKeys).toEqual(['feedback/x/s-0.png']);
     expect(got?.submitterEmail).toBe('a@example.com');
   });

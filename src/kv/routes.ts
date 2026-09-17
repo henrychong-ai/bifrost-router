@@ -20,13 +20,26 @@ import { normalizePath } from './lookup';
 /**
  * Get a single route by domain and path
  * Returns null if not found, throws KVReadError on failure
+ *
+ * ⚠️ The path is NORMALISED to the storage format, because every mutation
+ * normalises before it writes. A read that built its key from the RAW path
+ * missed on any alias of a stored path — `/Promo`, `/promo/`, `//promo`,
+ * `/pro%6do` — and a miss here is SILENT: the admin handlers use this to fetch
+ * the record they are about to guard, audit or refuse as a duplicate, so a miss
+ * let a re-enable skip the credential-target guard, let a transfer skip it, let
+ * a create overwrite an existing route instead of answering 409, and let a
+ * delete audit the wrong before-state.
+ *
+ * Callers that have ALREADY normalised must use {@link getRouteByNormalizedPath}
+ * instead — `normalizePath()` is not idempotent, so normalising twice resolves a
+ * different key again in the other direction.
  */
 export async function getRoute(
   kv: KVNamespace,
   domain: string,
   path: string,
 ): Promise<KVRouteConfig | null> {
-  const key = routeKey(domain, path);
+  const key = routeKey(domain, normalizePath(path));
   try {
     return await kv.get<KVRouteConfig>(key, 'json');
   } catch (error) {
@@ -40,11 +53,15 @@ export async function getRoute(
  *
  * ⚠️ `normalizePath()` is NOT idempotent. It strips `?`/`#` BEFORE percent-
  * decoding, so a second pass eats anything the first decode produced:
- * `/p%3Fx` → `/p?x` → `/p`. Every mutating function below normalises once and
- * then called `getRoute()`, which normalised again — so the READ could resolve
- * a different key from the WRITE. `PUT ?path=%2Fp%253Fx` read the record at
- * `/p` and wrote the merged result under `/p?x`, publishing a second, enabled
- * copy of a route the guard never examined. Read and write must use ONE key.
+ * `/p%3Fx` → `/p?x` → `/p`. Every mutating function below normalises once, so
+ * it must NOT then read through {@link getRoute}, which normalises again — the
+ * read would resolve a different key from the write. `PUT ?path=%2Fp%253Fx`
+ * would read the record at `/p` and write the merged result under `/p?x`,
+ * publishing a second, enabled copy of a route the guard never examined. Read
+ * and write must use ONE key.
+ *
+ * The mirror-image hazard is a read that does not normalise AT ALL while the
+ * write does — see the warning on {@link getRoute}.
  */
 export async function getRouteByNormalizedPath(
   kv: KVNamespace,
@@ -68,7 +85,8 @@ export async function getRouteSafe(
   domain: string,
   path: string,
 ): Promise<KVResult<KVRouteConfig | null>> {
-  const key = routeKey(domain, path);
+  // Same normalisation contract as getRoute().
+  const key = routeKey(domain, normalizePath(path));
   return withKVErrorHandling(
     () => kv.get<KVRouteConfig>(key, 'json'),
     cause => new KVReadError(key, cause),
@@ -261,11 +279,17 @@ export async function seedRoutes(
   kv: KVNamespace,
   domain: string,
   routes: CreateRouteInput[],
-): Promise<{ created: number; skipped: number }> {
+): Promise<{ created: number; skipped: number; createdPaths: string[] }> {
   let created = 0;
   let skipped = 0;
+  // The input paths that were actually written, so a caller can audit what it
+  // changed rather than what it submitted.
+  const createdPaths: string[] = [];
 
   for (const route of routes) {
+    // getRoute() normalises, so this existence check resolves exactly the key
+    // createRoute() is about to write — an alias of a stored path is SKIPPED
+    // rather than silently overwriting the record it aliases.
     const existing = await getRoute(kv, domain, route.path);
     if (existing) {
       skipped++;
@@ -273,9 +297,10 @@ export async function seedRoutes(
     }
     await createRoute(kv, domain, route);
     created++;
+    createdPaths.push(route.path);
   }
 
-  return { created, skipped };
+  return { created, skipped, createdPaths };
 }
 
 /**

@@ -85,6 +85,13 @@ jobs:
       # regenerated fails HERE rather than silently typechecking against a stale runtime
       # surface. Listed explicitly because this job enumerates commands inline and does
       # NOT invoke `pnpm run check`.
+      - name: Generated changelog freshness gate
+        # The Worker serves src/generated/changelog-text.ts, so a CHANGELOG.md
+        # edit without `pnpm run changelog:generate` ships a stale document.
+        # Must be listed here as well as in `check` — this job enumerates its
+        # commands inline and does NOT invoke `check`.
+        run: pnpm run changelog:check
+
       - name: Runtime types check (root)
         run: pnpm run types:check
 
@@ -93,6 +100,15 @@ jobs:
 
       - name: Build admin dashboard
         run: pnpm -C admin build
+
+      - name: Changelog-not-bundled gate
+        # The built dashboard assets are served with no credential check, so a
+        # `?raw` re-import of CHANGELOG.md republishes every release note.
+        # Runs against the freshly built admin/dist, immediately after the build.
+        run: pnpm run check:changelog-bundle
+
+      - name: Changelog chunk ceiling
+        run: pnpm run check:changelog-chunk
 
       - name: Analytics performance gate
         run: pnpm run benchmark:analytics

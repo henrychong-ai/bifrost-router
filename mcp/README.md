@@ -128,8 +128,7 @@ Only `get_analytics_summary`, `get_clicks` and `get_views` take an optional
 | `transfer_route` | Transfer a route to a different domain |
 
 **Credential-bearing targets (v1.36.0).** A route TARGET is stored in KV, copied
-into the click analytics, written to the request log, and exercised by everyone
-who opens the short link. `create_route`, `update_route`, `toggle_route` and
+into the click analytics, and exercised by everyone who opens the short link. `create_route`, `update_route`, `toggle_route` and
 `transfer_route` are refused with `ROUTE_TARGET_CREDENTIAL` when the target's
 query or fragment carries a credential-named parameter, and the error names the
 parameters. Each of those four tools takes an optional

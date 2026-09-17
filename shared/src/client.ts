@@ -229,8 +229,16 @@ export class EdgeRouterClient {
     if (!response.ok) {
       let errorMessage = `Request failed: ${response.statusText}`;
       try {
-        const data = await response.json();
-        if (data.error) errorMessage = data.error;
+        const data = (await response.json()) as { error?: string; message?: string };
+        // Same `code: sentence` merge as request(): a handler that sends both is
+        // using `error` as a machine CODE, and the sentence is the part a human
+        // or an MCP caller needs. The markdown and SVG paths come through here.
+        if (data.error) {
+          errorMessage =
+            typeof data.message === 'string' && data.message
+              ? `${data.error}: ${data.message}`
+              : data.error;
+        }
       } catch {
         // Use default message
       }

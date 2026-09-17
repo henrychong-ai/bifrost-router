@@ -160,12 +160,13 @@ function parseAcknowledgement(value: unknown): boolean | undefined {
 
 /**
  * Parse `enabled` through the same shared schema. Same reason as the
- * acknowledgement above, with a sharper edge: a client sending the string
- * `"false"` would DISABLE nothing and ENABLE the route, because a non-empty
- * string is truthy. `mcpBoolean()` inside the shared schema recognises the
- * usual string forms; anything else is `null` and the handler REFUSES rather
- * than guessing — a toggle is often the response to an abused link, so it must
- * fail closed, never enable by accident.
+ * acknowledgement above: this handler took the raw JSON-RPC value and passed it
+ * straight to the client, so a stringified `"false"` reached the Worker as a
+ * string and was refused by its schema — the route was never wrongly enabled,
+ * but the caller got an opaque validation error instead of a disabled route.
+ * `mcpBoolean()` now recognises the usual string forms; anything else is `null`
+ * and the handler REFUSES with a clear message rather than guessing. A toggle is
+ * often the response to an abused link, so it must fail closed either way.
  */
 function parseEnabled(value: boolean | string): boolean | null {
   const parsed = ToggleRouteInputSchema.shape.enabled.safeParse(value);

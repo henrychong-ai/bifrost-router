@@ -104,12 +104,13 @@ function purgeRouteUrlIfR2(
  * Refuse a route write whose TARGET carries a credential-named query parameter,
  * unless the operator acknowledged it.
  *
- * A configured target is not request data — it is stored in KV, copied into
- * `link_clicks.target_url` and `proxy_requests.target_url`, and written to the
- * `Route matched` log. The recorder redaction stops the analytics tables
- * holding a credential that arrived in the REQUEST; this stops one being
- * planted in the route itself. A short link is a public handle: anyone who
- * opens it exercises the credential.
+ * A configured target is not request data — it is stored in KV and copied into
+ * `link_clicks.target_url` and `proxy_requests.target_url`. (This Worker's
+ * `Route matched` log line carries only the path, the route path and the route
+ * type, so the target does not reach the logs here.) The recorder redaction
+ * stops the analytics tables holding a credential that arrived in the REQUEST;
+ * this stops one being planted in the route itself. A short link is a public
+ * handle: anyone who opens it exercises the credential.
  *
  * The predicate is the NAME-ONLY predicate, deliberately NOT the narrowed
  * legacy rule, so `?code=SUMMER25` IS flagged as `code`. A human can look at it
@@ -732,6 +733,7 @@ adminRoutes.post('/routes/seed', async c => {
   // Credential-target names and the paths carrying them, unioned across the batch.
   const seedCredentialParams = new Set<string>();
   const seedCredentialPaths = new Set<string>();
+  const seedCredentialParamsByPath = new Map<string, string[]>();
 
   for (const route of body.routes) {
     const result = CreateRouteSchema.safeParse(route);
@@ -744,6 +746,10 @@ adminRoutes.post('/routes/seed', async c => {
       if (routeCredentialParams.length > 0) {
         for (const name of routeCredentialParams) seedCredentialParams.add(name);
         seedCredentialPaths.add(result.data.path);
+        // Keyed by path so the audit row can name only what was CREATED — seed
+        // skips a path that already exists, and an override recorded against a
+        // route this call did not write would be a false audit entry.
+        seedCredentialParamsByPath.set(result.data.path, routeCredentialParams);
       }
       validRoutes.push(result.data);
     } else {
@@ -778,6 +784,16 @@ adminRoutes.post('/routes/seed', async c => {
 
   const result = await seedRoutes(c.env.ROUTES, domain, validRoutes);
 
+  // Only the routes this call actually WROTE may be recorded as acknowledged:
+  // seed skips a path that already exists, and naming it here would claim an
+  // override against a record the operator never changed.
+  const acknowledgedNames = new Set<string>();
+  for (const createdPath of result.createdPaths) {
+    for (const name of seedCredentialParamsByPath.get(createdPath) ?? []) {
+      acknowledgedNames.add(name);
+    }
+  }
+
   // Record audit log (non-blocking) - only if executionCtx is available
   try {
     const actor = getActorInfo(c);
@@ -791,8 +807,8 @@ adminRoutes.post('/routes/seed', async c => {
         details: JSON.stringify({
           count: validRoutes.length,
           paths: validRoutes.map(r => r.path),
-          ...(seedCredentialParams.size > 0
-            ? { credentialTargetAcknowledged: [...seedCredentialParams] }
+          ...(acknowledgedNames.size > 0
+            ? { credentialTargetAcknowledged: [...acknowledgedNames] }
             : {}),
         }),
         ipAddress: c.req.header('CF-Connecting-IP') || null,
@@ -1055,6 +1071,14 @@ adminRoutes.post('/routes/transfer', async c => {
   }
   if (!path.startsWith('/')) {
     return c.json({ success: false, error: 'path must start with /' }, 400);
+  }
+  // Transfer checked only the leading slash, so a legacy path that create,
+  // update and migrate refuse (`?`, `#`, a surviving `%`, a control character)
+  // could still be re-published on a second domain under a key its own listed
+  // value can never resolve. Same schema as every other write path.
+  const transferPath = RoutePathSchema.safeParse(path);
+  if (!transferPath.success) {
+    return c.json({ success: false, error: transferPath.error.issues[0].message }, 400);
   }
   if (!isValidDomain(fromDomain)) {
     return c.json(
