@@ -96,6 +96,10 @@ pnpm run deploy
 | Version tag (`v*`) | Same CI checks; no deployment is enabled by default |
 | Manual dispatch | Same CI checks |
 
+The secret-scanning action pins Gitleaks 8.30.1 to match the global
+`[[allowlists]]` configuration; the action default previously ignored those
+fixture exceptions. Keep exact fixture exceptions and secret detection active.
+
 The only active workflow is `.github/workflows/ci.yml`, which is CI-only. The
 repository includes `.github/workflows/ci-cd.yml.example` as an opt-in template;
 self-hosters must review, configure, and enable it for their own infrastructure.
