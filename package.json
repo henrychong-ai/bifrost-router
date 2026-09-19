@@ -66,19 +66,19 @@
     "zod": "^4.6.2"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.13",
-    "@cloudflare/vitest-pool-workers": "^0.18.8",
+    "@biomejs/biome": "^2.5.14",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@vitest/coverage-istanbul": "^4.1.11",
     "@vitest/coverage-v8": "^4.1.11",
     "drizzle-kit": "^0.31.10",
     "husky": "^9.1.7",
     "lint-staged": "^17.5.1",
-    "oxlint": "^1.82.0",
+    "oxlint": "^1.83.0",
     "tsx": "^4.23.13",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11",
-    "wrangler": "4.131.0",
-    "yaml": "^2.9.0"
+    "wrangler": "4.132.0",
+    "yaml": "^2.9.1"
   },
   "pnpm": {
     "overrides": {
