@@ -477,27 +477,15 @@ and `proxy_requests` — never store a credential-named parameter's VALUE. Both
 is stored byte-identically, because these tables are your campaign-attribution
 source.
 
-Redacted by NAME: exact `code`, `key`, `auth`, `sig`, `session`, `state`,
-`api_key`, `api-key`, `apikey`, `code_verifier` (a `[]` or `[n]` array suffix is
-tolerated); any name containing `token`, `secret`, `passw`, `credential`,
-`assert`, `saml`, `signature`, `jwt`, `otp`, `ticket`, `nonce`, `oob`; any name
-starting `x-amz-`.
-
-`code`, `state`, `session` and `ticket` read equally as campaign data and as
-bearer material, so they are redacted only when the value looks like a
-credential — 20+ characters, all-hex at 12+, or upper-plus-lower-plus-digit at
-10+. `?code=SUMMER25`, `?state=CA` and `?ticket=vip` are kept.
-
-> ⚠️ **Naming your campaign parameters.** A mixed-case value carrying a digit,
-> such as `?code=Summer2026Sale`, matches the generated-token shape and IS
-> redacted. Use `promo=` or `tier=`, which are never matched, or keep the value
-> single-case (`?code=SUMMER2026SALE`).
-
-A credential nested one level inside an ordinary value is also caught — a `;`
-sub-pair, a nested query or fragment in a percent-encoded URL, and a packed
-`k=v&k=v` body. Nesting stops at exactly one decode by design.
-
-Rows written before v1.36.0 keep whatever they captured; nothing is rewritten.
+Legacy and unified analytics share one bounded, name-based credential policy.
+Credential-named fields, including `code`, `state`, `session`, and `ticket`, are
+masked regardless of value shape. Use `utm_campaign`, `promo`, or `tier` for
+campaign attribution. Nested content is inspected in raw form and at most two
+percent-decoded levels; suspicious outer fields are masked wholesale. Harmless
+fields retain their original bytes. Inputs beyond the inspection budget are
+conservatively masked. Stored destination copies are sanitised without changing
+live redirects or proxy requests. See [credential policy](docs/credential-redaction.md)
+for limits and trade-offs. Existing records are not rewritten.
 
 ### Route-target credential guard (v1.36.0)
 

@@ -54,7 +54,7 @@ jobs:
         run: pnpm -C shared build
 
       - name: Lint
-        run: pnpm run lint
+        run: pnpm run redaction:check && pnpm run lint
 
       - name: Lint admin
         run: pnpm -C admin run lint

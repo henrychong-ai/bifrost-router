@@ -57,5 +57,19 @@
       "!src/generated/**",
       "!.claude/worktrees/**"
     ]
-  }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "src/utils/credential-redaction.ts",
+        "test/utils/credential-redaction.test.ts",
+        "test/utils/unified-traffic.fuzz.test.ts"
+      ],
+      "javascript": {
+        "formatter": {
+          "arrowParentheses": "always"
+        }
+      }
+    }
+  ]
 }

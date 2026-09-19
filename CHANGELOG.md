@@ -6,6 +6,12 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.36.1 (2026-09-19) — Simplified credential policy
+
+- Replace recursive URL reconstruction with bounded inspection and whole-field masking; preserve ordinary campaign fields and use one name-based policy across analytics streams.
+- Protect stored destination copies in analytics, proxy error logs, and audit snapshots without changing live redirects or proxy requests.
+- Retain route acknowledgement and add portable contract/property tests plus a vendored policy checksum gate. See [policy and trade-offs](docs/credential-redaction.md).
+
 ## v1.36.0 (2026-09-17) — Credential redaction in the analytics recorders, a route-target guard, and an authenticated changelog
 
 **Why:** ported from upstream Bifrost. A short link is routinely used as the

@@ -1,3 +1,4 @@
+import { redactRouteTarget } from './utils/credential-redaction';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { secureHeaders } from 'hono/secure-headers';
@@ -404,7 +405,7 @@ app.all('*', async c => {
       recordClick(c.env.DB, {
         domain: url.hostname,
         slug: path,
-        targetUrl: route.target,
+        targetUrl: redactRouteTarget(route.target),
         ...analyticsData,
         queryString: legacyQueryString(url),
         referrer: legacyReferrer(analyticsData.referrer),
@@ -452,7 +453,7 @@ app.all('*', async c => {
       recordProxyRequest(c.env.DB, {
         domain: url.hostname,
         path: path,
-        targetUrl: route.target,
+        targetUrl: redactRouteTarget(route.target),
         responseStatus: response.status,
         contentType,
         contentLength,

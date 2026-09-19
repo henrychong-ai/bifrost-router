@@ -1,3 +1,4 @@
+import { redactRouteTarget, redactAuditDetails } from '../utils/credential-redaction';
 import { createDb } from './index';
 import {
   linkClicks,
@@ -115,7 +116,7 @@ export async function recordClick(db: D1Database, data: LinkClickData): Promise<
     await drizzleDb.insert(linkClicks).values({
       domain: data.domain,
       slug: data.slug,
-      targetUrl: data.targetUrl,
+      targetUrl: redactRouteTarget(data.targetUrl),
       queryString: data.queryString ?? null,
       referrer: data.referrer ?? null,
       userAgent: data.userAgent ?? null,
@@ -356,7 +357,7 @@ export async function recordProxyRequest(db: D1Database, data: ProxyRequestData)
     await drizzleDb.insert(proxyRequests).values({
       domain: data.domain,
       path: data.path,
-      targetUrl: data.targetUrl,
+      targetUrl: redactRouteTarget(data.targetUrl),
       responseStatus: data.responseStatus ?? null,
       contentType: data.contentType ?? null,
       contentLength: data.contentLength ?? null,
@@ -378,7 +379,7 @@ export async function recordProxyRequest(db: D1Database, data: ProxyRequestData)
         message: 'Proxy request recorded',
         domain: data.domain,
         path: data.path,
-        targetUrl: data.targetUrl,
+        targetUrl: redactRouteTarget(data.targetUrl),
       }),
     );
   } catch (error) {
@@ -390,7 +391,7 @@ export async function recordProxyRequest(db: D1Database, data: ProxyRequestData)
         error: error instanceof Error ? error.message : String(error),
         domain: data.domain,
         path: data.path,
-        targetUrl: data.targetUrl,
+        targetUrl: redactRouteTarget(data.targetUrl),
       }),
     );
   }
@@ -527,7 +528,7 @@ export async function insertAuditLog(db: D1Database, data: AuditLogData): Promis
     actorLogin: data.actorLogin ?? null,
     actorName: data.actorName ?? null,
     path: data.path ?? null,
-    details: data.details ?? null,
+    details: redactAuditDetails(data.details),
     ipAddress: data.ipAddress ?? null,
     source: data.source ?? 'bifrost',
   });

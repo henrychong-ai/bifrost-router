@@ -1,3 +1,4 @@
+import { redactRouteTarget } from '../utils/credential-redaction';
 import type { Context } from 'hono';
 import type { AppEnv, KVRouteConfig } from '../types';
 import { getWildcardRemainder } from '../kv/lookup';
@@ -71,7 +72,7 @@ export async function handleProxy(
       502,
       {
         path: route.path,
-        target: route.target,
+        target: redactRouteTarget(route.target),
         validationError: validation.error,
       },
     );
@@ -157,7 +158,7 @@ export async function handleProxy(
         'timeout',
         `Upstream server did not respond within ${timeoutMs / 1000} seconds.`,
         504,
-        { path: route.path, target: route.target, timeoutMs },
+        { path: route.path, target: redactRouteTarget(route.target), timeoutMs },
       );
     }
 
@@ -168,7 +169,7 @@ export async function handleProxy(
       'network_error',
       `Failed to connect to upstream server: ${errorMessage}`,
       502,
-      { path: route.path, target: route.target },
+      { path: route.path, target: redactRouteTarget(route.target) },
     );
   }
 }

@@ -2,7 +2,7 @@
 
 Guidance for Claude Code when working with this repository.
 
-**Version:** 1.36.0 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.36.1 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Public repository — sanitisation (MANDATORY)
 
@@ -244,60 +244,9 @@ Pruning is dispatched by the `0 20 * * *` cron. The public example leaves
 `env.dev.triggers.crons` empty, so a long-running development shadow deployment
 must opt into that schedule explicitly.
 
-## Analytics credential redaction (v1.36.0)
+## Credential redaction
 
-The four per-feature recorders (`link_clicks`, `page_views`, `file_downloads`,
-`proxy_requests`) store `[redacted]` for credential-named query VALUES, in both
-`query_string` and `referrer`. One wrapper each — `legacyQueryString(url)` and
-`legacyReferrer(header)` in `src/utils/unified-traffic.ts` — used at all four
-call sites in `src/index.ts`. **Sanitised fields must stay AFTER the
-`...analyticsData` spread**, or a future `getAnalyticsData` field silently
-clobbers the redaction.
-
-- **Matched by NAME.** Exact names (with or without a `[]` / `[n]` suffix):
-  `code`, `key`, `auth`, `sig`, `session`, `state`, `api_key`, `api-key`,
-  `apikey`, `code_verifier`. Any name containing `token`, `secret`, `passw`,
-  `credential`, `assert`, `saml`, `signature`, `jwt`, `otp`, `ticket`, `nonce`,
-  `oob`. Any name starting `x-amz-`.
-- **Four ambiguous names weigh the VALUE.** `code`, `state`, `session`, `ticket`
-  are redacted only when credential-SHAPED (20+ chars decoded, all-hex at 12+,
-  or upper+lower+digit at 10+), so `?code=SUMMER25` survives for campaign
-  attribution. ⚠️ A mixed-case campaign value with a digit (`Summer2026Sale`) IS
-  redacted — name it `promo=` or `tier=`, or keep it single-case.
-- **One bounded second look, depth exactly one.** `;` sub-pairs, a nested query,
-  a nested fragment and a packed `k=v&k=v` body inside a decoded value are all
-  scanned; both readings are COMBINED so neither discards the other's
-  redactions. Double-encoded nesting is out of scope by design.
-- **Byte fidelity:** nothing redacted → stored byte-identically; something
-  redacted → re-encoded. No clamp, no scheme filter, no wholesale drop.
-- The unified stream stores no query string or referrer at all, so it is
-  unaffected.
-
-## Route-target credential guard (v1.36.0)
-
-A route target is stored in KV and copied into `link_clicks.target_url` and
-`proxy_requests.target_url`; this Worker's `Route matched` log line carries only
-path/routePath/routeType, so the target does not reach the logs.
-
-Create / update / re-enable / seed / transfer refuse a target whose query OR
-fragment carries a credential-named parameter, with
-`400 { success: false, error: 'ROUTE_TARGET_CREDENTIAL', message, details: { parameters } }`.
-The write proceeds only with `acknowledgeCredentialTarget: true` in the raw
-body.
-
-- **`acknowledgeCredentialTarget` is REQUEST-ONLY.** The stored-shape schemas do
-  not declare it, so Zod strips it before KV. Never add it to
-  `RouteConfigSchema`, `CreateRouteInputSchema` or `UpdateRouteInputSchema`.
-- **The guard uses the NAME-ONLY predicate** (`findCredentialParams`),
-  deliberately not the narrowed legacy rule — a human is being asked, so
-  `?code=SUMMER25` is surfaced and the operator decides.
-- **Disabled writes are not guarded**, and `r2` targets are object keys, not
-  URLs. Refusing a DISABLE would block the action that reduces exposure.
-- **Targets refuse control characters at the schema** (`RouteTargetSchema`); the
-  guard additionally scans the parsed URL, because the URL parser strips
-  tab/LF/CR and a stored route may predate the schema.
-- **Write-time only.** Targets already in KV were never examined — the sweep is
-  tracked in the v1.36.0 **Follow-ups** list in [CHANGELOG.md](./CHANGELOG.md).
+The route guard, stored destination copies, and legacy analytics share the bounded name-based policy in `src/utils/credential-redaction.ts`. See [the credential policy](docs/credential-redaction.md). The unified template stream still stores no query string or referrer. Server-side acknowledgements remain request-only; disabled and R2 targets keep their exemptions. Existing stored routes require a separate read-only inventory.
 
 ## Route paths must round-trip (v1.36.0)
 

@@ -47,7 +47,8 @@ export function CredentialTargetDialog({
             This target looks like it carries a credential
           </AlertDialogTitle>
           <AlertDialogDescription className="font-inter">
-            The target contains credential-named parameter{plural ? 's' : ''}:{' '}
+            The target contains credential-like fields or cannot be safely inspected. Flagged field
+            {plural ? 's' : ''}:{' '}
             <code className="font-mono text-blue-600">{parameters?.join(', ')}</code>.
             <br />
             <br />A short link is a public handle: anyone who opens it exercises whatever{' '}
