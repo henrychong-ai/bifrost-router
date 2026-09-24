@@ -6,6 +6,36 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.36.2 (2026-09-24) — Dependency maintenance sweep
+
+**[chore] In-range minor/patch sweep across all five workspaces.** `hono`
+4.13.9, `zod` 4.6.5, `drizzle-orm` 0.45.3, `drizzle-kit` 0.31.11,
+`@biomejs/biome` 2.5.14, `oxlint` and `eslint-plugin-oxlint` 1.85.0, `tsx`
+4.23.15, `yaml` 2.9.1, `@modelcontextprotocol/sdk` 1.30.1, `@types/node`
+25.9.8, `vite` 8.3.1, `@tanstack/react-query` 5.103.2, `react-hook-form`
+7.88.0, `react-router` 8.4.0, `tailwind-merge` 3.7.0, `eslint` 10.11.0,
+`typescript-eslint` 8.70.1, `eslint-plugin-react-refresh` 0.5.7 and
+`happy-dom` 20.14.5. `pnpm audit` reports no known vulnerabilities before or
+after. Held back as before: `@cloudflare/vitest-pool-workers` 0.18.x,
+TypeScript 5.9.x, Vitest 4.x, `@tanstack/react-table` 8.x, `@types/node` on its
+current major, and `lucide-react` 0.575.x — each needs its own migration pass.
+
+**[chore] Wrangler 4.131.0 -> 4.138.0.** Still pinned exactly in the root and
+`slackbot` packages, with both `worker-configuration.d.ts` runtime-type files
+regenerated. Oxlint 1.85.0 fired no new rules at `--max-warnings=0`.
+
+**[fix] Migration 0012 replay gate tolerates Wrangler's comment-preserving SQL
+splitter.** Wrangler 4.138.0's `unstable_splitSqlQuery` keeps the `--` lines
+that precede a statement attached to it, so the first statement no longer began
+with `DROP INDEX`. The gate now strips only LEADING full-line comments before
+that pin; a header line that lost its `-- ` prefix is prose, not a comment, so
+the non-vacuity test still fails on it exactly as before.
+
+**[docs] OpenAPI `info.version` is back in step with the release** (it was left
+at 1.36.0 by v1.36.1), together with the `check-openapi` gate's expectation.
+
+---
+
 ## v1.36.1 (2026-09-19) — Simplified credential policy
 
 - Replace recursive URL reconstruction with bounded inspection and whole-field masking; preserve ordinary campaign fields and use one name-based policy across analytics streams.

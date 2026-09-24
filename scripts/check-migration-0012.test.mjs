@@ -61,12 +61,30 @@ function fallbackSplit(sql) {
     .map(statement => `${statement};`);
 }
 
+/** Drop blank and `--` lines that precede a statement's first line of SQL. */
+function stripLeadingCommentLines(statement) {
+  const lines = statement.split('\n');
+  let first = 0;
+  while (
+    first < lines.length &&
+    (lines[first].trim() === '' || lines[first].trimStart().startsWith('--'))
+  ) {
+    first += 1;
+  }
+  return lines.slice(first).join('\n');
+}
+
 async function splitStatements(sql) {
   try {
     const { unstable_splitSqlQuery: split } = await import('wrangler');
     if (typeof split === 'function') {
+      // Wrangler 4.138.0 keeps the `--` comment lines that precede a statement
+      // attached to it (4.131.0 dropped them). Strip only LEADING
+      // full-line comments so `statements[0]` is comparable across releases; a
+      // header line that lost its `-- ` prefix is prose, not a comment, so it
+      // is never stripped and the DROP INDEX pin still catches it.
       const parts = split(sql)
-        .map(s => s.trim())
+        .map(s => stripLeadingCommentLines(s).trim())
         .filter(Boolean);
       if (parts.length > 0) return parts;
     }

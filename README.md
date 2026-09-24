@@ -557,11 +557,11 @@ pnpm run deploy:dev   # Deploy to dev environment
 | Layer | Technology | Version |
 |-------|------------|---------|
 | **Language** | TypeScript | 5.9.3 |
-| **Framework** | [Hono](https://hono.dev/) | 4.13.7 |
+| **Framework** | [Hono](https://hono.dev/) | 4.13.9 |
 | **Runtime** | Cloudflare Workers | — |
-| **CLI** | Wrangler | 4.131.0 |
-| **Validation** | Zod | 4.6.2 |
-| **ORM** | Drizzle ORM | 0.45.2 |
+| **CLI** | Wrangler | 4.138.0 |
+| **Validation** | Zod | 4.6.5 |
+| **ORM** | Drizzle ORM | 0.45.3 |
 | **Storage** | Cloudflare KV | — |
 | **Database** | Cloudflare D1 (analytics) | — |
 | **Object Storage** | Cloudflare R2 | — |
