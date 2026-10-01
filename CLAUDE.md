@@ -2,7 +2,7 @@
 
 Guidance for Claude Code when working with this repository.
 
-**Version:** 1.36.1 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.36.2 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Public repository — sanitisation (MANDATORY)
 
@@ -471,7 +471,7 @@ wrangler d1 time-travel info bifrost-analytics
 
 ## Dashboard
 
-React 19 SPA built with Vite 7, Tailwind CSS 4, shadcn/ui, TanStack Query, and React Router v7.
+React 19 SPA built with Vite 8, Tailwind CSS 4, shadcn/ui, TanStack Query, and React Router v8.
 
 ```bash
 pnpm --filter admin dev      # Dev server on port 3001

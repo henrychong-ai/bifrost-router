@@ -6,6 +6,55 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.36.2 (2026-10-01) — Dependency security sweep
+
+Minor/patch sweep across all five workspaces; no major-version upgrades.
+
+### Security
+
+`pnpm audit` reported 19 advisories (4 high, 12 moderate, 3 low), all
+transitive. Three override selectors were raised; the audit is now clean.
+
+- **undici** `7.29.0` → `7.30.0` (via `@cloudflare/vitest-pool-workers` →
+  miniflare; patched `>=7.29.1`). Selector `undici@>=7.0.0 <7.30.0`.
+- **ip-address** `10.3.1` → `10.7.2` (via `@modelcontextprotocol/sdk` →
+  `express-rate-limit`; patched `>=10.7.1`). Selector `ip-address@<=10.7.1`.
+- **brace-expansion** `5.0.9` → `5.0.12` (via `eslint` → `minimatch` in the
+  dashboard; patched `>=5.0.12`). Selector `brace-expansion@>=5.0.0 <5.0.12`.
+
+### Dependencies
+
+- `wrangler` (exact pin, root + slackbot) `4.131.0` → `4.146.0`; both
+  `worker-configuration.d.ts` files regenerated with `wrangler types`.
+- Runtime: `hono` `4.13.12`, `zod` `4.6.5`, `drizzle-orm` `0.45.3`,
+  `@modelcontextprotocol/sdk` `1.31.0`, `@tanstack/react-query` `5.104.0`,
+  `react-hook-form` `7.89.0`, `react-router` `8.4.0`, `tailwind-merge` `3.7.0`.
+- Tooling: `@biomejs/biome` `2.5.15`, `oxlint` / `eslint-plugin-oxlint`
+  `1.86.0`, `drizzle-kit` `0.31.11`, `tsx` `4.23.15`, `yaml` `2.9.1`,
+  `lint-staged` `17.6.0`, `vite` `8.3.2`, `eslint` `10.11.0`,
+  `typescript-eslint` `8.71.0`, `eslint-plugin-react-refresh` `0.5.7`,
+  `happy-dom` `20.14.5`, `@types/node` `25.9.8`.
+- Deliberately held: `@cloudflare/vitest-pool-workers` stays on `0.18.x`
+  (a 0.x minor is a breaking bump); `typescript` 7, `vitest` 5,
+  `@types/node` 26, `@tanstack/react-table` 9 and `lucide-react` 1 are majors.
+
+### Gate fix
+
+- **`scripts/check-migration-0012.test.mjs`:** newer Wrangler's
+  `unstable_splitSqlQuery` keeps the `--` comment lines that precede a
+  statement attached to it, which broke the `DROP INDEX` first-statement pin.
+  The gate now strips only the full-line comments at the START of each
+  statement. A header line that has lost its `-- ` prefix is prose, not a
+  comment, so stripping stops there and the non-vacuity test still fails it.
+
+### Housekeeping
+
+- `openapi/bifrost-api.yaml` `info.version` had been left at 1.36.0 by
+  v1.36.1; it now tracks the release again (and the `check-openapi` gate's
+  expected version with it).
+- README tech-stack versions and the CLAUDE.md dashboard line (Vite 8,
+  React Router v8) brought up to date.
+
 ## v1.36.1 (2026-09-19) — Simplified credential policy
 
 - Replace recursive URL reconstruction with bounded inspection and whole-field masking; preserve ordinary campaign fields and use one name-based policy across analytics streams.

@@ -61,13 +61,28 @@ function fallbackSplit(sql) {
     .map(statement => `${statement};`);
 }
 
+/**
+ * Wrangler >= 4.13x's splitter keeps the `--` comment lines that PRECEDE a
+ * statement attached to it. Strip only the full-line comments at the START of
+ * each statement: a header line that has lost its `-- ` prefix is prose, not a
+ * comment, so stripping stops there and the `DROP INDEX` pin still catches it.
+ */
+function stripLeadingCommentLines(statement) {
+  const lines = statement.split('\n');
+  let start = 0;
+  while (start < lines.length) {
+    const line = lines[start].trim();
+    if (line === '' || line.startsWith('--')) start += 1;
+    else break;
+  }
+  return lines.slice(start).join('\n').trim();
+}
+
 async function splitStatements(sql) {
   try {
     const { unstable_splitSqlQuery: split } = await import('wrangler');
     if (typeof split === 'function') {
-      const parts = split(sql)
-        .map(s => s.trim())
-        .filter(Boolean);
+      const parts = split(sql).map(stripLeadingCommentLines).filter(Boolean);
       if (parts.length > 0) return parts;
     }
   } catch {
