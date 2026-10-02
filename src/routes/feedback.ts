@@ -148,8 +148,8 @@ feedbackRoutes.post('/', async c => {
   // ====================================================================
 
   // --- Required text fields (sanitised, length-validated — reject, not clamp) ---
-  const title = sanitizeFeedbackText(field(body.title), Number.MAX_SAFE_INTEGER);
-  const description = sanitizeFeedbackText(field(body.description), Number.MAX_SAFE_INTEGER);
+  const title = sanitizeFeedbackText(field(body['title']), Number.MAX_SAFE_INTEGER);
+  const description = sanitizeFeedbackText(field(body['description']), Number.MAX_SAFE_INTEGER);
   if (!title || !description) {
     throw new HTTPException(400, { message: 'title and description are required' });
   }
@@ -165,7 +165,7 @@ feedbackRoutes.post('/', async c => {
   }
 
   // --- Enums ---
-  const typeParsed = FeedbackTypeSchema.safeParse(field(body.type));
+  const typeParsed = FeedbackTypeSchema.safeParse(field(body['type']));
   if (!typeParsed.success) {
     throw new HTTPException(400, {
       message: 'type must be one of bug | feature | question | other',
@@ -178,7 +178,7 @@ feedbackRoutes.post('/', async c => {
   // silently defaulting a bad value would file the item at a level nobody
   // chose, and 0 is the TOP level, so a coercion slip is not a harmless one.
   let priority: number = FEEDBACK_PRIORITY_DEFAULT;
-  const priorityRaw = field(body.priority);
+  const priorityRaw = field(body['priority']);
   if (priorityRaw !== undefined && priorityRaw !== '') {
     const priorityParsed = FeedbackPriorityInputSchema.safeParse(priorityRaw);
     if (!priorityParsed.success) {
@@ -190,23 +190,23 @@ feedbackRoutes.post('/', async c => {
   }
 
   // --- Optional structured fields ---
-  const steps = sanitizeFeedbackText(field(body.steps), FEEDBACK_FIELD_MAX_LENGTH);
-  const expected = sanitizeFeedbackText(field(body.expected), FEEDBACK_FIELD_MAX_LENGTH);
-  const actual = sanitizeFeedbackText(field(body.actual), FEEDBACK_FIELD_MAX_LENGTH);
+  const steps = sanitizeFeedbackText(field(body['steps']), FEEDBACK_FIELD_MAX_LENGTH);
+  const expected = sanitizeFeedbackText(field(body['expected']), FEEDBACK_FIELD_MAX_LENGTH);
+  const actual = sanitizeFeedbackText(field(body['actual']), FEEDBACK_FIELD_MAX_LENGTH);
 
   // --- Optional free-text submitter metadata (NOT an identity claim) ---
   const submitterEmail = sanitizeFeedbackText(
-    field(body.submitterEmail),
+    field(body['submitterEmail']),
     FEEDBACK_SUBMITTER_FIELD_MAX_LENGTH,
   );
   const submitterName = sanitizeFeedbackText(
-    field(body.submitterName),
+    field(body['submitterName']),
     FEEDBACK_SUBMITTER_FIELD_MAX_LENGTH,
   );
 
   // --- Context (client-supplied Tier-1 metadata; guard non-object; redact
   //     url/referrer which can carry tokens; server stamps known fields) ---
-  const contextRaw = field(body.context);
+  const contextRaw = field(body['context']);
   if (contextRaw && byteLength(contextRaw) > MAX_CONTEXT_BYTES) {
     throw new HTTPException(413, { message: 'context metadata too large' });
   }
@@ -230,7 +230,7 @@ feedbackRoutes.post('/', async c => {
   if (rayId) context.rayId = rayId;
 
   // --- Capture bundle: validate size + parse + redact now (write later) ---
-  const captureRaw = field(body.capture);
+  const captureRaw = field(body['capture']);
   let safeCapture: FeedbackCaptureBundle | null = null;
   if (captureRaw) {
     if (byteLength(captureRaw) > FEEDBACK_CAPTURE_BUNDLE_MAX_BYTES) {
@@ -251,7 +251,7 @@ feedbackRoutes.post('/', async c => {
   }
 
   // --- Screenshots: validate count/type/size now (write later) ---
-  const rawShots = body.screenshot;
+  const rawShots = body['screenshot'];
   const shots: File[] = (Array.isArray(rawShots) ? rawShots : rawShots ? [rawShots] : []).filter(
     (s): s is File => s instanceof File,
   );

@@ -32,8 +32,8 @@ describe('payloadFromState — wifi credential exclusions', () => {
       }),
     );
     expect(payload).not.toHaveProperty('password');
-    expect(payload.eapMethod).toBe('TLS');
-    expect(payload.identity).toBe('device01');
+    expect(payload['eapMethod']).toBe('TLS');
+    expect(payload['identity']).toBe('device01');
   });
 
   it('phase2 is emitted only for tunneled methods (PEAP/TTLS), never TLS/PWD', () => {
@@ -80,7 +80,7 @@ describe('designFromState — logoAspectRatio emission', () => {
       logoDataUri: 'data:image/png;base64,aGk=',
       logoAspectRatio: 5.29,
     });
-    expect(withBoth.logoAspectRatio).toBe(5.29);
+    expect(withBoth['logoAspectRatio']).toBe(5.29);
 
     const ratioOnly = designFromState({ ...stateFromQr(), logoAspectRatio: 5.29 });
     expect(ratioOnly).not.toHaveProperty('logoAspectRatio');
@@ -105,8 +105,8 @@ describe('stateFromQr — edit round-trip', () => {
       },
     } as unknown as QRCode;
     const design = designFromState(stateFromQr(qr));
-    expect(design.logoAspectRatio).toBe(5.29);
-    expect(design.logoDataUri).toBe('data:image/png;base64,aGk=');
+    expect(design['logoAspectRatio']).toBe(5.29);
+    expect(design['logoDataUri']).toBe('data:image/png;base64,aGk=');
   });
 
   it('opens the edit dialog in Custom so stored designs are never clobbered', () => {

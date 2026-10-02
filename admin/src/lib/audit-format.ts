@@ -198,10 +198,10 @@ function computeStorageTargets(
   const targets: NavTarget[] = [];
 
   if (log.action === 'r2_move') {
-    const sourceBucket = details?.sourceBucket;
-    const destinationBucket = details?.destinationBucket;
-    const key = details?.key;
-    const destinationKey = details?.destinationKey;
+    const sourceBucket = details?.['sourceBucket'];
+    const destinationBucket = details?.['destinationBucket'];
+    const key = details?.['key'];
+    const destinationKey = details?.['destinationKey'];
 
     // Primary: the file at its new location.
     const primaryKey = isNonEmptyString(destinationKey)
@@ -232,9 +232,9 @@ function computeStorageTargets(
   }
 
   if (log.action === 'r2_rename') {
-    const bucket = details?.bucket;
-    const newKey = details?.newKey;
-    const oldKey = details?.oldKey;
+    const bucket = details?.['bucket'];
+    const newKey = details?.['newKey'];
+    const oldKey = details?.['oldKey'];
 
     if (isNonEmptyString(bucket) && isNonEmptyString(newKey)) {
       targets.push({
@@ -269,8 +269,8 @@ function computeStorageTargets(
   }
 
   // Fallback: bucket + key from details.
-  const bucket = details?.bucket;
-  const key = details?.key;
+  const bucket = details?.['bucket'];
+  const key = details?.['key'];
   if (isNonEmptyString(bucket) && isNonEmptyString(key)) {
     return [{ kind: 'storage', label: 'View file in storage', bucket, key }];
   }
@@ -289,8 +289,8 @@ function computeRouteTargets(
 
   if (log.action === 'migrate') {
     const targets: NavTarget[] = [];
-    const newPath = details?.newPath;
-    const oldPath = details?.oldPath;
+    const newPath = details?.['newPath'];
+    const oldPath = details?.['oldPath'];
 
     if (isNonEmptyString(log.domain) && isNonEmptyString(newPath)) {
       targets.push({
@@ -315,9 +315,9 @@ function computeRouteTargets(
   if (log.action === 'transfer') {
     const targets: NavTarget[] = [];
     // Transfer keeps the same path, changing domain only.
-    const toDomain = details?.toDomain;
-    const fromDomain = details?.fromDomain;
-    const detailsPath = details?.path;
+    const toDomain = details?.['toDomain'];
+    const fromDomain = details?.['fromDomain'];
+    const detailsPath = details?.['path'];
 
     // Primary: the route at its new domain. Fall back to log.domain/log.path.
     const newDomain = isNonEmptyString(toDomain)

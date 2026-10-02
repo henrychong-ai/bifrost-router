@@ -10,6 +10,7 @@
     "noImplicitReturns": true,
     "noUncheckedIndexedAccess": true,
     "noFallthroughCasesInSwitch": true,
+    "noPropertyAccessFromIndexSignature": true,
     "allowUnreachableCode": false,
     "allowUnusedLabels": false,
     "skipLibCheck": true,

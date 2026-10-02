@@ -377,7 +377,7 @@ export async function postSlackMessage(
   };
 
   if (threadTs) {
-    body.thread_ts = threadTs;
+    body['thread_ts'] = threadTs;
   }
 
   const response = await fetch('https://slack.com/api/chat.postMessage', {

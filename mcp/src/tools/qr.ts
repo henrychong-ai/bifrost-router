@@ -136,7 +136,7 @@ export async function updateQr(
     const { id, domain: _domain, clearLinkedRoute, ...rest } = args;
     const input: Record<string, unknown> = { ...rest };
     // The REST contract clears the link with an explicit null.
-    if (clearLinkedRoute) input.linkedRoute = null;
+    if (clearLinkedRoute) input['linkedRoute'] = null;
 
     const qr = await client.updateQr(id, input, domain);
     return `QR code updated.\n\n${formatQr(qr)}`;

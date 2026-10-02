@@ -259,7 +259,7 @@ export class EdgeRouterClient {
    */
   async listRoutes(domain: string, search?: string): Promise<Route[]> {
     const params: Record<string, string> = { domain };
-    if (search) params.search = search;
+    if (search) params['search'] = search;
     const response = await this.request<{ routes: Route[]; total: number }>('GET', '/api/routes', {
       params,
     });
@@ -713,13 +713,13 @@ export class EdgeRouterClient {
 export function createClientFromEnv(env?: Record<string, string | undefined>): EdgeRouterClient {
   // Use provided env or try to use process.env if available
   const resolvedEnv = env ?? (typeof process !== 'undefined' ? process.env : {});
-  const apiKey = resolvedEnv.EDGE_ROUTER_API_KEY;
+  const apiKey = resolvedEnv['EDGE_ROUTER_API_KEY'];
   if (!apiKey) {
     throw new Error('EDGE_ROUTER_API_KEY environment variable is required');
   }
 
   return new EdgeRouterClient({
-    baseUrl: resolvedEnv.EDGE_ROUTER_URL ?? 'https://example.com',
+    baseUrl: resolvedEnv['EDGE_ROUTER_URL'] ?? 'https://example.com',
     apiKey,
   });
 }

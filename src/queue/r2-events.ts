@@ -123,16 +123,16 @@ function rowExplainsEvent(row: CandidateRow, event: R2EventMessage, kind: EventK
       return false;
     }
     if (row.action === 'r2_rename') {
-      const bucketOk = d.bucket === event.bucket;
-      return bucketOk && (kind === 'create' ? d.newKey === key : d.oldKey === key);
+      const bucketOk = d['bucket'] === event.bucket;
+      return bucketOk && (kind === 'create' ? d['newKey'] === key : d['oldKey'] === key);
     }
     // r2_move
     if (kind === 'create') {
-      const bucketOk = d.destinationBucket === event.bucket;
-      return bucketOk && (d.destinationKey ?? d.key) === key;
+      const bucketOk = d['destinationBucket'] === event.bucket;
+      return bucketOk && (d['destinationKey'] ?? d['key']) === key;
     }
-    const bucketOk = d.sourceBucket === event.bucket;
-    return bucketOk && d.key === key;
+    const bucketOk = d['sourceBucket'] === event.bucket;
+    return bucketOk && d['key'] === key;
   }
 
   return false;

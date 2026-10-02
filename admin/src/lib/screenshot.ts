@@ -20,7 +20,8 @@ export async function captureScreenshot(): Promise<Blob | null> {
       type: 'image/png',
       scale,
       // Skip nodes explicitly marked as private from the shot.
-      filter: node => !(node instanceof HTMLElement && node.dataset.feedbackExclude !== undefined),
+      filter: node =>
+        !(node instanceof HTMLElement && node.dataset['feedbackExclude'] !== undefined),
     });
   } catch {
     return null;

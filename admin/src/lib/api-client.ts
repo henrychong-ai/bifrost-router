@@ -113,7 +113,7 @@ export const routesApi = {
     if (!response.success || !response.data) {
       throw new ApiError(500, response.error || 'Failed to fetch routes');
     }
-    const meta = (response.data as Record<string, unknown>).meta as
+    const meta = (response.data as Record<string, unknown>)['meta'] as
       | { total?: number; offset?: number; hasMore?: boolean }
       | undefined;
     return {

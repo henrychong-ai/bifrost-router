@@ -31,7 +31,7 @@ import {
 const DEFAULT_R2_COPY_SIZE_LIMIT_MB = 100;
 
 export function getR2CopySizeLimit(env?: Record<string, unknown>): number {
-  const envLimit = env?.R2_COPY_SIZE_LIMIT_MB;
+  const envLimit = env?.['R2_COPY_SIZE_LIMIT_MB'];
   if (typeof envLimit === 'string') {
     const mb = Number(envLimit);
     if (!Number.isNaN(mb) && mb > 0) return mb * 1024 * 1024;
