@@ -77,6 +77,16 @@
           }
         }
       }
+    },
+    {
+      "includes": ["admin/src/components/ui/**"],
+      "assist": {
+        "actions": {
+          "source": {
+            "organizeImports": "off"
+          }
+        }
+      }
     }
   ]
 }
