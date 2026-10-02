@@ -61,24 +61,24 @@
   },
   "dependencies": {
     "@bifrost/shared": "workspace:*",
-    "drizzle-orm": "^0.45.2",
-    "hono": "^4.13.7",
-    "zod": "^4.6.2"
+    "drizzle-orm": "^0.45.3",
+    "hono": "^4.13.12",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.13",
+    "@biomejs/biome": "^2.5.15",
     "@cloudflare/vitest-pool-workers": "^0.18.8",
     "@vitest/coverage-istanbul": "^4.1.11",
     "@vitest/coverage-v8": "^4.1.11",
-    "drizzle-kit": "^0.31.10",
+    "drizzle-kit": "^0.31.11",
     "husky": "^9.1.7",
-    "lint-staged": "^17.5.1",
-    "oxlint": "^1.82.0",
-    "tsx": "^4.23.13",
+    "lint-staged": "^17.6.0",
+    "oxlint": "^1.86.0",
+    "tsx": "^4.23.15",
     "typescript": "~6.0.3",
     "vitest": "^4.1.11",
     "wrangler": "4.131.0",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.1"
   },
   "pnpm": {
     "overrides": {
@@ -93,7 +93,7 @@
       "minimatch": ">=10.2.3",
       "rollup": ">=4.59.0",
       "ajv@^6": "^6.14.0",
-      "hono": ">=4.13.5",
+      "hono": ">=4.13.12 <5",
       "@hono/node-server": ">=1.19.13",
       "path-to-regexp@>=8.0.0 <8.4.0": ">=8.4.0",
       "brace-expansion@>=5.0.0 <5.0.9": "5.0.9",
