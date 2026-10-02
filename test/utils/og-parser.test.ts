@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { validateUrlForSSRF, SSRFBlockedError } from '../../src/utils/og-parser';
+import { describe, expect, it } from 'vitest';
+import { SSRFBlockedError, validateUrlForSSRF } from '../../src/utils/og-parser';
 
 describe('validateUrlForSSRF', () => {
   describe('valid public URLs', () => {

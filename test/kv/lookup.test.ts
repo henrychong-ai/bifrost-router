@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  normalizePath,
   getWildcardCandidates,
   getWildcardRemainder,
   matchRoute,
+  normalizePath,
 } from '../../src/kv/lookup';
 import { routeKey } from '../../src/kv/schema';
 import type { KVRouteConfig } from '../../src/types';

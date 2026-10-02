@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { QRDesignSchema } from './qr.js';
-import { renderQrSvg, qrContrastRatio } from './qr-render.js';
+import { qrContrastRatio, renderQrSvg } from './qr-render.js';
 
 const PNG_LOGO = `data:image/png;base64,${Buffer.from('logo-bytes').toString('base64')}`;
 

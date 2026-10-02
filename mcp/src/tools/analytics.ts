@@ -3,12 +3,12 @@
  */
 
 import type {
-  EdgeRouterClient,
   AnalyticsSummary,
-  SlugStats,
+  EdgeRouterClient,
   LinkClick,
   PageView,
   PaginatedResponse,
+  SlugStats,
 } from '@bifrost/shared';
 import { NO_DOMAIN_ERROR, requireDomain } from './routes.js';
 

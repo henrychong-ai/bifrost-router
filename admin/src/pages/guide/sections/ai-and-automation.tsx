@@ -1,8 +1,8 @@
-import { Link } from 'react-router';
-import { ArrowRight } from 'lucide-react';
 import { toolDefinitions } from '@bifrost/shared';
-import { GUIDE_SECTIONS } from '../guide-registry';
+import { ArrowRight } from 'lucide-react';
+import { Link } from 'react-router';
 import { FactChip, GuideSection, MediaSlot, Tip } from '../guide-primitives';
+import { GUIDE_SECTIONS } from '../guide-registry';
 
 const meta = GUIDE_SECTIONS.find(s => s.id === 'ai-and-automation')!;
 

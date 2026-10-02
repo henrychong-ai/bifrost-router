@@ -5,10 +5,10 @@
  * belong to the item they were made for, and never carry over to the next.
  */
 
+import type { FeedbackItem } from '@bifrost/shared';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FeedbackItem } from '@bifrost/shared';
 
 const mocks = vi.hoisted(() => ({ item: null as unknown }));
 

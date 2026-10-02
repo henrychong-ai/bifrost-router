@@ -1,14 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type {
-  EdgeRouterClient,
   AnalyticsSummary,
-  SlugStats,
+  EdgeRouterClient,
   LinkClick,
   PageView,
   PaginatedResponse,
+  SlugStats,
 } from '@bifrost/shared';
 import { EdgeRouterClient as EdgeRouterClientImpl, SUPPORTED_DOMAINS } from '@bifrost/shared';
-import { getAnalyticsSummary, getClicks, getViews, getSlugStats } from './analytics.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getAnalyticsSummary, getClicks, getSlugStats, getViews } from './analytics.js';
 
 describe('Analytics tool handlers', () => {
   let mockClient: EdgeRouterClient;

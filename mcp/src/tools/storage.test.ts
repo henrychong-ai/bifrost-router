@@ -1,22 +1,23 @@
 import { readFileSync, statSync } from 'node:fs';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EdgeRouterClient } from '@bifrost/shared';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('node:fs', () => ({
   readFileSync: vi.fn<typeof readFileSync>(),
   statSync: vi.fn<typeof statSync>(),
 }));
+
 import {
+  deleteObject,
+  getObject,
+  getObjectMeta,
   listBuckets,
   listObjects,
-  getObjectMeta,
-  getObject,
-  uploadObject,
-  deleteObject,
-  renameObject,
   moveObject,
-  updateObjectMetadata,
+  renameObject,
   updateObjectComment,
+  updateObjectMetadata,
+  uploadObject,
 } from './storage.js';
 
 describe('Storage tool handlers', () => {

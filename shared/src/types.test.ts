@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  SUPPORTED_DOMAINS,
-  isSupportedDomain,
   hasPermission,
+  isSupportedDomain,
   PERMISSION_HIERARCHY,
+  SUPPORTED_DOMAINS,
   TOOL_PERMISSIONS,
 } from './types.js';
 

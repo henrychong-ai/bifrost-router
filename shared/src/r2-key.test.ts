@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { normalizeR2Key, isNormalizedR2Key } from './r2-key.js';
+import { describe, expect, it } from 'vitest';
+import { isNormalizedR2Key, normalizeR2Key } from './r2-key.js';
 
 describe('normalizeR2Key', () => {
   it('lowercases', () => {

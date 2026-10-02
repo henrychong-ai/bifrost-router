@@ -1,15 +1,15 @@
+import { MessageSquarePlus } from 'lucide-react';
 import { useEffect } from 'react';
 import { Outlet } from 'react-router';
+import { CommandPaletteTrigger } from '@/components/command-palette';
+import { FeedbackDialog } from '@/components/feedback-dialog';
+import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
+import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { WelcomeDialog } from '@/components/welcome-dialog';
-import { MessageSquarePlus } from 'lucide-react';
-import { SidebarProvider, SidebarTrigger, SidebarInset } from '@/components/ui/sidebar';
+import { openFeedbackDialog } from '@/lib/feedback-dialog';
 import { AppSidebar } from './app-sidebar';
 import { TailscaleIdentity } from './tailscale-identity';
-import { CommandPaletteTrigger } from '@/components/command-palette';
-import { Separator } from '@/components/ui/separator';
-import { Button } from '@/components/ui/button';
-import { FeedbackDialog } from '@/components/feedback-dialog';
-import { openFeedbackDialog } from '@/lib/feedback-dialog';
 
 export function AppLayout() {
   // Global Cmd+/ (Ctrl+/ on non-mac) opens the feedback dialog from anywhere —

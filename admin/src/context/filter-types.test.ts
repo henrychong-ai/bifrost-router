@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
 import { SUPPORTED_DOMAINS as SHARED_SUPPORTED_DOMAINS } from '@bifrost/shared';
-import { DEFAULT_FILTERS, SUPPORTED_DOMAINS, type PageKey } from './filter-types';
+import { describe, expect, it } from 'vitest';
+import { DEFAULT_FILTERS, type PageKey, SUPPORTED_DOMAINS } from './filter-types';
 
 /**
  * Value-parity guard for the dashboard's Domain dropdown.

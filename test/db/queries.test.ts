@@ -1,16 +1,16 @@
-import { describe, it, expect, beforeAll } from 'vitest';
 import { env } from 'cloudflare:test';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { createDb } from '../../src/db/index';
 import {
   getAnalyticsSummary,
+  getAuditLogs,
   getClicks,
-  getViews,
-  getSlugStats,
-  getDownloads,
   getDownloadStats,
+  getDownloads,
   getProxyRequests,
   getProxyStats,
-  getAuditLogs,
+  getSlugStats,
+  getViews,
 } from '../../src/db/queries';
 
 /**

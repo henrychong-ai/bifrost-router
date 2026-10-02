@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { AnalyticsSummarySchema } from './schemas';
 import {
   analyticsSummaryToCsv,
   dashboardFiltersToSearchParams,
   parseDashboardFilters,
 } from './dashboard-analytics';
+import { AnalyticsSummarySchema } from './schemas';
 
 describe('dashboard filters', () => {
   it('accepts only bounded values and allowed domains', () => {

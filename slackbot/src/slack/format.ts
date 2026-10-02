@@ -4,7 +4,7 @@
  * Formats responses for Slack using mrkdwn syntax
  */
 
-import type { Route, AnalyticsSummary } from '@bifrost/shared';
+import type { AnalyticsSummary, Route } from '@bifrost/shared';
 
 /**
  * Format a list of routes for Slack display

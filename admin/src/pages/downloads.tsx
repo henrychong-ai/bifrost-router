@@ -1,8 +1,10 @@
-import { useState, useMemo } from 'react';
-import { useDownloads, useDebounce } from '@/hooks';
-import { useDownloadsFilters } from '@/context';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router';
+import { type FilterState, FilterToolbar } from '@/components/filters';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -12,10 +14,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { FilterToolbar, type FilterState } from '@/components/filters';
-import { useSearchParams } from 'react-router';
+import { useDownloadsFilters } from '@/context';
+import { useDebounce, useDownloads } from '@/hooks';
 import {
   analyticsFiltersToSearchParams,
   parseAnalyticsFilterSearchParams,

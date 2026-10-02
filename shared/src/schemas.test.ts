@@ -1,32 +1,32 @@
-import { describe, it, expect, assert } from 'vitest';
+import { assert, describe, expect, it } from 'vitest';
 import {
-  RoutePathSchema,
-  R2UpdateCommentInputSchema,
-  DomainSchema,
-  RouteTypeSchema,
-  RedirectStatusCodeSchema,
+  CreateQrToolInputSchema,
+  DeleteQrInputSchema,
+  GetQrInputSchema,
+  GetRouteQrInputSchema,
+  ListQrsInputSchema,
+  UpdateQrToolInputSchema,
+} from './qr.js';
+import {
+  AcknowledgeCredentialTargetToolSchema,
   CreateRouteInputSchema,
-  UpdateRouteInputSchema,
-  ListRoutesInputSchema,
-  GetRouteInputSchema,
   CreateRouteToolInputSchema,
   DeleteRouteInputSchema,
-  AcknowledgeCredentialTargetToolSchema,
-  ToggleRouteInputSchema,
+  DomainSchema,
   GetAnalyticsSummaryInputSchema,
   GetClicksInputSchema,
+  GetRouteInputSchema,
   GetSlugStatsInputSchema,
   GetViewsInputSchema,
+  ListRoutesInputSchema,
+  R2UpdateCommentInputSchema,
+  RedirectStatusCodeSchema,
+  RoutePathSchema,
+  RouteTypeSchema,
+  ToggleRouteInputSchema,
+  UpdateRouteInputSchema,
   UpdateRouteToolInputSchema,
 } from './schemas.js';
-import {
-  ListQrsInputSchema,
-  GetQrInputSchema,
-  CreateQrToolInputSchema,
-  UpdateQrToolInputSchema,
-  DeleteQrInputSchema,
-  GetRouteQrInputSchema,
-} from './qr.js';
 import { SUPPORTED_DOMAINS } from './types.js';
 
 const create = (overrides: Record<string, unknown>) =>

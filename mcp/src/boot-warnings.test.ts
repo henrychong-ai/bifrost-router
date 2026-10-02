@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { IGNORED_ENV_WARNINGS, warnIgnoredEnv } from './boot-warnings.js';
 
 describe('boot warnings for removed environment variables', () => {

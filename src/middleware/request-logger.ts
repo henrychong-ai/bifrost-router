@@ -1,6 +1,6 @@
 import { normalizeAnalyticsPath } from '@bifrost/shared';
-import { HTTPException } from 'hono/http-exception';
 import type { MiddlewareHandler } from 'hono';
+import { HTTPException } from 'hono/http-exception';
 import type { AppEnv } from '../types';
 
 /** Drop query strings and fragments from every persisted request log. */

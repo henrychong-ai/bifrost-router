@@ -1,12 +1,12 @@
-import { describe, it, expect, assert } from 'vitest';
+import { assert, describe, expect, it } from 'vitest';
 import {
+  isKVError,
+  KVDeleteError,
   KVError,
+  KVListError,
   KVReadError,
   KVWriteError,
-  KVDeleteError,
-  KVListError,
   withKVErrorHandling,
-  isKVError,
 } from '../../src/utils/kv-errors';
 
 describe('KVError classes', () => {

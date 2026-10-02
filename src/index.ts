@@ -1,29 +1,29 @@
-import { redactRouteTarget } from './utils/credential-redaction';
+import { redactSensitive } from '@bifrost/shared';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { secureHeaders } from 'hono/secure-headers';
-import type { AppEnv, Bindings, KVRouteConfig } from './types';
-import { getServiceFallback, isValidDomain } from './types';
-import { matchRoute } from './kv/lookup';
-import { handleRedirect, handleProxy, handleR2, CACHE_STATUS_HEADER } from './handlers';
-import { adminRoutes } from './routes/admin';
-import { safeServiceFetch } from './utils/safe-service-fetch';
-import { denySensitivePaths } from './middleware/sensitive-paths';
-import { redactSensitive } from '@bifrost/shared';
+import { pollCfAuditLogs } from './audit/cf-audit-poll';
+import { handleScheduled } from './backup';
 import {
+  pruneUnifiedTrafficEvents,
   recordClick,
-  recordPageView,
   recordFileDownload,
+  recordPageView,
   recordProxyRequest,
   recordUnifiedTrafficEvent,
-  pruneUnifiedTrafficEvents,
   shouldRecordFileDownload,
   type UnifiedTrafficEventType,
 } from './db/analytics';
-import { handleScheduled } from './backup';
-import { pollCfAuditLogs } from './audit/cf-audit-poll';
-import { handleR2EventBatch, type R2EventMessage } from './queue/r2-events';
+import { CACHE_STATUS_HEADER, handleProxy, handleR2, handleRedirect } from './handlers';
+import { matchRoute } from './kv/lookup';
 import { privacySafeRequestLogger } from './middleware/request-logger';
+import { denySensitivePaths } from './middleware/sensitive-paths';
+import { handleR2EventBatch, type R2EventMessage } from './queue/r2-events';
+import { adminRoutes } from './routes/admin';
+import type { AppEnv, Bindings, KVRouteConfig } from './types';
+import { getServiceFallback, isValidDomain } from './types';
+import { redactRouteTarget } from './utils/credential-redaction';
+import { safeServiceFetch } from './utils/safe-service-fetch';
 import {
   boundedUnifiedCacheStatus,
   boundedUnifiedCountry,

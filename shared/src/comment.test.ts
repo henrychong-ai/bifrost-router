@@ -1,10 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   COMMENT_MAX_LENGTH,
-  sanitizeComment,
-  isCommentEmpty,
-  CommentSchema,
   CommentFieldSchema,
+  CommentSchema,
+  isCommentEmpty,
+  sanitizeComment,
 } from './comment.js';
 
 describe('sanitizeComment', () => {

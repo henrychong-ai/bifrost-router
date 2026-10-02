@@ -11,18 +11,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { type SupportedDomain, useRoutesFilters } from '@/context';
 import {
   ACTION_COLORS,
-  SOURCE_COLORS,
-  SOURCE_LABELS,
   computeNavTargets,
   formatDate,
   formatRelativeTime,
   parseDetails,
   prettyPrintDetails,
+  SOURCE_COLORS,
+  SOURCE_LABELS,
 } from '@/lib/audit-format';
-import { useRoutesFilters, type SupportedDomain } from '@/context';
-import { SUPPORTED_DOMAINS, type AuditLog } from '@/lib/schemas';
+import { type AuditLog, SUPPORTED_DOMAINS } from '@/lib/schemas';
 import { copyToClipboard } from '@/lib/utils';
 
 function Field({

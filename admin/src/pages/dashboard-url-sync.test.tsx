@@ -8,7 +8,7 @@
 
 import { act, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter, useLocation, useNavigate, type NavigateFunction } from 'react-router';
+import { MemoryRouter, type NavigateFunction, useLocation, useNavigate } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardPage } from './dashboard';
 import { summary } from './dashboard-summary.fixture';

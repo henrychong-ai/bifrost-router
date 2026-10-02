@@ -1,5 +1,5 @@
-import { MessageSquareText } from 'lucide-react';
 import { COMMENT_MAX_LENGTH } from '@bifrost/shared';
+import { MessageSquareText } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';

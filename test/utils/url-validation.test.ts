@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   isPrivateIP,
-  validateProxyTarget,
   isValidProxyTarget,
+  validateProxyTarget,
 } from '../../src/utils/url-validation';
 
 describe('isPrivateIP', () => {

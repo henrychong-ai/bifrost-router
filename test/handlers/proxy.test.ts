@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
-import { Hono } from 'hono';
 import { env } from 'cloudflare:test';
+import { Hono } from 'hono';
+import { describe, expect, it, vi } from 'vitest';
 import { handleProxy } from '../../src/handlers/proxy';
 import type { AppEnv, KVRouteConfig } from '../../src/types';
 

@@ -2,11 +2,11 @@
  * Tests for Slack event handlers and command parsing
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { EdgeRouterClient } from '@bifrost/shared';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { SlackUserPermissions } from '../src/auth/types';
 import { handleEvent } from '../src/slack/events';
 import type { SlackEvent } from '../src/slack/verify';
-import type { SlackUserPermissions } from '../src/auth/types';
-import type { EdgeRouterClient } from '@bifrost/shared';
 
 /** A client method resolving a stand-in payload with only the fields the handlers read. */
 type ClientMethod = (...args: unknown[]) => Promise<unknown>;

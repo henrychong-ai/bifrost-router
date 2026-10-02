@@ -1,24 +1,24 @@
 export { timingSafeEqual, validateApiKey } from './crypto';
 export {
-  isPrivateIP,
-  validateProxyTarget,
-  isValidProxyTarget,
-  type URLValidationResult,
-} from './url-validation';
+  isKVError,
+  KVDeleteError,
+  KVError,
+  KVListError,
+  KVReadError,
+  type KVResult,
+  KVWriteError,
+  withKVErrorHandling,
+} from './kv-errors';
 export {
   hasDangerousPath,
-  sanitizeR2Key,
-  validateR2Key,
   isValidR2Key,
   type R2KeyValidationResult,
+  sanitizeR2Key,
+  validateR2Key,
 } from './path-validation';
 export {
-  KVError,
-  KVReadError,
-  KVWriteError,
-  KVDeleteError,
-  KVListError,
-  withKVErrorHandling,
-  isKVError,
-  type KVResult,
-} from './kv-errors';
+  isPrivateIP,
+  isValidProxyTarget,
+  type URLValidationResult,
+  validateProxyTarget,
+} from './url-validation';

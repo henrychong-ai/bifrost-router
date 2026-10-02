@@ -29,12 +29,12 @@ export function useBackupHealth() {
   });
 }
 
-// Re-export types for convenience
-export type { BackupHealthResponse };
 export type {
   BackupFileStatus,
-  ManifestSummary,
-  LastBackupInfo,
-  HealthIssue,
   HealthChecks,
+  HealthIssue,
+  LastBackupInfo,
+  ManifestSummary,
 } from '@/lib/api-client';
+// Re-export types for convenience
+export type { BackupHealthResponse };

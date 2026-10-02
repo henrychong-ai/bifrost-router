@@ -1,17 +1,19 @@
-import { useEffect, useState } from 'react';
-import { ExternalLink, Loader2, Trash2 } from 'lucide-react';
-import { toast } from 'sonner';
 import {
   FEEDBACK_PRIORITIES,
   FEEDBACK_PRIORITY_DEFAULT,
   FEEDBACK_STATUSES,
   FEEDBACK_TYPES,
-  formatFeedbackPriority,
   type FeedbackCaptureBundle,
   type FeedbackStatus,
   type FeedbackType,
+  formatFeedbackPriority,
   type TriageFeedbackInput,
 } from '@bifrost/shared';
+import { ExternalLink, Loader2, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -20,10 +22,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -31,9 +31,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
-import { api } from '@/lib/api-client';
+import { Textarea } from '@/components/ui/textarea';
 import { useDeleteFeedback, useFeedbackItem, useTriageFeedback } from '@/hooks/use-feedback';
+import { api } from '@/lib/api-client';
 
 export function FeedbackDetailDialog({
   id,

@@ -1,7 +1,7 @@
 import type { Bindings } from '../types';
-import type { BackupResult } from './types';
 import { backupKV } from './kv';
 import { writeManifest } from './manifest';
+import type { BackupResult } from './types';
 
 /**
  * Get current date in YYYYMMDD format (UTC)

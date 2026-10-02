@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
+  deriveBrandForDomain,
+  NEUTRAL_QR_DESIGN,
   QR_BRAND_PRESETS,
   QR_NEUTRAL_DOMAINS,
-  NEUTRAL_QR_DESIGN,
-  deriveBrandForDomain,
   uncoveredDomains,
 } from './qr-brand-presets.js';
 import { qrContrastRatio } from './qr-render.js';

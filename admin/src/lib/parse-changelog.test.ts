@@ -1,12 +1,12 @@
-import { assert, beforeAll, describe, test, expect } from 'vitest';
-import {
-  parseChangelog,
-  getSectionBadgeClasses,
-  renderInlineCode,
-  type ChangelogVersion,
-} from './parse-changelog';
+import { assert, beforeAll, describe, expect, test } from 'vitest';
 // The repository changelog, as text: the test reads the real file, never a bundle.
 import changelogText from '../../../CHANGELOG.md?raw';
+import {
+  type ChangelogVersion,
+  getSectionBadgeClasses,
+  parseChangelog,
+  renderInlineCode,
+} from './parse-changelog';
 
 /**
  * `items[index]`, failing the test by name when the element is missing —

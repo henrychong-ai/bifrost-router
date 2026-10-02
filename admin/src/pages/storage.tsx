@@ -1,46 +1,30 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { useSearchParams, useNavigate } from 'react-router';
+import { normalizeR2Key } from '@bifrost/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  useStorageBuckets,
-  useStorageObjects,
-  useUploadObject,
-  useDeleteObject,
-  useRenameObject,
-  useMoveObject,
-  useUpdateObjectMetadata,
-  useRoutesByTarget,
-  usePurgeCache,
-  storageKeys,
-} from '@/hooks';
-import { storageApi } from '@/lib/api-client';
-import type { R2ObjectInfo, R2MetadataUpdate, StorageListParams } from '@/lib/api-client';
-import { formatBytes, copyToClipboard } from '@/lib/utils';
-import { getR2ObjectUrl, getPersistedPageSize, persistPageSize } from '@/lib/constants';
+  ArrowRightLeft,
+  ArrowUpRight,
+  ChevronRight,
+  Copy,
+  Download,
+  ExternalLink,
+  File,
+  Folder,
+  Globe,
+  HardDrive,
+  Info,
+  MoreHorizontal,
+  Pencil,
+  RefreshCw,
+  RotateCcw,
+  ShieldAlert,
+  Trash2,
+  Upload,
+} from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router';
+import { toast } from 'sonner';
+import { CommentIndicator, CommentTextarea } from '@/components/comment-field';
 import { PaginationControls } from '@/components/pagination-controls';
-import { normalizeR2Key } from '@bifrost/shared';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -51,12 +35,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -64,30 +61,33 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
-  Folder,
-  File,
-  Upload,
-  Trash2,
-  Pencil,
-  Download,
-  MoreHorizontal,
-  ChevronRight,
-  HardDrive,
-  ShieldAlert,
-  Info,
-  ArrowRightLeft,
-  ArrowUpRight,
-  Globe,
-  RefreshCw,
-  RotateCcw,
-  ExternalLink,
-  Copy,
-} from 'lucide-react';
-import { toast } from 'sonner';
-import { CommentTextarea, CommentIndicator } from '@/components/comment-field';
+  storageKeys,
+  useDeleteObject,
+  useMoveObject,
+  usePurgeCache,
+  useRenameObject,
+  useRoutesByTarget,
+  useStorageBuckets,
+  useStorageObjects,
+  useUpdateObjectMetadata,
+  useUploadObject,
+} from '@/hooks';
+import type { R2MetadataUpdate, R2ObjectInfo, StorageListParams } from '@/lib/api-client';
+import { storageApi } from '@/lib/api-client';
+import { getPersistedPageSize, getR2ObjectUrl, persistPageSize } from '@/lib/constants';
+import { copyToClipboard, formatBytes } from '@/lib/utils';
 
 const MAX_UPLOAD_SIZE = 100 * 1024 * 1024; // 100MB
 

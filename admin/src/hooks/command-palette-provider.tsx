@@ -1,4 +1,4 @@
-import { useState, useCallback, type ReactNode } from 'react';
+import { type ReactNode, useCallback, useState } from 'react';
 import { CommandPaletteContext } from './use-command-palette';
 
 export function CommandPaletteProvider({ children }: { children: ReactNode }) {

@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { Hono } from 'hono';
 import { env } from 'cloudflare:test';
+import { Hono } from 'hono';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { rateLimit, rateLimitStrict } from '../../src/middleware/rate-limit';
 import type { AppEnv } from '../../src/types';
 

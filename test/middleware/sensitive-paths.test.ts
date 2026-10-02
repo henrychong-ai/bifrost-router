@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { makeRequest, clearAllRoutes } from '../helpers';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { clearAllRoutes, makeRequest } from '../helpers';
 
 describe('sensitive-paths middleware', () => {
   beforeEach(async () => {

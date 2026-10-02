@@ -1,6 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EdgeRouterClient } from '@bifrost/shared';
 import { SUPPORTED_DOMAINS } from '@bifrost/shared';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getSlugStats } from './analytics';
+import { createQr, deleteQr, getQr, getRouteQr, listQrs, updateQr } from './qr';
 import {
   createRoute,
   deleteRoute,
@@ -11,8 +13,6 @@ import {
   toggleRoute,
   updateRoute,
 } from './routes';
-import { createQr, deleteQr, getQr, getRouteQr, listQrs, updateQr } from './qr';
-import { getSlugStats } from './analytics';
 
 /**
  * Which fields the error reports as missing, read out of the message by NAME.

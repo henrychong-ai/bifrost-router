@@ -1,51 +1,27 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router';
-import {
-  useRoutes,
-  useCreateRoute,
-  useUpdateRoute,
-  useDeleteRoute,
-  useToggleRoute,
-  useMigrateRoute,
-  useTransferRoute,
-  usePrefetchAllDomainRoutes,
-  routeKeys,
-  useDebounce,
-  useCreateQr,
-  useQrCodes,
-} from '@/hooks';
+import { getContentTypeFromKey, QRDesignSchema, renderQrSvg } from '@bifrost/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { useRoutesFilters, SUPPORTED_DOMAINS, type SupportedDomain } from '@/context';
-import { QRDesignSchema, renderQrSvg, getContentTypeFromKey } from '@bifrost/shared';
-import { QrPreview } from '@/components/qr-preview';
+import {
+  Copy,
+  ExternalLink,
+  HardDrive,
+  Info,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Power,
+  PowerOff,
+  QrCode,
+  Search,
+  Trash2,
+  X,
+} from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router';
+import { toast } from 'sonner';
 import { CredentialTargetDialog } from '@/components/credential-target-dialog';
-import { credentialTargetParametersFromError } from '@/lib/credential-target';
-import { downloadPng, downloadSvg } from '@/lib/svg-to-png';
-import type { Route, CreateRouteInput, UpdateRouteInput, R2BucketName } from '@/lib/schemas';
-import { R2_BUCKETS } from '@/lib/schemas';
-import { PaginationControls } from '@/components/pagination-controls';
-import { getPersistedPageSize, persistPageSize, getR2ObjectUrl } from '@/lib/constants';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
 import { LinkPreview } from '@/components/link-preview';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
+import { PaginationControls } from '@/components/pagination-controls';
+import { QrPreview } from '@/components/qr-preview';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -56,6 +32,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -71,24 +58,37 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import {
-  Plus,
-  MoreHorizontal,
-  Pencil,
-  Trash2,
-  Power,
-  PowerOff,
-  ExternalLink,
-  Copy,
-  HardDrive,
-  Search,
-  X,
-  Info,
-  QrCode,
-} from 'lucide-react';
-import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { toast } from 'sonner';
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { SUPPORTED_DOMAINS, type SupportedDomain, useRoutesFilters } from '@/context';
+import {
+  routeKeys,
+  useCreateQr,
+  useCreateRoute,
+  useDebounce,
+  useDeleteRoute,
+  useMigrateRoute,
+  usePrefetchAllDomainRoutes,
+  useQrCodes,
+  useRoutes,
+  useToggleRoute,
+  useTransferRoute,
+  useUpdateRoute,
+} from '@/hooks';
+import { getPersistedPageSize, getR2ObjectUrl, persistPageSize } from '@/lib/constants';
+import { credentialTargetParametersFromError } from '@/lib/credential-target';
+import type { CreateRouteInput, R2BucketName, Route, UpdateRouteInput } from '@/lib/schemas';
+import { R2_BUCKETS } from '@/lib/schemas';
+import { downloadPng, downloadSvg } from '@/lib/svg-to-png';
 import { copyToClipboard } from '@/lib/utils';
 
 function RouteTypeBadge({ type }: { type: Route['type'] }) {

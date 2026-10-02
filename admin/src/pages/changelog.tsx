@@ -1,15 +1,15 @@
-import { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useChangelog } from '@/hooks';
 import {
-  parseChangelog,
-  getSectionBadgeClasses,
-  renderInlineCode,
   type ChangelogVersion,
+  getSectionBadgeClasses,
+  parseChangelog,
+  renderInlineCode,
 } from '@/lib/parse-changelog';
 
 /** "2026-06-24" → "24 Jun 2026" (en-GB, UTC-pinned so the date never shifts). */

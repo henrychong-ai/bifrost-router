@@ -1,6 +1,6 @@
 import { env, SELF } from 'cloudflare:test';
+import { domainPrefix, routeKey } from '../src/kv/schema';
 import type { KVRouteConfig } from '../src/types';
-import { routeKey, domainPrefix } from '../src/kv/schema';
 
 /**
  * Default test domain

@@ -1,6 +1,7 @@
+import { Search, X } from 'lucide-react';
 import { useId } from 'react';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -8,7 +9,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { X, Search } from 'lucide-react';
 import { DOMAINS } from '@/lib/schemas';
 
 /**

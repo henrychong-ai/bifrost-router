@@ -1,9 +1,9 @@
-import { defineConfig } from 'vite';
-import type { Plugin, Connect } from 'vite';
-import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import path from 'path';
+import react from '@vitejs/plugin-react';
 import { readFileSync } from 'fs';
+import path from 'path';
+import type { Connect, Plugin } from 'vite';
+import { defineConfig } from 'vite';
 import { stripHtmlComments } from './src/lib/strip-html-comments';
 
 // Read version from root package.json at build time

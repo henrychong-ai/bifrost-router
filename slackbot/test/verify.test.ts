@@ -2,8 +2,8 @@
  * Tests for Slack signature verification
  */
 
-import { describe, it, expect } from 'vitest';
-import { verifySlackSignature, parseSlackPayload } from '../src/slack/verify';
+import { describe, expect, it } from 'vitest';
+import { parseSlackPayload, verifySlackSignature } from '../src/slack/verify';
 
 /**
  * Generate a valid Slack signature for testing

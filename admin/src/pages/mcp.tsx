@@ -1,8 +1,8 @@
-import { Plug, Boxes, Terminal, Info } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { getToolsByCategory, type ToolDefinition, toolDefinitions } from '@bifrost/shared';
+import { Boxes, Info, Plug, Terminal } from 'lucide-react';
 import { CodeBlock } from '@/components/code-block';
-import { getToolsByCategory, toolDefinitions, type ToolDefinition } from '@bifrost/shared';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 /**
  * MCP integration tab (v1.30.0 — ported from upstream v1.53.0, rewritten for

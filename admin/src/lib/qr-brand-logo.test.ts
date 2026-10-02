@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
 import { LOGO_SIZE_RATIO, WIDE_LOGO_MIN_RATIO, WIDE_LOGO_WIDTH_RATIO } from '@bifrost/shared';
+import { describe, expect, it, vi } from 'vitest';
 
 // qr-brand-logo.ts transitively imports @/lib/api-client → @/env, whose
 // window.__ENV__ read explodes in the node test environment. The functions

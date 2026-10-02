@@ -1,10 +1,19 @@
-import { useState, useMemo } from 'react';
-import { useAuditLogs, useDebounce } from '@/hooks';
-import { useAuditFilters } from '@/context';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { AuditActionIcon } from '@/components/audit-action-icon';
+import { AuditDetailDialog } from '@/components/audit-detail-dialog';
+import { type FilterState, FilterToolbar } from '@/components/filters';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -13,27 +22,18 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { FilterToolbar, type FilterState } from '@/components/filters';
+import { useAuditFilters } from '@/context';
+import { useAuditLogs, useDebounce } from '@/hooks';
 import {
   ACTION_COLORS,
-  SOURCE_COLORS,
-  SOURCE_LABELS,
-  parseDetails,
   formatDate,
   formatRelativeTime,
+  parseDetails,
+  SOURCE_COLORS,
+  SOURCE_LABELS,
 } from '@/lib/audit-format';
-import { AuditActionIcon } from '@/components/audit-action-icon';
-import { AuditDetailDialog } from '@/components/audit-detail-dialog';
-import { AuditSourceSchema } from '@/lib/schemas';
 import type { AuditAction, AuditLog, AuditSource } from '@/lib/schemas';
+import { AuditSourceSchema } from '@/lib/schemas';
 
 export function AuditPage() {
   const [offset, setOffset] = useState(0);

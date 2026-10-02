@@ -1,16 +1,24 @@
-import { useState } from 'react';
-import { Loader2, MessageSquarePlus } from 'lucide-react';
 import {
   FEEDBACK_STATUSES,
   FEEDBACK_TYPES,
-  formatFeedbackAge,
-  formatFeedbackPriority,
   type FeedbackItem,
   type FeedbackStatus,
   type FeedbackType,
+  formatFeedbackAge,
+  formatFeedbackPriority,
 } from '@bifrost/shared';
-import { Button } from '@/components/ui/button';
+import { Loader2, MessageSquarePlus } from 'lucide-react';
+import { useState } from 'react';
+import { FeedbackDetailDialog } from '@/components/feedback-detail-dialog';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -19,16 +27,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { useFeedbackList } from '@/hooks/use-feedback';
 import { openFeedbackDialog } from '@/lib/feedback-dialog';
-import { FeedbackDetailDialog } from '@/components/feedback-detail-dialog';
 
 const STATUS_COLORS: Record<FeedbackStatus, string> = {
   new: 'bg-blue-100 text-blue-800 border-blue-200',

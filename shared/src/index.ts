@@ -4,252 +4,242 @@
  * Shared code for Bifrost MCP server and Slackbot
  */
 
-// MIME detection
-export { EXTENSION_MIME_MAP, getContentTypeFromKey } from './mime.js';
-
-// R2 key normalization (v1.27.0) — lowercase + kebab-case, shared by the worker
-// (write-time enforcement) and the dashboard (clean default + live preview).
-export { normalizeR2Key, isNormalizedR2Key } from './r2-key.js'; // gitleaks:allow
-
-// Types
-export * from './types.js';
 export * from './analytics-utils.js';
-
-// Schemas - export selectively to avoid conflicts with types.ts
+export type { EdgeRouterClientConfig } from './client.js';
+// Client
 export {
-  // Domain schemas
-  DomainSchema,
-  RequiredDomainSchema,
-  OptionalDomainSchema,
-  // Route schemas
-  RouteTypeSchema,
-  RedirectStatusCodeSchema,
-  RouteSchema,
-  RoutePathSchema,
-  RouteTargetSchema,
-  AcknowledgeCredentialTargetSchema,
-  AcknowledgeCredentialTargetToolSchema,
-  ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION,
-  CreateRouteInputSchema,
-  UpdateRouteInputSchema,
-  // Analytics query schemas
-  AnalyticsSummaryQuerySchema,
-  AnalyticsListQuerySchema,
-  SlugStatsQuerySchema,
-  // Audit log schemas
-  AuditActionSchema,
-  AuditSourceSchema,
-  AuditLogSchema,
-  // Routes list query
-  RoutesListQuerySchema,
-  // R2 Storage schemas
-  AllR2BucketSchema,
-  R2ListObjectsInputSchema,
-  R2UploadInputSchema,
-  R2RenameInputSchema,
-  R2UpdateMetadataInputSchema,
-  R2RenameRequestSchema,
-  R2MoveRequestSchema,
-  R2UpdateMetadataRequestSchema,
-  R2UpdateCommentRequestSchema,
-  R2ObjectKeyInputSchema,
-  R2GetObjectInputSchema,
-  R2DeleteObjectInputSchema,
-  // MCP Tool input schemas
-  ListRoutesInputSchema,
-  GetRouteInputSchema,
-  CreateRouteToolInputSchema,
-  UpdateRouteToolInputSchema,
-  DeleteRouteInputSchema,
-  ToggleRouteInputSchema,
-  GetAnalyticsSummaryInputSchema,
-  GetClicksInputSchema,
-  GetViewsInputSchema,
-  GetSlugStatsInputSchema,
-  // Inferred types from schemas (renamed to avoid conflicts)
-  type ListRoutesInput,
-  type GetRouteInput,
-  type CreateRouteToolInput,
-  type UpdateRouteToolInput,
-  type DeleteRouteInput,
-  type ToggleRouteInput,
-  type GetAnalyticsSummaryInput,
-  type GetClicksInput,
-  type GetViewsInput,
-  type GetSlugStatsInput,
-  type AuditAction,
-  type AuditSource,
-  type RoutesListQuery,
-  type R2ListObjectsInput,
-  type R2UploadInput,
-  type R2RenameInput,
-  type R2UpdateMetadataInput,
-  type R2ObjectKeyInput,
-  type R2GetObjectInput,
-  type R2DeleteObjectInput,
-} from './schemas.js';
-
+  createClientFromEnv,
+  EdgeRouterClient,
+  EdgeRouterError,
+} from './client.js';
 // File comments (v1.26.0)
 export {
   COMMENT_MAX_LENGTH,
-  sanitizeComment,
-  isCommentEmpty,
-  CommentSchema,
   CommentFieldSchema,
+  CommentSchema,
+  isCommentEmpty,
+  sanitizeComment,
 } from './comment.js';
-
 // Feedback work-queue (v1.26.0)
 export {
-  FEEDBACK_TITLE_MAX_LENGTH,
+  type CreateFeedbackInput,
+  CreateFeedbackSchema,
+  FEEDBACK_AREAS,
+  FEEDBACK_CAPTURE_BUNDLE_MAX_BYTES,
   FEEDBACK_DESCRIPTION_MAX_LENGTH,
   FEEDBACK_FIELD_MAX_LENGTH,
-  FEEDBACK_TRIAGE_FIELD_MAX_LENGTH,
-  FEEDBACK_SUBMITTER_FIELD_MAX_LENGTH,
   FEEDBACK_MAX_SCREENSHOTS,
-  FEEDBACK_SCREENSHOT_MAX_BYTES,
-  FEEDBACK_CAPTURE_BUNDLE_MAX_BYTES,
-  FEEDBACK_RATE_LIMIT_PER_MINUTE,
-  FEEDBACK_TYPES,
-  FEEDBACK_STATUSES,
-  FEEDBACK_PRIORITY_MIN,
-  FEEDBACK_PRIORITY_MAX,
-  FEEDBACK_PRIORITY_DEFAULT,
   FEEDBACK_PRIORITIES,
+  FEEDBACK_PRIORITY_DEFAULT,
+  FEEDBACK_PRIORITY_MAX,
+  FEEDBACK_PRIORITY_MIN,
   FEEDBACK_PRIORITY_SCALE_DESCRIPTION,
-  FEEDBACK_AREAS,
+  FEEDBACK_RATE_LIMIT_PER_MINUTE,
+  FEEDBACK_SCREENSHOT_MAX_BYTES,
   FEEDBACK_SHORT_ID_PREFIX,
-  REDACTION_PLACEHOLDER,
-  sanitizeFeedbackText,
-  uuidv7,
-  formatFeedbackShortId,
-  formatFeedbackPriority,
-  formatFeedbackAge,
-  redactSensitive,
-  redactCaptureBundle,
-  FeedbackTypeSchema,
-  FeedbackStatusSchema,
-  FeedbackPrioritySchema,
-  FeedbackPriorityInputSchema,
-  CreateFeedbackSchema,
-  TriageFeedbackSchema,
-  TriageFeedbackRequestSchema,
-  type FeedbackType,
-  type FeedbackStatus,
-  type FeedbackConsoleEntry,
-  type FeedbackNetworkEntry,
+  FEEDBACK_STATUSES,
+  FEEDBACK_SUBMITTER_FIELD_MAX_LENGTH,
+  FEEDBACK_TITLE_MAX_LENGTH,
+  FEEDBACK_TRIAGE_FIELD_MAX_LENGTH,
+  FEEDBACK_TYPES,
   type FeedbackBreadcrumb,
   type FeedbackCaptureBundle,
+  type FeedbackConsoleEntry,
   type FeedbackContext,
-  type CreateFeedbackInput,
-  type TriageFeedbackInput,
   type FeedbackItem,
   type FeedbackListParams,
+  type FeedbackNetworkEntry,
+  FeedbackPriorityInputSchema,
+  FeedbackPrioritySchema,
+  type FeedbackStatus,
+  FeedbackStatusSchema,
+  type FeedbackType,
+  FeedbackTypeSchema,
+  formatFeedbackAge,
+  formatFeedbackPriority,
+  formatFeedbackShortId,
+  REDACTION_PLACEHOLDER,
+  redactCaptureBundle,
+  redactSensitive,
+  sanitizeFeedbackText,
+  type TriageFeedbackInput,
+  TriageFeedbackRequestSchema,
+  TriageFeedbackSchema,
+  uuidv7,
 } from './feedback.js';
-
-// Client
-export {
-  EdgeRouterClient,
-  EdgeRouterError,
-  createClientFromEnv,
-} from './client.js';
-export type { EdgeRouterClientConfig } from './client.js';
-
-// Tool definitions
-export {
-  toolDefinitions,
-  getToolDefinition,
-  toMCPTools,
-  toClaudeTools,
-  toolCategories,
-  getToolsByCategory,
-  routeTools,
-  analyticsTools,
-  storageTools,
-} from './tools.js';
-export type {
-  ToolDefinition,
-  JsonSchemaObject,
-  JsonSchemaProperty,
-} from './tools.js';
-
+// MIME detection
+export { EXTENSION_MIME_MAP, getContentTypeFromKey } from './mime.js';
 // QR codes (v1.30.0 — ported from upstream v1.54.0) — the QR contract shared
 // by the Worker backend, the MCP server, and the admin dashboard: the type
 // enum, per-type payload schemas, design schema, stored-record +
 // create/update/list schemas, the WIFI:/MECARD: serializers, and id helpers.
 export {
-  QR_TYPES,
-  QR_ID_REGEX,
-  QR_DESCRIPTION_MAX_LENGTH,
-  QR_MAX_TAGS,
-  QR_TAG_MAX_LENGTH,
-  MAX_QR_PAYLOAD_LENGTH,
-  QR_LOGO_MAX_BYTES,
   base64DecodedBytes,
-  QRTypeSchema,
-  UrlPayloadSchema,
-  TextPayloadSchema,
-  WifiAuthSchema,
-  WifiEapMethodSchema,
-  WifiPhase2Schema,
-  WifiPayloadSchema,
-  VcardPayloadSchema,
-  QRPayloadSchema,
-  QR_PAYLOAD_SCHEMAS,
-  QRDesignSchema,
-  QRLinkedRouteSchema,
-  QRCodeSchema,
-  CreateQRInputSchema,
-  UpdateQRInputSchema,
-  QRListQuerySchema,
-  escapeMecard,
-  serializePayload,
-  generateQrId,
-  normalizeQrId,
-  normalizeQrIdInput,
-  type QRType,
-  type QRDesign,
-  type QRCode,
   type CreateQRInput,
-  type UpdateQRInput,
-  type QRListQuery,
-  type QRUrlPayload,
-  type QRTextPayload,
-  type QRWifiPayload,
-  type QRVcardPayload,
-  type QRPayload,
+  CreateQRInputSchema,
+  type CreateQrToolInput,
+  CreateQrToolInputSchema,
+  type DeleteQrInput,
+  DeleteQrInputSchema,
+  escapeMecard,
+  type GetQrInput,
+  GetQrInputSchema,
+  type GetRouteQrInput,
+  GetRouteQrInputSchema,
+  generateQrId,
+  type ListQrsInput,
   // MCP tool input schemas
   ListQrsInputSchema,
-  GetQrInputSchema,
-  CreateQrToolInputSchema,
-  UpdateQrToolInputSchema,
-  DeleteQrInputSchema,
-  GetRouteQrInputSchema,
-  type ListQrsInput,
-  type GetQrInput,
-  type CreateQrToolInput,
+  MAX_QR_PAYLOAD_LENGTH,
+  normalizeQrId,
+  normalizeQrIdInput,
+  QR_DESCRIPTION_MAX_LENGTH,
+  QR_ID_REGEX,
+  QR_LOGO_MAX_BYTES,
+  QR_MAX_TAGS,
+  QR_PAYLOAD_SCHEMAS,
+  QR_TAG_MAX_LENGTH,
+  QR_TYPES,
+  type QRCode,
+  QRCodeSchema,
+  type QRDesign,
+  QRDesignSchema,
+  QRLinkedRouteSchema,
+  type QRListQuery,
+  QRListQuerySchema,
+  type QRPayload,
+  QRPayloadSchema,
+  type QRTextPayload,
+  type QRType,
+  QRTypeSchema,
+  type QRUrlPayload,
+  type QRVcardPayload,
+  type QRWifiPayload,
+  serializePayload,
+  TextPayloadSchema,
+  type UpdateQRInput,
+  UpdateQRInputSchema,
   type UpdateQrToolInput,
-  type DeleteQrInput,
-  type GetRouteQrInput,
+  UpdateQrToolInputSchema,
+  UrlPayloadSchema,
+  VcardPayloadSchema,
+  WifiAuthSchema,
+  WifiEapMethodSchema,
+  WifiPayloadSchema,
+  WifiPhase2Schema,
 } from './qr.js';
-
+// QR design presets (v1.30.0) — neutral by default (self-hosters add their
+// own), drift-guarded against SUPPORTED_DOMAINS.
+export {
+  deriveBrandForDomain,
+  NEUTRAL_QR_DESIGN,
+  QR_BRAND_PRESETS,
+  QR_NEUTRAL_DOMAINS,
+  type QrBrandPreset,
+  uncoveredDomains,
+} from './qr-brand-presets.js';
 // Shared QR renderer (ported from upstream v1.54.0) — one renderer, three
 // consumers (Worker image endpoint, MCP base64 SVG, dashboard preview and
 // downloads). Pure string SVG output; runs identically in Worker + browser.
 export {
-  renderQrSvg,
-  qrContrastRatio,
   LOGO_SIZE_RATIO,
+  qrContrastRatio,
+  renderQrSvg,
   WIDE_LOGO_MIN_RATIO,
   WIDE_LOGO_WIDTH_RATIO,
 } from './qr-render.js';
-
-// QR design presets (v1.30.0) — neutral by default (self-hosters add their
-// own), drift-guarded against SUPPORTED_DOMAINS.
+// R2 key normalization (v1.27.0) — lowercase + kebab-case, shared by the worker
+// (write-time enforcement) and the dashboard (clean default + live preview).
+export { isNormalizedR2Key, normalizeR2Key } from './r2-key.js'; // gitleaks:allow
+// Schemas - export selectively to avoid conflicts with types.ts
 export {
-  QR_BRAND_PRESETS,
-  QR_NEUTRAL_DOMAINS,
-  NEUTRAL_QR_DESIGN,
-  deriveBrandForDomain,
-  uncoveredDomains,
-  type QrBrandPreset,
-} from './qr-brand-presets.js';
+  ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION,
+  AcknowledgeCredentialTargetSchema,
+  AcknowledgeCredentialTargetToolSchema,
+  // R2 Storage schemas
+  AllR2BucketSchema,
+  AnalyticsListQuerySchema,
+  // Analytics query schemas
+  AnalyticsSummaryQuerySchema,
+  type AuditAction,
+  // Audit log schemas
+  AuditActionSchema,
+  AuditLogSchema,
+  type AuditSource,
+  AuditSourceSchema,
+  CreateRouteInputSchema,
+  type CreateRouteToolInput,
+  CreateRouteToolInputSchema,
+  type DeleteRouteInput,
+  DeleteRouteInputSchema,
+  // Domain schemas
+  DomainSchema,
+  type GetAnalyticsSummaryInput,
+  GetAnalyticsSummaryInputSchema,
+  type GetClicksInput,
+  GetClicksInputSchema,
+  type GetRouteInput,
+  GetRouteInputSchema,
+  type GetSlugStatsInput,
+  GetSlugStatsInputSchema,
+  type GetViewsInput,
+  GetViewsInputSchema,
+  // Inferred types from schemas (renamed to avoid conflicts)
+  type ListRoutesInput,
+  // MCP Tool input schemas
+  ListRoutesInputSchema,
+  OptionalDomainSchema,
+  type R2DeleteObjectInput,
+  R2DeleteObjectInputSchema,
+  type R2GetObjectInput,
+  R2GetObjectInputSchema,
+  type R2ListObjectsInput,
+  R2ListObjectsInputSchema,
+  R2MoveRequestSchema,
+  type R2ObjectKeyInput,
+  R2ObjectKeyInputSchema,
+  type R2RenameInput,
+  R2RenameInputSchema,
+  R2RenameRequestSchema,
+  R2UpdateCommentRequestSchema,
+  type R2UpdateMetadataInput,
+  R2UpdateMetadataInputSchema,
+  R2UpdateMetadataRequestSchema,
+  type R2UploadInput,
+  R2UploadInputSchema,
+  RedirectStatusCodeSchema,
+  RequiredDomainSchema,
+  RoutePathSchema,
+  RouteSchema,
+  type RoutesListQuery,
+  // Routes list query
+  RoutesListQuerySchema,
+  RouteTargetSchema,
+  // Route schemas
+  RouteTypeSchema,
+  SlugStatsQuerySchema,
+  type ToggleRouteInput,
+  ToggleRouteInputSchema,
+  UpdateRouteInputSchema,
+  type UpdateRouteToolInput,
+  UpdateRouteToolInputSchema,
+} from './schemas.js';
+export type {
+  JsonSchemaObject,
+  JsonSchemaProperty,
+  ToolDefinition,
+} from './tools.js';
+// Tool definitions
+export {
+  analyticsTools,
+  getToolDefinition,
+  getToolsByCategory,
+  routeTools,
+  storageTools,
+  toClaudeTools,
+  toMCPTools,
+  toolCategories,
+  toolDefinitions,
+} from './tools.js';
+// Types
+export * from './types.js';

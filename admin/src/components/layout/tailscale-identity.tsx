@@ -1,5 +1,5 @@
-import { useTailscaleIdentity } from '@/hooks';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useTailscaleIdentity } from '@/hooks';
 
 /**
  * Displays Tailscale user identity in the header.

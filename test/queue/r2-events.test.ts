@@ -22,8 +22,9 @@
  * Path matching is exact-only in this deployment because each environment
  * binds its own buckets; no shared-bucket suffix matching is required.
  */
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+
 import { env } from 'cloudflare:test';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { handleR2EventBatch, type R2EventMessage } from '../../src/queue/r2-events';
 import type { Bindings } from '../../src/types';
 

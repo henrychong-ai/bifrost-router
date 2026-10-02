@@ -1,5 +1,5 @@
-import { describe, test, expect, vi, beforeEach } from 'vitest';
-import { formatBytes, cn, copyToClipboard } from './utils';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { cn, copyToClipboard, formatBytes } from './utils';
 
 // Mock sonner toast
 vi.mock('sonner', () => ({

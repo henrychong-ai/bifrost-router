@@ -23,30 +23,30 @@
  * credential fields redacted in the audit projection.
  */
 
+import {
+  CreateQRInputSchema,
+  generateQrId,
+  MAX_QR_PAYLOAD_LENGTH,
+  QR_ID_REGEX,
+  QR_PAYLOAD_SCHEMAS,
+  type QRCode,
+  QRCodeSchema,
+  type QRDesign,
+  QRDesignSchema,
+  QRTypeSchema,
+  renderQrSvg,
+  serializePayload,
+  UpdateQRInputSchema,
+} from '@bifrost/shared';
+import type { Context } from 'hono';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
-import {
-  CreateQRInputSchema,
-  MAX_QR_PAYLOAD_LENGTH,
-  QRCodeSchema,
-  QRDesignSchema,
-  QR_ID_REGEX,
-  QR_PAYLOAD_SCHEMAS,
-  QRTypeSchema,
-  UpdateQRInputSchema,
-  generateQrId,
-  renderQrSvg,
-  serializePayload,
-  type QRCode,
-  type QRDesign,
-} from '@bifrost/shared';
-import type { AppEnv } from '../types';
+import { type AuditAction, recordAuditLog } from '../db/analytics';
 import { deleteQR, getQR, listQRs, putQR } from '../kv/qr';
 import { getRoute } from '../kv/routes';
-import { recordAuditLog, type AuditAction } from '../db/analytics';
-import { getRequiredDomainFromRequest, getActorInfo } from './request-context';
-import type { Context } from 'hono';
+import type { AppEnv } from '../types';
+import { getActorInfo, getRequiredDomainFromRequest } from './request-context';
 
 export const qrRoutes = new Hono<AppEnv>();
 

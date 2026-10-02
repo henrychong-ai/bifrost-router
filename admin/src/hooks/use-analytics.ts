@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
-import type { AnalyticsQueryParams, PaginationQueryParams, AuditQueryParams } from '@/lib/schemas';
+import type { AnalyticsQueryParams, AuditQueryParams, PaginationQueryParams } from '@/lib/schemas';
 
 // =============================================================================
 // Query Keys

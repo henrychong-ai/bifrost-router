@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * MCP Server for Bifrost
  *
@@ -6,40 +7,37 @@
  * Supports Claude Code, Claude Desktop, and other MCP-compatible clients.
  */
 
+import { createClientFromEnv, type EdgeRouterClient, toolDefinitions } from '@bifrost/shared';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { warnIgnoredEnv } from './boot-warnings.js';
 
-import { createClientFromEnv, toolDefinitions, type EdgeRouterClient } from '@bifrost/shared';
-
+import { getAnalyticsSummary, getClicks, getSlugStats, getViews } from './tools/analytics.js';
+import { createQr, deleteQr, getQr, getRouteQr, listQrs, updateQr } from './tools/qr.js';
 import {
-  listRoutes,
-  getRoute,
   createRoute,
-  updateRoute,
   deleteRoute,
-  toggleRoute,
-  migrateRoute,
+  getRoute,
   handleTransferRoute,
+  listRoutes,
+  migrateRoute,
+  toggleRoute,
+  updateRoute,
 } from './tools/routes.js';
-
-import { getAnalyticsSummary, getClicks, getViews, getSlugStats } from './tools/analytics.js';
-
 import {
+  deleteObject,
+  getObject,
+  getObjectMeta,
+  handlePurgeCache,
   listBuckets,
   listObjects,
-  getObjectMeta,
-  getObject,
-  uploadObject,
-  deleteObject,
-  renameObject,
   moveObject,
-  updateObjectMetadata,
+  renameObject,
   updateObjectComment,
-  handlePurgeCache,
+  updateObjectMetadata,
+  uploadObject,
 } from './tools/storage.js';
-import { listQrs, getQr, createQr, updateQr, deleteQr, getRouteQr } from './tools/qr.js';
-import { warnIgnoredEnv } from './boot-warnings.js';
 
 /**
  * Main entry point

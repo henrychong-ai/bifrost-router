@@ -15,8 +15,8 @@
  *   (swallow + log) because the primary object operation has already happened.
  */
 
-import { and, eq, inArray, sql } from 'drizzle-orm';
 import { sanitizeComment } from '@bifrost/shared';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { createDb } from './index';
 import { fileComments } from './schema';
 

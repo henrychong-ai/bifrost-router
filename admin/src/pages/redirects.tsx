@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
-import { useClicks, useDebounce } from '@/hooks';
-import { useRedirectsFilters } from '@/context';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router';
+import { type FilterState, FilterToolbar } from '@/components/filters';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -12,9 +13,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
-import { FilterToolbar, type FilterState } from '@/components/filters';
-import { useSearchParams } from 'react-router';
+import { useRedirectsFilters } from '@/context';
+import { useClicks, useDebounce } from '@/hooks';
 import {
   analyticsFiltersToSearchParams,
   parseAnalyticsFilterSearchParams,

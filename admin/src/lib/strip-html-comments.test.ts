@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 // oxlint-disable-next-line import/default -- Vite ?raw imports return source text
 import indexHtmlSource from '../../index.html?raw';
 import { stripHtmlComments, stripHtmlCommentsFromHtml } from './strip-html-comments';

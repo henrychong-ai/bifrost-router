@@ -2,18 +2,18 @@
  * Tests for Slack message formatting
  */
 
-import { describe, it, expect } from 'vitest';
+import type { AnalyticsSummary, Route } from '@bifrost/shared';
+import { describe, expect, it } from 'vitest';
 import {
-  formatRouteList,
   formatAnalyticsSummary,
-  formatRouteCreated,
-  formatRouteUpdated,
-  formatRouteDeleted,
   formatError,
-  formatPermissionDenied,
   formatHelp,
+  formatPermissionDenied,
+  formatRouteCreated,
+  formatRouteDeleted,
+  formatRouteList,
+  formatRouteUpdated,
 } from '../src/slack/format';
-import type { Route, AnalyticsSummary } from '@bifrost/shared';
 
 function makeAnalyticsSummary(input: {
   period: string;

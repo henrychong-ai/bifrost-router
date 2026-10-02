@@ -1,7 +1,7 @@
-import { redactRouteTarget } from '../utils/credential-redaction';
 import type { Context } from 'hono';
-import type { AppEnv, KVRouteConfig } from '../types';
 import { getWildcardRemainder } from '../kv/lookup';
+import type { AppEnv, KVRouteConfig } from '../types';
+import { redactRouteTarget } from '../utils/credential-redaction';
 import { validateProxyTarget } from '../utils/url-validation';
 
 /**

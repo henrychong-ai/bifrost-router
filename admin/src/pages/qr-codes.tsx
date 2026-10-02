@@ -6,64 +6,28 @@
  * Worker by construction; serving stays authed-only per the locked decision).
  */
 
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { toast } from 'sonner';
-import { ContextualHelp } from '@/components/contextual-help';
-import { FieldHint } from '@/components/field-hint';
 import {
-  QRDesignSchema,
-  NEUTRAL_QR_DESIGN,
-  QR_BRAND_PRESETS,
-  QR_LOGO_MAX_BYTES,
   deriveBrandForDomain,
+  NEUTRAL_QR_DESIGN,
   normalizeQrId,
   normalizeQrIdInput,
+  QR_BRAND_PRESETS,
+  QR_LOGO_MAX_BYTES,
+  type QRCode,
+  QRDesignSchema,
+  type QRType,
+  type QrBrandPreset,
   qrContrastRatio,
   renderQrSvg,
   serializePayload,
-  type QRCode,
-  type QRType,
-  type QrBrandPreset,
 } from '@bifrost/shared';
-import { useQrCodes, useCreateQr, useUpdateQr, useDeleteQr, useDebounce } from '@/hooks';
-import { SUPPORTED_DOMAINS } from '@/context';
-import type { QrQueryParams } from '@/lib/api-client';
-import { getPersistedPageSize, persistPageSize } from '@/lib/constants';
-import { computeLogoAspectRatio, fetchBrandLogo } from '@/lib/qr-brand-logo';
-import {
-  designFromState,
-  payloadFromState,
-  stateFromQr,
-  suggestQrId,
-  TUNNELED_EAP_METHODS,
-  WIFI_AUTH_TRIGGER_LABELS,
-  type QrFormState,
-} from '@/lib/qr-form-state';
-import { downloadPng, downloadSvg } from '@/lib/svg-to-png';
-import { QrPreview } from '@/components/qr-preview';
+import { Download, Pencil, Plus, QrCode as QrCodeIcon, Trash2 } from 'lucide-react';
+import { type Dispatch, type SetStateAction, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
+import { ContextualHelp } from '@/components/contextual-help';
+import { FieldHint } from '@/components/field-hint';
 import { PaginationControls } from '@/components/pagination-controls';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Skeleton } from '@/components/ui/skeleton';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
+import { QrPreview } from '@/components/qr-preview';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -74,6 +38,19 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -81,7 +58,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Download, Pencil, Plus, QrCode as QrCodeIcon, Trash2 } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { SUPPORTED_DOMAINS } from '@/context';
+import { useCreateQr, useDebounce, useDeleteQr, useQrCodes, useUpdateQr } from '@/hooks';
+import type { QrQueryParams } from '@/lib/api-client';
+import { getPersistedPageSize, persistPageSize } from '@/lib/constants';
+import { computeLogoAspectRatio, fetchBrandLogo } from '@/lib/qr-brand-logo';
+import {
+  designFromState,
+  payloadFromState,
+  type QrFormState,
+  stateFromQr,
+  suggestQrId,
+  TUNNELED_EAP_METHODS,
+  WIFI_AUTH_TRIGGER_LABELS,
+} from '@/lib/qr-form-state';
+import { downloadPng, downloadSvg } from '@/lib/svg-to-png';
 
 // =============================================================================
 // Helpers

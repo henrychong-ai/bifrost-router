@@ -1,6 +1,7 @@
 /**
  * KV module exports
  */
-export * from './schema';
-export * from './routes';
+
 export * from './lookup';
+export * from './routes';
+export * from './schema';

@@ -16,8 +16,9 @@
  * stub hygiene is local to this file: beforeEach unstubs between tests and a
  * file-level afterAll restores globals so nothing leaks into other suites.
  */
-import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from 'vitest';
+
 import { env } from 'cloudflare:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pollCfAuditLogs } from '../../src/audit/cf-audit-poll';
 import type { Bindings } from '../../src/types';
 

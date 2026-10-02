@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
 import type { EdgeRouterClient, QRCode } from '@bifrost/shared';
+import { describe, expect, it, vi } from 'vitest';
 import { createQr, deleteQr, getQr, getRouteQr, listQrs, updateQr } from './qr.js';
 
 const sampleQr: QRCode = {

@@ -1,5 +1,5 @@
-import { GUIDE_SECTIONS } from '../guide-registry';
 import { GuideSection, MediaSlot, Tip, Warn } from '../guide-primitives';
+import { GUIDE_SECTIONS } from '../guide-registry';
 
 const meta = GUIDE_SECTIONS.find(s => s.id === 'files-and-storage')!;
 

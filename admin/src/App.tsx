@@ -1,13 +1,13 @@
-import { lazy, Suspense, type ComponentType } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { Toaster } from '@/components/ui/sonner';
-import { queryClient } from '@/lib/query-client';
+import { type ComponentType, lazy, Suspense } from 'react';
+import { BrowserRouter, Route, Routes } from 'react-router';
+import { CommandPalette } from '@/components/command-palette';
 import { AppLayout } from '@/components/layout';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Toaster } from '@/components/ui/sonner';
 import { FilterProvider } from '@/context';
 import { CommandPaletteProvider } from '@/hooks';
-import { CommandPalette } from '@/components/command-palette';
-import { Skeleton } from '@/components/ui/skeleton';
+import { queryClient } from '@/lib/query-client';
 
 function lazyPage(loader: () => Promise<ComponentType>) {
   return lazy(async () => ({ default: await loader() }));

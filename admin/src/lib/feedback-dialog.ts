@@ -8,8 +8,8 @@
  * open at capture time, IS in the shot).
  */
 
-import { captureScreenshot } from './screenshot';
 import { addBreadcrumb } from './capture';
+import { captureScreenshot } from './screenshot';
 
 export const FEEDBACK_OPEN_EVENT = 'bifrost:open-feedback';
 

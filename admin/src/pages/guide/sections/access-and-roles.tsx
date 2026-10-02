@@ -1,6 +1,6 @@
 import { SUPPORTED_DOMAINS } from '@/context';
-import { GUIDE_SECTIONS } from '../guide-registry';
 import { FactChip, GuideSection, Tip } from '../guide-primitives';
+import { GUIDE_SECTIONS } from '../guide-registry';
 
 const meta = GUIDE_SECTIONS.find(s => s.id === 'access-and-roles')!;
 

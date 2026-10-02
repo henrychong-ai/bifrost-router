@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
-import type { AppEnv, KVRouteConfig } from '../types';
 import { getWildcardRemainder } from '../kv/lookup';
+import type { AppEnv, KVRouteConfig } from '../types';
 
 /**
  * Handle redirect routes

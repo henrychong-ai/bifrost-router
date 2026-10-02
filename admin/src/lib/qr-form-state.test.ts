@@ -1,13 +1,13 @@
-import { describe, expect, it } from 'vitest';
 import type { QRCode } from '@bifrost/shared';
 import { WifiAuthSchema } from '@bifrost/shared';
+import { describe, expect, it } from 'vitest';
 import {
-  payloadFromState,
   designFromState,
+  payloadFromState,
+  type QrFormState,
   stateFromQr,
   suggestQrId,
   WIFI_AUTH_TRIGGER_LABELS,
-  type QrFormState,
 } from './qr-form-state';
 
 /**

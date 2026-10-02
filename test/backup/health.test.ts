@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { checkBackupHealth } from '../../src/backup/health';
 import type { BackupManifest } from '../../src/backup/types';
 

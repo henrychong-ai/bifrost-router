@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { env } from 'cloudflare:test';
-import { purgeR2CacheForObject, purgeRouteUrl } from '../../src/utils/cache';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CLOUDFLARE_ZONE_IDS, R2_BUCKET_CUSTOM_DOMAINS } from '../../src/types';
+import { purgeR2CacheForObject, purgeRouteUrl } from '../../src/utils/cache';
 import { clearAllRoutes, requestBodyText, seedRoute } from '../helpers';
 
 /**

@@ -5,10 +5,10 @@
  * They provide a unified interface for tool discovery and validation.
  */
 
-import { SUPPORTED_DOMAINS, SUPPORTED_DOMAINS_LIST, R2_BUCKETS, ALL_R2_BUCKETS } from './types.js';
 // Single source for the wording — the Zod tool schemas describe the same flag,
 // and a drifted description is a drifted instruction to an agent.
 import { ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION } from './schemas.js';
+import { ALL_R2_BUCKETS, R2_BUCKETS, SUPPORTED_DOMAINS, SUPPORTED_DOMAINS_LIST } from './types.js';
 
 /**
  * JSON Schema property definition

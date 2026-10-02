@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { useDebounce } from './use-debounce';
 import { metadataApi, type OpenGraphData } from '@/lib/api-client';
+import { useDebounce } from './use-debounce';
 
 interface UseLinkPreviewOptions {
   enabled?: boolean;

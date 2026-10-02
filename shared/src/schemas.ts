@@ -6,8 +6,8 @@
  */
 
 import { z } from 'zod';
-import { SUPPORTED_DOMAINS, SUPPORTED_DOMAINS_LIST, R2_BUCKETS, ALL_R2_BUCKETS } from './types.js';
 import { CommentSchema } from './comment.js';
+import { ALL_R2_BUCKETS, R2_BUCKETS, SUPPORTED_DOMAINS, SUPPORTED_DOMAINS_LIST } from './types.js';
 
 // =============================================================================
 // MCP boolean coercion

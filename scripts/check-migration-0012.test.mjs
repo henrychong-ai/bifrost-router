@@ -42,12 +42,12 @@
  * the pins below read the statement itself under either behaviour.
  */
 
-import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MIGRATION_PATH = resolve(repoRoot, 'drizzle/0012_feedback_priority_scale.sql');

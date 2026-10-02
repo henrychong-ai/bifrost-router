@@ -2,14 +2,14 @@
  * Tests for permission system
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   checkToolPermission,
-  getAccessibleDomains,
   formatPermissions,
+  getAccessibleDomains,
 } from '../src/auth/permissions';
-import { hasPermission, TOOL_PERMISSIONS } from '../src/auth/types';
 import type { SlackUserPermissions } from '../src/auth/types';
+import { hasPermission, TOOL_PERMISSIONS } from '../src/auth/types';
 
 describe('hasPermission', () => {
   describe('permission hierarchy', () => {

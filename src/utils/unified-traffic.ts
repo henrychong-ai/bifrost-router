@@ -4,8 +4,8 @@ export {
   findCredentialParams,
   legacyQueryString,
   legacyReferrer,
-  redactSensitiveQueryValues,
   redactRouteTarget,
+  redactSensitiveQueryValues,
 } from './credential-redaction';
 
 export const UNIFIED_TRAFFIC_MAX_LATENCY_MS = 120_000;

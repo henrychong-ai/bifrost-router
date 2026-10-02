@@ -1,6 +1,7 @@
 /**
  * Route handlers exports
  */
-export { handleRedirect } from './redirect';
+
 export { handleProxy } from './proxy';
-export { handleR2, CACHE_STATUS_HEADER } from './r2';
+export { CACHE_STATUS_HEADER, handleR2 } from './r2';
+export { handleRedirect } from './redirect';

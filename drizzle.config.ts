@@ -1,5 +1,5 @@
-import { defineConfig } from 'drizzle-kit';
 import { globSync } from 'node:fs';
+import { defineConfig } from 'drizzle-kit';
 
 // Wrangler assigns a machine-local UUID to the Miniflare D1 file. Discover it
 // instead of committing one developer's generated path. The environment

@@ -1,8 +1,8 @@
+import { AlertTriangle, CheckCircle, Clock, HardDrive, RefreshCw, XCircle } from 'lucide-react';
 import { useBackupHealth } from '../hooks/use-backup-health';
-import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Skeleton } from './ui/skeleton';
-import { CheckCircle, AlertTriangle, XCircle, Clock, HardDrive, RefreshCw } from 'lucide-react';
 
 /**
  * Loading skeleton for the backup health widget

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   CreateFeedbackSchema,
   FEEDBACK_CAPTURE_BUNDLE_MAX_BYTES,
@@ -15,13 +15,13 @@ import {
   FEEDBACK_TITLE_MAX_LENGTH,
   FEEDBACK_TYPES,
   FeedbackPriorityInputSchema,
-  TriageFeedbackSchema,
   formatFeedbackAge,
   formatFeedbackPriority,
   formatFeedbackShortId,
   redactCaptureBundle,
   redactSensitive,
   sanitizeFeedbackText,
+  TriageFeedbackSchema,
   uuidv7,
 } from './feedback.js';
 

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Hono } from 'hono';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { handleR2 } from '../../src/handlers/r2';
 import r2HandlerSource from '../../src/handlers/r2.ts?raw';
 import type { AppEnv, KVRouteConfig } from '../../src/types';

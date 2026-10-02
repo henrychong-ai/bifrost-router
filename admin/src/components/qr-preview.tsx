@@ -5,8 +5,8 @@
  * CSP img-src already allows data:).
  */
 
+import { type QRDesign, renderQrSvg } from '@bifrost/shared';
 import { useMemo } from 'react';
-import { renderQrSvg, type QRDesign } from '@bifrost/shared';
 import { svgToDataUri } from '@/lib/svg-to-png';
 
 /** A blank, transparent image: the unavailable state keeps the preview's box. */

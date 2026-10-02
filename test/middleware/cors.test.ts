@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { Hono } from 'hono';
 import { env } from 'cloudflare:test';
-import { cors, isAllowedOrigin, ALLOWED_ORIGINS } from '../../src/middleware/cors';
+import { Hono } from 'hono';
+import { describe, expect, it } from 'vitest';
+import { ALLOWED_ORIGINS, cors, isAllowedOrigin } from '../../src/middleware/cors';
 import type { AppEnv } from '../../src/types';
 
 describe('cors middleware', () => {

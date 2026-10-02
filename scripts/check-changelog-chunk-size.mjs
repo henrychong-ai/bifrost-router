@@ -24,7 +24,7 @@
  *   node scripts/check-changelog-chunk-size.mjs --dir <path>   # tests/fixtures
  */
 
-import { readFile, readdir } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';

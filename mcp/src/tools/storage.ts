@@ -3,7 +3,7 @@
  */
 
 import { readFileSync, statSync } from 'node:fs';
-import { getContentTypeFromKey, type EdgeRouterClient, type R2ObjectInfo } from '@bifrost/shared';
+import { type EdgeRouterClient, getContentTypeFromKey, type R2ObjectInfo } from '@bifrost/shared';
 
 /**
  * Format file size for display

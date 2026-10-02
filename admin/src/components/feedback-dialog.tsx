@@ -1,5 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation } from 'react-router';
+import {
+  FEEDBACK_MAX_SCREENSHOTS,
+  FEEDBACK_PRIORITIES,
+  FEEDBACK_PRIORITY_DEFAULT,
+  FEEDBACK_TYPES,
+  type FeedbackType,
+  formatFeedbackPriority,
+} from '@bifrost/shared';
 import {
   Bug,
   HelpCircle,
@@ -9,15 +15,10 @@ import {
   Paperclip,
   X,
 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router';
 import { toast } from 'sonner';
-import {
-  FEEDBACK_MAX_SCREENSHOTS,
-  FEEDBACK_PRIORITIES,
-  FEEDBACK_PRIORITY_DEFAULT,
-  FEEDBACK_TYPES,
-  formatFeedbackPriority,
-  type FeedbackType,
-} from '@bifrost/shared';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -26,10 +27,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -37,7 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { cn } from '@/lib/utils';
+import { Textarea } from '@/components/ui/textarea';
 import { useSubmitFeedback } from '@/hooks/use-feedback';
 import { buildFeedbackContext, getCaptureBundle } from '@/lib/capture';
 import {
@@ -45,6 +44,7 @@ import {
   type FeedbackOpenDetail,
   setFeedbackDialogOpen,
 } from '@/lib/feedback-dialog';
+import { cn } from '@/lib/utils';
 
 const TYPE_META: Record<FeedbackType, { label: string; icon: LucideIcon; placeholder: string }> = {
   bug: {

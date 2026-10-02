@@ -13,9 +13,10 @@
  * NOTE: requires `FEEDBACK_BUCKET` in the miniflare r2Buckets list
  * (vitest.config.ts) — the main session adds it alongside the wrangler binding.
  */
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { Hono } from 'hono';
+
 import { env } from 'cloudflare:test';
+import { Hono } from 'hono';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { adminRoutes } from '../../src/routes/admin';
 import type { AppEnv } from '../../src/types';
 

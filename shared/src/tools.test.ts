@@ -1,18 +1,18 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION } from './schemas.js';
 import {
-  toolDefinitions,
-  getToolDefinition,
-  toMCPTools,
-  toClaudeTools,
-  toolCategories,
-  getToolsByCategory,
-  routeTools,
   analyticsTools,
-  storageTools,
+  getToolDefinition,
+  getToolsByCategory,
   qrTools,
+  routeTools,
+  storageTools,
+  toClaudeTools,
+  toMCPTools,
+  toolCategories,
+  toolDefinitions,
 } from './tools.js';
 import { SUPPORTED_DOMAINS } from './types.js';
-import { ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION } from './schemas.js';
 
 describe('tools', () => {
   describe('toolDefinitions', () => {

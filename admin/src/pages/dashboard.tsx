@@ -1,5 +1,3 @@
-import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react';
-import { Link, useSearchParams } from 'react-router';
 import {
   Activity,
   ArrowDownRight,
@@ -18,8 +16,8 @@ import {
   ServerCog,
   ShieldCheck,
 } from 'lucide-react';
-import { useAnalyticsSummary } from '@/hooks';
-import { SUPPORTED_DOMAINS } from '@/context';
+import { type ComponentType, useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router';
 import { BackupHealthWidget } from '@/components/backup-health-widget';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -50,11 +48,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { SUPPORTED_DOMAINS } from '@/context';
+import { useAnalyticsSummary } from '@/hooks';
 import {
   analyticsSummaryToCsv,
+  type DashboardFilters,
   dashboardFiltersToSearchParams,
   parseDashboardFilters,
-  type DashboardFilters,
 } from '@/lib/dashboard-analytics';
 import { buildRecentActivityHref } from '@/lib/dashboard-navigation';
 import type { AnalyticsSummary, TopClick, TopPage, TopProxy } from '@/lib/schemas';

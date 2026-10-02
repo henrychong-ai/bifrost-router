@@ -1,6 +1,6 @@
 import { getModifierKey } from '@/hooks';
-import { GUIDE_SECTIONS } from '../guide-registry';
 import { GuideSection, Shortcut, Tip } from '../guide-primitives';
+import { GUIDE_SECTIONS } from '../guide-registry';
 
 const meta = GUIDE_SECTIONS.find(s => s.id === 'power-tools')!;
 

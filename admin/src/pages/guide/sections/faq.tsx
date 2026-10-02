@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import { GUIDE_SECTIONS } from '../guide-registry';
 import { FactChip, GuideSection, Tip } from '../guide-primitives';
+import { GUIDE_SECTIONS } from '../guide-registry';
 
 const meta = GUIDE_SECTIONS.find(s => s.id === 'faq')!;
 

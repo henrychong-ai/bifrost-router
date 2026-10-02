@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { Hono } from 'hono';
 import { env } from 'cloudflare:test';
+import { Hono } from 'hono';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { getRoute } from '../../src/kv/routes';
 import { adminRoutes, credentialTargetParameters } from '../../src/routes/admin';
 import type { AppEnv } from '../../src/types';
-import { getRoute } from '../../src/kv/routes';
 import {
   clearAllRoutes,
   createAuditLogsTable,

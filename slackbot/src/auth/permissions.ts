@@ -4,7 +4,7 @@
  * Manages user permissions stored in KV for Slack-based route management
  */
 
-import type { SlackUserPermissions, PermissionLevel } from './types';
+import type { PermissionLevel, SlackUserPermissions } from './types';
 import { hasPermission, TOOL_PERMISSIONS } from './types';
 
 /**

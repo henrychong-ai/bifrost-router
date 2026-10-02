@@ -6,18 +6,18 @@
  */
 
 import type { EdgeRouterClient } from '@bifrost/shared';
-import type { SlackEvent } from './verify';
-import type { SlackUserPermissions } from '../auth/types';
 import { checkToolPermission, getAccessibleDomains } from '../auth/permissions';
+import type { SlackUserPermissions } from '../auth/types';
 import {
-  formatRouteList,
   formatAnalyticsSummary,
+  formatError,
+  formatHelp,
+  formatPermissionDenied,
   formatRouteCreated,
   formatRouteDeleted,
-  formatError,
-  formatPermissionDenied,
-  formatHelp,
+  formatRouteList,
 } from './format';
+import type { SlackEvent } from './verify';
 
 /**
  * Handle a Slack event

@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
+  carryFileComment,
+  deleteFileComment,
   getFileComment,
   listFileComments,
   setFileComment,
-  deleteFileComment,
-  carryFileComment,
 } from '../../src/db/file-comments';
 
 /**

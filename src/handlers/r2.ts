@@ -1,5 +1,5 @@
-import type { Context } from 'hono';
 import { getContentTypeFromKey, redactSensitive } from '@bifrost/shared';
+import type { Context } from 'hono';
 import type { AppEnv, Bindings, KVRouteConfig } from '../types';
 import { BUCKET_BINDINGS, isValidR2Bucket } from '../types';
 import { validateR2Key } from '../utils/path-validation';

@@ -11,18 +11,18 @@
  * metadata only.
  */
 
-import { and, desc, eq, gte } from 'drizzle-orm';
 import {
   FEEDBACK_PRIORITY_DEFAULT,
-  formatFeedbackShortId,
   type FeedbackContext,
   type FeedbackItem,
   type FeedbackStatus,
   type FeedbackType,
+  formatFeedbackShortId,
   type TriageFeedbackInput,
 } from '@bifrost/shared';
+import { and, desc, eq, gte } from 'drizzle-orm';
 import { createDb } from './index';
-import { feedback, type FeedbackRow } from './schema';
+import { type FeedbackRow, feedback } from './schema';
 
 function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
   if (!raw) return fallback;

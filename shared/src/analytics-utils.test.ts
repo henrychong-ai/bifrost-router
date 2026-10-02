@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CLOUDFLARE_HEALTHCHECK_UA_TOKEN,
   analyticsDeltaPercent,
   analyticsShare,
+  CLOUDFLARE_HEALTHCHECK_UA_TOKEN,
   canonicalAnalyticsUrl,
   isCloudflareHealthcheckUserAgent,
   normalizeAnalyticsPath,

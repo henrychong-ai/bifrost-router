@@ -1,30 +1,30 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router';
 import { Command } from 'cmdk';
 import {
-  LayoutDashboard,
-  Route,
   ArrowUpRight,
-  Eye,
-  Download,
-  Globe,
-  ClipboardList,
-  Plus,
-  Search,
-  FileText,
-  Loader2,
-  HardDrive,
-  QrCode,
   BookOpen,
   Bot,
+  ClipboardList,
+  Download,
+  Eye,
+  FileText,
+  Globe,
+  HardDrive,
+  LayoutDashboard,
+  Loader2,
+  Plus,
+  QrCode,
+  Route,
+  Search,
 } from 'lucide-react';
-import { useCommandPalette } from '@/hooks/use-command-palette';
-import { useKeyboardShortcut, getModifierKey } from '@/hooks/use-keyboard-shortcuts';
-import { useDebounce, useSearchRoutes } from '@/hooks';
-import { useRoutesFilters } from '@/context';
-import type { Route as RouteData } from '@/lib/schemas';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Kbd } from '@/components/ui/kbd';
+import { useRoutesFilters } from '@/context';
+import { useDebounce, useSearchRoutes } from '@/hooks';
+import { useCommandPalette } from '@/hooks/use-command-palette';
+import { getModifierKey, useKeyboardShortcut } from '@/hooks/use-keyboard-shortcuts';
+import type { Route as RouteData } from '@/lib/schemas';
 
 interface CommandItemType {
   id: string;

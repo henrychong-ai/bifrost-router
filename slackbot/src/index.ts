@@ -4,13 +4,13 @@
  * Handles Slack events for route management via natural language
  */
 
-import { Hono } from 'hono';
 import { EdgeRouterClient } from '@bifrost/shared';
-import { verifySlackSignature, parseSlackPayload } from './slack/verify';
-import type { SlackEventPayload } from './slack/verify';
+import { Hono } from 'hono';
 import { getUserPermissions } from './auth/permissions';
-import { handleEvent, postSlackMessage } from './slack/events';
 import type { SlackbotBindings } from './auth/types';
+import { handleEvent, postSlackMessage } from './slack/events';
+import type { SlackEventPayload } from './slack/verify';
+import { parseSlackPayload, verifySlackSignature } from './slack/verify';
 
 type App = Hono<{ Bindings: SlackbotBindings }>;
 

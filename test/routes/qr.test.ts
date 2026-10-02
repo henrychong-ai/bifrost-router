@@ -7,12 +7,13 @@
  * Wi-Fi credential redaction in audit projections, and the `qr:` KV-prefix
  * exclusion from route scans and inclusion in backups.
  */
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { Hono } from 'hono';
+
 import { env } from 'cloudflare:test';
-import { adminRoutes } from '../../src/routes/admin';
-import { getAllRoutesAllDomains, createRoute } from '../../src/kv/routes';
+import { Hono } from 'hono';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { backupKV } from '../../src/backup/kv';
+import { createRoute, getAllRoutesAllDomains } from '../../src/kv/routes';
+import { adminRoutes } from '../../src/routes/admin';
 import type { AppEnv } from '../../src/types';
 
 const VALID_KEY = 'test-api-key-12345'; // gitleaks:allow — test placeholder, not a credential

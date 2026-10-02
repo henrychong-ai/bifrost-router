@@ -1,12 +1,12 @@
-import { describe, it, expect, assert } from 'vitest';
+import { assert, describe, expect, it } from 'vitest';
 import {
-  routeKey,
-  parseRouteKey,
-  domainPrefix,
-  RouteConfigSchema,
   CreateRouteSchema,
-  UpdateRouteSchema,
+  domainPrefix,
+  parseRouteKey,
+  RouteConfigSchema,
+  routeKey,
   SCHEMA_VERSION,
+  UpdateRouteSchema,
 } from '../../src/kv/schema';
 
 describe('routeKey', () => {

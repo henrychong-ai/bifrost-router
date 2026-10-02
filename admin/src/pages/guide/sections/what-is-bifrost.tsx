@@ -1,6 +1,6 @@
 import { SUPPORTED_DOMAINS } from '@bifrost/shared';
-import { GUIDE_SECTIONS } from '../guide-registry';
 import { FactChip, GuideSection, TypeBadge } from '../guide-primitives';
+import { GUIDE_SECTIONS } from '../guide-registry';
 
 const meta = GUIDE_SECTIONS.find(s => s.id === 'what-is-bifrost')!;
 

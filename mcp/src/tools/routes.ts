@@ -2,12 +2,12 @@
  * Route management tool handlers for MCP server
  */
 
+import type { EdgeRouterClient, Route } from '@bifrost/shared';
 import {
   AcknowledgeCredentialTargetToolSchema,
   SUPPORTED_DOMAINS_LIST,
   ToggleRouteInputSchema,
 } from '@bifrost/shared';
-import type { EdgeRouterClient, Route } from '@bifrost/shared';
 
 /**
  * v1.35.0 — there is no default domain. Every route, QR and slug-stats call

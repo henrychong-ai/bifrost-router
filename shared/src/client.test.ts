@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { EdgeRouterClient, EdgeRouterError, createClientFromEnv } from './client.js';
+import { createClientFromEnv, EdgeRouterClient, EdgeRouterError } from './client.js';
 
 /** A fetch whose responses are stand-ins carrying only the fields the client reads. */
 type StubFetch = (...args: Parameters<typeof fetch>) => Promise<unknown>;

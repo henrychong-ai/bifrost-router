@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  validateR2Key,
-  isValidR2Key,
   hasDangerousPath,
+  isValidR2Key,
   sanitizeR2Key,
+  validateR2Key,
 } from '../../src/utils/path-validation';
 
 describe('path-validation', () => {

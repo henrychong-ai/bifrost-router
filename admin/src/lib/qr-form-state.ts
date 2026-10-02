@@ -11,8 +11,8 @@
  * methods (PEAP/TTLS).
  */
 
-import { normalizeQrId, WifiAuthSchema } from '@bifrost/shared';
 import type { QRCode, QRType } from '@bifrost/shared';
+import { normalizeQrId, WifiAuthSchema } from '@bifrost/shared';
 
 /**
  * Derived from the canonical schema rather than hand-duplicated (v1.58.3):

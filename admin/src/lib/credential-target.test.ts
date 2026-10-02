@@ -1,8 +1,8 @@
-import { describe, test, expect } from 'vitest';
+import { describe, expect, test } from 'vitest';
 import { ApiError } from './api-error';
 import {
-  ROUTE_TARGET_CREDENTIAL_CODE,
   credentialTargetParametersFromError,
+  ROUTE_TARGET_CREDENTIAL_CODE,
 } from './credential-target';
 
 const refusal = (details: unknown) => new ApiError(400, ROUTE_TARGET_CREDENTIAL_CODE, details);

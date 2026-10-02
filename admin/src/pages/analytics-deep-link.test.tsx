@@ -3,10 +3,10 @@ import { MemoryRouter } from 'react-router';
 import { assert, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FilterProvider } from '@/context';
 import { buildRecentActivityHref } from '@/lib/dashboard-navigation';
-import { RedirectsPage } from './redirects';
-import { ViewsPage } from './views';
 import { DownloadsPage } from './downloads';
 import { ProxyPage } from './proxy';
+import { RedirectsPage } from './redirects';
+import { ViewsPage } from './views';
 
 /**
  * Recent Activity deep links must actually FILTER the page they land on.

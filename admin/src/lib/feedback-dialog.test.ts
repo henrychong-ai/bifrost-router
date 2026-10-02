@@ -1,12 +1,12 @@
-import { assert, describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, assert, beforeEach, describe, expect, it, vi } from 'vitest';
+import { addBreadcrumb } from './capture';
 import {
+  FEEDBACK_OPEN_EVENT,
+  isFeedbackDialogOpen,
   openFeedbackDialog,
   setFeedbackDialogOpen,
-  isFeedbackDialogOpen,
-  FEEDBACK_OPEN_EVENT,
 } from './feedback-dialog';
 import { captureScreenshot } from './screenshot';
-import { addBreadcrumb } from './capture';
 
 vi.mock('./screenshot', () => ({
   captureScreenshot: vi.fn<() => Promise<Blob | null>>().mockResolvedValue(null),

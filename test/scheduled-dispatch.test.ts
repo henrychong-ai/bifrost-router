@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
 import { env } from 'cloudflare:test';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import worker from '../src/index';
 import type { Bindings } from '../src/types';
 

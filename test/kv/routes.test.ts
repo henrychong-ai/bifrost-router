@@ -1,20 +1,20 @@
-import { describe, it, expect, expectTypeOf, beforeEach, assert } from 'vitest';
 import { env } from 'cloudflare:test';
+import { assert, beforeEach, describe, expect, expectTypeOf, it } from 'vitest';
+import { matchRoute } from '../../src/kv/lookup';
 import {
   createRoute,
-  getRoute,
-  getRouteSafe,
+  deleteRoute,
   getAllRoutes,
   getAllRoutesAllDomains,
   getMetadata,
+  getRoute,
+  getRouteSafe,
   migrateRoute,
   parseRouteKey,
-  updateRoute,
-  deleteRoute,
   seedRoutes,
+  updateRoute,
 } from '../../src/kv/routes';
-import { SCHEMA_VERSION, routeKey } from '../../src/kv/schema';
-import { matchRoute } from '../../src/kv/lookup';
+import { routeKey, SCHEMA_VERSION } from '../../src/kv/schema';
 import { clearRoutes } from '../helpers';
 
 describe('routes', () => {

@@ -1,9 +1,10 @@
 /* oxlint-disable import/default -- Vite ?raw imports return a string as default export */
-import { describe, it, expect } from 'vitest';
+
 import { SUPPORTED_DOMAINS as SHARED_DOMAINS } from '@bifrost/shared';
-import { SUPPORTED_DOMAINS as WORKER_DOMAINS } from '../src/types';
+import { describe, expect, it } from 'vitest';
 import adminSource from '../admin/src/context/filter-types.ts?raw';
 import openapiSource from '../openapi/bifrost-api.yaml?raw';
+import { SUPPORTED_DOMAINS as WORKER_DOMAINS } from '../src/types';
 
 /**
  * Drift-detection test for SUPPORTED_DOMAINS.

@@ -1,4 +1,4 @@
-import { eq, gte, and, sql } from 'drizzle-orm';
+import { and, eq, gte, sql } from 'drizzle-orm';
 import { createDb } from '../db';
 import { insertAuditLog } from '../db/analytics';
 import { auditLogs, pollCursors } from '../db/schema';

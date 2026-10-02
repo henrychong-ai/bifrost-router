@@ -1,13 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EdgeRouterClient, Route } from '@bifrost/shared';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  listRoutes,
-  getRoute,
   createRoute,
-  updateRoute,
   deleteRoute,
-  toggleRoute,
+  getRoute,
   handleTransferRoute,
+  listRoutes,
+  toggleRoute,
+  updateRoute,
 } from './routes.js';
 
 describe('Route tool handlers', () => {

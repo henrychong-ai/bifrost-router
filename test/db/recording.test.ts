@@ -1,18 +1,18 @@
-import { describe, it, expect, beforeAll } from 'vitest';
 import { env } from 'cloudflare:test';
-import {
-  recordClick,
-  recordPageView,
-  recordFileDownload,
-  recordProxyRequest,
-  recordAuditLog,
-} from '../../src/db/analytics';
+import { beforeAll, describe, expect, it } from 'vitest';
 import type {
+  AuditLogData,
+  FileDownloadData,
   LinkClickData,
   PageViewData,
-  FileDownloadData,
   ProxyRequestData,
-  AuditLogData,
+} from '../../src/db/analytics';
+import {
+  recordAuditLog,
+  recordClick,
+  recordFileDownload,
+  recordPageView,
+  recordProxyRequest,
 } from '../../src/db/analytics';
 
 /**

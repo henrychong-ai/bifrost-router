@@ -14,22 +14,22 @@
  * D1 analytics are covered by Cloudflare D1 Time Travel (30-day PITR).
  */
 
-export { handleScheduled } from './scheduled';
-export { backupKV } from './kv';
-export { writeManifest } from './manifest';
 export { gzipCompress } from './compress';
 export { checkBackupHealth } from './health';
-export { sendBackupAlert } from './notifications';
-export type { BackupManifest, BackupResult, KVBackupResult } from './types';
 export type {
-  BackupHealthResponse,
-  BackupFileStatus,
-  HealthStatus,
   BackupAgeStatus,
-  HealthIssue,
-  ManifestSummary,
+  BackupFileStatus,
+  BackupHealthResponse,
   HealthCheckConfig,
   HealthChecks,
+  HealthIssue,
+  HealthStatus,
   LastBackupInfo,
+  ManifestSummary,
 } from './health-schemas';
 export { DEFAULT_HEALTH_CONFIG } from './health-schemas';
+export { backupKV } from './kv';
+export { writeManifest } from './manifest';
+export { sendBackupAlert } from './notifications';
+export { handleScheduled } from './scheduled';
+export type { BackupManifest, BackupResult, KVBackupResult } from './types';

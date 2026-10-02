@@ -1,7 +1,7 @@
 import { useContext } from 'react';
 import type { FilterState } from '@/components/filters';
 import { FilterContext } from './filter-context-value';
-import type { RoutesFilterState, AuditFilterState } from './filter-types';
+import type { AuditFilterState, RoutesFilterState } from './filter-types';
 
 /**
  * Hook to access filter context

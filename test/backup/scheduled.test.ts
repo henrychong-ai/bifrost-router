@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { handleScheduled } from '../../src/backup/scheduled';
-import type { Bindings } from '../../src/types';
 import type { BackupManifest } from '../../src/backup/types';
+import type { Bindings } from '../../src/types';
 
 /**
  * Clear all objects from the BACKUP_BUCKET

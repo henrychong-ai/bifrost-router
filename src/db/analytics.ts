@@ -1,14 +1,14 @@
-import { redactRouteTarget, redactAuditDetails } from '../utils/credential-redaction';
+import type { AuditAction, AuditSource } from '@bifrost/shared';
+import { redactAuditDetails, redactRouteTarget } from '../utils/credential-redaction';
 import { createDb } from './index';
 import {
+  auditLogs,
+  fileDownloads,
   linkClicks,
   pageViews,
-  fileDownloads,
   proxyRequests,
-  auditLogs,
   unifiedTrafficEvents,
 } from './schema';
-import type { AuditAction, AuditSource } from '@bifrost/shared';
 
 /**
  * Whether a served r2 response counts as a recordable download.

@@ -9,12 +9,12 @@
  */
 
 import {
-  redactSensitive,
   type FeedbackBreadcrumb,
   type FeedbackCaptureBundle,
   type FeedbackConsoleEntry,
   type FeedbackContext,
   type FeedbackNetworkEntry,
+  redactSensitive,
 } from '@bifrost/shared';
 
 const MAX_ENTRIES = 30;
