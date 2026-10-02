@@ -1,6 +1,6 @@
 name = "bifrost-slackbot"
 main = "src/index.ts"
-compatibility_date = "2025-01-01"
+compatibility_date = "2026-07-22"
 workers_dev = true
 
 # KV namespace for Slack user permissions

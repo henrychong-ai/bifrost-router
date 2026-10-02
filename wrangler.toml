@@ -1,6 +1,13 @@
 name = "bifrost-worker"
 main = "src/index.ts"
-compatibility_date = "2025-01-01"
+compatibility_date = "2026-07-22"
+# Held back from the 2026-07-22 date; every other flag it crosses is on.
+# TODO(deployment owner): the proxy handler forwards a visitor's Authorization
+# header and follows upstream redirects, so the new default (drop the header on
+# a cross-origin redirect) can change what a proxied upstream receives. Check
+# your proxy routes for an upstream that redirects to another origin and expects
+# the credential, then remove this line to take the Fetch-spec behaviour.
+compatibility_flags = ["retain_authorization_on_cross_origin_redirect"]
 workers_dev = false     # Disabled - using Custom Domain only
 preview_urls = false    # Disabled - not using CI/CD preview deployments
 

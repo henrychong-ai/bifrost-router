@@ -1,5 +1,5 @@
 /* eslint-disable */
-// Runtime types generated with workerd@1.20260910.1 2025-01-01 
+// Runtime types generated with workerd@1.20260910.1 2026-07-22 retain_authorization_on_cross_origin_redirect
 // Begin runtime types
 /*! *****************************************************************************
 Copyright (c) Cloudflare. All rights reserved.
@@ -317,6 +317,8 @@ interface ServiceWorkerGlobalScope extends WorkerGlobalScope {
     ByteLengthQueuingStrategy: typeof ByteLengthQueuingStrategy;
     CountQueuingStrategy: typeof CountQueuingStrategy;
     ErrorEvent: typeof ErrorEvent;
+    MessageChannel: typeof MessageChannel;
+    MessagePort: typeof MessagePort;
     EventSource: typeof EventSource;
     ReadableStreamBYOBRequest: typeof ReadableStreamBYOBRequest;
     ReadableStreamDefaultController: typeof ReadableStreamDefaultController;
@@ -420,6 +422,7 @@ interface TestController {
 interface ExecutionContext<Props = unknown> {
     waitUntil(promise: Promise<any>): void;
     passThroughOnException(): void;
+    readonly exports: Cloudflare.Exports;
     readonly props: Props;
     cache?: CacheContext;
     readonly access?: CloudflareAccessContext;
@@ -453,6 +456,8 @@ declare abstract class Navigator {
     readonly userAgent: string;
     readonly hardwareConcurrency: number;
     readonly platform: string;
+    readonly language: string;
+    readonly languages: string[];
 }
 interface AlarmInvocationInfo {
     readonly isRetry: boolean;
@@ -525,6 +530,7 @@ interface DurableObjectClass<_T extends Rpc.DurableObjectBranded | undefined = u
 }
 interface DurableObjectState<Props = unknown> {
     waitUntil(promise: Promise<any>): void;
+    readonly exports: Cloudflare.Exports;
     readonly props: Props;
     readonly id: DurableObjectId;
     readonly storage: DurableObjectStorage;
@@ -1657,7 +1663,7 @@ declare class Headers {
         value: string
     ]>;
 }
-type BodyInit = ReadableStream<Uint8Array> | string | ArrayBuffer | ArrayBufferView | Blob | URLSearchParams | FormData;
+type BodyInit = ReadableStream<Uint8Array> | string | ArrayBuffer | ArrayBufferView | Blob | URLSearchParams | FormData | Iterable<ArrayBuffer | ArrayBufferView> | AsyncIterable<ArrayBuffer | ArrayBufferView>;
 declare abstract class Body {
     /* [MDN Reference](https://developer.mozilla.org/docs/Web/API/Request/body) */
     get body(): ReadableStream | null;
@@ -1824,7 +1830,7 @@ interface Request<CfHostMetadata = unknown, Cf = CfProperties<CfHostMetadata>> e
      *
      * [MDN Reference](https://developer.mozilla.org/docs/Web/API/Request/cache)
      */
-    cache?: "no-store";
+    cache?: "no-store" | "no-cache";
 }
 interface RequestInit<Cf = CfProperties> {
     /* A string to set request's method. */
@@ -1838,7 +1844,7 @@ interface RequestInit<Cf = CfProperties> {
     fetcher?: (Fetcher | null);
     cf?: Cf;
     /* A string indicating how the request will interact with the browser's cache to set request's cache. */
-    cache?: "no-store";
+    cache?: "no-store" | "no-cache";
     /* A cryptographic hash of the resource to be fetched by request. Sets request's integrity. */
     integrity?: string;
     /* An AbortSignal to set request's signal. */
@@ -3092,6 +3098,12 @@ declare class URLPattern {
      */
     get hash(): string;
     /**
+     * The **`hasRegExpGroups`** read-only property of the URLPattern interface is a boolean indicating whether or not any of the URLPattern components contain regular expression capturing groups.
+     *
+     * [MDN Reference](https://developer.mozilla.org/docs/Web/API/URLPattern/hasRegExpGroups)
+     */
+    get hasRegExpGroups(): boolean;
+    /**
      * The **`test()`** method of the URLPattern interface takes a URL string or object of URL parts, and returns a boolean indicating if the given input matches the current pattern.
      *
      * [MDN Reference](https://developer.mozilla.org/docs/Web/API/URLPattern/test)
@@ -3480,6 +3492,26 @@ declare abstract class MessagePort extends EventTarget {
     start(): void;
     get onmessage(): any | null;
     set onmessage(value: any | null);
+}
+/**
+ * The **`MessageChannel`** interface of the Channel Messaging API allows us to create a new message channel and send data through it via its two MessagePort properties.
+ *
+ * [MDN Reference](https://developer.mozilla.org/docs/Web/API/MessageChannel)
+ */
+declare class MessageChannel {
+    constructor();
+    /**
+     * The **`port1`** read-only property of the MessageChannel interface returns the first port of the message channel — the port attached to the context that originated the channel.
+     *
+     * [MDN Reference](https://developer.mozilla.org/docs/Web/API/MessageChannel/port1)
+     */
+    readonly port1: MessagePort;
+    /**
+     * The **`port2`** read-only property of the MessageChannel interface returns the second port of the message channel — the port attached to the context at the other end of the channel, which the message is initially sent to.
+     *
+     * [MDN Reference](https://developer.mozilla.org/docs/Web/API/MessageChannel/port2)
+     */
+    readonly port2: MessagePort;
 }
 interface MessagePortPostMessageOptions {
     transfer?: any[];
