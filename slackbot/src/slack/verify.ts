@@ -91,7 +91,9 @@ function timingSafeEqual(a: string, b: string): boolean {
 
   let result = 0;
   for (let i = 0; i < aBytes.length; i++) {
-    result |= aBytes[i] ^ bBytes[i];
+    // A byte past the end of either array compares as 0, as it always did:
+    // `undefined` coerces to 0 in a bitwise operation.
+    result |= (aBytes[i] ?? 0) ^ (bBytes[i] ?? 0);
   }
 
   return result === 0;

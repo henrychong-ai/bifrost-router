@@ -228,6 +228,7 @@ adminRoutes.use('*', async (c, next) => {
     );
   }
   await next();
+  return;
 });
 
 /**

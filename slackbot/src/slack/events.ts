@@ -105,10 +105,11 @@ function parseCommand(text: string): ParsedCommand | null {
     if (match) {
       const domain = extractDomain(text);
       const type = text.includes('proxy') ? 'proxy' : 'redirect';
+      const routePath = requiredGroup(match, 1);
       return {
         action: 'create',
         domain,
-        path: match[1].startsWith('/') ? match[1] : `/${match[1]}`,
+        path: routePath.startsWith('/') ? routePath : `/${routePath}`,
         target: match[2],
         type,
       };
@@ -138,6 +139,20 @@ function parseCommand(text: string): ParsedCommand | null {
 }
 
 /**
+ * A capture group the pattern makes mandatory.
+ *
+ * A successful match always carries it, so the throw is unreachable. It stands
+ * in for the TypeError that dereferencing a missing group raised before.
+ */
+function requiredGroup(match: RegExpMatchArray, index: number): string {
+  const value = match[index];
+  if (value === undefined) {
+    throw new TypeError(`Command pattern matched without capture group ${index}`);
+  }
+  return value;
+}
+
+/**
  * Extract domain from text
  */
 function extractDomain(text: string): string | undefined {
@@ -154,7 +169,7 @@ function extractDomain(text: string): string | undefined {
   for (const pattern of patterns) {
     const match = text.match(pattern);
     if (match) {
-      return match[1].toLowerCase();
+      return requiredGroup(match, 1).toLowerCase();
     }
   }
 
@@ -187,7 +202,8 @@ function extractDays(text: string): number | undefined {
   // "last 7 days", "past 30 days", "7 days"
   const match = text.match(/(?:last|past)?\s*(\d+)\s*days?/i);
   if (match) {
-    const days = parseInt(match[1], 10);
+    // An absent group parses to NaN and falls through, as it always did.
+    const days = parseInt(match[1] ?? '', 10);
     if (days >= 1 && days <= 365) {
       return days;
     }

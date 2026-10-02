@@ -12,7 +12,7 @@ export class KVError extends Error {
     message: string,
     public readonly operation: 'read' | 'write' | 'delete' | 'list',
     public readonly key?: string,
-    public readonly cause?: Error,
+    public override readonly cause?: Error,
   ) {
     super(message);
     this.name = 'KVError';

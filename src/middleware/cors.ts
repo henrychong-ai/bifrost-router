@@ -156,5 +156,6 @@ export function cors(config: Partial<CorsConfig> = {}) {
     if (finalConfig.origins !== '*') {
       c.header('Vary', 'Origin');
     }
+    return;
   };
 }

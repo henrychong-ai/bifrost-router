@@ -245,6 +245,7 @@ export function CommandPalette() {
       document.addEventListener('keydown', handleEscape);
       return () => document.removeEventListener('keydown', handleEscape);
     }
+    return;
   }, [isOpen, resetAndClose]);
 
   const navigationCommands = commands.filter(c => c.group === 'navigation');
