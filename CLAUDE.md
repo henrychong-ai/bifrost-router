@@ -99,6 +99,11 @@ pnpm run deploy
 The secret-scanning action pins Gitleaks 8.30.1 to match the global
 `[[allowlists]]` configuration; the action default previously ignored those
 fixture exceptions. Keep exact fixture exceptions and secret detection active.
+The same scanner also runs locally: `.husky/pre-commit` scans the STAGED changes
+(`gitleaks git --staged --redact --config .gitleaks.toml`) and then runs
+lint-staged, reading the same `.gitleaks.toml` allowlists as CI. With no local
+`gitleaks` binary the hook warns and continues, so CI stays the enforcing gate
+(`brew install gitleaks`; keep it at the CI-pinned version).
 
 The only active workflow is `.github/workflows/ci.yml`, which is CI-only. The
 repository includes `.github/workflows/ci-cd.yml.example` as an opt-in template;
