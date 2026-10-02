@@ -40,7 +40,7 @@ bad shape rather than writing one out.)
 
 | Layer | Technology |
 |-------|------------|
-| Runtime | Cloudflare Workers, TypeScript, Hono |
+| Runtime | Cloudflare Workers, TypeScript 6.0 (`typescript@~6.0`), Hono |
 | Storage | KV (routes), D1 (analytics), R2 (files) |
 | Testing | Vitest + @cloudflare/vitest-pool-workers |
 | Dashboard | React 19 + Vite + Tailwind CSS + TanStack Query |
@@ -492,7 +492,7 @@ wrangler d1 time-travel info bifrost-analytics
 
 ## Dashboard
 
-React 19 SPA built with Vite 7, Tailwind CSS 4, shadcn/ui, TanStack Query, and React Router v7.
+React 19 SPA built with Vite 8, Tailwind CSS 4, shadcn/ui, TanStack Query, and React Router v8.
 
 ```bash
 pnpm --filter admin dev      # Dev server on port 3001
@@ -632,6 +632,24 @@ The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `sr
 **Oxlint override — vendored shadcn/ui (`admin/src/components/ui/**`):** `react/purity`, `jsx-a11y/no-noninteractive-tabindex`, and `no-shadow` are off there only; the generated components are kept as upstream ships them. Outside that directory all three stay on.
 
 **Oxlint override — vendored credential-policy test (`test/utils/credential-redaction.test.ts`):** `no-shadow` is off for this one file. It is byte-pinned by `credential-redaction.json` (`pnpm run redaction:check`), so neither a rename nor an inline disable comment can be applied locally; fix the shadowed `target` in the canonical copy when the policy is next revised.
+
+### TypeScript configuration
+
+**Compiler:** `typescript@~6.0` in all five packages. Never add it without the range: npm's `latest` tag is TypeScript 7, which has no compiler API for typescript-eslint (peer range `<6.1.0`).
+
+| Project | `exactOptionalPropertyTypes` | `noPropertyAccessFromIndexSignature` | `verbatimModuleSyntax` | `noUncheckedIndexedAccess` |
+|---|---|---|---|---|
+| Worker (`tsconfig.json`) | on | on | on | **off** (below) |
+| `shared`, `mcp`, `slackbot` | on | on | on | on |
+| `admin/tsconfig.app.json` | **off** (below) | on | on | on |
+| `admin/tsconfig.node.json` | on | on | on | on |
+
+- No tsconfig sets `baseUrl` (an error in TypeScript 7); `paths` is relative to the tsconfig. TypeScript 6 defaults `types` to `[]`, so every project lists its own.
+- **`exactOptionalPropertyTypes` is off for the dashboard app.** 43 findings: 39 need only the own-type widening below, but the other four pass possibly-undefined props to third-party components (Radix `Select` `value` twice, and the vendored shadcn `dropdown-menu` `checked` and `sonner` `theme`). Satisfying those means leaving React props out in vendored `components/ui/**` and relying on each library reading an omitted prop as it reads `undefined`, which no dashboard test renders.
+- **`noUncheckedIndexedAccess` is off for the Worker.** One of its 19 sites is in `src/utils/credential-redaction.ts`, which is byte-pinned (`pnpm run redaction:check`), and a compiler flag cannot be switched off for one file. Fix the canonical copy of the credential policy first, then turn the flag on.
+- **Fix convention under `exactOptionalPropertyTypes`:** an own interface that is handed `{ key: maybeUndefined }` declares `key?: T | undefined`; a platform option bag (KV `list`, `fetch` init, R2 `put`) has the key left out with `...(x !== undefined && { x })`. No casts.
+- **Vendored deviation:** `admin/src/components/ui/chart.tsx` reads `?.['fill']` (bracket form) for `noPropertyAccessFromIndexSignature`, because a compiler flag cannot be switched off for one file. Re-apply it if the component is regenerated.
+- **Keep `import.meta.env` reads dotted.** The two variables are declared on `ImportMetaEnv` in `admin/src/vite-env.d.ts`; a bracket read (`import.meta.env['VITE_X']`) makes Vite inline the whole env object instead of the one value.
 
 ### Dashboard architecture (not Workers Static Assets)
 

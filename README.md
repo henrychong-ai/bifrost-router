@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-1218%20passing-brightgreen)]()
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)](https://www.typescriptlang.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-6.0-blue)](https://www.typescriptlang.org/)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-orange)](https://workers.cloudflare.com/)
 
 > **For full technical specifications and architecture details, see [CLAUDE.md](CLAUDE.md). For version history, see [CHANGELOG.md](CHANGELOG.md).**
@@ -556,12 +556,12 @@ pnpm run deploy:dev   # Deploy to dev environment
 
 | Layer | Technology | Version |
 |-------|------------|---------|
-| **Language** | TypeScript | 5.9.3 |
-| **Framework** | [Hono](https://hono.dev/) | 4.13.7 |
+| **Language** | TypeScript | 6.0.3 |
+| **Framework** | [Hono](https://hono.dev/) | 4.13.12 |
 | **Runtime** | Cloudflare Workers | — |
-| **CLI** | Wrangler | 4.131.0 |
-| **Validation** | Zod | 4.6.2 |
-| **ORM** | Drizzle ORM | 0.45.2 |
+| **CLI** | Wrangler | 4.146.0 |
+| **Validation** | Zod | 4.6.5 |
+| **ORM** | Drizzle ORM | 0.45.3 |
 | **Storage** | Cloudflare KV | — |
 | **Database** | Cloudflare D1 (analytics) | — |
 | **Object Storage** | Cloudflare R2 | — |
