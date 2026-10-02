@@ -27,6 +27,32 @@ describe('stripHtmlCommentsFromHtml', () => {
     // A greedy `[\s\S]*` would swallow the <main> element between them.
     expect(stripHtmlCommentsFromHtml('<!-- a --><main/><!-- b -->')).toBe('<main/>');
   });
+
+  it('removes a comment that only forms once an inner comment is removed', () => {
+    // One pass removes `<!-- a -->` and leaves `<!-` + `-`, which reads as a new
+    // comment opener: the outer note would ship.
+    expect(stripHtmlCommentsFromHtml('<!-<!-- a -->- outer note --><p/>')).toBe('<p/>');
+  });
+
+  it('keeps going until no comment is left, however deeply one is nested', () => {
+    const html = '<!-<!-<!-- a -->- b -->- c --><p/>';
+    expect(stripHtmlCommentsFromHtml(html)).toBe('<p/>');
+  });
+
+  it('is stable: stripping its own output changes nothing', () => {
+    const once = stripHtmlCommentsFromHtml('<!-<!-- a -->- b --><p/><!--[if IE]><![endif]-->');
+    expect(stripHtmlCommentsFromHtml(once)).toBe(once);
+  });
+
+  it('refuses a comment that is never closed instead of shipping it', () => {
+    expect(() => stripHtmlCommentsFromHtml('<p/><!-- never closed <b/>')).toThrow(
+      /unterminated HTML comment/,
+    );
+  });
+
+  it('does not treat a preserved marker as unterminated', () => {
+    expect(stripHtmlCommentsFromHtml('<!--[--><span/>')).toBe('<!--[--><span/>');
+  });
 });
 
 describe('the shipped SPA shell', () => {
