@@ -101,6 +101,24 @@ export const UpdateRouteSchema = RouteConfigSchema.partial().required({
 });
 
 /**
+ * Request body of `POST /api/routes/transfer`.
+ *
+ * ⚠️ It gates TYPES only, on purpose. The handler keeps its own emptiness,
+ * leading-slash, route-path and supported-domain checks, each with its own
+ * message, so none of them is repeated here.
+ *
+ * `acknowledgeCredentialTarget` is deliberately NOT declared: the handler reads
+ * it off the RAW body, where anything other than a literal `true` already means
+ * "not acknowledged". Declaring it as a boolean would start refusing requests
+ * that are accepted today.
+ */
+export const TransferRouteRequestSchema = z.object({
+  path: z.string(),
+  fromDomain: z.string(),
+  toDomain: z.string(),
+});
+
+/**
  * Inferred types from Zod schemas
  */
 export type CreateRouteInput = z.infer<typeof CreateRouteSchema>;

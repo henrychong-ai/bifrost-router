@@ -3,7 +3,13 @@ import type { Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import type { AppEnv, KVRouteConfig } from '../types';
 import { SUPPORTED_DOMAINS, isValidDomain } from '../types';
-import { CreateRouteSchema, UpdateRouteSchema, SCHEMA_VERSION, routeKey } from '../kv/schema';
+import {
+  CreateRouteSchema,
+  UpdateRouteSchema,
+  TransferRouteRequestSchema,
+  SCHEMA_VERSION,
+  routeKey,
+} from '../kv/schema';
 import {
   getAllRoutes,
   getAllRoutesAllDomains,
@@ -1050,15 +1056,27 @@ adminRoutes.get('/metadata/og', async c => {
  * - toDomain: Destination domain (required)
  */
 adminRoutes.post('/routes/transfer', async c => {
-  const body = await c.req.json<{
-    path?: string;
-    fromDomain?: string;
-    toDomain?: string;
-    /** Request-only operator override; never stored. */
-    acknowledgeCredentialTarget?: boolean;
-  }>();
+  // The RAW body is kept: the request-only `acknowledgeCredentialTarget` flag
+  // is read from it below and is never part of the parsed shape.
+  const body: unknown = await c.req.json().catch(() => {
+    throw new HTTPException(400, { message: 'Invalid JSON body' });
+  });
 
-  const { path, fromDomain, toDomain } = body;
+  // Types first, before any lookup or mutation. The field checks below keep
+  // their own messages for a present-but-unusable value.
+  const result = TransferRouteRequestSchema.safeParse(body);
+  if (!result.success) {
+    return c.json(
+      {
+        success: false,
+        error: 'Validation failed',
+        details: result.error.issues,
+      },
+      400,
+    );
+  }
+
+  const { path, fromDomain, toDomain } = result.data;
 
   if (!path) {
     return c.json({ success: false, error: 'path is required' }, 400);

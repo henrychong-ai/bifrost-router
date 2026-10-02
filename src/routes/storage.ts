@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
+import type { ZodType } from 'zod';
 import type { AppEnv, Bindings } from '../types';
 import { ALL_BUCKET_BINDINGS } from '../types';
 import { validateR2Key } from '../utils/path-validation';
@@ -19,6 +20,9 @@ import {
   ALL_R2_BUCKETS,
   READ_ONLY_BUCKETS,
   CommentSchema,
+  R2MoveRequestSchema,
+  R2RenameRequestSchema,
+  R2UpdateMetadataRequestSchema,
   normalizeR2Key,
   redactSensitive,
 } from '@bifrost/shared';
@@ -83,6 +87,29 @@ function getActorInfo(c: { req: { header: (name: string) => string | undefined }
   const login = c.req.header('Tailscale-User-Login') || 'api-key';
   const name = c.req.header('Tailscale-User-Name') || null;
   return { login, name };
+}
+
+/**
+ * Read a JSON request body and check it against its schema.
+ *
+ * Malformed JSON and a body of the wrong shape both answer 400, and both are
+ * decided here — before the handler makes any R2 or D1 call. The handler's own
+ * checks (empty values, `validateR2Key`, bucket lookups) still run afterwards.
+ */
+async function parseJsonBody<T>(c: Context<AppEnv>, schema: ZodType<T>, what: string): Promise<T> {
+  const raw: unknown = await c.req.json().catch(() => {
+    throw new HTTPException(400, { message: 'Invalid JSON body' });
+  });
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const field = issue?.path.join('.');
+    const reason = issue?.message ?? 'validation failed';
+    throw new HTTPException(400, {
+      message: `Invalid ${what}: ${field ? `${field}: ${reason}` : reason}`,
+    });
+  }
+  return parsed.data;
 }
 
 export const storageRoutes = new Hono<AppEnv>();
@@ -527,7 +554,7 @@ storageRoutes.post('/:bucket/rename', async c => {
     throw new HTTPException(404, { message: `Bucket not found: ${bucketName}` });
   }
 
-  const { oldKey, newKey } = await c.req.json<{ oldKey: string; newKey: string }>();
+  const { oldKey, newKey } = await parseJsonBody(c, R2RenameRequestSchema, 'rename request');
 
   if (!oldKey || !newKey) {
     throw new HTTPException(400, { message: 'Both oldKey and newKey are required' });
@@ -645,11 +672,7 @@ storageRoutes.post('/:bucket/move', async c => {
     key,
     destinationBucket: destBucketName,
     destinationKey,
-  } = await c.req.json<{
-    key: string;
-    destinationBucket: string;
-    destinationKey?: string;
-  }>();
+  } = await parseJsonBody(c, R2MoveRequestSchema, 'move request');
 
   if (!key) {
     throw new HTTPException(400, { message: 'key is required' });
@@ -786,11 +809,11 @@ storageRoutes.put('/:bucket/metadata/:key{.+}', async c => {
     throw new HTTPException(400, { message: validation.error ?? 'Invalid R2 key' });
   }
 
-  const { contentType, cacheControl, contentDisposition } = await c.req.json<{
-    contentType?: string;
-    cacheControl?: string;
-    contentDisposition?: string;
-  }>();
+  const { contentType, cacheControl, contentDisposition } = await parseJsonBody(
+    c,
+    R2UpdateMetadataRequestSchema,
+    'metadata update',
+  );
 
   const copySizeLimit = getR2CopySizeLimit(c.env as Record<string, unknown>);
   const headResult = await bucket.head(validation.sanitizedKey);

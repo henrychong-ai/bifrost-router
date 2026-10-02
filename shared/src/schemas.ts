@@ -549,6 +549,35 @@ export const R2UpdateMetadataInputSchema = z.object({
 });
 
 /**
+ * REST request BODIES for the storage write endpoints — `POST /:bucket/rename`,
+ * `POST /:bucket/move` and `PUT /:bucket/metadata/:key`. Distinct from the
+ * `*InputSchema` MCP tool shapes above, which are snake_case and carry the
+ * bucket and key the REST API takes from the URL.
+ *
+ * ⚠️ They gate TYPES only, on purpose. The Worker's handlers keep their own
+ * emptiness, key-format (`validateR2Key`) and bucket checks, so no length,
+ * pattern or enum is repeated here — a second copy would only drift. They are
+ * plain `z.object`s, so an undeclared key is stripped, never rejected.
+ */
+export const R2RenameRequestSchema = z.object({
+  oldKey: z.string(),
+  newKey: z.string(),
+});
+
+export const R2MoveRequestSchema = z.object({
+  key: z.string(),
+  destinationBucket: z.string(),
+  // `null` reads the same as absent: keep the source key in the destination.
+  destinationKey: z.string().nullish(),
+});
+
+export const R2UpdateMetadataRequestSchema = z.object({
+  contentType: z.string().optional(),
+  cacheControl: z.string().optional(),
+  contentDisposition: z.string().optional(),
+});
+
+/**
  * update_object_comment tool input schema (v1.30.0, ported from upstream
  * v1.58.7). The `comment` field is REQUIRED — send null (or an empty string)
  * to clear the note. Mirrors the explicit-set semantics of
