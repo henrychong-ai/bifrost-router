@@ -47,11 +47,10 @@ const headers = {
 
 async function cfFetch(method, path, body) {
   const url = `${API_BASE}/zones/${zoneId}${path}`;
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  // GET and DELETE send no body at all, rather than an undefined one.
+  const init = { method, headers };
+  if (body) init.body = JSON.stringify(body);
+  const res = await fetch(url, init);
   const data = await res.json();
   if (!data.success) {
     const errors = data.errors?.map(e => e.message).join(', ') || 'Unknown';

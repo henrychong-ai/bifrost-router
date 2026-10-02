@@ -27,7 +27,7 @@
         "varsIgnorePattern": "^_"
       }
     ],
-    "typescript/no-explicit-any": "warn",
+    "typescript/no-explicit-any": "error",
     "typescript/consistent-type-imports": [
       "error",
       {
@@ -54,14 +54,11 @@
     ],
     "unicorn/no-null": "off",
     "vitest/require-mock-type-parameters": "off",
-    "react/hook-use-state": "off",
     "react/react-in-jsx-scope": "off",
     "no-underscore-dangle": "off",
     "unicorn/no-array-sort": "off",
     "unicorn/consistent-function-scoping": "off",
     "unicorn/prefer-add-event-listener": "off",
-    "import/default": "off",
-    "oxc/no-async-endpoint-handlers": "off",
     "promise/always-return": "off",
     "react/set-state-in-effect": "off",
     "react/exhaustive-effect-dependencies": "off",
@@ -82,9 +79,7 @@
     "drizzle",
     "coverage",
     "*.config.js",
-    "*.config.ts",
     "*.config.mjs",
-    "scripts/**",
     ".claude/worktrees/**"
   ],
   "overrides": [
@@ -100,6 +95,24 @@
       "files": ["test/utils/credential-redaction.test.ts"],
       "rules": {
         "no-shadow": "off"
+      }
+    },
+    {
+      "files": ["**/tests/setup.*", "**/test/setup.*", "**/*.setup.*", "**/setupTests.*"],
+      "rules": {
+        "import/no-unassigned-import": "off"
+      }
+    },
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx"],
+      "rules": {
+        "import/default": "off"
+      }
+    },
+    {
+      "files": ["src/**", "slackbot/src/**"],
+      "rules": {
+        "oxc/no-async-endpoint-handlers": "off"
       }
     }
   ]

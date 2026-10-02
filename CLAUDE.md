@@ -610,22 +610,31 @@ The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `sr
 **Biome** (formatter only, linter disabled). Config: `biome.json`.
 **Residual ESLint** in admin/ only for `eslint-plugin-react-refresh` (Vite HMR). Uses `eslint-plugin-oxlint` to avoid rule duplication. Relaxed rules for `src/components/ui/` (shadcn generated code).
 
-**Disabled Oxlint rules (intentional):**
-- `vitest/require-mock-type-parameters` — `vi.fn()` calls in tests are typed via `as unknown as Type` casts; adding type params is redundant
-- `react/hook-use-state` — `sidebar.tsx` uses `[_open, _setOpen]` (shadcn/ui internal state pattern); `filter-context.tsx` uses `[filters, setFiltersState]` to distinguish raw setter from wrapped API
-- `react/react-in-jsx-scope` — the dashboard uses the automatic JSX runtime; `React` need not be in scope
-- `no-underscore-dangle` — conflicts with the `_`-prefix convention that `no-unused-vars` relies on (`argsIgnorePattern`/`varsIgnorePattern` `^_`)
+**Lint scope:** `pnpm run lint` runs Oxlint over the whole workspace, `scripts/` included. `ignorePatterns` skips build and tool output (`dist`, `coverage`, `.wrangler`), generated code (`src/generated/**`), the `drizzle/` migrations, and `*.config.js`/`*.config.mjs` as in the team template; the TypeScript config files (`vite.config.ts`, `vitest.config.ts`, `drizzle.config.ts`) are linted.
+
+**Rule levels:** the team template's, with `typescript/no-explicit-any` at `error`. Rules in the `style` category (for example `react/hook-use-state`) are off with the category.
+
+**Oxlint rules off everywhere (each does not apply to this stack):**
+- `react/react-in-jsx-scope` — the dashboard uses the automatic JSX runtime (`"jsx": "react-jsx"`); `React` need not be in scope
+- `no-underscore-dangle` — it flags `const _unused`, the `_`-prefix convention that `no-unused-vars` allows (`argsIgnorePattern`/`varsIgnorePattern` `^_`)
 - `unicorn/no-null` — team-template default; `null` is a real value in JSON bodies, KV reads, and D1 rows
-- `unicorn/no-array-sort` — the fix (`.toSorted()`) would change deployed Worker code (`src/backup/health.ts`, `src/queue/r2-events.ts`) for a style preference; both runtime sites sort a freshly built array
-- `import/default` — false positive: the resolver cannot see the default (string) export of Vite `?raw` imports of `.ts`/`.tsx` files, used by source-pinning tests
-- `oxc/no-async-endpoint-handlers` — assumes Express, where a rejected async handler is unhandled; this is a Hono app, which awaits handlers and routes rejections to `app.onError`
-- `unicorn/consistent-function-scoping` — hoisting helpers out of their `describe`/handler scope is a readability trade, not a defect; mostly test-local helpers
-- `promise/always-return` — every hit is runtime code (`src/index.ts`, dashboard pages) with a deliberate side-effect-only `.then()`; adding returns there is not a lint-config change
-- `unicorn/prefer-add-event-listener` — `Image`/`FileReader` `onload`/`onerror` assignments in the dashboard; switching to `addEventListener` changes listener semantics (follow-up for the owner)
-- `react/set-state-in-effect` — the flagged effects need a UI state redesign (derived state / keyed reset), not a mechanical fix (follow-up)
-- `react/exhaustive-effect-dependencies` — changing dependency arrays changes when effects re-run (follow-up)
-- `jsx-a11y/label-has-associated-control` — wrapping-label false positives on shadcn `Input`/`Select`/`Switch`, plus sibling labels beside Radix Selects where adding `htmlFor` changes click behaviour (follow-up)
-- `jsx-a11y/prefer-tag-over-role` — replacing `role` with the native element changes markup and styling (follow-up)
+
+**Oxlint rules off pending a code fix on this branch:**
+- `vitest/require-mock-type-parameters`
+- `unicorn/no-array-sort`
+- `unicorn/consistent-function-scoping`
+- `promise/always-return`
+- `unicorn/prefer-add-event-listener`
+- `react/set-state-in-effect`
+- `react/exhaustive-effect-dependencies`
+- `jsx-a11y/label-has-associated-control`
+- `jsx-a11y/prefer-tag-over-role`
+
+**Oxlint override — test files (`**/*.test.ts`, `**/*.test.tsx`):** `import/default` is off. Source-pinning tests import a module's text with Vite's `?raw` suffix; the resolver follows the path to the `.ts` source and finds no default export there. Runtime code keeps the rule.
+
+**Oxlint override — Hono Workers (`src/**`, `slackbot/src/**`):** `oxc/no-async-endpoint-handlers` is off. The rule assumes Express, where a rejected async handler goes unhandled; Hono awaits every handler and routes a rejection to `app.onError`. The dashboard, MCP server and shared client keep the rule.
+
+**Oxlint override — test setup files:** `import/no-unassigned-import` is off for `test/setup.*`, `*.setup.*` and `setupTests.*`, as in the team template.
 
 **Oxlint rule options:** `vitest/expect-expect` takes `assertFunctionNames: ["expect", "expect*"]`, so a test asserting through a helper named `expect…` counts as having an assertion.
 
