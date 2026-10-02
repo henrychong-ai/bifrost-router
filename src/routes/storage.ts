@@ -14,8 +14,7 @@ import {
   carryFileComment,
   type FileCommentRecord,
 } from '../db/file-comments';
-import type { AuditAction } from '@bifrost/shared';
-import type { R2ObjectInfo, AllR2BucketName } from '@bifrost/shared';
+import type { AuditAction, R2ObjectInfo, AllR2BucketName } from '@bifrost/shared';
 import {
   ALL_R2_BUCKETS,
   READ_ONLY_BUCKETS,

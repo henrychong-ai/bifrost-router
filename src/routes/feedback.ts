@@ -48,6 +48,7 @@ import {
   redactSensitive,
   sanitizeFeedbackText,
   uuidv7,
+  type AuditAction,
   type FeedbackCaptureBundle,
   type FeedbackContext,
   type FeedbackItem,
@@ -62,7 +63,6 @@ import {
   type ListFeedbackFilters,
 } from '../db/feedback';
 import { recordAuditLog } from '../db/analytics';
-import type { AuditAction } from '@bifrost/shared';
 
 export const feedbackRoutes = new Hono<AppEnv>();
 

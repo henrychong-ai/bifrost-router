@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, assert } from 'vitest';
 import {
   KVError,
   KVReadError,
@@ -75,9 +75,8 @@ describe('withKVErrorHandling', () => {
     );
 
     expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data).toBe('success');
-    }
+    assert(result.success);
+    expect(result.data).toBe('success');
   });
 
   it('returns error result on failed operation', async () => {
@@ -89,10 +88,9 @@ describe('withKVErrorHandling', () => {
     );
 
     expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error).toBeInstanceOf(KVReadError);
-      expect(result.error.cause?.message).toBe('Original error');
-    }
+    assert(!result.success);
+    expect(result.error).toBeInstanceOf(KVReadError);
+    expect(result.error.cause?.message).toBe('Original error');
   });
 
   it('handles non-Error throws', async () => {
@@ -104,9 +102,8 @@ describe('withKVErrorHandling', () => {
     );
 
     expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error.cause?.message).toBe('string error');
-    }
+    assert(!result.success);
+    expect(result.error.cause?.message).toBe('string error');
   });
 });
 

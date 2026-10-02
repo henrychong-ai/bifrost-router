@@ -1,0 +1,106 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "typescript",
+    "unicorn",
+    "oxc",
+    "import",
+    "promise",
+    "node",
+    "vitest",
+    "react",
+    "jsx-a11y"
+  ],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "pedantic": "off",
+    "style": "off",
+    "restriction": "off",
+    "nursery": "off"
+  },
+  "rules": {
+    "no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_"
+      }
+    ],
+    "typescript/no-explicit-any": "warn",
+    "typescript/consistent-type-imports": [
+      "error",
+      {
+        "prefer": "type-imports"
+      }
+    ],
+    "import/no-duplicates": "error",
+    "import/no-cycle": "warn",
+    "import/no-self-import": "error",
+    "import/no-unassigned-import": [
+      "warn",
+      {
+        "allow": ["**/*.css"]
+      }
+    ],
+    "unicorn/filename-case": [
+      "error",
+      {
+        "cases": {
+          "kebabCase": true,
+          "pascalCase": true
+        }
+      }
+    ],
+    "unicorn/no-null": "off",
+    "vitest/require-mock-type-parameters": "off",
+    "react/hook-use-state": "off",
+    "react/react-in-jsx-scope": "off",
+    "no-underscore-dangle": "off",
+    "unicorn/no-array-sort": "off",
+    "unicorn/consistent-function-scoping": "off",
+    "unicorn/prefer-add-event-listener": "off",
+    "import/default": "off",
+    "oxc/no-async-endpoint-handlers": "off",
+    "promise/always-return": "off",
+    "react/set-state-in-effect": "off",
+    "react/exhaustive-effect-dependencies": "off",
+    "jsx-a11y/label-has-associated-control": "off",
+    "jsx-a11y/prefer-tag-over-role": "off",
+    "vitest/expect-expect": [
+      "error",
+      {
+        "assertFunctionNames": ["expect", "expect*"]
+      }
+    ]
+  },
+  "ignorePatterns": [
+    "dist",
+    "src/generated/**",
+    "node_modules",
+    ".wrangler",
+    "drizzle",
+    "coverage",
+    "*.config.js",
+    "*.config.ts",
+    "*.config.mjs",
+    "scripts/**",
+    ".claude/worktrees/**"
+  ],
+  "overrides": [
+    {
+      "files": ["admin/src/components/ui/**"],
+      "rules": {
+        "react/purity": "off",
+        "jsx-a11y/no-noninteractive-tabindex": "off",
+        "no-shadow": "off"
+      }
+    },
+    {
+      "files": ["test/utils/credential-redaction.test.ts"],
+      "rules": {
+        "no-shadow": "off"
+      }
+    }
+  ]
+}

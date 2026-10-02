@@ -11,20 +11,20 @@ import {
   usePrefetchAllDomainRoutes,
   routeKeys,
   useDebounce,
+  useCreateQr,
+  useQrCodes,
 } from '@/hooks';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRoutesFilters, SUPPORTED_DOMAINS, type SupportedDomain } from '@/context';
-import { QRDesignSchema, renderQrSvg, type QRDesign } from '@bifrost/shared';
+import { QRDesignSchema, renderQrSvg, getContentTypeFromKey, type QRDesign } from '@bifrost/shared';
 import { QrPreview } from '@/components/qr-preview';
 import { CredentialTargetDialog } from '@/components/credential-target-dialog';
 import { credentialTargetParametersFromError } from '@/lib/credential-target';
-import { useCreateQr, useQrCodes } from '@/hooks';
 import { downloadPng, downloadSvg } from '@/lib/svg-to-png';
 import type { Route, CreateRouteInput, UpdateRouteInput, R2BucketName } from '@/lib/schemas';
 import { R2_BUCKETS } from '@/lib/schemas';
 import { PaginationControls } from '@/components/pagination-controls';
 import { getPersistedPageSize, persistPageSize, getR2ObjectUrl } from '@/lib/constants';
-import { getContentTypeFromKey } from '@bifrost/shared';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -797,12 +797,12 @@ export function RoutesPage() {
   };
 
   const handleCreate = async (
-    data: CreateRouteInput,
+    input: CreateRouteInput,
     domain: string,
     acknowledgeCredentialTarget?: boolean,
   ) => {
     try {
-      await createRoute.mutateAsync({ data, domain, acknowledgeCredentialTarget });
+      await createRoute.mutateAsync({ data: input, domain, acknowledgeCredentialTarget });
       toast.success(`Route created successfully on ${domain}`);
       setCreateDialogOpen(false);
       setCredentialConfirm(null);
@@ -812,7 +812,7 @@ export function RoutesPage() {
         setCredentialConfirm({
           parameters,
           verb: 'Create',
-          retry: () => handleCreate(data, domain, true),
+          retry: () => handleCreate(input, domain, true),
         });
         return;
       }
@@ -824,7 +824,7 @@ export function RoutesPage() {
   };
 
   const handleUpdate = async (
-    data: UpdateRouteInput,
+    updates: UpdateRouteInput,
     pathChanged: boolean,
     newPath?: string,
     acknowledgeCredentialTarget?: boolean,
@@ -836,7 +836,7 @@ export function RoutesPage() {
       setMigrationConfirm({
         route: editRoute,
         newPath,
-        updates: data,
+        updates,
       });
       return;
     }
@@ -849,7 +849,7 @@ export function RoutesPage() {
     try {
       await updateRoute.mutateAsync({
         path: target.path,
-        data,
+        data: updates,
         domain: target.domain ?? filters.domain,
         acknowledgeCredentialTarget,
       });
@@ -862,7 +862,7 @@ export function RoutesPage() {
         setCredentialConfirm({
           parameters,
           verb: 'Save',
-          retry: () => handleUpdate(data, false, undefined, true),
+          retry: () => handleUpdate(updates, false, undefined, true),
         });
         return;
       }

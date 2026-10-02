@@ -390,14 +390,14 @@ describe('EdgeRouterClient', () => {
         json: async () => ({ success: false, error: 'Route not found' }),
       });
 
-      try {
-        await client.getRoute('/notfound', 'links.example.com');
-        expect.fail('Should have thrown');
-      } catch (error) {
-        expect(error).toBeInstanceOf(EdgeRouterError);
-        expect((error as EdgeRouterError).message).toBe('Route not found');
-        expect((error as EdgeRouterError).status).toBe(404);
-      }
+      // A resolved call yields the route, not an EdgeRouterError, so the
+      // instanceOf check below also fails the test when nothing is thrown.
+      const error = await client
+        .getRoute('/notfound', 'links.example.com')
+        .catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(EdgeRouterError);
+      expect((error as EdgeRouterError).message).toBe('Route not found');
+      expect((error as EdgeRouterError).status).toBe(404);
     });
 
     it('throws EdgeRouterError on parse failure', async () => {
@@ -410,14 +410,10 @@ describe('EdgeRouterClient', () => {
         },
       });
 
-      try {
-        await client.listRoutes('links.example.com');
-        expect.fail('Should have thrown');
-      } catch (error) {
-        expect(error).toBeInstanceOf(EdgeRouterError);
-        expect((error as EdgeRouterError).message).toContain('Failed to parse response');
-        expect((error as EdgeRouterError).status).toBe(500);
-      }
+      const error = await client.listRoutes('links.example.com').catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(EdgeRouterError);
+      expect((error as EdgeRouterError).message).toContain('Failed to parse response');
+      expect((error as EdgeRouterError).status).toBe(500);
     });
   });
 });

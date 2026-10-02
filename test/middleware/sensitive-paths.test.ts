@@ -13,6 +13,7 @@ describe('sensitive-paths middleware', () => {
     '/tsconfig.json',
     '/biome.json',
     '/oxlint.json',
+    '/.oxlintrc.json',
     '/Dockerfile',
     '/.DS_Store',
   ];
@@ -32,6 +33,10 @@ describe('sensitive-paths middleware', () => {
     it(`returns 404 for exact-match denied path: ${path}`, async () => {
       const response = await makeRequest(path);
       expect(response.status).toBe(404);
+      // The KV catch-all also answers 404, but with a `hint`; its absence
+      // proves the deny list — not the fall-through — produced this response.
+      const body = (await response.json()) as { hint?: string };
+      expect(body.hint).toBeUndefined();
     });
   }
 

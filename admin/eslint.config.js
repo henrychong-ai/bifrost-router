@@ -29,5 +29,5 @@ export default [
   },
 
   // eslint-plugin-oxlint MUST be last — disables rules Oxlint already covers
-  ...oxlint.buildFromOxlintConfigFile('../oxlint.json'),
+  ...oxlint.buildFromOxlintConfigFile('../.oxlintrc.json'),
 ];

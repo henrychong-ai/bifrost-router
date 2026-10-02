@@ -585,13 +585,32 @@ The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `sr
 
 ### Linting Architecture
 
-**Oxlint** (primary linter) with native plugins: import, promise, node, vitest, react, jsx-a11y. Config: `oxlint.json`.
+**Oxlint** (primary linter) with native plugins: typescript, unicorn, oxc, import, promise, node, vitest, react, jsx-a11y (the `plugins` list replaces Oxlint's defaults, so all are listed). Config: `.oxlintrc.json` — the only name Oxlint auto-discovers; it is found from the repo root and from `admin/`. The `style` category is off.
 **Biome** (formatter only, linter disabled). Config: `biome.json`.
 **Residual ESLint** in admin/ only for `eslint-plugin-react-refresh` (Vite HMR). Uses `eslint-plugin-oxlint` to avoid rule duplication. Relaxed rules for `src/components/ui/` (shadcn generated code).
 
 **Disabled Oxlint rules (intentional):**
 - `vitest/require-mock-type-parameters` — `vi.fn()` calls in tests are typed via `as unknown as Type` casts; adding type params is redundant
 - `react/hook-use-state` — `sidebar.tsx` uses `[_open, _setOpen]` (shadcn/ui internal state pattern); `filter-context.tsx` uses `[filters, setFiltersState]` to distinguish raw setter from wrapped API
+- `react/react-in-jsx-scope` — the dashboard uses the automatic JSX runtime; `React` need not be in scope
+- `no-underscore-dangle` — conflicts with the `_`-prefix convention that `no-unused-vars` relies on (`argsIgnorePattern`/`varsIgnorePattern` `^_`)
+- `unicorn/no-null` — team-template default; `null` is a real value in JSON bodies, KV reads, and D1 rows
+- `unicorn/no-array-sort` — the fix (`.toSorted()`) would change deployed Worker code (`src/backup/health.ts`, `src/queue/r2-events.ts`) for a style preference; both runtime sites sort a freshly built array
+- `import/default` — false positive: the resolver cannot see the default (string) export of Vite `?raw` imports of `.ts`/`.tsx` files, used by source-pinning tests
+- `oxc/no-async-endpoint-handlers` — assumes Express, where a rejected async handler is unhandled; this is a Hono app, which awaits handlers and routes rejections to `app.onError`
+- `unicorn/consistent-function-scoping` — hoisting helpers out of their `describe`/handler scope is a readability trade, not a defect; mostly test-local helpers
+- `promise/always-return` — every hit is runtime code (`src/index.ts`, dashboard pages) with a deliberate side-effect-only `.then()`; adding returns there is not a lint-config change
+- `unicorn/prefer-add-event-listener` — `Image`/`FileReader` `onload`/`onerror` assignments in the dashboard; switching to `addEventListener` changes listener semantics (follow-up for the owner)
+- `react/set-state-in-effect` — the flagged effects need a UI state redesign (derived state / keyed reset), not a mechanical fix (follow-up)
+- `react/exhaustive-effect-dependencies` — changing dependency arrays changes when effects re-run (follow-up)
+- `jsx-a11y/label-has-associated-control` — wrapping-label false positives on shadcn `Input`/`Select`/`Switch`, plus sibling labels beside Radix Selects where adding `htmlFor` changes click behaviour (follow-up)
+- `jsx-a11y/prefer-tag-over-role` — replacing `role` with the native element changes markup and styling (follow-up)
+
+**Oxlint rule options:** `vitest/expect-expect` takes `assertFunctionNames: ["expect", "expect*"]`, so a test asserting through a helper named `expect…` counts as having an assertion.
+
+**Oxlint override — vendored shadcn/ui (`admin/src/components/ui/**`):** `react/purity`, `jsx-a11y/no-noninteractive-tabindex`, and `no-shadow` are off there only; the generated components are kept as upstream ships them. Outside that directory all three stay on.
+
+**Oxlint override — vendored credential-policy test (`test/utils/credential-redaction.test.ts`):** `no-shadow` is off for this one file. It is byte-pinned by `credential-redaction.json` (`pnpm run redaction:check`), so neither a rename nor an inline disable comment can be applied locally; fix the shadowed `target` in the canonical copy when the policy is next revised.
 
 ### Dashboard architecture (not Workers Static Assets)
 

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, assert } from 'vitest';
 import {
   routeKey,
   parseRouteKey,
@@ -94,16 +94,15 @@ describe('RouteConfigSchema', () => {
         target: 'https://github.com/example-user',
       });
       expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.path).toBe('/github');
-        expect(result.data.type).toBe('redirect');
-        expect(result.data.target).toBe('https://github.com/example-user');
-        // Check defaults
-        expect(result.data.preserveQuery).toBe(true);
-        expect(result.data.enabled).toBe(true);
-        expect(result.data.forceDownload).toBe(false);
-        expect(result.data.preservePath).toBe(false);
-      }
+      assert(result.success);
+      expect(result.data.path).toBe('/github');
+      expect(result.data.type).toBe('redirect');
+      expect(result.data.target).toBe('https://github.com/example-user');
+      // Check defaults
+      expect(result.data.preserveQuery).toBe(true);
+      expect(result.data.enabled).toBe(true);
+      expect(result.data.forceDownload).toBe(false);
+      expect(result.data.preservePath).toBe(false);
     });
 
     it('accepts a proxy route', () => {
@@ -139,16 +138,15 @@ describe('RouteConfigSchema', () => {
         enabled: false,
       });
       expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.statusCode).toBe(301);
-        expect(result.data.preserveQuery).toBe(false);
-        expect(result.data.preservePath).toBe(true);
-        expect(result.data.cacheControl).toBe('public, max-age=3600');
-        expect(result.data.hostHeader).toBe('example.com');
-        expect(result.data.forceDownload).toBe(true);
-        expect(result.data.bucket).toBe('assets');
-        expect(result.data.enabled).toBe(false);
-      }
+      assert(result.success);
+      expect(result.data.statusCode).toBe(301);
+      expect(result.data.preserveQuery).toBe(false);
+      expect(result.data.preservePath).toBe(true);
+      expect(result.data.cacheControl).toBe('public, max-age=3600');
+      expect(result.data.hostHeader).toBe('example.com');
+      expect(result.data.forceDownload).toBe(true);
+      expect(result.data.bucket).toBe('assets');
+      expect(result.data.enabled).toBe(false);
     });
 
     it('accepts wildcard paths', () => {
@@ -324,11 +322,10 @@ describe('UpdateRouteSchema', () => {
       enabled: false,
     });
     expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.path).toBe('/update-test');
-      expect(result.data.target).toBe('https://updated.com');
-      expect(result.data.enabled).toBe(false);
-    }
+    assert(result.success);
+    expect(result.data.path).toBe('/update-test');
+    expect(result.data.target).toBe('https://updated.com');
+    expect(result.data.enabled).toBe(false);
   });
 });
 

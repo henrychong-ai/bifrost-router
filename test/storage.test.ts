@@ -171,9 +171,9 @@ describe('storage routes', () => {
       const data = await response.json();
       expect(data.success).toBe(true);
       expect(data.data.objects.length).toBe(1);
-      if (data.data.truncated) {
-        expect(data.data.cursor).toBeDefined();
-      }
+      // A truncated page must carry a cursor.
+      const cursorPresentWhenTruncated = !data.data.truncated || data.data.cursor !== undefined;
+      expect(cursorPresentWhenTruncated).toBe(true);
     });
 
     // --- Offset pagination mode (v1.29.0, mirrors the Routes tab) ---

@@ -314,10 +314,13 @@ describe('handleEvent', () => {
   describe('domain extraction', () => {
     it('should extract domain from "for domain" syntax', async () => {
       const event = createEvent('list routes for example.com');
-      await handleEvent(event, adminUser, mockClient, botToken);
+      const result = await handleEvent(event, adminUser, mockClient, botToken);
 
       // Note: User doesn't have example.com access, so this will fail
-      // but we can verify the domain was extracted
+      // but we can verify the domain was extracted: the denial names the
+      // extracted domain, not the user's default links.example.com.
+      expect(result).toContain('access to example.com,');
+      expect(mockClient.listRoutes).not.toHaveBeenCalled();
     });
 
     it('should extract links.example.com domain', async () => {

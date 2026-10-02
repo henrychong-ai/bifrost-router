@@ -133,12 +133,9 @@ describe('handleProxy', () => {
   });
 
   describe('path handling', () => {
-    // Note: Actual proxy tests require mocking fetch or using a real server
-    // These tests verify the validation layer works correctly
+    // Note: the upstream fetch is stubbed, so no network is touched.
 
     it('handles wildcard path extraction logic', async () => {
-      // This would need network mocking to fully test
-      // For now, we verify the validation passes for valid URLs
       const app = new Hono<AppEnv>();
       const route: KVRouteConfig = {
         path: '/api/*',
@@ -148,12 +145,23 @@ describe('handleProxy', () => {
         updatedAt: Date.now(),
       };
 
-      // Validation should pass (it's a valid public URL)
-      // The actual fetch will fail in test environment but that's expected
       app.get('/api/*', c => handleProxy(c, route));
 
-      // We can't easily test the actual proxy behavior without network mocks
-      // but we've verified validation works in other tests
+      let upstreamUrl = '';
+      const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+        upstreamUrl =
+          typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+        return new Response('ok', { status: 200 });
+      });
+      const response = await app
+        .fetch(new Request('http://localhost/api/users'), env)
+        .finally(() => spy.mockRestore());
+
+      // Validation passes (it's a valid public URL), so the request reaches the
+      // upstream instead of the 502 validation_error path, and the wildcard
+      // remainder is appended to the target.
+      expect(response.status).toBe(200);
+      expect(upstreamUrl).toBe('https://api.example.com/users');
     });
   });
 

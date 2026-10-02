@@ -608,12 +608,11 @@ Two R2 security improvements identified during review.
 
     test('every version with a subtitle also has body content', () => {
       for (const v of versions) {
-        if (v.subtitle) {
-          const hasContent = v.sections.some(s => s.items.length > 0);
-          expect(hasContent, `v${v.version} has subtitle "${v.subtitle}" but no body content`).toBe(
-            true,
-          );
-        }
+        if (!v.subtitle) continue;
+        const hasContent = v.sections.some(s => s.items.length > 0);
+        expect(hasContent, `v${v.version} has subtitle "${v.subtitle}" but no body content`).toBe(
+          true,
+        );
       }
     });
 
@@ -688,21 +687,19 @@ Two R2 security improvements identified during review.
 
       for (const v of olderVersions) {
         const allItems = v.sections.flatMap(s => s.items);
-        if (allItems.length > 1) {
-          const allBold = allItems.every(i => i.isBold);
-          // Most older versions have a mix of bold and plain items
-          // We check that at least some versions have plain items
-          if (allBold) {
-            // This is acceptable for some versions that only have bold bullets
-            // but the majority should have mixed content
-            continue;
-          }
-          const plainCount = allItems.filter(i => !i.isBold).length;
-          expect(
-            plainCount,
-            `v${v.version} should have some non-bold items`,
-          ).toBeGreaterThanOrEqual(1);
+        if (allItems.length <= 1) continue;
+        const allBold = allItems.every(i => i.isBold);
+        // Most older versions have a mix of bold and plain items
+        // We check that at least some versions have plain items
+        if (allBold) {
+          // This is acceptable for some versions that only have bold bullets
+          // but the majority should have mixed content
+          continue;
         }
+        const plainCount = allItems.filter(i => !i.isBold).length;
+        expect(plainCount, `v${v.version} should have some non-bold items`).toBeGreaterThanOrEqual(
+          1,
+        );
       }
     });
   });

@@ -214,7 +214,7 @@ describe('shouldRecordFileDownload (unit)', () => {
     // Only GET delivers a representation to a reader. Anything else reaching
     // this gate with a 200 is not a download.
     for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) {
-      expect(shouldRecordFileDownload({ type: 'r2' }, 200, method), method).toBe(false);
+      expect(shouldRecordFileDownload({ type: 'r2' }, 200, method), `method ${method}`).toBe(false);
     }
   });
 

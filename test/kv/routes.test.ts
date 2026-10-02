@@ -1,4 +1,4 @@
-import { describe, it, expect, expectTypeOf, beforeEach } from 'vitest';
+import { describe, it, expect, expectTypeOf, beforeEach, assert } from 'vitest';
 import { env } from 'cloudflare:test';
 import {
   createRoute,
@@ -243,18 +243,16 @@ describe('getRouteSafe', () => {
 
     const result = await getRouteSafe(env.ROUTES, testDomain, '/existing');
     expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data).not.toBeNull();
-      expect(result.data?.path).toBe('/existing');
-    }
+    assert(result.success);
+    expect(result.data).not.toBeNull();
+    expect(result.data?.path).toBe('/existing');
   });
 
   it('returns success with null when route not found', async () => {
     const result = await getRouteSafe(env.ROUTES, testDomain, '/nonexistent');
     expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data).toBeNull();
-    }
+    assert(result.success);
+    expect(result.data).toBeNull();
   });
 
   it('retrieves route by exact path', async () => {
@@ -267,10 +265,9 @@ describe('getRouteSafe', () => {
     // getRouteSafe uses the path key as-is; exact match required
     const result = await getRouteSafe(env.ROUTES, testDomain, '/normalized');
     expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data).not.toBeNull();
-      expect(result.data?.path).toBe('/normalized');
-    }
+    assert(result.success);
+    expect(result.data).not.toBeNull();
+    expect(result.data?.path).toBe('/normalized');
   });
 });
 

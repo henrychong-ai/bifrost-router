@@ -15,7 +15,7 @@ import {
 } from '@/hooks';
 import { storageApi } from '@/lib/api-client';
 import type { R2ObjectInfo, R2MetadataUpdate, StorageListParams } from '@/lib/api-client';
-import { formatBytes } from '@/lib/utils';
+import { formatBytes, copyToClipboard } from '@/lib/utils';
 import { getR2ObjectUrl, getPersistedPageSize, persistPageSize } from '@/lib/constants';
 import { PaginationControls } from '@/components/pagination-controls';
 import { normalizeR2Key } from '@bifrost/shared';
@@ -87,7 +87,6 @@ import {
   Copy,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { copyToClipboard } from '@/lib/utils';
 import { CommentTextarea, CommentIndicator } from '@/components/comment-field';
 
 const MAX_UPLOAD_SIZE = 100 * 1024 * 1024; // 100MB

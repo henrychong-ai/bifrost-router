@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, assert } from 'vitest';
 import {
   RoutePathSchema,
   R2UpdateCommentInputSchema,
@@ -376,9 +376,8 @@ describe('R2UpdateCommentInputSchema (v1.30.0 — nullable-boundary semantics)',
       comment: 'null',
     });
     expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.comment).toBe('null');
-    }
+    assert(result.success);
+    expect(result.data.comment).toBe('null');
   });
 
   it('rejects an omitted comment field (explicit-set semantics — absence is never a clear)', () => {

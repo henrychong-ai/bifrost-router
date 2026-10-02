@@ -36,6 +36,7 @@ const DENIED_EXACT_PATHS = new Set<string>([
   '/.eslintrc.json',
   '/biome.json',
   '/oxlint.json',
+  '/.oxlintrc.json',
   '/tsconfig.json',
   '/dockerfile',
   '/docker-compose.yml',

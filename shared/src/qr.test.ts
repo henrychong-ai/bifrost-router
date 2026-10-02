@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, assert } from 'vitest';
 import {
   QR_TYPES,
   QR_ID_REGEX,
@@ -82,10 +82,9 @@ describe('qr contract', () => {
     it('applies auth + hidden defaults', () => {
       const result = WifiPayloadSchema.safeParse({ ssid: 'Office', password: 'secret' });
       expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.auth).toBe('WPA');
-        expect(result.data.hidden).toBe(false);
-      }
+      assert(result.success);
+      expect(result.data.auth).toBe('WPA');
+      expect(result.data.hidden).toBe(false);
     });
 
     it('requires a password unless auth is nopass', () => {
@@ -184,14 +183,13 @@ describe('qr contract', () => {
         hidden: true,
       });
       expect(legacy.success).toBe(true);
-      if (legacy.success) {
-        expect(legacy.data).toEqual({
-          ssid: 'Office',
-          auth: 'WPA',
-          password: 'secret',
-          hidden: true,
-        });
-      }
+      assert(legacy.success);
+      expect(legacy.data).toEqual({
+        ssid: 'Office',
+        auth: 'WPA',
+        password: 'secret',
+        hidden: true,
+      });
     });
   });
 
@@ -416,9 +414,8 @@ describe('qr contract', () => {
         linkedRoute: { domain: 'links.example.com', path: '/github' },
       });
       expect(result.success).toBe(true);
-      if (result.success && result.data.type === 'url') {
-        expect(result.data.linkedRoute).toEqual({ domain: 'links.example.com', path: '/github' });
-      }
+      assert(result.success && result.data.type === 'url');
+      expect(result.data.linkedRoute).toEqual({ domain: 'links.example.com', path: '/github' });
     });
 
     it('applies design sub-defaults when design is partially provided', () => {
@@ -428,15 +425,14 @@ describe('qr contract', () => {
         design: { fg: '#ff0000' },
       });
       expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.design).toEqual({
-          fg: '#ff0000',
-          bg: '#ffffff',
-          size: 512,
-          margin: 4,
-          errorCorrection: 'M',
-        });
-      }
+      assert(result.success);
+      expect(result.data.design).toEqual({
+        fg: '#ff0000',
+        bg: '#ffffff',
+        size: 512,
+        margin: 4,
+        errorCorrection: 'M',
+      });
     });
   });
 
@@ -444,9 +440,8 @@ describe('qr contract', () => {
     it('accepts an empty patch and injects NO defaults (omitted = unchanged)', () => {
       const result = UpdateQRInputSchema.safeParse({});
       expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data).toEqual({});
-      }
+      assert(result.success);
+      expect(result.data).toEqual({});
     });
 
     it('accepts single-field patches', () => {
@@ -459,9 +454,8 @@ describe('qr contract', () => {
     it('accepts linkedRoute: null to clear the link', () => {
       const result = UpdateQRInputSchema.safeParse({ linkedRoute: null });
       expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.linkedRoute).toBeNull();
-      }
+      assert(result.success);
+      expect(result.data.linkedRoute).toBeNull();
     });
 
     it('accepts any record-shaped payload at the wire (handler validates per type)', () => {
@@ -493,10 +487,9 @@ describe('qr contract', () => {
     it('coerces string offset/limit and defaults offset to 0', () => {
       const result = QRListQuerySchema.safeParse({ offset: '5', limit: '10' });
       expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.offset).toBe(5);
-        expect(result.data.limit).toBe(10);
-      }
+      assert(result.success);
+      expect(result.data.offset).toBe(5);
+      expect(result.data.limit).toBe(10);
       const defaults = QRListQuerySchema.parse({});
       expect(defaults.offset).toBe(0);
       expect(defaults.limit).toBeUndefined();
