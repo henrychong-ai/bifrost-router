@@ -1,5 +1,26 @@
+import { fileURLToPath } from 'node:url';
 import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
 import { defineConfig } from 'vitest/config';
+import { unstable_readConfig } from 'wrangler';
+
+// The compatibility date and flags come from the DEPLOYED config, never from
+// this file, so a test cannot pass on runtime behaviour production lacks. Only
+// those two settings are read: pointing the pool at `wrangler.toml` wholesale
+// would pull in every production binding and variable.
+//
+// ⚠️ One difference cannot be closed here. The pool force-enables Node.js
+// compatibility on its own runner (the test framework needs it inside workerd),
+// and the Worker under test shares that runner — so a `node:` import or a
+// `process`/`Buffer` read in `src/` passes here whatever the flags say. What
+// keeps Node APIs out of the Worker is the Wrangler build: with no
+// `nodejs_compat` in `wrangler.toml`, `pnpm run wrangler:check` (part of
+// `pnpm check` and CI) fails on a `node:` import.
+const wranglerConfig = unstable_readConfig({
+  config: fileURLToPath(new URL('./wrangler.toml', import.meta.url)),
+});
+if (!wranglerConfig.compatibility_date) {
+  throw new Error('wrangler.toml declares no compatibility_date for the test pool to use');
+}
 
 export default defineConfig({
   // vitest-pool-workers 0.18 (vitest 4): workers options moved from
@@ -10,8 +31,8 @@ export default defineConfig({
     cloudflareTest({
       main: './src/index.ts',
       miniflare: {
-        compatibilityDate: '2025-01-01',
-        compatibilityFlags: ['nodejs_compat'],
+        compatibilityDate: wranglerConfig.compatibility_date,
+        compatibilityFlags: wranglerConfig.compatibility_flags,
         bindings: {
           ENVIRONMENT: 'development',
           ADMIN_API_KEY: 'test-api-key-12345', // gitleaks:allow
