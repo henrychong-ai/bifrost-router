@@ -44,7 +44,7 @@ bad shape rather than writing one out.)
 | Storage | KV (routes), D1 (analytics), R2 (files) |
 | Testing | Vitest + @cloudflare/vitest-pool-workers |
 | Dashboard | React 19 + Vite + Tailwind CSS + TanStack Query |
-| Linting | Oxlint (primary) + Biome (formatter) + residual ESLint (admin only) |
+| Linting | Oxlint (with type-aware rules) + Biome (formatter, import sorting) |
 
 ## Commands
 
@@ -497,7 +497,7 @@ React 19 SPA built with Vite 8, Tailwind CSS 4, shadcn/ui, TanStack Query, and R
 ```bash
 pnpm --filter admin dev      # Dev server on port 3001
 pnpm --filter admin build    # Production build
-pnpm -C admin lint           # Lint (oxlint + residual ESLint)
+pnpm -C admin lint           # Lint (oxlint)
 ```
 
 **Environment variables:** `VITE_API_URL` (API base URL), `VITE_ADMIN_API_KEY` (admin API key)
@@ -608,7 +608,7 @@ The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `sr
 
 **Oxlint** (primary linter) with native plugins: typescript, unicorn, oxc, import, promise, node, vitest, react, jsx-a11y (the `plugins` list replaces Oxlint's defaults, so all are listed). Config: `.oxlintrc.json` — the only name Oxlint auto-discovers; it is found from the repo root and from `admin/`. The `style` category is off.
 **Biome** (formatter only, linter disabled). Config: `biome.json`.
-**Residual ESLint** in admin/ only for `eslint-plugin-react-refresh` (Vite HMR). Uses `eslint-plugin-oxlint` to avoid rule duplication. Relaxed rules for `src/components/ui/` (shadcn generated code).
+**No ESLint.** React Fast Refresh's check is Oxlint's `react/only-export-components` (with `allowConstantExport`), so the dashboard needs no residual ESLint; the rule is off in the vendored `admin/src/components/ui/**`.
 
 **Lint scope:** `pnpm run lint` runs Oxlint over the whole workspace, `scripts/` included. `ignorePatterns` skips build and tool output (`dist`, `coverage`, `.wrangler`), generated code (`src/generated/**`), the `drizzle/` migrations, and `*.config.js`/`*.config.mjs` as in the team template; the TypeScript config files (`vite.config.ts`, `vitest.config.ts`, `drizzle.config.ts`) are linted.
 
@@ -638,7 +638,7 @@ The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `sr
 
 **Oxlint rule options:** `vitest/expect-expect` takes `assertFunctionNames: ["expect", "expect*"]`, so a test asserting through a helper named `expect…` counts as having an assertion. `jsx-a11y/label-has-associated-control` takes `controlComponents: ["Input", "Select", "Switch"]` and `depth: 3`, so a `<label>` wrapping a shadcn control counts as associated; a sibling label needs `htmlFor` and the control an `id` (on a Select, the `SelectTrigger`).
 
-**Oxlint override — vendored shadcn/ui (`admin/src/components/ui/**`):** `react/purity`, `jsx-a11y/no-noninteractive-tabindex`, `no-shadow`, and the type-aware `typescript/no-unnecessary-type-assertion`, `typescript/no-unnecessary-type-conversion` and `typescript/no-unnecessary-template-expression` are off there only; the generated components are kept as upstream ships them. Outside that directory all six stay on.
+**Oxlint override — vendored shadcn/ui (`admin/src/components/ui/**`):** `react/purity`, `react/only-export-components`, `jsx-a11y/no-noninteractive-tabindex`, `no-shadow`, and the type-aware `typescript/no-unnecessary-type-assertion`, `typescript/no-unnecessary-type-conversion` and `typescript/no-unnecessary-template-expression` are off there only; the generated components are kept as upstream ships them. Outside that directory all seven stay on.
 
 **Oxlint override — vendored credential-policy test (`test/utils/credential-redaction.test.ts`):** `no-shadow` is off for this one file. It is byte-pinned by `credential-redaction.json` (`pnpm run redaction:check`), so neither a rename nor an inline disable comment can be applied locally; fix the shadowed `target` in the canonical copy when the policy is next revised.
 

@@ -43,7 +43,6 @@ openapitools.json
 # and admin/scripts/ stay in context (stage-1 COPYs them).
 admin/Dockerfile*
 admin/docker-compose*.yml
-admin/eslint.config.js
 admin/vitest.config.ts
 admin/README.md
 admin/dist

@@ -67,10 +67,8 @@ export { useDebounce } from './use-debounce';
 export { useKeyboardShortcut, getModifierKey } from './use-keyboard-shortcuts';
 
 // Command palette
-export {
-  CommandPaletteProvider,
-  useCommandPalette,
-} from './use-command-palette';
+export { CommandPaletteProvider } from './command-palette-provider';
+export { useCommandPalette } from './use-command-palette';
 
 // Feedback hooks
 export {

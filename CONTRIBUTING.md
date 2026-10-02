@@ -22,7 +22,7 @@ See the [Fork & Deploy Guide](README.md#fork--deploy-guide) in the README for fu
 ## Code Style
 
 - TypeScript throughout
-- ESLint 9 flat config — run `pnpm run lint:fix` to auto-fix
+- Oxlint lints and Biome formats — `pnpm run lint:fix` and `pnpm run format` fix what they can
 - Tests required for new features and bug fixes
 - See [CLAUDE.md](CLAUDE.md) for architecture details and coding conventions
 
