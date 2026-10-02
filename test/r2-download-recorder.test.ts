@@ -42,6 +42,17 @@ async function countDownloads(path: string): Promise<number> {
   return row?.n ?? 0;
 }
 
+async function seed(path: string, key: string, body = 'abcdefghij'): Promise<void> {
+  await seedR2Object(key, body, 'text/plain');
+  await seedRoute({
+    path,
+    type: 'r2',
+    target: key,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+}
+
 describe('R2 serve path against a real R2 binding', () => {
   beforeAll(async () => {
     await createFileDownloadsTable();
@@ -52,17 +63,6 @@ describe('R2 serve path against a real R2 binding', () => {
     await clearR2();
     await env.DB.prepare('DELETE FROM file_downloads').run();
   });
-
-  async function seed(path: string, key: string, body = 'abcdefghij'): Promise<void> {
-    await seedR2Object(key, body, 'text/plain');
-    await seedRoute({
-      path,
-      type: 'r2',
-      target: key,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-  }
 
   it('records a download for a full 200', async () => {
     await seed('/rec-full', 'recorder/full.txt');

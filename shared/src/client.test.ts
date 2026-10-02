@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EdgeRouterClient, EdgeRouterError, createClientFromEnv } from './client.js';
 
+const okJson = (data: unknown) => ({ ok: true, json: async () => ({ success: true, data }) });
+
+const okText = (text: string) => ({ ok: true, text: async () => text });
+
 describe('EdgeRouterClient', () => {
   const mockFetch = vi.fn();
   let client: EdgeRouterClient;
@@ -279,14 +283,12 @@ describe('EdgeRouterClient', () => {
     });
   });
 
+  const calledUrl = () => String(mockFetch.mock.calls[0][0]);
+  const calledMethod = () => (mockFetch.mock.calls[0][1] as { method: string }).method;
+
   // v1.35.0 — every domain-bearing method sends exactly the domain it is given
   // and nothing else: there is no client-level default to fall back to.
   describe('domain pass-through on migrate, views and QR methods', () => {
-    const okJson = (data: unknown) => ({ ok: true, json: async () => ({ success: true, data }) });
-    const okText = (text: string) => ({ ok: true, text: async () => text });
-    const calledUrl = () => String(mockFetch.mock.calls[0][0]);
-    const calledMethod = () => (mockFetch.mock.calls[0][1] as { method: string }).method;
-
     it('migrateRoute posts oldPath, newPath and the given domain as query params', async () => {
       mockFetch.mockResolvedValueOnce(okJson({ path: '/new', domain: 'links.example.com' }));
       await client.migrateRoute('/old', '/new', 'links.example.com');
@@ -494,6 +496,11 @@ describe('createClientFromEnv', () => {
   });
 });
 
+const okRoute = () => ({
+  ok: true,
+  json: async () => ({ success: true, data: { path: '/x' } }),
+});
+
 describe('EdgeRouterClient credential-target acknowledgement and changelog', () => {
   const mockFetch = vi.fn();
   let client: EdgeRouterClient;
@@ -505,11 +512,6 @@ describe('EdgeRouterClient credential-target acknowledgement and changelog', () 
       apiKey: 'test-api-key',
       fetch: mockFetch,
     });
-  });
-
-  const okRoute = () => ({
-    ok: true,
-    json: async () => ({ success: true, data: { path: '/x' } }),
   });
 
   const sentBody = () => JSON.parse(mockFetch.mock.calls[0][1].body as string);

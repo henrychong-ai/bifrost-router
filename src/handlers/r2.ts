@@ -27,22 +27,26 @@ const PRECONDITION_HEADERS = [
   'if-unmodified-since',
 ] as const;
 
+/** An entity-tag's opaque value: no surrounding whitespace, `W/` prefix or quotes. */
+function normalizeEntityTag(raw: string): string {
+  return raw.trim().replace(/^W\//, '').replace(/^"|"$/g, '');
+}
+
 /** Compare one entity-tag against an If-Match / If-None-Match list value. */
 function etagListMatches(
   headerValue: string,
   etag: string,
   comparison: 'strong' | 'weak',
 ): boolean {
-  const normalize = (raw: string) => raw.trim().replace(/^W\//, '').replace(/^"|"$/g, '');
   const targetIsWeak = etag.trim().startsWith('W/');
-  const target = normalize(etag);
+  const target = normalizeEntityTag(etag);
   return headerValue.split(',').some(raw => {
     const candidate = raw.trim();
     if (candidate === '*') return true;
     // RFC 9110 §13.1.1: If-Match uses STRONG comparison — a weak tag on either
     // side never matches. If-None-Match (§13.1.2) uses the weak function.
     if (comparison === 'strong' && (candidate.startsWith('W/') || targetIsWeak)) return false;
-    return normalize(candidate) === target;
+    return normalizeEntityTag(candidate) === target;
   });
 }
 

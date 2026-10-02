@@ -5,14 +5,14 @@ import {
   credentialTargetParametersFromError,
 } from './credential-target';
 
+const refusal = (details: unknown) => new ApiError(400, ROUTE_TARGET_CREDENTIAL_CODE, details);
+
 /**
  * The dashboard turns the server's machine CODE into its own confirmation, so
  * all it needs from the refusal is the parameter NAMES. The values are never
  * sent and must never be required.
  */
 describe('credentialTargetParametersFromError', () => {
-  const refusal = (details: unknown) => new ApiError(400, ROUTE_TARGET_CREDENTIAL_CODE, details);
-
   test('returns the parameter names from a genuine refusal', () => {
     expect(credentialTargetParametersFromError(refusal({ parameters: ['token', 'code'] }))).toEqual(
       ['token', 'code'],

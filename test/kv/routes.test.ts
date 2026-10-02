@@ -168,11 +168,11 @@ describe('routes', () => {
     });
   });
 
-  describe('update keeps the stored type and target', () => {
-    async function storedRecord(): Promise<Record<string, unknown> | null> {
-      return env.ROUTES.get(routeKey(testDomain, '/test-route'), 'json');
-    }
+  async function storedRecord(): Promise<Record<string, unknown> | null> {
+    return env.ROUTES.get(routeKey(testDomain, '/test-route'), 'json');
+  }
 
+  describe('update keeps the stored type and target', () => {
     beforeEach(async () => {
       await createRoute(env.ROUTES, testDomain, {
         path: '/test-route',

@@ -25,6 +25,31 @@ const testEnv = { ...env, ADMIN_API_DOMAIN: 'example.com' };
 
 let ipCounter = 0;
 
+function jsonReq(
+  method: string,
+  url: string,
+  body?: object,
+  apiKey: string | null = VALID_KEY,
+): Request {
+  const headers: Record<string, string> = {};
+  if (apiKey) headers['X-Admin-Key'] = apiKey;
+  if (body) headers['Content-Type'] = 'application/json';
+  return new Request(url, { method, headers, ...(body ? { body: JSON.stringify(body) } : {}) });
+}
+
+function submitReq(
+  fields: Record<string, string>,
+  files: File[] = [],
+  apiKey: string | null = VALID_KEY,
+): Request {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+  for (const f of files) fd.append('screenshot', f, f.name);
+  const headers: Record<string, string> = { 'CF-Connecting-IP': `10.0.0.${ipCounter++}` };
+  if (apiKey) headers['X-Admin-Key'] = apiKey;
+  return new Request(BASE_URL, { method: 'POST', headers, body: fd });
+}
+
 describe('feedback API - auth + lifecycle', () => {
   let app: Hono<AppEnv>;
 
@@ -73,31 +98,6 @@ describe('feedback API - auth + lifecycle', () => {
     const res = await app.fetch(req, testEnv, ctx);
     await Promise.allSettled(promises);
     return res;
-  }
-
-  function submitReq(
-    fields: Record<string, string>,
-    files: File[] = [],
-    apiKey: string | null = VALID_KEY,
-  ): Request {
-    const fd = new FormData();
-    for (const [k, v] of Object.entries(fields)) fd.append(k, v);
-    for (const f of files) fd.append('screenshot', f, f.name);
-    const headers: Record<string, string> = { 'CF-Connecting-IP': `10.0.0.${ipCounter++}` };
-    if (apiKey) headers['X-Admin-Key'] = apiKey;
-    return new Request(BASE_URL, { method: 'POST', headers, body: fd });
-  }
-
-  function jsonReq(
-    method: string,
-    url: string,
-    body?: object,
-    apiKey: string | null = VALID_KEY,
-  ): Request {
-    const headers: Record<string, string> = {};
-    if (apiKey) headers['X-Admin-Key'] = apiKey;
-    if (body) headers['Content-Type'] = 'application/json';
-    return new Request(url, { method, headers, ...(body ? { body: JSON.stringify(body) } : {}) });
   }
 
   const BASE = { type: 'bug', title: 'Login broken', description: 'It does nothing' };

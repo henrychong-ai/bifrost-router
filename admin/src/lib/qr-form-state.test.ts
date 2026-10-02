@@ -88,6 +88,8 @@ describe('designFromState — logoAspectRatio emission', () => {
   });
 });
 
+const base = (patch: Partial<QrFormState>): QrFormState => ({ ...stateFromQr(), ...patch });
+
 describe('stateFromQr — edit round-trip', () => {
   it('preserves logoAspectRatio through state → design (full-replacement PUT safety)', () => {
     const qr = {
@@ -121,8 +123,6 @@ describe('stateFromQr — edit round-trip', () => {
   });
 
   describe('suggestQrId (Reference prefill, v1.58.5; description decoupled v1.58.7)', () => {
-    const base = (patch: Partial<QrFormState>): QrFormState => ({ ...stateFromQr(), ...patch });
-
     it('ignores the description — Reference and Description are independent fields', () => {
       expect(suggestQrId(base({ description: 'Office WiFi', type: 'wifi', ssid: 'CorpNet' }))).toBe(
         'corpnet',

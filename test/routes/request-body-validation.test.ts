@@ -161,6 +161,14 @@ const WELL_FORMED: Record<EndpointName, string> = {
   }),
 };
 
+/** The stored comment on the comment test's object, or null when there is none. */
+async function storedComment(): Promise<string | null> {
+  const row = await env.DB.prepare('SELECT comment FROM file_comments WHERE bucket = ? AND key = ?')
+    .bind('files', 'validation/comment.txt')
+    .first<{ comment: string }>();
+  return row?.comment ?? null;
+}
+
 describe('request-body validation (storage and route write endpoints)', () => {
   beforeEach(async () => {
     await clearAllRoutes();
@@ -284,25 +292,19 @@ describe('request-body validation (storage and route write endpoints)', () => {
       )`,
     ).run();
     await env.FILES_BUCKET.put('validation/comment.txt', 'x');
-    const stored = async () =>
-      (
-        await env.DB.prepare('SELECT comment FROM file_comments WHERE bucket = ? AND key = ?')
-          .bind('files', 'validation/comment.txt')
-          .first<{ comment: string }>()
-      )?.comment ?? null;
 
     const set = await send(realEnv, 'PUT', ENDPOINTS.comment.path, '{"comment":"a note"}');
     expect(set.status).toBe(200);
-    expect(await stored()).toBe('a note');
+    expect(await storedComment()).toBe('a note');
 
     const clearedByNull = await send(realEnv, 'PUT', ENDPOINTS.comment.path, '{"comment":null}');
     expect(clearedByNull.status).toBe(200);
-    expect(await stored()).toBeNull();
+    expect(await storedComment()).toBeNull();
 
     await send(realEnv, 'PUT', ENDPOINTS.comment.path, '{"comment":"again"}');
     const clearedByEmpty = await send(realEnv, 'PUT', ENDPOINTS.comment.path, '{"comment":""}');
     expect(clearedByEmpty.status).toBe(200);
-    expect(await stored()).toBeNull();
+    expect(await storedComment()).toBeNull();
   });
 
   it('answers malformed JSON on a route write with "Invalid JSON body"', async () => {

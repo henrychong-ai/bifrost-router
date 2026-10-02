@@ -11,6 +11,14 @@ import {
   seedRoute,
 } from '../helpers';
 
+const redirectRoute = (overrides: Record<string, unknown> = {}) => ({
+  path: '/cred',
+  type: 'redirect',
+  target: 'https://app.example/verify?token=LIVE-GRANT',
+  statusCode: 302,
+  ...overrides,
+});
+
 /**
  * The route-target credential guard.
  *
@@ -38,14 +46,6 @@ describe('route target credential guard', () => {
       }),
       testEnv,
     );
-
-  const redirectRoute = (overrides: Record<string, unknown> = {}) => ({
-    path: '/cred',
-    type: 'redirect',
-    target: 'https://app.example/verify?token=LIVE-GRANT',
-    statusCode: 302,
-    ...overrides,
-  });
 
   describe('create', () => {
     it('refuses a credential-bearing target and names the parameters only', async () => {
@@ -539,6 +539,15 @@ describe('credentialTargetParameters', () => {
   });
 });
 
+async function auditDetails(action: string): Promise<Record<string, unknown>> {
+  const row = await env.DB.prepare(
+    'SELECT details FROM audit_logs WHERE action = ? ORDER BY id DESC LIMIT 1',
+  )
+    .bind(action)
+    .first<{ details: string }>();
+  return JSON.parse(row?.details ?? '{}');
+}
+
 /**
  * An acknowledged write records the parameter NAMES in its audit row, and only
  * for the records it actually wrote.
@@ -568,15 +577,6 @@ describe('audit rows record credentialTargetAcknowledged', () => {
     );
     await settled();
     return response;
-  }
-
-  async function auditDetails(action: string): Promise<Record<string, unknown>> {
-    const row = await env.DB.prepare(
-      'SELECT details FROM audit_logs WHERE action = ? ORDER BY id DESC LIMIT 1',
-    )
-      .bind(action)
-      .first<{ details: string }>();
-    return JSON.parse(row?.details ?? '{}');
   }
 
   const credentialTarget = 'https://app.example/cb?token=LIVE';

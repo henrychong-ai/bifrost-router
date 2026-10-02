@@ -117,23 +117,23 @@ describe('getWildcardRemainder', () => {
   });
 });
 
+const wildcardRoute = (path: string, enabled = true): KVRouteConfig => ({
+  path,
+  type: 'redirect',
+  target: `https://example.com${path}`,
+  enabled,
+  createdAt: 0,
+  updatedAt: 0,
+});
+
+const createKv = (routes: ReadonlyMap<string, KVRouteConfig>): KVNamespace =>
+  ({
+    get: async (key: string) => routes.get(key) ?? null,
+  }) as unknown as KVNamespace;
+
 describe('matchRoute wildcard lookup', () => {
   const domain = 'lookup.example.com';
   const deepPath = '/a/b/c/d/e/f/g/h';
-
-  const wildcardRoute = (path: string, enabled = true): KVRouteConfig => ({
-    path,
-    type: 'redirect',
-    target: `https://example.com${path}`,
-    enabled,
-    createdAt: 0,
-    updatedAt: 0,
-  });
-
-  const createKv = (routes: ReadonlyMap<string, KVRouteConfig>): KVNamespace =>
-    ({
-      get: async (key: string) => routes.get(key) ?? null,
-    }) as unknown as KVNamespace;
 
   it('preserves most-specific wildcard precedence regardless of completion order', async () => {
     const specific = wildcardRoute('/a/b/*');

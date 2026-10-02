@@ -19,6 +19,14 @@ describe('rateLimit middleware', () => {
     app.get('/test', c => c.json({ success: true }));
   });
 
+  const makeRequest = () =>
+    app.fetch(
+      new Request('http://localhost/test', {
+        headers: { 'CF-Connecting-IP': '5.6.7.8' },
+      }),
+      env,
+    );
+
   it('allows requests within rate limit', async () => {
     const request = new Request('http://localhost/test', {
       headers: { 'CF-Connecting-IP': '1.2.3.4' },
@@ -31,14 +39,6 @@ describe('rateLimit middleware', () => {
   });
 
   it('blocks requests exceeding rate limit', async () => {
-    const makeRequest = () =>
-      app.fetch(
-        new Request('http://localhost/test', {
-          headers: { 'CF-Connecting-IP': '5.6.7.8' },
-        }),
-        env,
-      );
-
     // First 3 requests should succeed
     for (let i = 0; i < 3; i++) {
       const response = await makeRequest();
@@ -91,6 +91,14 @@ describe('rateLimitStrict middleware', () => {
     app.get('/test', c => c.json({ success: true }));
   });
 
+  const makeRequest = () =>
+    app.fetch(
+      new Request('http://localhost/test', {
+        headers: { 'CF-Connecting-IP': '20.0.0.2' },
+      }),
+      env,
+    );
+
   it('allows requests within limit', async () => {
     const response = await app.fetch(
       new Request('http://localhost/test', {
@@ -102,14 +110,6 @@ describe('rateLimitStrict middleware', () => {
   });
 
   it('blocks excess requests', async () => {
-    const makeRequest = () =>
-      app.fetch(
-        new Request('http://localhost/test', {
-          headers: { 'CF-Connecting-IP': '20.0.0.2' },
-        }),
-        env,
-      );
-
     await makeRequest();
     await makeRequest();
     const response = await makeRequest();

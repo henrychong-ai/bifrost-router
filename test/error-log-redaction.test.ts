@@ -4,6 +4,43 @@ import worker from '../src/index';
 import type { Bindings } from '../src/types';
 import { clearAllRoutes, seedRoute, TEST_DOMAIN } from './helpers';
 
+async function serveThrowingRoute(message: string): Promise<{ lines: string[]; body: string }> {
+  await clearAllRoutes();
+  await seedRoute({
+    path: '/boom',
+    type: 'r2',
+    target: 'boom.txt',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+
+  const bindings = {
+    ...env,
+    ENVIRONMENT: 'development',
+    FILES_BUCKET: {
+      get: () => {
+        throw new Error(message);
+      },
+    } as unknown as R2Bucket,
+  } as Bindings;
+
+  const errors: string[] = [];
+  vi.spyOn(console, 'error').mockImplementation((line: unknown) => {
+    errors.push(String(line));
+  });
+
+  const response = await worker.fetch(new Request(`https://${TEST_DOMAIN}/boom`), bindings, {
+    waitUntil: () => {},
+    passThroughOnException: () => {},
+  } as unknown as ExecutionContext);
+  expect(response.status).toBe(500);
+
+  return {
+    lines: errors.filter(line => line.includes('Unhandled error')),
+    body: await response.text(),
+  };
+}
+
 /**
  * Unhandled-error logs must not persist credentials.
  *
@@ -17,43 +54,6 @@ describe('unhandled-error log redaction', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
-
-  async function serveThrowingRoute(message: string): Promise<{ lines: string[]; body: string }> {
-    await clearAllRoutes();
-    await seedRoute({
-      path: '/boom',
-      type: 'r2',
-      target: 'boom.txt',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-
-    const bindings = {
-      ...env,
-      ENVIRONMENT: 'development',
-      FILES_BUCKET: {
-        get: () => {
-          throw new Error(message);
-        },
-      } as unknown as R2Bucket,
-    } as Bindings;
-
-    const errors: string[] = [];
-    vi.spyOn(console, 'error').mockImplementation((line: unknown) => {
-      errors.push(String(line));
-    });
-
-    const response = await worker.fetch(new Request(`https://${TEST_DOMAIN}/boom`), bindings, {
-      waitUntil: () => {},
-      passThroughOnException: () => {},
-    } as unknown as ExecutionContext);
-    expect(response.status).toBe(500);
-
-    return {
-      lines: errors.filter(line => line.includes('Unhandled error')),
-      body: await response.text(),
-    };
-  }
 
   it('redacts a Bearer token from the logged message and stack', async () => {
     const { lines } = await serveThrowingRoute(

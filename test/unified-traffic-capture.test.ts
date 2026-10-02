@@ -4,6 +4,38 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { captureUnifiedTrafficResponse } from '../src/index';
 import type { AppEnv, Bindings } from '../src/types';
 
+async function request(mode: 'off' | 'shadow', userAgent = 'Mozilla/5.0') {
+  const waits: Promise<unknown>[] = [];
+  const app = new Hono<AppEnv>();
+  app.use('*', captureUnifiedTrafficResponse);
+  app.get('/report', c => {
+    c.set('unifiedEventType', 'proxy');
+    return c.text('ok', 200, { 'Content-Length': '2', 'X-Cache-Status': 'hit' });
+  });
+  const bindings: Bindings = {
+    ...(env as unknown as Bindings),
+    ENVIRONMENT: 'development',
+    VERSION: 'test',
+    UNIFIED_TRAFFIC_MODE: mode,
+    UNIFIED_TRAFFIC_CUTOVER_AT: '2026-01-01T00:00:00Z',
+    UNIFIED_TRAFFIC_RETENTION_DAYS: '30',
+    ADMIN_API_DOMAIN: 'bifrost.example.com',
+  };
+  const response = await app.fetch(
+    new Request('https://example.com/report?token=not-persisted', {
+      headers: { 'user-agent': userAgent },
+    }),
+    bindings,
+    {
+      waitUntil: promise => waits.push(promise),
+      passThroughOnException: () => undefined,
+      props: {},
+    },
+  );
+  await Promise.all(waits);
+  return response;
+}
+
 describe('unified traffic capture middleware', () => {
   beforeAll(async () => {
     await env.DB.prepare(`
@@ -27,38 +59,6 @@ describe('unified traffic capture middleware', () => {
   beforeEach(async () => {
     await env.DB.prepare('DELETE FROM unified_traffic_events').run();
   });
-
-  async function request(mode: 'off' | 'shadow', userAgent = 'Mozilla/5.0') {
-    const waits: Promise<unknown>[] = [];
-    const app = new Hono<AppEnv>();
-    app.use('*', captureUnifiedTrafficResponse);
-    app.get('/report', c => {
-      c.set('unifiedEventType', 'proxy');
-      return c.text('ok', 200, { 'Content-Length': '2', 'X-Cache-Status': 'hit' });
-    });
-    const bindings: Bindings = {
-      ...(env as unknown as Bindings),
-      ENVIRONMENT: 'development',
-      VERSION: 'test',
-      UNIFIED_TRAFFIC_MODE: mode,
-      UNIFIED_TRAFFIC_CUTOVER_AT: '2026-01-01T00:00:00Z',
-      UNIFIED_TRAFFIC_RETENTION_DAYS: '30',
-      ADMIN_API_DOMAIN: 'bifrost.example.com',
-    };
-    const response = await app.fetch(
-      new Request('https://example.com/report?token=not-persisted', {
-        headers: { 'user-agent': userAgent },
-      }),
-      bindings,
-      {
-        waitUntil: promise => waits.push(promise),
-        passThroughOnException: () => undefined,
-        props: {},
-      },
-    );
-    await Promise.all(waits);
-    return response;
-  }
 
   it('writes one privacy-bounded row in active shadow mode', async () => {
     expect((await request('shadow')).status).toBe(200);

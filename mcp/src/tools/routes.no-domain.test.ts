@@ -15,6 +15,18 @@ import { createQr, deleteQr, getQr, getRouteQr, listQrs, updateQr } from './qr';
 import { getSlugStats } from './analytics';
 
 /**
+ * Which fields the error reports as missing, read out of the message by NAME.
+ * The remedy sentence that follows always mentions both field names ("Pass
+ * both from_domain and to_domain explicitly"), so asserting on the whole
+ * string — or on punctuation like "to_domain." — cannot tell the three cases
+ * apart. Parse the list instead.
+ */
+const missingFields = (message: string): string[] => {
+  const match = message.match(/transfer_route is missing ([^.]+)\./);
+  return match ? match[1].split(' and ') : [];
+};
+
+/**
  * v1.35.0 — there is no default domain. Every stdio handler that needs one
  * refuses without it, lists every supported domain so an agent recovers in one
  * retry, and makes no client call. The low-level stdio Server validates
@@ -151,18 +163,6 @@ describe('no-domain guard on every domain-required tool', () => {
       expect(fn).not.toHaveBeenCalled();
     }
   });
-
-  /**
-   * Which fields the error reports as missing, read out of the message by NAME.
-   * The remedy sentence that follows always mentions both field names ("Pass
-   * both from_domain and to_domain explicitly"), so asserting on the whole
-   * string — or on punctuation like "to_domain." — cannot tell the three cases
-   * apart. Parse the list instead.
-   */
-  const missingFields = (message: string): string[] => {
-    const match = message.match(/transfer_route is missing ([^.]+)\./);
-    return match ? match[1].split(' and ') : [];
-  };
 
   it('transfer_route: both domains are explicit, never defaulted, and the error names the missing one', async () => {
     const noTarget = await handleTransferRoute(mockClient, {

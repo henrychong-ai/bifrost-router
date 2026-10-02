@@ -6,6 +6,23 @@ import type { AppEnv } from '../../src/types';
 import { CLOUDFLARE_ZONE_IDS } from '../../src/types';
 import { clearAllRoutes } from '../helpers';
 
+/** ExecutionContext that lets the test await the handler's waitUntil work. */
+function createExecutionContext(): { ctx: ExecutionContext; settled: () => Promise<void> } {
+  const pending: Promise<unknown>[] = [];
+  return {
+    ctx: {
+      waitUntil: (p: Promise<unknown>) => {
+        pending.push(p);
+      },
+      passThroughOnException: () => {},
+      props: {},
+    } as unknown as ExecutionContext,
+    settled: async () => {
+      await Promise.allSettled(pending);
+    },
+  };
+}
+
 describe('admin routes', () => {
   // vitest-pool-workers 0.13+ isolates storage per test FILE (the <=0.12
   // per-test rollback is gone). This file's tests each seed their own routes
@@ -1259,44 +1276,44 @@ describe('admin routes', () => {
     });
   });
 
-  describe('GET /routes search and pagination', () => {
-    /**
-     * Helper to seed test routes for search/pagination tests
-     */
-    async function seedSearchRoutes(app: Hono<AppEnv>, testEnvParam: typeof testEnv) {
-      const routes = [
-        { path: '/github', type: 'redirect', target: 'https://github.com/test', statusCode: 301 },
-        {
-          path: '/blog',
-          type: 'proxy',
-          target: 'https://blog.example.com',
-          hostHeader: 'blog.example.com',
-        },
-        { path: '/resume', type: 'r2', target: 'resume.pdf', bucket: 'files' },
-        {
-          path: '/linkedin',
-          type: 'redirect',
-          target: 'https://linkedin.com/in/test',
-          statusCode: 302,
-        },
-        { path: '/docs', type: 'proxy', target: 'https://docs.example.com' },
-      ];
+  /**
+   * Helper to seed test routes for search/pagination tests
+   */
+  async function seedSearchRoutes(app: Hono<AppEnv>, testEnvParam: typeof testEnv) {
+    const routes = [
+      { path: '/github', type: 'redirect', target: 'https://github.com/test', statusCode: 301 },
+      {
+        path: '/blog',
+        type: 'proxy',
+        target: 'https://blog.example.com',
+        hostHeader: 'blog.example.com',
+      },
+      { path: '/resume', type: 'r2', target: 'resume.pdf', bucket: 'files' },
+      {
+        path: '/linkedin',
+        type: 'redirect',
+        target: 'https://linkedin.com/in/test',
+        statusCode: 302,
+      },
+      { path: '/docs', type: 'proxy', target: 'https://docs.example.com' },
+    ];
 
-      for (const route of routes) {
-        await app.fetch(
-          new Request('http://example.com/api/routes', {
-            method: 'POST',
-            headers: {
-              'X-Admin-Key': validApiKey,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(route),
-          }),
-          testEnvParam,
-        );
-      }
+    for (const route of routes) {
+      await app.fetch(
+        new Request('http://example.com/api/routes', {
+          method: 'POST',
+          headers: {
+            'X-Admin-Key': validApiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(route),
+        }),
+        testEnvParam,
+      );
     }
+  }
 
+  describe('GET /routes search and pagination', () => {
     it('searches by path substring', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
       await seedSearchRoutes(app, testEnv);
@@ -1730,23 +1747,6 @@ describe('admin routes', () => {
     afterAll(() => {
       delete CLOUDFLARE_ZONE_IDS['example.com'];
     });
-
-    /** ExecutionContext that lets the test await the handler's waitUntil work. */
-    function createExecutionContext(): { ctx: ExecutionContext; settled: () => Promise<void> } {
-      const pending: Promise<unknown>[] = [];
-      return {
-        ctx: {
-          waitUntil: (p: Promise<unknown>) => {
-            pending.push(p);
-          },
-          passThroughOnException: () => {},
-          props: {},
-        } as unknown as ExecutionContext,
-        settled: async () => {
-          await Promise.allSettled(pending);
-        },
-      };
-    }
 
     beforeEach(() => {
       purgeBodies = [];

@@ -80,6 +80,11 @@ function createMockR2RangeObject(
 /** Fixed upload timestamp for the If-Range date-form cases. */
 const UPLOADED_AT = new Date('2026-02-03T04:05:06Z');
 
+/** A satisfied 1024-byte slice of a 4096-byte object uploaded at UPLOADED_AT. */
+function sliceObject(): R2ObjectBody {
+  return createMockR2RangeObject('a'.repeat(1024), { offset: 0, length: 1024 }, 4096, UPLOADED_AT);
+}
+
 /** Minimal ExecutionContext so the handler's `waitUntil(cache.put(...))` runs. */
 function createExecutionContext(): { ctx: ExecutionContext; settled: () => Promise<void> } {
   const pending: Promise<unknown>[] = [];
@@ -1170,16 +1175,6 @@ describe('handleR2', () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-
-    /** A satisfied 1024-byte slice of a 4096-byte object uploaded at UPLOADED_AT. */
-    function sliceObject(): R2ObjectBody {
-      return createMockR2RangeObject(
-        'a'.repeat(1024),
-        { offset: 0, length: 1024 },
-        4096,
-        UPLOADED_AT,
-      );
-    }
 
     it('serves 206 when the entity-tag validator still matches', async () => {
       const app = new Hono<AppEnv>();

@@ -460,6 +460,58 @@ describe('Analytics tool handlers', () => {
   });
 });
 
+function realClient(): { client: EdgeRouterClient; fetchMock: ReturnType<typeof vi.fn> } {
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      success: true,
+      data: {
+        totalClicks: 0,
+        uniqueLinks: 0,
+        totalPageViews: 0,
+        uniquePages: 0,
+        topClicks: [],
+        topPages: [],
+        topCountries: [],
+        topReferrers: [],
+        recentClicks: [],
+        items: [],
+        meta: { total: 0, count: 0, offset: 0, limit: 0, hasMore: false },
+      },
+    }),
+  });
+  const client = new EdgeRouterClientImpl({
+    baseUrl: 'https://admin.example.com',
+    apiKey: 'test-key',
+    fetch: fetchMock as unknown as typeof globalThis.fetch,
+  });
+  return { client, fetchMock };
+}
+
+function handlerMock(): EdgeRouterClient {
+  return {
+    getAnalyticsSummary: vi.fn().mockResolvedValue({
+      period: '30d',
+      domain: 'all',
+      totalClicks: 0,
+      uniqueLinks: 0,
+      totalPageViews: 0,
+      uniquePages: 0,
+      topClicks: [],
+      topPages: [],
+      topCountries: [],
+      topReferrers: [],
+      recentClicks: [],
+    }),
+    getClicks: vi
+      .fn()
+      .mockResolvedValue({ items: [], meta: { total: 0, count: 0, offset: 0, limit: 0 } }),
+    getViews: vi
+      .fn()
+      .mockResolvedValue({ items: [], meta: { total: 0, count: 0, offset: 0, limit: 0 } }),
+  } as unknown as EdgeRouterClient;
+}
+
 /**
  * v1.35.0 — the three analytics tools keep an OPTIONAL domain. Omitting it is a
  * SCOPE meaning "all domains", not a default: nothing fills one in, and the
@@ -474,34 +526,6 @@ describe('analytics domain is an optional scope, never a default', () => {
     get_views: '/api/analytics/views',
   } as const;
 
-  function realClient(): { client: EdgeRouterClient; fetchMock: ReturnType<typeof vi.fn> } {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        success: true,
-        data: {
-          totalClicks: 0,
-          uniqueLinks: 0,
-          totalPageViews: 0,
-          uniquePages: 0,
-          topClicks: [],
-          topPages: [],
-          topCountries: [],
-          topReferrers: [],
-          recentClicks: [],
-          items: [],
-          meta: { total: 0, count: 0, offset: 0, limit: 0, hasMore: false },
-        },
-      }),
-    });
-    const client = new EdgeRouterClientImpl({
-      baseUrl: 'https://admin.example.com',
-      apiKey: 'test-key',
-      fetch: fetchMock as unknown as typeof globalThis.fetch,
-    });
-    return { client, fetchMock };
-  }
-
   /**
    * Handler level: the three optional-domain handlers pass `args.domain`
    * through verbatim — `undefined` when omitted. Nothing fills one in.
@@ -511,30 +535,6 @@ describe('analytics domain is an optional scope, never a default', () => {
     ['get_clicks', getClicks, 'getClicks'],
     ['get_views', getViews, 'getViews'],
   ] as const;
-
-  function handlerMock(): EdgeRouterClient {
-    return {
-      getAnalyticsSummary: vi.fn().mockResolvedValue({
-        period: '30d',
-        domain: 'all',
-        totalClicks: 0,
-        uniqueLinks: 0,
-        totalPageViews: 0,
-        uniquePages: 0,
-        topClicks: [],
-        topPages: [],
-        topCountries: [],
-        topReferrers: [],
-        recentClicks: [],
-      }),
-      getClicks: vi
-        .fn()
-        .mockResolvedValue({ items: [], meta: { total: 0, count: 0, offset: 0, limit: 0 } }),
-      getViews: vi
-        .fn()
-        .mockResolvedValue({ items: [], meta: { total: 0, count: 0, offset: 0, limit: 0 } }),
-    } as unknown as EdgeRouterClient;
-  }
 
   it.each(HANDLER_CASES)(
     '%s passes an omitted domain through as undefined',

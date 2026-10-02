@@ -21,6 +21,17 @@ const OTHER_DOMAIN = 'secondary.example.net';
 const BASE = `http://${DOMAIN}/api/qr`;
 const testEnv = { ...env, ADMIN_API_DOMAIN: DOMAIN };
 
+function authedJson(method: string, url: string, body?: unknown): Request {
+  return new Request(url, {
+    method,
+    headers: {
+      'X-Admin-Key': VALID_KEY,
+      'Content-Type': 'application/json',
+    },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+}
+
 describe('QR API (v1.30.0 port seams)', () => {
   let app: Hono<AppEnv>;
 
@@ -50,17 +61,6 @@ describe('QR API (v1.30.0 port seams)', () => {
     const res = await app.fetch(req, testEnv, ctx);
     await Promise.allSettled(promises);
     return res;
-  }
-
-  function authedJson(method: string, url: string, body?: unknown): Request {
-    return new Request(url, {
-      method,
-      headers: {
-        'X-Admin-Key': VALID_KEY,
-        'Content-Type': 'application/json',
-      },
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-    });
   }
 
   // ---------------------------------------------------------------------------

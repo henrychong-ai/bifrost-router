@@ -29,6 +29,28 @@ import {
 } from './qr.js';
 import { SUPPORTED_DOMAINS } from './types.js';
 
+const create = (overrides: Record<string, unknown>) =>
+  CreateRouteToolInputSchema.safeParse({
+    path: '/ok',
+    type: 'redirect',
+    target: 'https://app.example/landing',
+    domain: 'links.example.com',
+    ...overrides,
+  });
+
+function create_ack(value: unknown): boolean | undefined {
+  const parsed = AcknowledgeCredentialTargetToolSchema.safeParse(value);
+  expect(parsed.success).toBe(true);
+  return parsed.success ? parsed.data : undefined;
+}
+
+const parseToggle = (enabled: unknown) =>
+  ToggleRouteInputSchema.safeParse({
+    path: '/test',
+    enabled,
+    domain: 'links.example.com',
+  });
+
 describe('schemas', () => {
   describe('DomainSchema', () => {
     it('accepts valid domains', () => {
@@ -173,15 +195,6 @@ describe('schemas', () => {
   });
 
   describe('RoutePathSchema / RouteTargetSchema', () => {
-    const create = (overrides: Record<string, unknown>) =>
-      CreateRouteToolInputSchema.safeParse({
-        path: '/ok',
-        type: 'redirect',
-        target: 'https://app.example/landing',
-        domain: 'links.example.com',
-        ...overrides,
-      });
-
     it('accepts an ordinary path and target', () => {
       expect(create({}).success).toBe(true);
       expect(create({ path: '/a/b-c_d' }).success).toBe(true);
@@ -220,29 +233,16 @@ describe('schemas', () => {
       expect(AcknowledgeCredentialTargetToolSchema.safeParse('maybe').success).toBe(false);
       expect(AcknowledgeCredentialTargetToolSchema.safeParse(1).success).toBe(false);
     });
-
-    function create_ack(value: unknown): boolean | undefined {
-      const parsed = AcknowledgeCredentialTargetToolSchema.safeParse(value);
-      expect(parsed.success).toBe(true);
-      return parsed.success ? parsed.data : undefined;
-    }
   });
 
   describe('ToggleRouteInputSchema', () => {
     it('parses the string forms and REFUSES an unrecognised value', () => {
-      const parse = (enabled: unknown) =>
-        ToggleRouteInputSchema.safeParse({
-          path: '/test',
-          enabled,
-          domain: 'links.example.com',
-        });
-
       // ⚠️ `"false"` must DISABLE. A plain truthiness test would enable it.
-      expect(parse('false').success && parse('false').data.enabled).toBe(false);
-      expect(parse('true').success && parse('true').data.enabled).toBe(true);
+      expect(parseToggle('false').success && parseToggle('false').data.enabled).toBe(false);
+      expect(parseToggle('true').success && parseToggle('true').data.enabled).toBe(true);
       // A toggle is often the response to an abused link, so it fails closed.
       for (const value of ['off', 'disabled', 'n', 1, 0]) {
-        expect(parse(value).success).toBe(false);
+        expect(parseToggle(value).success).toBe(false);
       }
     });
 

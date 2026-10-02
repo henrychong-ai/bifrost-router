@@ -4,6 +4,21 @@ import { env } from 'cloudflare:test';
 import { handleProxy } from '../../src/handlers/proxy';
 import type { AppEnv, KVRouteConfig } from '../../src/types';
 
+const capturedUrl = (route: KVRouteConfig, requestUrl: string) => {
+  const app = new Hono<AppEnv>();
+  app.get('/svc', c => handleProxy(c, route));
+  let captured = '';
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+    captured =
+      typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+    return new Response('ok', { status: 200 });
+  });
+  return app
+    .fetch(new Request(requestUrl), env)
+    .then(() => captured)
+    .finally(() => spy.mockRestore());
+};
+
 describe('handleProxy', () => {
   describe('URL validation (SSRF protection)', () => {
     it('rejects private IP targets', async () => {
@@ -202,21 +217,6 @@ describe('handleProxy', () => {
   });
 
   describe('query string forwarding (preserveQuery)', () => {
-    const capturedUrl = (route: KVRouteConfig, requestUrl: string) => {
-      const app = new Hono<AppEnv>();
-      app.get('/svc', c => handleProxy(c, route));
-      let captured = '';
-      const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
-        captured =
-          typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
-        return new Response('ok', { status: 200 });
-      });
-      return app
-        .fetch(new Request(requestUrl), env)
-        .then(() => captured)
-        .finally(() => spy.mockRestore());
-    };
-
     it('forwards the query string by default', async () => {
       const route: KVRouteConfig = {
         path: '/svc',

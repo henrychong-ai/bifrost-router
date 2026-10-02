@@ -6,6 +6,26 @@ import { getR2CopySizeLimit } from '../src/routes/storage';
 import type { AppEnv } from '../src/types';
 import { CLOUDFLARE_ZONE_IDS, R2_BUCKET_CUSTOM_DOMAINS } from '../src/types';
 
+function createApp() {
+  return new Hono<AppEnv>().route('/api', adminRoutes);
+}
+
+function createExecutionContext(): { ctx: ExecutionContext; settled: () => Promise<void> } {
+  const pending: Promise<unknown>[] = [];
+  return {
+    ctx: {
+      waitUntil: (p: Promise<unknown>) => {
+        pending.push(p);
+      },
+      passThroughOnException: () => {},
+      props: {},
+    } as unknown as ExecutionContext,
+    settled: async () => {
+      await Promise.allSettled(pending);
+    },
+  };
+}
+
 /**
  * Storage API integration tests
  *
@@ -19,10 +39,6 @@ describe('storage routes', () => {
   const testEnv = { ...env, ADMIN_API_DOMAIN: 'example.com' };
 
   const authHeaders = { 'X-Admin-Key': validApiKey };
-
-  function createApp() {
-    return new Hono<AppEnv>().route('/api', adminRoutes);
-  }
 
   /**
    * Helper to upload a file to a bucket via the storage API
@@ -1054,22 +1070,6 @@ describe('storage routes', () => {
       delete R2_BUCKET_CUSTOM_DOMAINS.files;
       delete R2_BUCKET_CUSTOM_DOMAINS.assets;
     });
-
-    function createExecutionContext(): { ctx: ExecutionContext; settled: () => Promise<void> } {
-      const pending: Promise<unknown>[] = [];
-      return {
-        ctx: {
-          waitUntil: (p: Promise<unknown>) => {
-            pending.push(p);
-          },
-          passThroughOnException: () => {},
-          props: {},
-        } as unknown as ExecutionContext,
-        settled: async () => {
-          await Promise.allSettled(pending);
-        },
-      };
-    }
 
     beforeEach(() => {
       purgeBodies = [];

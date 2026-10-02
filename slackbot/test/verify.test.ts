@@ -5,34 +5,30 @@
 import { describe, it, expect } from 'vitest';
 import { verifySlackSignature, parseSlackPayload } from '../src/slack/verify';
 
+/**
+ * Generate a valid Slack signature for testing
+ */
+async function generateSignature(secret: string, timestamp: string, body: string): Promise<string> {
+  const sigBasestring = `v0:${timestamp}:${body}`;
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(secret);
+  const messageData = encoder.encode(sigBasestring);
+
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    keyData,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+
+  const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
+  const signatureArray = Array.from(new Uint8Array(signatureBuffer));
+  return 'v0=' + signatureArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 describe('verifySlackSignature', () => {
   const signingSecret = 'test-signing-secret-12345';
-
-  /**
-   * Generate a valid Slack signature for testing
-   */
-  async function generateSignature(
-    secret: string,
-    timestamp: string,
-    body: string,
-  ): Promise<string> {
-    const sigBasestring = `v0:${timestamp}:${body}`;
-    const encoder = new TextEncoder();
-    const keyData = encoder.encode(secret);
-    const messageData = encoder.encode(sigBasestring);
-
-    const cryptoKey = await crypto.subtle.importKey(
-      'raw',
-      keyData,
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign'],
-    );
-
-    const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
-    const signatureArray = Array.from(new Uint8Array(signatureBuffer));
-    return 'v0=' + signatureArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  }
 
   describe('valid signatures', () => {
     it('should accept a valid signature', async () => {
