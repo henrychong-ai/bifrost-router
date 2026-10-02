@@ -2,7 +2,7 @@
 
 Guidance for Claude Code when working with this repository.
 
-**Version:** 1.36.1 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.36.2 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Public repository — sanitisation (MANDATORY)
 
@@ -673,7 +673,7 @@ If switching to Workers Static Assets in future, add a KV-route-precedence check
 6. Update the expected `info.version` in `scripts/check-openapi.test.mjs` (the `test:gates` OpenAPI check asserts it)
 7. **Update `CHANGELOG.md`** with new version entry
 8. Run `pnpm run changelog:generate` (the Worker serves the generated module; `pnpm run check` fails while it is stale)
-9. Commit, tag (`git tag v1.x.x`), and push with tags (`git push origin main --tags`)
+9. Commit, tag (`git tag v1.x.x`), and push the branch and that one tag by name (`git push origin main v1.x.x`) — never `--tags`, which pushes every stale local tag
 
 Release tags run the same CI checks as other pushes. This template does not
 automatically deploy from tags; deploy manually with `pnpm run deploy` or enable

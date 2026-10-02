@@ -6,6 +6,161 @@ For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
 
 ---
 
+## v1.36.2 (2026-10-02) — Partial route updates keep stored flags; request-body validation; TypeScript 6
+
+**Why:** a maintenance release with one behaviour fix that matters to every
+operator. `PUT /api/routes` wrote four stored fields the request never named, so
+a one-field edit could put a disabled route back in service. Alongside it: the
+admin write endpoints now refuse malformed and wrong-typed bodies instead of
+storing them or answering 500, the default Worker runtime moves forward eighteen
+months, the toolchain moves to TypeScript 6 with the strictness flags the code
+had been written without, and every known dependency advisory is cleared.
+
+### Fixed
+
+- **A one-field route update no longer re-enables a disabled route or resets its
+  flags.** `UpdateRouteSchema` was derived from the create schema with Zod's
+  `.partial()`, which makes a field optional but KEEPS its `.default()`. Parsing
+  `{ "cacheControl": "no-store" }` therefore also produced `enabled: true`,
+  `preserveQuery: true`, `preservePath: false` and `forceDownload: false`, and
+  `updateRoute` spreads the parsed body over the stored record. Any update that
+  left `enabled` out re-enabled a disabled route — reachable from the API and
+  from the MCP `update_route` tool — and every update that left the other three
+  out, including the enable / disable toggle in the dashboard, MCP
+  `toggle_route` and the Slack bot, reset `preserveQuery`, `preservePath` and
+  `forceDownload` to their create defaults. The update schema now declares those
+  four as plain optionals: an update writes the fields it names and leaves the
+  rest as stored. Create defaults are unchanged. **Check routes you disabled and
+  later edited**, and routes whose preserve-query, preserve-path or
+  force-download setting differs from the default: an earlier edit or toggle may
+  have changed them.
+- **Admin write endpoints validate their JSON body before touching storage.**
+  Storage rename, move, metadata and comment, and route transfer, read the body
+  through a type cast, so a wrong-typed field reached R2 or KV — a numeric
+  `contentType` was stored as `"5"`, a `null` one as `"null"` — and malformed
+  JSON or a non-string key answered 500. Each now parses the body with a schema
+  first and answers 400 with no storage call. Route create, update and seed
+  answer malformed JSON with 400 `Invalid JSON body` instead of 500; update
+  refuses a body that is not a JSON object (a `null` body used to reach KV as an
+  empty patch before failing). The schemas gate types only and add no new
+  limits, so every body accepted before is accepted now.
+- **A storage move with an empty `destinationKey` is refused.** It skipped key
+  validation and wrote to the empty key; it now goes through the same check
+  that already refused an empty source key.
+- **`updateRoute` keeps the stored `type` and `target` when a patch carries
+  either as `undefined`.** A parsed JSON body never produces that shape, so no
+  API caller is affected; a direct caller used to write a record with no type.
+- **`/.oxlintrc.json` is denied** alongside the other tooling-config paths in
+  the sensitive-path middleware.
+
+### Security
+
+- **`pnpm audit` reports no known vulnerabilities** (19 advisories before: 4
+  high, 12 moderate, 3 low). All four packages are transitive: `undici` (the
+  test pool's local runtime) and `brace-expansion` (ESLint) are development
+  tooling, `ip-address` arrives through the MCP SDK and `fast-uri` through a
+  dashboard form library. None is in the Worker bundle. Each is fixed through
+  its existing `pnpm.overrides` entry, raised to a patched version:
+
+  | Package | Advisories | Override now resolves |
+  |---------|-----------|-----------------------|
+  | `undici` | 10, incl. GHSA-rfgv-xxqx-mfg5 and GHSA-w293-vg96-wgc3 (high) | 7.29.1 (8.x target 8.10.2) |
+  | `brace-expansion` | GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p (high), GHSA-q2hr-2g5m-vwhr | 5.0.12 |
+  | `ip-address` | GHSA-rpw4-54j3-4h4q, GHSA-2vr4-cq9g-pvrc, GHSA-j6r3-76f7-8jcv, GHSA-h3mg-xc3c-68pw | 10.7.3 |
+  | `fast-uri` | GHSA-hrr3-gc8f-f4qj, GHSA-jvvf-x445-j334 | 4.2.1 (floor `>=4.1.5 <5`) |
+
+  No override was removed or loosened; the `hono` and `fast-uri` floors gained a
+  ceiling at the next major.
+- **The dashboard build strips HTML comments to a fixed point.** The transform
+  that keeps maintainer notes in `admin/index.html` out of the shipped page made
+  one replacement pass, which could leave a comment behind: removing an inner
+  comment can join the text around it into a new one, and a comment that was
+  never closed matched nothing and shipped whole. The replacement now repeats
+  until the output stops changing, and an unterminated comment fails the build.
+  The only input is the repository's own file at build time, so this was never
+  reachable by a visitor; today's built page is byte-identical.
+- **Secrets are scanned before a commit exists.** The pre-commit hook runs
+  gitleaks on the staged changes with the same `.gitleaks.toml` as CI, then
+  lint-staged. With no local `gitleaks` binary it warns and continues.
+
+### Changed
+
+- **`compatibility_date` moves from 2025-01-01 to 2026-07-22 in both Workers.**
+  `wrangler.toml` is the default a self-hoster deploys, so this is the runtime a
+  new deployment gets. One flag is held back:
+  `retain_authorization_on_cross_origin_redirect` stays listed because the proxy
+  handler forwards a visitor's `Authorization` header and follows redirects, and
+  whether an upstream depends on that cannot be known from the code. The date
+  stops short of 2026-08-04, so Node.js compatibility does NOT become default-on.
+  The bundle is byte-identical across the change. **An existing deployment
+  should take the new date as its own deploy, to a development environment
+  first**, then review its proxy routes and remove the held-back flag.
+- **Tests read the runtime settings that ship.** The Workers test pool declared
+  its own compatibility date and enabled `nodejs_compat`, which the Worker
+  config does not have. It now reads the date and flags from `wrangler.toml`, so
+  the two cannot drift.
+- **TypeScript 6.0** (`typescript@~6.0`) in all five packages. The range is a
+  tilde on purpose: npm's `latest` tag is TypeScript 7, which the lint toolchain
+  cannot use yet.
+- **Stricter compiler flags, with the code fixed to match.** `noImplicitOverride`,
+  `noImplicitReturns`, `noFallthroughCasesInSwitch`, `verbatimModuleSyntax` and
+  `noPropertyAccessFromIndexSignature` are on in every project;
+  `noUncheckedIndexedAccess` everywhere except the Worker;
+  `exactOptionalPropertyTypes` everywhere except the dashboard app. The two
+  exceptions and their reasons are recorded in `CLAUDE.md` → TypeScript
+  configuration. The fixes are type declarations, bracket reads, explicit
+  returns, guarded indexed reads and omitted option keys, each chosen to keep
+  the previous behaviour.
+- **Oxlint now loads its config.** The file was named `oxlint.json`, which Oxlint
+  does not auto-discover, so only default rules ran. It is `.oxlintrc.json` now,
+  with every disabled rule listed with its reason in `CLAUDE.md`.
+- **Node pins name the 24 line.** `.nvmrc` is `24`, and `@types/node` is `^24`
+  in every package so code cannot type-check against APIs Node 24 lacks.
+- **OpenAPI `info.version` is level with the release again.** It was left at
+  1.36.0 by v1.36.1; it and the `check-openapi` gate's expectation are 1.36.2.
+
+### Dependencies
+
+- **Wrangler 4.131.0 -> 4.146.0**, still pinned exactly in the root and
+  `slackbot` packages, with both `worker-configuration.d.ts` files regenerated.
+  The dry-run bundles are byte-identical before and after.
+- **In-range sweep:** `hono` 4.13.12, `zod` 4.6.5, `drizzle-orm` 0.45.3,
+  `drizzle-kit` 0.31.11, `@modelcontextprotocol/sdk` 1.31.0,
+  `@tanstack/react-query` 5.104.0, `react-hook-form` 7.89.0, `react-router`
+  8.4.0, `tailwind-merge` 3.7.0, `vite` 8.3.2, `@biomejs/biome` 2.5.15, `oxlint`
+  and `eslint-plugin-oxlint` 1.86.0, `eslint` 10.11.0, `typescript-eslint`
+  8.71.0, `eslint-plugin-react-refresh` 0.5.7, `lint-staged` 17.6.0, `tsx`
+  4.23.15, `yaml` 2.9.1 and `happy-dom` 20.14.5.
+- **Held back deliberately:** TypeScript 7, Vitest 5 and the coverage packages,
+  `@cloudflare/vitest-pool-workers` 0.22 (a 0.x minor is a breaking line),
+  `@types/node` 26, `@tanstack/react-table` 9 and `lucide-react` 1.x — each
+  needs its own migration pass.
+
+### Behaviour to know about
+
+- **Editing a disabled route no longer trips the credential-target guard.** The
+  guard reads the route as it will be after the update. An edit that leaves a
+  disabled route disabled was refused before only because the same edit was
+  about to re-enable it; re-enabling is still guarded.
+- **`forceDownload` survives a change of route type.** The dashboard form sends
+  it only for an `r2` route, so changing an `r2` route to another type leaves a
+  stored `true` in place instead of resetting it. Only the R2 handler reads it.
+- **The migration 0012 replay gate tolerates Wrangler's newer SQL splitter**,
+  which keeps the comment block that precedes a statement attached to it. The
+  gate strips only LEADING comment lines; a header line that lost its `-- `
+  prefix still fails it.
+
+### Tests
+
+New: request-body cases for every validated endpoint (malformed, wrong-type and
+missing-field bodies are 400 with no storage call, and previously accepted
+bodies still succeed); the partial-update contract through the real `PUT`
+handler and on the schema, including a test that fails when a create default is
+added without an update entry; `updateRoute` keeping the stored type and target;
+and the two ways a comment used to survive the dashboard build.
+
+---
+
 ## v1.36.1 (2026-09-19) — Simplified credential policy
 
 - Replace recursive URL reconstruction with bounded inspection and whole-field masking; preserve ordinary campaign fields and use one name-based policy across analytics streams.
