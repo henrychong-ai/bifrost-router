@@ -48,7 +48,8 @@ function decodeRFC2047(value: string | null): string | null {
   const match = value.match(/^=\?([^?]+)\?([QBqb])\?([^?]+)\?=$/);
   if (!match) return value;
 
-  const [, charset, encoding, encoded] = match;
+  // All three groups are mandatory in the pattern above, so a match carries them.
+  const [charset, encoding, encoded] = [match[1]!, match[2]!, match[3]!];
 
   if (encoding.toUpperCase() === 'Q') {
     // Q-encoding: underscores are spaces, =XX is hex

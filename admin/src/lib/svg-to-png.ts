@@ -46,7 +46,7 @@ export async function rasteriseNestedSvgLogos(svg: string): Promise<string> {
   const nested = [...svg.matchAll(/<image href="(data:image\/svg\+xml[^"]*)"/g)];
   let result = svg;
   for (const match of nested) {
-    const svgUri = match[1];
+    const svgUri = match[1]!; // the pattern's only group is mandatory
     const img = new Image();
     img.src = svgUri;
     await new Promise<void>((resolve, reject) => {

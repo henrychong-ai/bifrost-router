@@ -52,7 +52,8 @@ export function targetEmbedDim(aspectRatio: number): number {
   // Smallest step that still COVERS the window — never smaller, or the
   // renderer upscales it again. EMBED_STEPS is descending.
   const covering = EMBED_STEPS.filter(d => d >= windowPx);
-  return covering.length > 0 ? covering[covering.length - 1] : EMBED_STEPS[0];
+  // No step covers the window → the largest step, as before.
+  return covering[covering.length - 1] ?? EMBED_STEPS[0];
 }
 
 /**

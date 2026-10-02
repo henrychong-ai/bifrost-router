@@ -1021,7 +1021,8 @@ export function StoragePage() {
     if (openBucket && buckets?.some(b => b.name === openBucket)) {
       setSelectedBucket(openBucket);
     } else if (buckets && buckets.length > 0 && !selectedBucket) {
-      setSelectedBucket(buckets[0].name);
+      // The length check on the line above bounds index 0.
+      setSelectedBucket(buckets[0]!.name);
     }
   }, [buckets, selectedBucket, openBucket]);
 

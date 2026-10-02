@@ -29,6 +29,9 @@ const RE_VERSION = /^## v([\d.]+)(?:\s+\((\d{4}-\d{2}-\d{2})\))?(?:\s*[—–-]\
 const RE_SECTION = /^### (.+)$/;
 const RE_BOLD_DASH = /^\*\*(.+?)\*\*\s*[—–-]\s*(.+)$/;
 const RE_BOLD = /^\*\*(.+?)\*\*(.*)$/;
+// Every capture group read with `!` in parseChangelog is mandatory in its
+// pattern, so a successful match always carries it. Only RE_VERSION groups 2
+// and 3 are optional, and those are tested before use.
 
 /**
  * Parse CHANGELOG.md raw text into structured version data.
@@ -59,7 +62,7 @@ export function parseChangelog(raw: string): ChangelogVersion[] {
     const versionMatch = trimmed.match(RE_VERSION);
     if (versionMatch) {
       current = {
-        version: versionMatch[1],
+        version: versionMatch[1]!, // mandatory group
         ...(versionMatch[2] ? { date: versionMatch[2] } : {}),
         ...(versionMatch[3] ? { subtitle: versionMatch[3].trim() } : {}),
         sections: [],
@@ -82,7 +85,7 @@ export function parseChangelog(raw: string): ChangelogVersion[] {
     // Section header: ### Added, ### Fixed, etc.
     const sectionMatch = trimmed.match(RE_SECTION);
     if (sectionMatch && current) {
-      currentSection = { name: sectionMatch[1], items: [] };
+      currentSection = { name: sectionMatch[1]!, items: [] }; // mandatory group
       current.sections.push(currentSection);
       expectSubtitle = false;
       continue;
@@ -99,14 +102,18 @@ export function parseChangelog(raw: string): ChangelogVersion[] {
       const itemText = trimmed.slice(2);
       const boldMatch = itemText.match(RE_BOLD_DASH);
       if (boldMatch) {
-        currentSection.items.push({ title: boldMatch[1], description: boldMatch[2], isBold: true });
+        currentSection.items.push({
+          title: boldMatch[1]!, // mandatory group
+          description: boldMatch[2]!, // mandatory group
+          isBold: true,
+        });
       } else {
         // No em-dash split — treat entire text as title
         const plainBold = itemText.match(RE_BOLD);
         if (plainBold) {
           currentSection.items.push({
-            title: plainBold[1],
-            description: plainBold[2].trim(),
+            title: plainBold[1]!, // mandatory group
+            description: plainBold[2]!.trim(), // mandatory group (may be empty)
             isBold: true,
           });
         } else {
