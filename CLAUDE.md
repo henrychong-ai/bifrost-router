@@ -57,8 +57,8 @@ pnpm run test:coverage # Root Worker coverage (Istanbul under workerd)
 pnpm run test:coverage:all # Locked root/shared/admin/MCP coverage gates
 pnpm run benchmark:routing:gate # Three-run route-lookup regression gate
 pnpm run lint         # Lint (oxlint)
-pnpm run format       # Format (biome)
-pnpm run format:check # Format check (CI)
+pnpm run format       # Format and sort imports (biome check --write)
+pnpm run format:check # Format and import-order check (CI)
 pnpm run typecheck    # TypeScript check
 pnpm run check        # Full quality, test, build, performance, dry-run, and public gate
 pnpm run changelog:generate # Regenerate src/generated/changelog-text.ts from CHANGELOG.md
@@ -607,7 +607,7 @@ The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `sr
 ### Linting Architecture
 
 **Oxlint** (primary linter) with native plugins: typescript, unicorn, oxc, import, promise, node, vitest, react, jsx-a11y (the `plugins` list replaces Oxlint's defaults, so all are listed). Config: `.oxlintrc.json` — the only name Oxlint auto-discovers; it is found from the repo root and from `admin/`. The `style` category is off.
-**Biome** (formatter only, linter disabled). Config: `biome.json`.
+**Biome** formats and sorts imports: the scripts run `biome check` (the formatter plus the `organizeImports` assist; Biome's linter is off). Config: `biome.json`, whose `$schema` matches the installed Biome (run `pnpm exec biome migrate --write` after an upgrade). The byte-pinned credential-policy files and the vendored `admin/src/components/ui/**` are not import-sorted, so neither is rewritten.
 **No ESLint.** React Fast Refresh's check is Oxlint's `react/only-export-components` (with `allowConstantExport`), so the dashboard needs no residual ESLint; the rule is off in the vendored `admin/src/components/ui/**`.
 
 **Lint scope:** `pnpm run lint` runs Oxlint over the whole workspace, `scripts/` included. `ignorePatterns` skips build and tool output (`dist`, `coverage`, `.wrangler`), generated code (`src/generated/**`), the `drizzle/` migrations, and `*.config.js`/`*.config.mjs` as in the team template; the TypeScript config files (`vite.config.ts`, `vitest.config.ts`, `drizzle.config.ts`) are linted.
