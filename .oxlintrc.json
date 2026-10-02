@@ -57,7 +57,12 @@
     ],
     "unicorn/no-null": "off",
     "react/react-in-jsx-scope": "off",
-    "no-underscore-dangle": "off",
+    "no-underscore-dangle": [
+      "error",
+      {
+        "allow": ["__ENV__", "__APP_VERSION__", "_internal"]
+      }
+    ],
     "vitest/expect-expect": [
       "error",
       {
