@@ -77,8 +77,8 @@ const cache = new Map<string, Promise<EmbeddedLogo>>();
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('Logo image failed to decode'));
+    img.addEventListener('load', () => resolve(img));
+    img.addEventListener('error', () => reject(new Error('Logo image failed to decode')));
     img.src = src;
   });
 }

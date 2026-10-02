@@ -50,8 +50,8 @@ export async function rasteriseNestedSvgLogos(svg: string): Promise<string> {
     const img = new Image();
     img.src = svgUri;
     await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = () => reject(new Error('Nested SVG logo failed to decode'));
+      img.addEventListener('load', () => resolve());
+      img.addEventListener('error', () => reject(new Error('Nested SVG logo failed to decode')));
     });
     // Clamp the offscreen canvas: SVG intrinsic dimensions are declared by the
     // (byte-limited but dimension-unbounded) logo file — a crafted
@@ -95,8 +95,8 @@ export async function downloadPng(
   const img = new Image();
   img.src = svgToDataUri(prepared);
   await new Promise<void>((resolve, reject) => {
-    img.onload = () => resolve();
-    img.onerror = () => reject(new Error('Failed to load SVG for rasterisation'));
+    img.addEventListener('load', () => resolve());
+    img.addEventListener('error', () => reject(new Error('Failed to load SVG for rasterisation')));
   });
 
   const canvas = document.createElement('canvas');

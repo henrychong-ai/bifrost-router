@@ -246,7 +246,7 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
     // computation); decremented exactly once when the pipeline settles.
     setLogoPending(n => n + 1);
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.addEventListener('load', () => {
       const dataUri = String(reader.result);
       setCustom({ logoDataUri: dataUri, logoAspectRatio: null });
       // Wordmark-shaped uploads get the wide-logo window too (ratio computed
@@ -263,8 +263,8 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
           setLogoPending(n => Math.max(0, n - 1));
         }
       })();
-    };
-    reader.onerror = () => setLogoPending(n => Math.max(0, n - 1));
+    });
+    reader.addEventListener('error', () => setLogoPending(n => Math.max(0, n - 1)));
     reader.readAsDataURL(file);
   };
 
