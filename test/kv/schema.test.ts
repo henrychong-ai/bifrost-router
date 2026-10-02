@@ -327,6 +327,58 @@ describe('UpdateRouteSchema', () => {
     expect(result.data.target).toBe('https://updated.com');
     expect(result.data.enabled).toBe(false);
   });
+
+  it('fills in nothing for a field the update does not name', () => {
+    // The parsed object is spread over the stored route, so a default here
+    // would overwrite a stored value the caller never mentioned.
+    const result = UpdateRouteSchema.safeParse({
+      path: '/update-test',
+      cacheControl: 'no-store',
+    });
+    assert(result.success);
+    expect(result.data).toEqual({ path: '/update-test', cacheControl: 'no-store' });
+  });
+
+  it('keeps each of the four defaulted create fields when the update names it', () => {
+    const result = UpdateRouteSchema.safeParse({
+      path: '/update-test',
+      enabled: false,
+      preserveQuery: false,
+      preservePath: true,
+      forceDownload: true,
+    });
+    assert(result.success);
+    expect(result.data).toEqual({
+      path: '/update-test',
+      enabled: false,
+      preserveQuery: false,
+      preservePath: true,
+      forceDownload: true,
+    });
+  });
+
+  it.each(['enabled', 'preserveQuery', 'preservePath', 'forceDownload'])(
+    'still refuses a non-boolean %s',
+    field => {
+      const result = UpdateRouteSchema.safeParse({ path: '/update-test', [field]: 'yes' });
+      expect(result.success).toBe(false);
+    },
+  );
+
+  it('leaves the create defaults in place', () => {
+    const result = CreateRouteSchema.safeParse({
+      path: '/create-test',
+      type: 'redirect',
+      target: 'https://example.com',
+    });
+    assert(result.success);
+    expect(result.data).toMatchObject({
+      enabled: true,
+      preserveQuery: true,
+      preservePath: false,
+      forceDownload: false,
+    });
+  });
 });
 
 describe('SCHEMA_VERSION', () => {

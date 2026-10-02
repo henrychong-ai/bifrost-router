@@ -95,10 +95,29 @@ export const CreateRouteSchema = RouteConfigSchema;
 
 /**
  * Zod schema for updating a route (all fields optional except path)
+ *
+ * ⚠️ `.partial()` makes a field optional but KEEPS its `.default()`, so the
+ * four create fields that carry one would be filled in on every update that
+ * left them out — and `updateRoute` spreads the parsed object over the stored
+ * record. A one-field edit would re-enable a disabled route and reset the other
+ * three to their create defaults. They are therefore re-declared here as plain
+ * optionals: absent stays absent, and the stored value is kept. A new field
+ * with a create default needs the same entry (pinned by the "fills in nothing"
+ * test in `test/kv/schema.test.ts`).
  */
-export const UpdateRouteSchema = RouteConfigSchema.partial().required({
-  path: true,
-});
+export const UpdateRouteSchema = RouteConfigSchema.partial()
+  .extend({
+    preserveQuery: z.boolean().optional().describe('Preserve query params on redirect'),
+    preservePath: z.boolean().optional().describe('Preserve path for wildcard routes'),
+    forceDownload: z
+      .boolean()
+      .optional()
+      .describe('Force browser to download instead of display inline (R2 only)'),
+    enabled: z.boolean().optional().describe('Enable/disable route'),
+  })
+  .required({
+    path: true,
+  });
 
 /**
  * Request body of `POST /api/routes/transfer`.

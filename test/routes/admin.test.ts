@@ -408,6 +408,108 @@ describe('admin routes', () => {
 
       expect(response.status).toBe(404);
     });
+
+    // A partial update changes the fields it names and nothing else. The four
+    // fields that have a default on CREATE must not get that default on UPDATE:
+    // it would be written over the stored value.
+    describe('fields the update does not name', () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+      const headers = { 'X-Admin-Key': validApiKey, 'Content-Type': 'application/json' };
+
+      // Every one of the four is stored at the OPPOSITE of its create default.
+      const stored = {
+        path: '/partial-update',
+        type: 'redirect',
+        target: 'https://example.net/original',
+        enabled: false,
+        preserveQuery: false,
+        preservePath: true,
+        forceDownload: true,
+      };
+
+      async function put(body: Record<string, unknown>) {
+        const response = await app.fetch(
+          new Request('http://example.com/api/routes?path=/partial-update', {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify(body),
+          }),
+          testEnv,
+        );
+        expect(response.status).toBe(200);
+        return ((await response.json()) as { data: Record<string, unknown> }).data;
+      }
+
+      async function readBack() {
+        const response = await app.fetch(
+          new Request('http://example.com/api/routes?path=/partial-update', { headers }),
+          testEnv,
+        );
+        expect(response.status).toBe(200);
+        return ((await response.json()) as { data: Record<string, unknown> }).data;
+      }
+
+      beforeEach(async () => {
+        const response = await app.fetch(
+          new Request('http://example.com/api/routes', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(stored),
+          }),
+          testEnv,
+        );
+        if (response.status !== 201) {
+          throw new Error(`could not create the fixture route: HTTP ${response.status}`);
+        }
+      });
+
+      it('leaves a disabled route disabled after a one-field update', async () => {
+        const updated = await put({ cacheControl: 'no-store' });
+
+        expect(updated['cacheControl']).toBe('no-store');
+        expect(updated['enabled']).toBe(false);
+        expect((await readBack())['enabled']).toBe(false);
+      });
+
+      it('leaves preserveQuery, preservePath and forceDownload as stored', async () => {
+        await put({ target: 'https://example.net/changed' });
+
+        expect(await readBack()).toMatchObject({
+          target: 'https://example.net/changed',
+          enabled: false,
+          preserveQuery: false,
+          preservePath: true,
+          forceDownload: true,
+        });
+      });
+
+      it('changes only `enabled` on a toggle', async () => {
+        await put({ enabled: true });
+
+        expect(await readBack()).toMatchObject({
+          enabled: true,
+          preserveQuery: false,
+          preservePath: true,
+          forceDownload: true,
+        });
+      });
+
+      it('still applies each of the four when the update names it', async () => {
+        await put({
+          enabled: true,
+          preserveQuery: true,
+          preservePath: false,
+          forceDownload: false,
+        });
+
+        expect(await readBack()).toMatchObject({
+          enabled: true,
+          preserveQuery: true,
+          preservePath: false,
+          forceDownload: false,
+        });
+      });
+    });
   });
 
   describe('DELETE /routes?path=', () => {

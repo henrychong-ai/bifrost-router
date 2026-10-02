@@ -283,6 +283,22 @@ idempotent**: `/p%3Fx` → `/p?x` → `/p`.
   themselves and use the second helper; every admin pre-read and existence check
   passes the raw path to `getRoute()` and lets it normalise.
 
+## A route update names only what it changes
+
+`PUT /api/routes` writes the fields in the request body and leaves every other
+stored field alone: a one-field edit does not re-enable a disabled route, and a
+toggle changes `enabled` only.
+
+⚠️ **Never give an update schema a `.default()`.** `updateRoute` spreads the
+parsed body over the stored record, so a default is written over a value the
+caller never mentioned. Zod's `.partial()` makes a field optional but KEEPS its
+default, which is why `UpdateRouteSchema` in `src/kv/schema.ts` re-declares the
+four create fields that carry one (`enabled`, `preserveQuery`, `preservePath`,
+`forceDownload`) as plain optionals. A new create field with a default needs the
+same entry; `test/kv/schema.test.ts` ("fills in nothing for a field the update
+does not name") fails until it has one. The shared `UpdateRouteInputSchema` and
+the dashboard's `UpdateRouteSchema` declare no defaults.
+
 ## Changelog delivery (v1.36.0)
 
 `CHANGELOG.md` must **never** be imported into the dashboard bundle — the built
