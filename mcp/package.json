@@ -24,8 +24,8 @@
   },
   "dependencies": {
     "@bifrost/shared": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.30.0",
-    "zod": "^4.6.2"
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^24.19.1",
