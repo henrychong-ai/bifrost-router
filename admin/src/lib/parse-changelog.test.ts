@@ -1,5 +1,30 @@
-import { beforeAll, describe, test, expect } from 'vitest';
-import { parseChangelog, getSectionBadgeClasses, renderInlineCode } from './parse-changelog';
+import { assert, beforeAll, describe, test, expect } from 'vitest';
+import {
+  parseChangelog,
+  getSectionBadgeClasses,
+  renderInlineCode,
+  type ChangelogVersion,
+} from './parse-changelog';
+
+/**
+ * `items[index]`, failing the test by name when the element is missing —
+ * rather than with a TypeError on `undefined` further down the chain.
+ */
+function at<T>(items: readonly T[], index: number): T {
+  const item = items[index];
+  assert(item !== undefined, `expected an element at index ${index} of ${items.length}`);
+  return item;
+}
+
+/** The first section of the first parsed version. */
+function firstSection(versions: ChangelogVersion[]) {
+  return at(at(versions, 0).sections, 0);
+}
+
+/** The first item of the first section of the first parsed version. */
+function firstItem(versions: ChangelogVersion[]) {
+  return at(firstSection(versions).items, 0);
+}
 
 // =============================================================================
 // parseChangelog
@@ -14,13 +39,13 @@ describe('parseChangelog', () => {
 `;
     const result = parseChangelog(input);
     expect(result).toHaveLength(1);
-    expect(result[0].version).toBe('1.0.0');
-    expect(result[0].sections).toHaveLength(1);
-    expect(result[0].sections[0].name).toBe('Added');
-    expect(result[0].sections[0].items).toHaveLength(1);
-    expect(result[0].sections[0].items[0].title).toBe('Feature A');
-    expect(result[0].sections[0].items[0].description).toBe('Description of feature A');
-    expect(result[0].sections[0].items[0].isBold).toBe(true);
+    expect(at(result, 0).version).toBe('1.0.0');
+    expect(at(result, 0).sections).toHaveLength(1);
+    expect(firstSection(result).name).toBe('Added');
+    expect(firstSection(result).items).toHaveLength(1);
+    expect(firstItem(result).title).toBe('Feature A');
+    expect(firstItem(result).description).toBe('Description of feature A');
+    expect(firstItem(result).isBold).toBe(true);
   });
 
   test('parses multiple versions', () => {
@@ -38,8 +63,8 @@ describe('parseChangelog', () => {
 `;
     const result = parseChangelog(input);
     expect(result).toHaveLength(2);
-    expect(result[0].version).toBe('2.0.0');
-    expect(result[1].version).toBe('1.0.0');
+    expect(at(result, 0).version).toBe('2.0.0');
+    expect(at(result, 1).version).toBe('1.0.0');
   });
 
   test('extracts subtitle from bold text after version header', () => {
@@ -51,7 +76,7 @@ describe('parseChangelog', () => {
 - **Router** — Rewritten from scratch
 `;
     const result = parseChangelog(input);
-    expect(result[0].subtitle).toBe('Major refactor of the routing engine');
+    expect(at(result, 0).subtitle).toBe('Major refactor of the routing engine');
   });
 
   test('does not treat section headers as subtitles', () => {
@@ -61,7 +86,7 @@ describe('parseChangelog', () => {
 - **Feature** — A feature
 `;
     const result = parseChangelog(input);
-    expect(result[0].subtitle).toBeUndefined();
+    expect(at(result, 0).subtitle).toBeUndefined();
   });
 
   test('parses multiple sections within a version', () => {
@@ -77,10 +102,10 @@ describe('parseChangelog', () => {
 - **Change C** — Changed C
 `;
     const result = parseChangelog(input);
-    expect(result[0].sections).toHaveLength(3);
-    expect(result[0].sections[0].name).toBe('Added');
-    expect(result[0].sections[1].name).toBe('Fixed');
-    expect(result[0].sections[2].name).toBe('Changed');
+    expect(at(result, 0).sections).toHaveLength(3);
+    expect(firstSection(result).name).toBe('Added');
+    expect(at(at(result, 0).sections, 1).name).toBe('Fixed');
+    expect(at(at(result, 0).sections, 2).name).toBe('Changed');
   });
 
   test('parses all known section types', () => {
@@ -102,9 +127,9 @@ describe('parseChangelog', () => {
     const sections = sectionNames.map(n => `### ${n}\n- **Item** — Desc`).join('\n\n');
     const input = `## v1.0.0\n\n${sections}`;
     const result = parseChangelog(input);
-    expect(result[0].sections).toHaveLength(sectionNames.length);
+    expect(at(result, 0).sections).toHaveLength(sectionNames.length);
     for (let i = 0; i < sectionNames.length; i++) {
-      expect(result[0].sections[i].name).toBe(sectionNames[i]);
+      expect(at(at(result, 0).sections, i).name).toBe(sectionNames[i]);
     }
   });
 
@@ -115,7 +140,7 @@ describe('parseChangelog', () => {
 - **Storage cross-nav** — Fix race condition where auto-open fired against cached data
 `;
     const result = parseChangelog(input);
-    const item = result[0].sections[0].items[0];
+    const item = firstItem(result);
     expect(item.title).toBe('Storage cross-nav');
     expect(item.description).toBe('Fix race condition where auto-open fired against cached data');
     expect(item.isBold).toBe(true);
@@ -128,7 +153,7 @@ describe('parseChangelog', () => {
 - **Feature** – Description with en-dash
 `;
     const result = parseChangelog(input);
-    const item = result[0].sections[0].items[0];
+    const item = firstItem(result);
     expect(item.title).toBe('Feature');
     expect(item.description).toBe('Description with en-dash');
     expect(item.isBold).toBe(true);
@@ -141,7 +166,7 @@ describe('parseChangelog', () => {
 - **Standalone feature**
 `;
     const result = parseChangelog(input);
-    const item = result[0].sections[0].items[0];
+    const item = firstItem(result);
     expect(item.title).toBe('Standalone feature');
     expect(item.description).toBe('');
     expect(item.isBold).toBe(true);
@@ -154,7 +179,7 @@ describe('parseChangelog', () => {
 - oxlint 1.54 → 1.55, wrangler 4.72 → 4.73
 `;
     const result = parseChangelog(input);
-    const item = result[0].sections[0].items[0];
+    const item = firstItem(result);
     expect(item.title).toBe('oxlint 1.54 → 1.55, wrangler 4.72 → 4.73');
     expect(item.description).toBe('');
     expect(item.isBold).toBe(false);
@@ -167,7 +192,7 @@ describe('parseChangelog', () => {
 - **Helper** — Added \`getR2ObjectUrl()\` helper in \`admin/src/lib/constants.ts\`
 `;
     const result = parseChangelog(input);
-    const item = result[0].sections[0].items[0];
+    const item = firstItem(result);
     expect(item.description).toContain('`getR2ObjectUrl()`');
     expect(item.description).toContain('`admin/src/lib/constants.ts`');
   });
@@ -188,7 +213,7 @@ All notable changes.
 `;
     const result = parseChangelog(input);
     expect(result).toHaveLength(1);
-    expect(result[0].version).toBe('1.0.0');
+    expect(at(result, 0).version).toBe('1.0.0');
   });
 
   test('returns empty array for empty input', () => {
@@ -214,7 +239,7 @@ All notable changes to this project.
 - **Feature C** — Description C
 `;
     const result = parseChangelog(input);
-    expect(result[0].sections[0].items).toHaveLength(3);
+    expect(firstSection(result).items).toHaveLength(3);
   });
 
   test('extracts version number from dated headers', () => {
@@ -223,7 +248,7 @@ All notable changes to this project.
 - Some change
 `;
     const result = parseChangelog(input);
-    expect(result[0].version).toBe('1.21.0');
+    expect(at(result, 0).version).toBe('1.21.0');
   });
 
   // ===========================================================================
@@ -240,8 +265,8 @@ All notable changes to this project.
 - Older change
 `;
     const result = parseChangelog(input);
-    expect(result[0].date).toBe('2026-03-02');
-    expect(result[1].date).toBeUndefined();
+    expect(at(result, 0).date).toBe('2026-03-02');
+    expect(at(result, 1).date).toBeUndefined();
   });
 
   test('captures the em-dash heading subtitle (newest format) as the card subtitle', () => {
@@ -250,17 +275,17 @@ All notable changes to this project.
 - **Brand presets** — Six brands
 `;
     const result = parseChangelog(input);
-    expect(result[0].version).toBe('1.58.0');
-    expect(result[0].date).toBe('2026-07-24');
-    expect(result[0].subtitle).toBe('feat: QR brand presets + Wi-Fi security modernisation');
+    expect(at(result, 0).version).toBe('1.58.0');
+    expect(at(result, 0).date).toBe('2026-07-24');
+    expect(at(result, 0).subtitle).toBe('feat: QR brand presets + Wi-Fi security modernisation');
   });
 
   test('tolerates en-dash and hyphen heading-subtitle separators', () => {
     const en = parseChangelog('## v1.2.3 (2026-01-01) – fix: en-dash subtitle\n- item\n');
-    expect(en[0].subtitle).toBe('fix: en-dash subtitle');
+    expect(at(en, 0).subtitle).toBe('fix: en-dash subtitle');
     const hyphen = parseChangelog('## v1.2.3 - hotfix subtitle\n- item\n');
-    expect(hyphen[0].subtitle).toBe('hotfix subtitle');
-    expect(hyphen[0].date).toBeUndefined();
+    expect(at(hyphen, 0).subtitle).toBe('hotfix subtitle');
+    expect(at(hyphen, 0).date).toBeUndefined();
   });
 
   test('a bold first line still takes precedence over the heading subtitle (older format)', () => {
@@ -271,8 +296,8 @@ All notable changes to this project.
 - item
 `;
     const result = parseChangelog(input);
-    expect(result[0].subtitle).toBe('Bold-line subtitle wins');
-    expect(result[0].date).toBe('2026-02-25');
+    expect(at(result, 0).subtitle).toBe('Bold-line subtitle wins');
+    expect(at(result, 0).date).toBe('2026-02-25');
   });
 
   test('collects bullets without ### section into fallback Overview', () => {
@@ -284,11 +309,11 @@ All notable changes to this project.
 - Full RBAC validation on both source and destination buckets
 `;
     const result = parseChangelog(input);
-    expect(result[0].version).toBe('1.20.0');
-    expect(result[0].subtitle).toBe('Feature: Cross-bucket R2 move');
+    expect(at(result, 0).version).toBe('1.20.0');
+    expect(at(result, 0).subtitle).toBe('Feature: Cross-bucket R2 move');
     // Bullets should be collected into a section (not lost)
-    expect(result[0].sections.length).toBeGreaterThan(0);
-    const allItems = result[0].sections.flatMap(s => s.items);
+    expect(at(result, 0).sections.length).toBeGreaterThan(0);
+    const allItems = at(result, 0).sections.flatMap(s => s.items);
     expect(allItems.length).toBeGreaterThanOrEqual(2);
   });
 
@@ -305,9 +330,9 @@ All notable changes to this project.
 - Item C
 `;
     const result = parseChangelog(input);
-    expect(result[0].subtitle).toBe('Subtitle here');
+    expect(at(result, 0).subtitle).toBe('Subtitle here');
     // Bold subheadings become sections
-    const sectionNames = result[0].sections.map(s => s.name);
+    const sectionNames = at(result, 0).sections.map(s => s.name);
     expect(sectionNames).toContain('Feature');
     expect(sectionNames).toContain('Changes');
   });
@@ -348,17 +373,19 @@ All notable changes to Bifrost are documented in this file.
 `;
     const result = parseChangelog(input);
     expect(result.length).toBeGreaterThanOrEqual(3);
-    expect(result[0].version).toBe('1.24.6');
-    expect(result[result.length - 1].version).toBe('1.0.0');
-    expect(result[result.length - 1].subtitle).toBe('Initial release');
+    expect(at(result, 0).version).toBe('1.24.6');
+    expect(at(result, result.length - 1).version).toBe('1.0.0');
+    expect(at(result, result.length - 1).subtitle).toBe('Initial release');
 
     const v1245 = result.find(v => v.version === '1.24.5');
-    expect(v1245?.sections[0].items).toHaveLength(3);
+    assert(v1245 !== undefined, 'expected v1.24.5 to be parsed');
+    expect(at(v1245.sections, 0).items).toHaveLength(3);
 
     const v100 = result.find(v => v.version === '1.0.0');
-    expect(v100?.sections).toHaveLength(2);
-    expect(v100?.sections[0].name).toBe('Added');
-    expect(v100?.sections[1].name).toBe('Security');
+    assert(v100 !== undefined, 'expected v1.0.0 to be parsed');
+    expect(v100.sections).toHaveLength(2);
+    expect(at(v100.sections, 0).name).toBe('Added');
+    expect(at(v100.sections, 1).name).toBe('Security');
   });
 
   test('captures plain paragraph body text in older entries', () => {
@@ -368,12 +395,12 @@ All notable changes to Bifrost are documented in this file.
 New \`forceDownload\` option for explicit Content-Disposition control.
 `;
     const result = parseChangelog(input);
-    expect(result[0].version).toBe('1.5.0');
-    expect(result[0].subtitle).toBe('R2 Force Download Feature');
+    expect(at(result, 0).version).toBe('1.5.0');
+    expect(at(result, 0).subtitle).toBe('R2 Force Download Feature');
     // The paragraph should be captured, not lost
-    const allItems = result[0].sections.flatMap(s => s.items);
+    const allItems = at(result, 0).sections.flatMap(s => s.items);
     expect(allItems.length).toBeGreaterThanOrEqual(1);
-    expect(allItems[0].title).toContain('forceDownload');
+    expect(at(allItems, 0).title).toContain('forceDownload');
   });
 
   test('skips table rows in older entries', () => {
@@ -387,7 +414,7 @@ Critical security updates.
 | hono | 4.11.4 | 4.11.7 |
 `;
     const result = parseChangelog(input);
-    const allItems = result[0].sections.flatMap(s => s.items);
+    const allItems = at(result, 0).sections.flatMap(s => s.items);
     // Should have the paragraph but NOT the table rows
     expect(allItems.some(i => i.title.includes('Critical security'))).toBe(true);
     expect(allItems.some(i => i.title.includes('|'))).toBe(false);
@@ -411,14 +438,14 @@ Critical security updates.
     expect(result).toHaveLength(2);
 
     // v1.19.14 should have content, not be empty
-    expect(result[0].version).toBe('1.19.14');
-    expect(result[0].subtitle).toBe('Fix: LinkPreview URL now clickable');
-    const allItems0 = result[0].sections.flatMap(s => s.items);
+    expect(at(result, 0).version).toBe('1.19.14');
+    expect(at(result, 0).subtitle).toBe('Fix: LinkPreview URL now clickable');
+    const allItems0 = at(result, 0).sections.flatMap(s => s.items);
     expect(allItems0.length).toBeGreaterThanOrEqual(1);
 
     // v1.19.13 should parse bold items
-    expect(result[1].version).toBe('1.19.13');
-    const allItems1 = result[1].sections.flatMap(s => s.items);
+    expect(at(result, 1).version).toBe('1.19.13');
+    const allItems1 = at(result, 1).sections.flatMap(s => s.items);
     expect(allItems1.length).toBeGreaterThanOrEqual(2);
   });
 
@@ -439,7 +466,7 @@ For deployment instructions and project context, see CLAUDE.md.
     const result = parseChangelog(input);
     expect(result).toHaveLength(1);
     // Intro text should NOT appear as items
-    const allItems = result[0].sections.flatMap(s => s.items);
+    const allItems = at(result, 0).sections.flatMap(s => s.items);
     expect(allItems.some(i => i.title.includes('notable changes'))).toBe(false);
     expect(allItems.some(i => i.title.includes('deployment instructions'))).toBe(false);
   });
@@ -456,9 +483,9 @@ For deployment instructions and project context, see CLAUDE.md.
 - **Bold only**
 `;
     const result = parseChangelog(input);
-    const items = result[0].sections[0].items;
-    expect(items[0].isBold).toBe(true);
-    expect(items[1].isBold).toBe(true);
+    const items = firstSection(result).items;
+    expect(at(items, 0).isBold).toBe(true);
+    expect(at(items, 1).isBold).toBe(true);
   });
 
   test('marks plain bullet items with isBold: false', () => {
@@ -469,9 +496,9 @@ For deployment instructions and project context, see CLAUDE.md.
 - \`src/routes/admin.ts\`: Updated domain resolution
 `;
     const result = parseChangelog(input);
-    const items = result[0].sections[0].items;
-    expect(items[0].isBold).toBe(false);
-    expect(items[1].isBold).toBe(false);
+    const items = firstSection(result).items;
+    expect(at(items, 0).isBold).toBe(false);
+    expect(at(items, 1).isBold).toBe(false);
   });
 
   test('marks plain paragraph text with isBold: false', () => {
@@ -482,11 +509,11 @@ Non-admin users hitting analytics endpoints were getting 403.
 The middleware now normalises domain access.
 `;
     const result = parseChangelog(input);
-    expect(result[0].subtitle).toBe('Feature: Analytics domain RBAC');
-    const allItems = result[0].sections.flatMap(s => s.items);
+    expect(at(result, 0).subtitle).toBe('Feature: Analytics domain RBAC');
+    const allItems = at(result, 0).sections.flatMap(s => s.items);
     expect(allItems.length).toBe(2);
-    expect(allItems[0].isBold).toBe(false);
-    expect(allItems[1].isBold).toBe(false);
+    expect(at(allItems, 0).isBold).toBe(false);
+    expect(at(allItems, 1).isBold).toBe(false);
   });
 
   test('correctly distinguishes bold and plain items in mixed content', () => {
@@ -500,16 +527,16 @@ Two R2 security improvements identified during review.
 - Updated 2 existing tests, added 5 new rejection tests
 `;
     const result = parseChangelog(input);
-    const allItems = result[0].sections.flatMap(s => s.items);
+    const allItems = at(result, 0).sections.flatMap(s => s.items);
     // Paragraph text — plain
-    expect(allItems[0].title).toContain('Two R2 security');
-    expect(allItems[0].isBold).toBe(false);
+    expect(at(allItems, 0).title).toContain('Two R2 security');
+    expect(at(allItems, 0).isBold).toBe(false);
     // Bold bullet
-    expect(allItems[1].title).toBe('Path validation');
-    expect(allItems[1].isBold).toBe(true);
+    expect(at(allItems, 1).title).toBe('Path validation');
+    expect(at(allItems, 1).isBold).toBe(true);
     // Plain bullets
-    expect(allItems[2].isBold).toBe(false);
-    expect(allItems[3].isBold).toBe(false);
+    expect(at(allItems, 2).isBold).toBe(false);
+    expect(at(allItems, 3).isBold).toBe(false);
   });
 
   // =========================================================================
@@ -571,7 +598,7 @@ Two R2 security improvements identified during review.
     });
 
     test('first version is the latest release', () => {
-      const major = Number.parseInt(versions[0].version.split('.')[0]);
+      const major = Number.parseInt(at(at(versions, 0).version.split('.'), 0));
       expect(major).toBeGreaterThanOrEqual(1);
     });
 
@@ -681,7 +708,7 @@ Two R2 security improvements identified during review.
       // Older entries (pre v1.20) that use mixed format should not be 100% bold
       const olderVersions = versions.filter(v => {
         const [major, minor] = v.version.split('.').map(Number);
-        return major === 1 && minor >= 17 && minor <= 19;
+        return major === 1 && minor !== undefined && minor >= 17 && minor <= 19;
       });
       expect(olderVersions.length).toBeGreaterThan(0);
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { assert, describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   openFeedbackDialog,
   setFeedbackDialogOpen,
@@ -33,7 +33,9 @@ describe('openFeedbackDialog', () => {
     expect(captureScreenshot).toHaveBeenCalledTimes(1);
     expect(window.dispatchEvent).toHaveBeenCalledTimes(1);
 
-    const event = vi.mocked(window.dispatchEvent).mock.calls[0][0] as CustomEvent;
+    const firstDispatch = vi.mocked(window.dispatchEvent).mock.calls[0];
+    assert(firstDispatch !== undefined, 'expected a dispatched event');
+    const event = firstDispatch[0] as CustomEvent;
     expect(event).toBeInstanceOf(CustomEvent);
     expect(event.type).toBe(FEEDBACK_OPEN_EVENT);
   });

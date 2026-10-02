@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { assert, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FilterProvider } from '@/context';
 import { buildRecentActivityHref } from '@/lib/dashboard-navigation';
 import { RedirectsPage } from './redirects';
@@ -33,6 +33,13 @@ const hooks = vi.hoisted(() => ({
 // search term either way.
 vi.mock('@/hooks', () => ({ ...hooks, useDebounce: <T,>(value: T) => value }));
 
+/** The first argument of a hook mock's first call; fails by name when the hook never ran. */
+function firstCallArgument(hook: (typeof hooks)[keyof typeof hooks]): unknown {
+  const call = hook.mock.calls[0];
+  assert(call !== undefined, 'expected the data hook to have been called');
+  return call[0];
+}
+
 function renderAt(url: string, page: React.ReactNode) {
   return renderToStaticMarkup(
     <FilterProvider>
@@ -60,7 +67,7 @@ describe('analytics deep links hydrate from the URL', () => {
     renderAt(href, <RedirectsPage />);
 
     expect(hooks.useClicks).toHaveBeenCalled();
-    expect(hooks.useClicks.mock.calls[0][0]).toMatchObject({
+    expect(firstCallArgument(hooks.useClicks)).toMatchObject({
       domain: 'links.example.com',
       days: 7,
       country: 'SG',
@@ -76,7 +83,7 @@ describe('analytics deep links hydrate from the URL', () => {
     renderAt('/?domain=example.com&days=30&country=GB&search=%2Freport', <Page />);
 
     expect(hook).toHaveBeenCalled();
-    expect(hook.mock.calls[0][0]).toMatchObject({
+    expect(firstCallArgument(hook)).toMatchObject({
       domain: 'example.com',
       days: 30,
       country: 'GB',
@@ -88,7 +95,7 @@ describe('analytics deep links hydrate from the URL', () => {
     // An ordinary in-app navigation must not reset the page to defaults.
     renderAt('/', <RedirectsPage />);
 
-    expect(hooks.useClicks.mock.calls[0][0]).toMatchObject({
+    expect(firstCallArgument(hooks.useClicks)).toMatchObject({
       domain: undefined,
       country: undefined,
       slug: undefined,
@@ -100,7 +107,7 @@ describe('analytics deep links hydrate from the URL', () => {
     // and a malformed country must not reach the API.
     renderAt('/?domain=evil.example.net&days=9999&country=NOTACODE&search=x', <RedirectsPage />);
 
-    expect(hooks.useClicks.mock.calls[0][0]).toMatchObject({
+    expect(firstCallArgument(hooks.useClicks)).toMatchObject({
       domain: undefined,
       country: undefined,
       days: 1,
@@ -111,6 +118,6 @@ describe('analytics deep links hydrate from the URL', () => {
   it('clamps an over-long search term before it reaches the API', () => {
     renderAt(`/?search=${'a'.repeat(900)}`, <RedirectsPage />);
 
-    expect((hooks.useClicks.mock.calls[0][0] as { slug: string }).slug).toHaveLength(512);
+    expect((firstCallArgument(hooks.useClicks) as { slug: string }).slug).toHaveLength(512);
   });
 });
