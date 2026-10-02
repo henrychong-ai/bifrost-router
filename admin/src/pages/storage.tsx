@@ -1129,18 +1129,18 @@ export function StoragePage() {
     if (openBucket && selectedBucket !== openBucket) return;
     openConsumed.current = true;
     let cancelled = false;
-    storageApi
-      .getObjectMeta(selectedBucket, openKey)
-      .then(obj => {
+    void (async () => {
+      try {
+        const obj = await storageApi.getObjectMeta(selectedBucket, openKey);
         if (cancelled) return;
         setEditTarget(obj);
         setSearchParams({}, { replace: true });
-      })
-      .catch(() => {
+      } catch {
         if (cancelled) return;
         toast.error(`Object "${openKey}" not found in storage`);
         setSearchParams({}, { replace: true });
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };

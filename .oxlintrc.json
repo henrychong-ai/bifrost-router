@@ -57,7 +57,6 @@
     "react/react-in-jsx-scope": "off",
     "no-underscore-dangle": "off",
     "unicorn/prefer-add-event-listener": "off",
-    "promise/always-return": "off",
     "react/set-state-in-effect": "off",
     "react/exhaustive-effect-dependencies": "off",
     "jsx-a11y/label-has-associated-control": "off",

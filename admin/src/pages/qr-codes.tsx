@@ -178,18 +178,21 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
       return;
     }
     set({ fg: preset.fg, bg: preset.bg, logoDataUri: '', logoAspectRatio: null });
-    if (preset.logoAssetKey) {
+    const logoAssetKey = preset.logoAssetKey;
+    if (logoAssetKey) {
       setLogoPending(n => n + 1);
-      fetchBrandLogo(preset.logoAssetKey)
-        .then(logo => {
+      void (async () => {
+        try {
+          const logo = await fetchBrandLogo(logoAssetKey);
           if (presetApplyToken.current !== token) return;
           set({ logoDataUri: logo.dataUri, logoAspectRatio: logo.aspectRatio });
-        })
-        .catch(() => {
+        } catch {
           if (presetApplyToken.current !== token) return;
           toast.warning(`${preset.label} logo unavailable — using colors only`);
-        })
-        .finally(() => setLogoPending(n => Math.max(0, n - 1)));
+        } finally {
+          setLogoPending(n => Math.max(0, n - 1));
+        }
+      })();
     }
   };
 
@@ -248,15 +251,18 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
       setCustom({ logoDataUri: dataUri, logoAspectRatio: null });
       // Wordmark-shaped uploads get the wide-logo window too (ratio computed
       // client-side; undecodable images just keep the square window).
-      void computeLogoAspectRatio(dataUri)
-        .then(ratio => {
+      void (async () => {
+        try {
+          const ratio = await computeLogoAspectRatio(dataUri);
           if (ratio) {
             setS(prev =>
               prev.logoDataUri === dataUri ? { ...prev, logoAspectRatio: ratio } : prev,
             );
           }
-        })
-        .finally(() => setLogoPending(n => Math.max(0, n - 1)));
+        } finally {
+          setLogoPending(n => Math.max(0, n - 1));
+        }
+      })();
     };
     reader.onerror = () => setLogoPending(n => Math.max(0, n - 1));
     reader.readAsDataURL(file);

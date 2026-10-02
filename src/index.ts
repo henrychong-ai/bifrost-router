@@ -538,6 +538,19 @@ app.onError((err, c) => {
 // EXPORTS
 // ============================================
 
+/** The daily KV backup, logging its outcome; the backup cron's waitUntil work. */
+async function runScheduledBackup(env: Bindings): Promise<void> {
+  const result = await handleScheduled(env);
+  if (result.success) {
+    console.log(
+      `[Scheduled] Backup completed in ${result.duration}ms - ` +
+        `${result.manifest?.kv.totalRoutes} routes`,
+    );
+  } else {
+    console.error(`[Scheduled] Backup failed: ${result.error}`);
+  }
+}
+
 export default {
   /**
    * HTTP request handler (Hono app)
@@ -566,16 +579,7 @@ export default {
       const retentionDays = parseUnifiedTrafficRetentionDays(env.UNIFIED_TRAFFIC_RETENTION_DAYS);
       ctx.waitUntil(
         Promise.all([
-          handleScheduled(env).then(result => {
-            if (result.success) {
-              console.log(
-                `[Scheduled] Backup completed in ${result.duration}ms - ` +
-                  `${result.manifest?.kv.totalRoutes} routes`,
-              );
-            } else {
-              console.error(`[Scheduled] Backup failed: ${result.error}`);
-            }
-          }),
+          runScheduledBackup(env),
           cutoverAt !== null && retentionDays !== null && cutoverAt <= Math.floor(Date.now() / 1000)
             ? pruneUnifiedTrafficEvents(env.DB, retentionDays)
             : Promise.resolve(0),

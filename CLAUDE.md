@@ -621,7 +621,6 @@ The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `sr
 
 **Oxlint rules off pending a code fix on this branch:**
 - `vitest/require-mock-type-parameters`
-- `promise/always-return`
 - `unicorn/prefer-add-event-listener`
 - `react/set-state-in-effect`
 - `react/exhaustive-effect-dependencies`
