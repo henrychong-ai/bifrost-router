@@ -747,14 +747,18 @@ export function RoutesPage() {
     updates: UpdateRouteInput;
   } | null>(null);
 
-  // Auto-open edit dialog from navigate state (e.g., storage "View in Routes")
+  // Auto-open edit dialog from navigate state (e.g., storage "View in Routes"),
+  // once per navigation: opened during render, and the history entry's state
+  // cleared after commit so a reload does not reopen it.
+  const navEditRoute = (location.state as { editRoute?: Route } | null)?.editRoute;
+  const [openedNavState, setOpenedNavState] = useState<unknown>(null);
+  if (navEditRoute && location.state !== openedNavState) {
+    setOpenedNavState(location.state);
+    setEditRoute(navEditRoute);
+  }
   useEffect(() => {
-    const state = location.state as { editRoute?: Route } | null;
-    if (state?.editRoute) {
-      setEditRoute(state.editRoute);
-      window.history.replaceState({}, '');
-    }
-  }, [location.state]);
+    if (navEditRoute) window.history.replaceState({}, '');
+  }, [navEditRoute]);
 
   // Filter and sort routes (client-side for type/enabled, server handles search)
   const filteredRoutes = useMemo(() => {

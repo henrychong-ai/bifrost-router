@@ -56,8 +56,6 @@
     "vitest/require-mock-type-parameters": "off",
     "react/react-in-jsx-scope": "off",
     "no-underscore-dangle": "off",
-    "react/set-state-in-effect": "off",
-    "react/exhaustive-effect-dependencies": "off",
     "jsx-a11y/label-has-associated-control": "off",
     "jsx-a11y/prefer-tag-over-role": "off",
     "vitest/expect-expect": [

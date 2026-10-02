@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { BookOpen, Compass, QrCode, Route } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -20,15 +20,8 @@ import { getWelcomeSeen, persistWelcomeSeen } from '@/lib/constants';
  */
 export function WelcomeDialog() {
   const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
-  const decided = useRef(false);
-
-  useEffect(() => {
-    if (decided.current) return;
-    decided.current = true;
-    if (getWelcomeSeen()) return;
-    setOpen(true);
-  }, []);
+  // Decided once, on mount, from the stored flag.
+  const [open, setOpen] = useState(() => !getWelcomeSeen());
 
   const dismiss = () => {
     persistWelcomeSeen();

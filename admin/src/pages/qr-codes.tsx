@@ -6,7 +6,7 @@
  * Worker by construction; serving stays authed-only per the locked decision).
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { toast } from 'sonner';
 import { ContextualHelp } from '@/components/contextual-help';
 import { FieldHint } from '@/components/field-hint';
@@ -133,6 +133,49 @@ async function handleDownload(qr: QRCode, format: 'svg' | 'png'): Promise<void> 
 // Pure form-state derivation lives in admin/src/lib/qr-form-state.ts (v1.58.0
 // review round) — unit-tested there, incl. the stale-credential exclusions.
 
+/** The design fields a brand preset (or neutral, for null) sets; its logo loads separately. */
+function presetDesignPatch(preset: QrBrandPreset | null): Partial<QrFormState> {
+  return preset
+    ? { fg: preset.fg, bg: preset.bg, logoDataUri: '', logoAspectRatio: null }
+    : { ...NEUTRAL_QR_DESIGN, logoDataUri: '', logoAspectRatio: null };
+}
+
+/** Where a preset logo load writes: the form's state, guarded by its apply token. */
+interface PresetLogoTarget {
+  /** The latest preset application; a load for an older one is ignored. */
+  applyToken: { readonly current: number };
+  setState: Dispatch<SetStateAction<QrFormState>>;
+  setLogoPending: Dispatch<SetStateAction<number>>;
+}
+
+/**
+ * Load a brand preset's logo into the form for the application holding
+ * `token`. The logo arrives async via the same-origin storage API; failure
+ * degrades to colors-only with a toast. The caller has already counted the
+ * load as pending; it is uncounted here once settled.
+ */
+async function loadPresetLogo(
+  preset: QrBrandPreset,
+  logoAssetKey: string,
+  token: number,
+  target: PresetLogoTarget,
+): Promise<void> {
+  try {
+    const logo = await fetchBrandLogo(logoAssetKey);
+    if (target.applyToken.current !== token) return;
+    target.setState(prev => ({
+      ...prev,
+      logoDataUri: logo.dataUri,
+      logoAspectRatio: logo.aspectRatio,
+    }));
+  } catch {
+    if (target.applyToken.current !== token) return;
+    toast.warning(`${preset.label} logo unavailable — using colors only`);
+  } finally {
+    target.setLogoPending(n => Math.max(0, n - 1));
+  }
+}
+
 interface QrFormProps {
   mode: 'create' | 'edit';
   domain: string;
@@ -145,7 +188,14 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
   // Single-operator deployment (v1.30.0 port): the ADMIN_API_KEY grants full
   // write access — the upstream RBAC gate collapses to a constant.
   const writeLocked = false;
-  const [s, setS] = useState<QrFormState>(() => stateFromQr(initial));
+  // Create mode starts in Auto on the target domain's preset (null: neutral);
+  // edit mode starts in Custom (undefined). The form mounts per dialog open,
+  // keyed by domain, so this start preset holds for its whole lifetime.
+  const [startPreset] = useState(() => (initial ? undefined : deriveBrandForDomain(domain)));
+  const [s, setS] = useState<QrFormState>(() => {
+    const base = stateFromQr(initial);
+    return startPreset === undefined ? base : { ...base, ...presetDesignPatch(startPreset) };
+  });
   const set = (patch: Partial<QrFormState>) => setS(prev => ({ ...prev, ...patch }));
 
   // Guard against stale async logo fetches: only the latest preset application
@@ -157,7 +207,7 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
   // While a preset logo fetch or an upload's ratio computation is in flight,
   // submission is disabled — a quick submit must never store a half-prepared
   // design (colors without the logo, or a wordmark logo without its ratio).
-  const [logoPending, setLogoPending] = useState(0);
+  const [logoPending, setLogoPending] = useState(() => (startPreset?.logoAssetKey ? 1 : 0));
 
   // Manual design edits take control: invalidate any pending preset fetch and
   // flip the selector to Custom in one step. (logoPending is untouched — every
@@ -168,53 +218,42 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
     set({ ...patch, brandSel: 'custom' });
   };
 
-  // Apply a brand preset's design (or the neutral default for null). The logo
-  // arrives async via the same-origin storage API; failure degrades to
-  // colors-only with a toast.
+  const logoTarget: PresetLogoTarget = {
+    applyToken: presetApplyToken,
+    setState: setS,
+    setLogoPending,
+  };
+
+  // Apply a brand preset's design (or the neutral default for null).
   const applyPresetDesign = (preset: QrBrandPreset | null) => {
     const token = ++presetApplyToken.current;
-    if (!preset) {
-      set({ ...NEUTRAL_QR_DESIGN, logoDataUri: '', logoAspectRatio: null });
-      return;
-    }
-    set({ fg: preset.fg, bg: preset.bg, logoDataUri: '', logoAspectRatio: null });
-    const logoAssetKey = preset.logoAssetKey;
-    if (logoAssetKey) {
+    set(presetDesignPatch(preset));
+    if (preset?.logoAssetKey) {
       setLogoPending(n => n + 1);
-      void (async () => {
-        try {
-          const logo = await fetchBrandLogo(logoAssetKey);
-          if (presetApplyToken.current !== token) return;
-          set({ logoDataUri: logo.dataUri, logoAspectRatio: logo.aspectRatio });
-        } catch {
-          if (presetApplyToken.current !== token) return;
-          toast.warning(`${preset.label} logo unavailable — using colors only`);
-        } finally {
-          setLogoPending(n => Math.max(0, n - 1));
-        }
-      })();
+      void loadPresetLogo(preset, preset.logoAssetKey, token, logoTarget);
     }
   };
 
-  // Auto mode resolves the preset from the target domain (and re-resolves if
-  // the domain changes while still in Auto). Edit mode starts in Custom, so
-  // stored designs are never clobbered.
-  // oxlint-disable-next-line exhaustive-deps -- applyPresetDesign is stable-per-render by construction
+  // The start preset's logo, once the form has mounted (already counted as
+  // pending in logoPending's initial state).
   useEffect(() => {
-    if (s.brandSel !== 'auto') return;
-    applyPresetDesign(deriveBrandForDomain(domain));
-  }, [domain, s.brandSel]);
+    if (!startPreset?.logoAssetKey) return;
+    void loadPresetLogo(startPreset, startPreset.logoAssetKey, ++presetApplyToken.current, {
+      applyToken: presetApplyToken,
+      setState: setS,
+      setLogoPending,
+    });
+  }, [startPreset]);
 
   // Prefill the Reference from the type's identifying payload field, until the
   // user takes it over (v1.58.5; description deliberately NOT a source since
   // v1.58.7 — the two fields are independent). Create-only — in edit mode the
-  // id is the immutable KV key and `idTouched` is seeded true.
-  useEffect(() => {
-    if (mode !== 'create' || s.idTouched) return;
+  // id is the immutable KV key and `idTouched` is seeded true. Adjusted during
+  // render: the next render's suggestion equals s.id, so it settles at once.
+  if (mode === 'create' && !s.idTouched) {
     const suggested = suggestQrId(s);
     if (suggested && suggested !== s.id) set({ id: suggested });
-    // oxlint-disable-next-line exhaustive-deps -- derives from the specific source fields below
-  }, [mode, s.idTouched, s.type, s.ssid, s.url, s.name, s.text]);
+  }
 
   // Live preview content — invalid mid-typing states just blank the preview.
   // A route-linked QR encodes its short URL (v1.54.1 review fix): the edit
@@ -500,10 +539,11 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
                   return;
                 }
                 set({ brandSel: v });
-                if (v !== 'auto') {
-                  applyPresetDesign(QR_BRAND_PRESETS.find(p => p.id === v) ?? null);
-                }
-                // 'auto' re-applies via the effect above.
+                applyPresetDesign(
+                  v === 'auto'
+                    ? deriveBrandForDomain(domain)
+                    : (QR_BRAND_PRESETS.find(p => p.id === v) ?? null),
+                );
               }}
             >
               <SelectTrigger>
@@ -732,6 +772,7 @@ export function QrCodesPage() {
                     </DialogDescription>
                   </DialogHeader>
                   <QrForm
+                    key={domain}
                     mode="create"
                     domain={domain}
                     submitting={createQr.isPending}

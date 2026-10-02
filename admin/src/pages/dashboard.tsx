@@ -481,8 +481,19 @@ export function DashboardPage() {
   // stack, which is just the collapsed layout with more scrolling.
   const [expandedSection, setExpandedSection] = useState<'redirects' | 'proxy' | null>(null);
 
-  useEffect(() => setSearchInput(filters.search), [filters.search]);
-  useEffect(() => setCountryInput(filters.country), [filters.country]);
+  // The inputs follow the URL when it changes underneath them (back/forward,
+  // a deep link, a reset), adjusted during render so the debounce below never
+  // sees the stale text against the new URL.
+  const [urlSearch, setUrlSearch] = useState(filters.search);
+  if (filters.search !== urlSearch) {
+    setUrlSearch(filters.search);
+    setSearchInput(filters.search);
+  }
+  const [urlCountry, setUrlCountry] = useState(filters.country);
+  if (filters.country !== urlCountry) {
+    setUrlCountry(filters.country);
+    setCountryInput(filters.country);
+  }
 
   const updateFilters = useCallback(
     (patch: Partial<DashboardFilters>) => {

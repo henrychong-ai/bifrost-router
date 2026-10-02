@@ -436,15 +436,18 @@ function StorageEditDialog({
     object.key,
   );
 
-  // Reset state when object changes
-  useEffect(() => {
+  // Reset the fields when the object changes (another object, or this one
+  // refetched after a save), during render so no frame shows stale values.
+  const [fieldsObject, setFieldsObject] = useState(object);
+  if (object !== fieldsObject) {
+    setFieldsObject(object);
     setNewKey(object.key);
     setContentType(object.httpMetadata?.contentType || '');
     setCacheControl(object.httpMetadata?.cacheControl || '');
     setContentDisposition(object.httpMetadata?.contentDisposition || '');
     setComment(object.comment || '');
     setReplaceFile(null);
-  }, [object]);
+  }
 
   const handleRename = async () => {
     // Skip when nothing changed, on error, or when the normalized target equals
@@ -1017,14 +1020,12 @@ export function StoragePage() {
   const openConsumed = useRef(false);
 
   // Set default bucket once loaded (URL param takes priority)
-  useEffect(() => {
-    if (openBucket && buckets?.some(b => b.name === openBucket)) {
-      setSelectedBucket(openBucket);
-    } else if (buckets && buckets.length > 0 && !selectedBucket) {
-      // The length check on the line above bounds index 0.
-      setSelectedBucket(buckets[0]!.name);
-    }
-  }, [buckets, selectedBucket, openBucket]);
+  if (openBucket && buckets?.some(b => b.name === openBucket)) {
+    if (selectedBucket !== openBucket) setSelectedBucket(openBucket);
+  } else if (buckets && buckets.length > 0 && !selectedBucket) {
+    // The length check on the line above bounds index 0.
+    setSelectedBucket(buckets[0]!.name);
+  }
 
   const readOnly = buckets?.find(b => b.name === selectedBucket)?.access === 'read-only';
   const writableBuckets = (buckets || []).filter(b => b.access !== 'read-only').map(b => b.name);
@@ -1053,19 +1054,19 @@ export function StoragePage() {
 
   // Reset to the first page whenever the listing scope changes (bucket switch or
   // prefix navigation), mirroring the Routes tab's offset reset on filter change.
-  useEffect(() => {
+  const [offsetScope, setOffsetScope] = useState({ bucket: selectedBucket, prefix });
+  if (offsetScope.bucket !== selectedBucket || offsetScope.prefix !== prefix) {
+    setOffsetScope({ bucket: selectedBucket, prefix });
     setOffset(0);
-  }, [selectedBucket, prefix]);
+  }
 
   // Auto-clamp the offset when it falls out of range (e.g. items deleted on a
   // high page). PaginationControls also clamps in render, but it early-returns at
-  // total===0 before doing so; this effect is the robust path.
+  // total===0 before doing so; this is the robust path.
   const metaTotal = meta?.total;
-  useEffect(() => {
-    if (metaTotal !== undefined && offset >= metaTotal && metaTotal > 0) {
-      setOffset(Math.max(0, Math.floor((metaTotal - 1) / limit) * limit));
-    }
-  }, [metaTotal, offset, limit]);
+  if (metaTotal !== undefined && offset >= metaTotal && metaTotal > 0) {
+    setOffset(Math.max(0, Math.floor((metaTotal - 1) / limit) * limit));
+  }
 
   const [uploadOpen, setUploadOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<R2ObjectInfo | null>(null);

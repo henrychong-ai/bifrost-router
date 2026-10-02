@@ -52,18 +52,19 @@ export function FeedbackDetailDialog({
   const [shots, setShots] = useState<string[]>([]);
   const [capture, setCapture] = useState<FeedbackCaptureBundle | null>(null);
 
-  // Reset the working patch when a new item loads.
-  useEffect(() => {
+  // Reset the working patch when a new item loads (or the item unloads on
+  // close), during render so no frame shows the previous item's edits.
+  const itemId = item?.id;
+  const [patchItemId, setPatchItemId] = useState(itemId);
+  if (itemId !== patchItemId) {
+    setPatchItemId(itemId);
     setPatch({});
-  }, [item?.id]);
+  }
 
-  // Load attachments (screenshots + capture bundle) as object URLs.
+  // Load attachments (screenshots + capture bundle) as object URLs. The
+  // cleanup revokes those URLs and clears the state that points at them.
   useEffect(() => {
-    if (!open || !item) {
-      setShots([]);
-      setCapture(null);
-      return;
-    }
+    if (!open || !item) return;
     let cancelled = false;
     const urls: string[] = [];
     (async () => {
@@ -93,6 +94,8 @@ export function FeedbackDetailDialog({
     return () => {
       cancelled = true;
       urls.forEach(u => URL.revokeObjectURL(u));
+      setShots([]);
+      setCapture(null);
     };
   }, [open, item]);
 
