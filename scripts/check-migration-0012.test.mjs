@@ -35,6 +35,11 @@
  * dependency and no wrangler subprocess. Splitting uses wrangler's own
  * `unstable_splitSqlQuery` so the gate counts statements the same way the real
  * apply does, with a comment-aware fallback if that export moves.
+ *
+ * Wrangler's splitter has changed what it does with comments: older releases
+ * dropped them, newer ones keep the comment block that precedes a statement
+ * attached to it. `stripLeadingCommentLines()` removes that leading block so
+ * the pins below read the statement itself under either behaviour.
  */
 
 import test from 'node:test';
@@ -61,12 +66,27 @@ function fallbackSplit(sql) {
     .map(statement => `${statement};`);
 }
 
+/**
+ * Remove the whole-line `--` comments that LEAD a split statement.
+ *
+ * It stops at the first line that is not a `--` comment, so a header line that
+ * lost its prefix is NOT skipped: it becomes the start of the statement, the
+ * `DROP INDEX` pin fails on it, and executing it throws. On a splitter that
+ * already drops comments this returns the statement unchanged.
+ */
+function stripLeadingCommentLines(statement) {
+  const lines = statement.split('\n');
+  let first = 0;
+  while (first < lines.length && lines[first].trimStart().startsWith('--')) first += 1;
+  return lines.slice(first).join('\n').trim();
+}
+
 async function splitStatements(sql) {
   try {
     const { unstable_splitSqlQuery: split } = await import('wrangler');
     if (typeof split === 'function') {
       const parts = split(sql)
-        .map(s => s.trim())
+        .map(s => stripLeadingCommentLines(s.trim()))
         .filter(Boolean);
       if (parts.length > 0) return parts;
     }
