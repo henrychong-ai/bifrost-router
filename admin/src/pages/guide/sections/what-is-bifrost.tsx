@@ -42,10 +42,9 @@ export function WhatIsBifrostSection() {
         </ul>
       </div>
       <p>
-        You can drive Bifrost three ways: this <strong>dashboard</strong>, an{' '}
+        You can drive Bifrost two ways: this <strong>dashboard</strong>, or an{' '}
         <strong>AI agent</strong> over MCP (Claude, Cursor, Codex — see the AI &amp; automation
-        section), or the <strong>Slack bot</strong> for quick checks. Every change is recorded in
-        the audit trail.
+        section). Every change is recorded in the audit trail.
       </p>
     </GuideSection>
   );

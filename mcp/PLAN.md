@@ -259,6 +259,8 @@ claude mcp add-json --scope user edge-router '{
 
 ## Phase II: Slackbot Worker
 
+> Deprecated: the Slack bot was built but never deployed, and is kept only for a possible revival. See AGENTS.md "Deprecated: Slack bot".
+
 ### Purpose
 
 Cloudflare Worker that receives Slack events and enables route management via natural language in Slack channels and DMs.

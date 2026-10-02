@@ -157,17 +157,7 @@ export const GUIDE_SECTIONS: GuideSectionMeta[] = [
     id: 'ai-and-automation',
     title: 'AI & automation (MCP)',
     icon: Bot,
-    keywords: [
-      'mcp',
-      'claude',
-      'cursor',
-      'codex',
-      'ai',
-      'slackbot',
-      'slack',
-      'agent',
-      'automation',
-    ],
+    keywords: ['mcp', 'claude', 'cursor', 'codex', 'ai', 'agent', 'automation'],
     covers: ['/integrations/mcp'],
   },
   {

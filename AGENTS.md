@@ -34,7 +34,7 @@ bad shape rather than writing one out.)
 | **shared/** | Types, schemas, HTTP client (`@bifrost/shared`) |
 | **mcp/** | MCP server for AI route management |
 | **admin/** | React SPA dashboard (Vite + shadcn/ui) |
-| **slackbot/** | Slack bot Worker for route management |
+| **slackbot/** | Deprecated Slack bot Worker — not deployed; see [Deprecated: Slack bot](#deprecated-slack-bot) |
 
 ## Tech Stack
 
@@ -406,6 +406,31 @@ When the user asks to **"install mcp"** (or to connect bifrost to their Claude s
 4. **Claude Desktop** — add the same entry to `~/Library/Application Support/Claude/claude_desktop_config.json`, with **full executable paths** (Desktop does not inherit shell PATH). Back up the file before editing. Tell the user to fully restart Claude Desktop (Cmd+Q); if using `op run`, 1Password must be unlocked at launch.
 
 Full user-facing instructions + tool reference: `mcp/README.md`.
+
+## Deprecated: Slack bot
+
+**Why:** the Slack bot (`slackbot/`) was built but never used or deployed. Interact
+with Bifrost through the [Bifrost MCP server](#mcp-server) instead: an AI client
+covers what the bot did (list, create and toggle routes, read stats) with the
+full tool set.
+
+**State:** the code and its tests stay in the repository and still run in
+`pnpm check` (`pnpm -r test`, `pnpm -r typecheck`, `pnpm -C slackbot run types:check`).
+`slackbot/wrangler.toml` is marked DEPRECATED, has `workers_dev = false` in
+production and `env.dev`, and binds only placeholder KV and D1 IDs. The `deploy`
+and `deploy:dev` scripts print a deprecation message and exit 1.
+`scripts/check-slackbot-deprecated.test.mjs` (in `pnpm run test:gates`) fails if
+any of that changes. The user guide and README no longer offer the bot.
+
+**Reviving it:** create the KV namespace (`wrangler kv namespace create
+SLACK_PERMISSIONS`) and put its ID and your D1 ID into `slackbot/wrangler.toml`;
+restore `"deploy": "wrangler deploy"` and `"deploy:dev": "wrangler deploy --env dev"`
+in `slackbot/package.json` and set `workers_dev` as your routing needs; update or
+remove the guard test; set the secrets (`SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN`,
+`ADMIN_API_KEY`) with `wrangler secret put` from `slackbot/`; point a Slack app's
+Events API at the Worker's `/slack/events`; and bring the user guide and README
+back in line. The bot holds the full admin key, so treat its channel as a root
+terminal.
 
 ## Feedback Work-Queue (v1.26.0, P0-P3 priority since v1.34.0)
 

@@ -26,7 +26,7 @@ A lightweight, high-performance edge router and URL shortener built on Cloudflar
 | **Custom domains** | Unlimited | 1-10 (plan dependent) | 1 | Unlimited |
 | **Reverse proxy** | Yes | No | No | No |
 | **R2 file serving** | Yes | No | No | No |
-| **API management** | Full REST API + MCP + Slack | REST API | REST API | REST API |
+| **API management** | Full REST API + MCP | REST API | REST API | REST API |
 | **Setup time** | ~15 minutes | Instant (SaaS) | ~30 minutes | ~30 minutes |
 
 ## Features
@@ -73,7 +73,7 @@ bifrost/                         # pnpm monorepo
 ├── shared/                      # Shared types, schemas, HTTP client
 ├── mcp/                         # MCP server for AI route management
 ├── admin/                       # React SPA admin dashboard
-└── slackbot/                    # Slack bot for route management
+└── slackbot/                    # Deprecated Slack bot (not deployed; see AGENTS.md)
 ```
 
 ## Fork & Deploy Guide
@@ -334,21 +334,12 @@ For Claude Desktop, add the same entry (with full executable paths) to `~/Librar
 
 See [`mcp/README.md`](./mcp/README.md) for full setup and the 29-tool reference.
 
-### Optional: Slackbot
+### Deprecated: Slackbot
 
-The Slackbot lets your team manage routes via Slack messages.
-
-1. Create a [Slack App](https://api.slack.com/apps) with Events API enabled
-2. Create a KV namespace for permissions: `wrangler kv namespace create SLACK_PERMISSIONS`
-3. Update `slackbot/wrangler.toml` with your KV, D1 IDs and `EDGE_ROUTER_URL`
-4. Set secrets:
-   ```bash
-   cd slackbot
-   wrangler secret put SLACK_SIGNING_SECRET
-   wrangler secret put SLACK_BOT_TOKEN
-   wrangler secret put ADMIN_API_KEY
-   ```
-5. Deploy: `wrangler deploy` (from `slackbot/` directory)
+The Slack bot in `slackbot/` is deprecated and not deployed: manage routes
+through the dashboard or the MCP server instead. Its code and tests are kept
+for a possible revival, and its `deploy` scripts refuse to run. See
+[AGENTS.md](AGENTS.md) → "Deprecated: Slack bot".
 
 ### Optional: CI/CD
 

@@ -27,15 +27,15 @@ export function AccessAndRolesSection() {
         changes you make are attributed to it in the audit log.
       </p>
       <p>
-        <strong>2. The admin API key.</strong> Every call the dashboard (and the MCP server, and the
-        Slack bot) makes to the admin API carries the <FactChip>X-Admin-Key</FactChip> header. The
-        key grants full read-write access to all {SUPPORTED_DOMAINS.length} domains and every bucket
-        — there is no read-only tier.
+        <strong>2. The admin API key.</strong> Every call the dashboard (and the MCP server) makes
+        to the admin API carries the <FactChip>X-Admin-Key</FactChip> header. The key grants full
+        read-write access to all {SUPPORTED_DOMAINS.length} domains and every bucket — there is no
+        read-only tier.
       </p>
       <p>
         The public side is different: short links, proxied pages, and served files respond on their
         own domains for anyone. Only the <em>management</em> surfaces (this dashboard, the admin
-        API, MCP, Slack bot) sit behind the gates above.
+        API, MCP) sit behind the gates above.
       </p>
       <Tip>
         Because one key grants everything, treat it like a root credential: keep it in a secret

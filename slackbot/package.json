@@ -9,8 +9,8 @@
   },
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "deploy:dev": "wrangler deploy --env dev",
+    "deploy": "node -e \"console.error('The Slack bot is deprecated and is not deployed. See AGENTS.md (Deprecated: Slack bot).'); process.exit(1)\"",
+    "deploy:dev": "node -e \"console.error('The Slack bot is deprecated and is not deployed. See AGENTS.md (Deprecated: Slack bot).'); process.exit(1)\"",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

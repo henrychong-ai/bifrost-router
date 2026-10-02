@@ -1,7 +1,7 @@
 import { toolDefinitions } from '@bifrost/shared';
 import { ArrowRight } from 'lucide-react';
 import { Link } from 'react-router';
-import { FactChip, GuideSection, MediaSlot, Tip } from '../guide-primitives';
+import { GuideSection, MediaSlot } from '../guide-primitives';
 import { GUIDE_SECTIONS } from '../guide-registry';
 
 const meta = GUIDE_SECTIONS.find(s => s.id === 'ai-and-automation')!;
@@ -48,17 +48,6 @@ export function AiAndAutomationSection() {
         Set it up on the MCP page — per-client install snippets and the full tool list
         <ArrowRight className="size-4" />
       </Link>
-      <p>
-        There is also a <strong>Slack bot</strong> for quick checks without leaving Slack: @-mention
-        it or DM it with things like <FactChip>list routes for links.example.com</FactChip>,{' '}
-        <FactChip>stats for /summit</FactChip>, or{' '}
-        <FactChip>create redirect from /x to https://…</FactChip> (send <FactChip>help</FactChip>{' '}
-        for the full set).
-      </p>
-      <Tip>
-        The Slack bot holds the same admin key as the dashboard — treat its channel like a terminal
-        with root.
-      </Tip>
     </GuideSection>
   );
 }
