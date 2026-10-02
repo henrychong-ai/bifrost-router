@@ -2,7 +2,7 @@
 
 All notable changes to Bifrost are documented in this file.
 
-For deployment instructions and project context, see [CLAUDE.md](./CLAUDE.md).
+For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 

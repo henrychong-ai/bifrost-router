@@ -1,12 +1,12 @@
-# CLAUDE.md
+# AGENTS.md
 
-Guidance for Claude Code when working with this repository.
+Guidance for AI coding agents (Claude Code, Codex and others) working with this repository. This is the canonical instruction file; `CLAUDE.md` only imports it (`@AGENTS.md`), so edit this file.
 
 **Version:** 1.36.2 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Public repository — sanitisation (MANDATORY)
 
-This repo is **public**. Keep every file fully sanitised at all times — `CLAUDE.md`, `README.md`, `CHANGELOG.md`, and all `docs/*.md`: no organisation-internal specifics, real Cloudflare account/zone/KV/D1 IDs, internal hostnames, personal filesystem paths, or private repo names. Use generic placeholders (`example.com`, `your-cloudflare-account-id`, `your-1password-account`, etc.). Re-check on every commit.
+This repo is **public**. Keep every file fully sanitised at all times — `AGENTS.md`, `README.md`, `CHANGELOG.md`, and all `docs/*.md`: no organisation-internal specifics, real Cloudflare account/zone/KV/D1 IDs, internal hostnames, personal filesystem paths, or private repo names. Use generic placeholders (`example.com`, `your-cloudflare-account-id`, `your-1password-account`, etc.). Re-check on every commit.
 
 **Allowed exception:** `assets.fusang.co` references (fonts, logos, brand assets) may remain — it is a public R2 CDN bucket that exists precisely to serve those assets publicly, and is the documented default font/asset host for this template.
 

@@ -17,4 +17,4 @@ The dashboard has no ESLint. It is linted by the repository's Oxlint config
 (`.oxlintrc.json` at the repository root), which includes the type-aware rules
 and React Fast Refresh's `react/only-export-components`, and formatted by Biome
 (`biome.json`). `pnpm -C admin lint` runs Oxlint from this directory. See
-`CLAUDE.md` → Linting Architecture.
+`AGENTS.md` → Linting Architecture.

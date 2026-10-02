@@ -16,7 +16,7 @@ import { SUPPORTED_DOMAINS as WORKER_DOMAINS } from '../src/types';
  *
  * The OpenAPI DomainQuery enum must also match (API Shield blocks unknown values).
  *
- * See CLAUDE.md "Adding a New Supported Domain" checklist.
+ * See AGENTS.md "Adding a New Supported Domain" checklist.
  *
  * Every assertion here compares the SAME ordered list. Copies 1 and 2 are
  * compared as runtime VALUES — the shared package is a real module here, and

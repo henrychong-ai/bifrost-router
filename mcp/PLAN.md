@@ -1,6 +1,6 @@
 # MCP Server & Slackbot Implementation Plan
 
-> Historical design document. Superseded on the domain contract by CLAUDE.md "Domain parameter (v1.35.0)": there is no default domain and no EDGE_ROUTER_DOMAIN variable.
+> Historical design document. Superseded on the domain contract by AGENTS.md "Domain parameter (v1.35.0)": there is no default domain and no EDGE_ROUTER_DOMAIN variable.
 
 
 ## Overview

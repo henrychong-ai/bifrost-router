@@ -7,7 +7,7 @@
  * optional and the handler resolves them dynamically via
  * `c.env[BUCKET_BINDINGS[bucket]]`) and surfaces only on the deployed
  * development Worker as a handled 404. See the "Adding a New R2 Bucket"
- * checklist in CLAUDE.md — nothing else enforces steps 2 and 5.
+ * checklist in AGENTS.md — nothing else enforces steps 2 and 5.
  */
 
 import { R2_BUCKETS as SHARED_R2_BUCKETS } from '@bifrost/shared';

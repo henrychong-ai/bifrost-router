@@ -11,7 +11,7 @@ MCP (Model Context Protocol) server for bifrost. Provides AI-powered route, anal
 
 ## Install
 
-> **Tip:** if you have this repo open in Claude Code, just ask it to **"install mcp"** — `CLAUDE.md` carries the instructions and it will configure both surfaces for you.
+> **Tip:** if you have this repo open in Claude Code, just ask it to **"install mcp"** — `AGENTS.md` (which `CLAUDE.md` imports) carries the instructions and it will configure both surfaces for you.
 
 ### Build
 
@@ -184,7 +184,7 @@ with an error and the route is left untouched.
 | `get_route_qr` | Render an ephemeral QR SVG for an existing route |
 
 
-> Feedback-queue triage has no MCP tools — use the REST API or the dashboard Feedback page (see `CLAUDE.md`).
+> Feedback-queue triage has no MCP tools — use the REST API or the dashboard Feedback page (see `AGENTS.md`).
 
 ## Usage Examples
 

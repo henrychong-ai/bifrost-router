@@ -11,7 +11,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-blue)](https://www.typescriptlang.org/)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-orange)](https://workers.cloudflare.com/)
 
-> **For full technical specifications and architecture details, see [CLAUDE.md](CLAUDE.md). For version history, see [CHANGELOG.md](CHANGELOG.md).**
+> **For full technical specifications and architecture details, see [AGENTS.md](AGENTS.md). For version history, see [CHANGELOG.md](CHANGELOG.md).**
 
 A lightweight, high-performance edge router and URL shortener built on Cloudflare Workers and the Hono framework. Replace paid link shorteners like bit.ly, Rebrandly, and TinyURL with your own self-hosted solution. Manage URL redirects, reverse proxies, and R2 bucket file serving through a simple API — all configuration stored in Cloudflare KV for instant global propagation across 300+ edge locations.
 
