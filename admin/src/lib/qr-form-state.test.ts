@@ -154,8 +154,8 @@ describe('stateFromQr — edit round-trip', () => {
       // Keyed off the canonical enum, so a new auth category fails here
       // until it gets a trigger label — the map can never silently
       // fall back to a blank trigger.
-      expect(Object.keys(WIFI_AUTH_TRIGGER_LABELS).sort()).toEqual(
-        [...WifiAuthSchema.options].sort(),
+      expect(Object.keys(WIFI_AUTH_TRIGGER_LABELS).toSorted()).toEqual(
+        WifiAuthSchema.options.toSorted(),
       );
     });
 

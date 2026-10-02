@@ -43,7 +43,7 @@ describe('DEFAULT_FILTERS', () => {
   });
 
   it('covers every page key exactly once', () => {
-    expect(Object.keys(DEFAULT_FILTERS).sort()).toEqual([
+    expect(Object.keys(DEFAULT_FILTERS).toSorted()).toEqual([
       'audit',
       'downloads',
       'proxy',

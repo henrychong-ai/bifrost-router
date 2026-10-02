@@ -1906,7 +1906,7 @@ describe('admin routes', () => {
       );
       await settled();
 
-      expect(purgedUrls().sort()).toEqual([
+      expect(purgedUrls().toSorted()).toEqual([
         `https://${routeDomain}/purge-new`,
         `https://${routeDomain}/purge-old`,
       ]);
@@ -1932,7 +1932,7 @@ describe('admin routes', () => {
       );
       await settled();
 
-      expect(purgedUrls().sort()).toEqual([
+      expect(purgedUrls().toSorted()).toEqual([
         'https://example.com/purge-xfer',
         `https://${routeDomain}/purge-xfer`,
       ]);

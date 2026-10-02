@@ -364,7 +364,7 @@ describe('getAllRoutes', () => {
     const routes = await getAllRoutes(env.ROUTES, testDomain);
     expect(routes).toHaveLength(3);
 
-    const paths = routes.map(r => r.path).sort();
+    const paths = routes.map(r => r.path).toSorted();
     expect(paths).toEqual(['/first', '/second', '/third']);
   });
 

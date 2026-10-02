@@ -51,7 +51,7 @@ describe('QR design presets (template)', () => {
 
   it('the template ships fully neutral', () => {
     expect(QR_BRAND_PRESETS).toEqual([]);
-    expect([...QR_NEUTRAL_DOMAINS].sort()).toEqual([...SUPPORTED_DOMAINS].sort());
+    expect(QR_NEUTRAL_DOMAINS.toSorted()).toEqual(SUPPORTED_DOMAINS.toSorted());
   });
 
   it('deriveBrandForDomain returns null for every domain (neutral template)', () => {

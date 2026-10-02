@@ -11,7 +11,7 @@ const TEST_ENV = (import.meta as ImportMeta & { env: Record<string, string | und
 const RUN_GATE = TEST_ENV.VITE_RUN_ANALYTICS_PERFORMANCE_GATE === '1';
 
 const median = (values: number[]) =>
-  [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+  values.toSorted((a, b) => a - b)[Math.floor(values.length / 2)];
 
 async function createSchema(): Promise<void> {
   const statements = [

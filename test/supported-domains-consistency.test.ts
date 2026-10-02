@@ -63,7 +63,7 @@ describe('SUPPORTED_DOMAINS consistency', () => {
       .split('\n')
       .map(line => line.match(/^\s*-\s+(\S+)/)?.[1])
       .filter((d): d is string => Boolean(d));
-    expect(enumDomains.sort()).toEqual([...WORKER_DOMAINS].sort());
+    expect(enumDomains.toSorted()).toEqual(WORKER_DOMAINS.toSorted());
     expect(enumDomains).toHaveLength(WORKER_DOMAINS.length);
   });
 });

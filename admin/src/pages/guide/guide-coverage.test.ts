@@ -42,7 +42,7 @@ describe('user guide coverage parity', () => {
   test('the id union and the registry cover exactly the same sections', () => {
     // GUIDE_SECTION_IDS is the literal union that types guide.tsx's component
     // map — every id must appear in the registry exactly once, and vice versa.
-    expect(GUIDE_SECTIONS.map(s => s.id).sort()).toEqual([...GUIDE_SECTION_IDS].sort());
+    expect(GUIDE_SECTIONS.map(s => s.id).toSorted()).toEqual(GUIDE_SECTION_IDS.toSorted());
   });
 
   test('the sidebar Resources group leads with the User Guide, above the Changelog', () => {

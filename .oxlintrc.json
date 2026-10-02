@@ -56,7 +56,6 @@
     "vitest/require-mock-type-parameters": "off",
     "react/react-in-jsx-scope": "off",
     "no-underscore-dangle": "off",
-    "unicorn/no-array-sort": "off",
     "unicorn/consistent-function-scoping": "off",
     "unicorn/prefer-add-event-listener": "off",
     "promise/always-return": "off",

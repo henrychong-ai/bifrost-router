@@ -17,7 +17,7 @@ const next = async () => {
   nextCalls += 1;
 };
 const median = (values: number[]) =>
-  [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+  values.toSorted((a, b) => a - b)[Math.floor(values.length / 2)];
 
 async function measureBaseline(): Promise<number> {
   const startedAt = performance.now();

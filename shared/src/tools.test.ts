@@ -283,8 +283,8 @@ describe('v1.35.0 domain contract (catalog)', () => {
     const withDomain = toolDefinitions
       .filter(tool => 'domain' in tool.inputSchema.properties)
       .map(tool => tool.name)
-      .sort();
-    expect(withDomain).toEqual([...REQUIRED_DOMAIN_TOOLS, ...OPTIONAL_DOMAIN_TOOLS].slice().sort());
+      .toSorted();
+    expect(withDomain).toEqual([...REQUIRED_DOMAIN_TOOLS, ...OPTIONAL_DOMAIN_TOOLS].toSorted());
   });
 });
 

@@ -37,7 +37,7 @@ async function findLatestBackup(
   const dates = list.delimitedPrefixes
     .map(p => p.replace(BACKUP_DAILY_PREFIX, '').replace('/', ''))
     .filter(d => /^\d{8}$/.test(d))
-    .sort((a, b) => b.localeCompare(a));
+    .toSorted((a, b) => b.localeCompare(a));
 
   if (dates.length === 0) return null;
 

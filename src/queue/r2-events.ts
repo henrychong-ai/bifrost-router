@@ -252,7 +252,9 @@ async function claimCorrelation(
   const matches = candidates
     .filter(row => rowExplainsEvent(row, event, kind))
     // Nearest-in-time first — under bulk load the true match is the closest one.
-    .sort((a, b) => Math.abs(a.createdAt - eventTimeSecs) - Math.abs(b.createdAt - eventTimeSecs));
+    .toSorted(
+      (a, b) => Math.abs(a.createdAt - eventTimeSecs) - Math.abs(b.createdAt - eventTimeSecs),
+    );
 
   for (const match of matches) {
     try {

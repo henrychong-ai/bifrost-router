@@ -11,7 +11,7 @@ const baselines = {
   'deep miss': 4.6129,
 };
 
-const median = values => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+const median = values => values.toSorted((a, b) => a - b)[Math.floor(values.length / 2)];
 await mkdir(artifactRoot, { recursive: true });
 const measurements = Object.fromEntries(Object.keys(baselines).map(name => [name, []]));
 

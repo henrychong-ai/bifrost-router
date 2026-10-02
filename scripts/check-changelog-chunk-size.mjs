@@ -48,7 +48,7 @@ export const CHANGELOG_CHUNK_PATTERN = /^assets\/changelog-[^/]+\.js$/;
 async function listFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = [];
-  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+  for (const entry of entries.toSorted((a, b) => a.name.localeCompare(b.name))) {
     const path = resolve(directory, entry.name);
     if (entry.isDirectory()) files.push(...(await listFiles(path)));
     else if (entry.isFile()) files.push(path);
