@@ -27,12 +27,12 @@ describe('Route tool handlers', () => {
 
   beforeEach(() => {
     mockClient = {
-      listRoutes: vi.fn(),
-      getRoute: vi.fn(),
-      createRoute: vi.fn(),
-      updateRoute: vi.fn(),
-      deleteRoute: vi.fn(),
-      toggleRoute: vi.fn(),
+      listRoutes: vi.fn<EdgeRouterClient['listRoutes']>(),
+      getRoute: vi.fn<EdgeRouterClient['getRoute']>(),
+      createRoute: vi.fn<EdgeRouterClient['createRoute']>(),
+      updateRoute: vi.fn<EdgeRouterClient['updateRoute']>(),
+      deleteRoute: vi.fn<EdgeRouterClient['deleteRoute']>(),
+      toggleRoute: vi.fn<EdgeRouterClient['toggleRoute']>(),
     } as unknown as EdgeRouterClient;
   });
 
@@ -332,10 +332,10 @@ describe('credential-target acknowledgement and enabled parsing', () => {
 
   beforeEach(() => {
     mockClient = {
-      createRoute: vi.fn().mockResolvedValue(mockRoute),
-      updateRoute: vi.fn().mockResolvedValue(mockRoute),
-      toggleRoute: vi.fn().mockResolvedValue(mockRoute),
-      transferRoute: vi.fn().mockResolvedValue(mockRoute),
+      createRoute: vi.fn<EdgeRouterClient['createRoute']>().mockResolvedValue(mockRoute),
+      updateRoute: vi.fn<EdgeRouterClient['updateRoute']>().mockResolvedValue(mockRoute),
+      toggleRoute: vi.fn<EdgeRouterClient['toggleRoute']>().mockResolvedValue(mockRoute),
+      transferRoute: vi.fn<EdgeRouterClient['transferRoute']>().mockResolvedValue(mockRoute),
     } as unknown as EdgeRouterClient;
   });
 

@@ -30,15 +30,15 @@ describe('KV permission CRUD', () => {
   beforeEach(() => {
     store = new Map();
     mockKV = {
-      get: vi.fn(async (key: string, type?: string) => {
+      get: vi.fn<(key: string, type?: string) => Promise<unknown>>(async (key, type) => {
         const value = store.get(key);
         if (!value) return null;
         return type === 'json' ? JSON.parse(value) : value;
       }),
-      put: vi.fn(async (key: string, value: string) => {
+      put: vi.fn<(key: string, value: string) => Promise<void>>(async (key, value) => {
         store.set(key, value);
       }),
-      delete: vi.fn(async (key: string) => {
+      delete: vi.fn<(key: string) => Promise<void>>(async key => {
         store.delete(key);
       }),
     } as unknown as KVNamespace;

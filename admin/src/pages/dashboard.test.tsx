@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardPage } from './dashboard';
 import { summary } from './dashboard-summary.fixture';
 
-const mockUseAnalyticsSummary = vi.hoisted(() => vi.fn());
+const mockUseAnalyticsSummary = vi.hoisted(() => vi.fn<(params: unknown) => unknown>());
 
 vi.mock('@/hooks', () => ({ useAnalyticsSummary: mockUseAnalyticsSummary }));
 vi.mock('@/components/backup-health-widget', () => ({ BackupHealthWidget: () => null }));
@@ -16,7 +16,7 @@ describe('DashboardPage', () => {
       isLoading: false,
       isFetching: false,
       error: null,
-      refetch: vi.fn(),
+      refetch: vi.fn<() => void>(),
     });
   });
 
@@ -111,7 +111,7 @@ describe('DashboardPage', () => {
       isLoading: false,
       isFetching: false,
       error: new Error('request failed'),
-      refetch: vi.fn(),
+      refetch: vi.fn<() => void>(),
     });
 
     const html = renderToStaticMarkup(

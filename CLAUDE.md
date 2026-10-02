@@ -619,9 +619,6 @@ The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `sr
 - `no-underscore-dangle` — it flags `const _unused`, the `_`-prefix convention that `no-unused-vars` allows (`argsIgnorePattern`/`varsIgnorePattern` `^_`)
 - `unicorn/no-null` — team-template default; `null` is a real value in JSON bodies, KV reads, and D1 rows
 
-**Oxlint rules off pending a code fix on this branch:**
-- `vitest/require-mock-type-parameters`
-
 **Oxlint override — test files (`**/*.test.ts`, `**/*.test.tsx`):** `import/default` is off. Source-pinning tests import a module's text with Vite's `?raw` suffix; the resolver follows the path to the `.ts` source and finds no default export there. Runtime code keeps the rule.
 
 **Oxlint override — Hono Workers (`src/**`, `slackbot/src/**`):** `oxc/no-async-endpoint-handlers` is off. The rule assumes Express, where a rejected async handler goes unhandled; Hono awaits every handler and routes a rejection to `app.onError`. The dashboard, MCP server and shared client keep the rule.

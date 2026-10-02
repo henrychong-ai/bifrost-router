@@ -16,13 +16,15 @@ import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  submit: vi.fn(async (_form: FormData) => ({ shortId: 'F-9' })),
+  submit: vi.fn<(form: FormData) => Promise<{ shortId: string }>>(async () => ({ shortId: 'F-9' })),
 }));
 
 vi.mock('@/hooks/use-feedback', () => ({
   useSubmitFeedback: () => ({ mutateAsync: mocks.submit, isPending: false }),
 }));
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn<(message: string) => void>(), error: vi.fn<(message: string) => void>() },
+}));
 // The real capture reads live console/network buffers and the page URL.
 vi.mock('@/lib/capture', () => ({
   buildFeedbackContext: () => ({ url: 'http://localhost/', timestamp: '2026-09-10T00:00:00Z' }),

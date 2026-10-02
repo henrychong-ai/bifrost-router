@@ -4,6 +4,9 @@ import { handleR2 } from '../../src/handlers/r2';
 import r2HandlerSource from '../../src/handlers/r2.ts?raw';
 import type { AppEnv, KVRouteConfig } from '../../src/types';
 
+/** The `R2Bucket.get` shape the handler calls: a key, plus range and precondition options. */
+type BucketGet = (key: string, options?: R2GetOptions) => Promise<R2ObjectBody | R2Object | null>;
+
 /**
  * Mock R2 object.
  *
@@ -143,7 +146,7 @@ describe('handleR2', () => {
       };
 
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(null),
+        get: vi.fn<BucketGet>().mockResolvedValue(null),
       };
 
       app.get('/media', c => handleR2(c, route));
@@ -170,7 +173,7 @@ describe('handleR2', () => {
 
       const mockObject = createMockR2Object('PDF content', 'application/pdf');
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(mockObject),
+        get: vi.fn<BucketGet>().mockResolvedValue(mockObject),
       };
 
       app.get('/media', c => handleR2(c, route));
@@ -197,7 +200,7 @@ describe('handleR2', () => {
 
       const mockObject = createMockR2Object('PNG data');
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(mockObject),
+        get: vi.fn<BucketGet>().mockResolvedValue(mockObject),
       };
 
       app.get('/media', c => handleR2(c, route));
@@ -222,7 +225,7 @@ describe('handleR2', () => {
 
       const mockObject = createMockR2Object('text content', 'text/plain');
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(mockObject),
+        get: vi.fn<BucketGet>().mockResolvedValue(mockObject),
       };
 
       app.get('/media', c => handleR2(c, route));
@@ -248,7 +251,7 @@ describe('handleR2', () => {
 
       const mockObject = createMockR2Object('text content', 'text/plain');
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(mockObject),
+        get: vi.fn<BucketGet>().mockResolvedValue(mockObject),
       };
 
       app.get('/media', c => handleR2(c, route));
@@ -275,7 +278,7 @@ describe('handleR2', () => {
 
       const mockObject = createMockR2Object('PDF content', 'application/pdf');
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(mockObject),
+        get: vi.fn<BucketGet>().mockResolvedValue(mockObject),
       };
 
       app.get('/download', c => handleR2(c, route));
@@ -300,7 +303,7 @@ describe('handleR2', () => {
 
       const mockObject = createMockR2Object('ZIP content', 'application/zip');
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(mockObject),
+        get: vi.fn<BucketGet>().mockResolvedValue(mockObject),
       };
 
       app.get('/download', c => handleR2(c, route));
@@ -325,7 +328,7 @@ describe('handleR2', () => {
 
       const mockObject = createMockR2Object('JPEG data', 'image/jpeg');
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(mockObject),
+        get: vi.fn<BucketGet>().mockResolvedValue(mockObject),
       };
 
       app.get('/image', c => handleR2(c, route));
@@ -351,7 +354,7 @@ describe('handleR2', () => {
 
       const mockObject = createMockR2Object('JPEG data', 'image/jpeg');
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(mockObject),
+        get: vi.fn<BucketGet>().mockResolvedValue(mockObject),
       };
 
       app.get('/image', c => handleR2(c, route));
@@ -377,7 +380,7 @@ describe('handleR2', () => {
 
       const mockObject = createMockR2Object('PDF content', 'application/pdf');
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(mockObject),
+        get: vi.fn<BucketGet>().mockResolvedValue(mockObject),
       };
 
       app.get('/document', c => handleR2(c, route));
@@ -404,7 +407,7 @@ describe('handleR2', () => {
       };
 
       const mockBucket = {
-        get: vi.fn(),
+        get: vi.fn<BucketGet>(),
       };
 
       app.get('/evil', c => handleR2(c, route));
@@ -432,7 +435,7 @@ describe('handleR2', () => {
       };
 
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(createMockR2Object('text content', 'text/plain')),
+        get: vi.fn<BucketGet>().mockResolvedValue(createMockR2Object('text content', 'text/plain')),
       };
 
       app.get('/media', c => handleR2(c, route));
@@ -459,7 +462,7 @@ describe('handleR2', () => {
       };
 
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(createMockR2ObjectHead()),
+        get: vi.fn<BucketGet>().mockResolvedValue(createMockR2ObjectHead()),
       };
 
       app.get('/media', c => handleR2(c, route));
@@ -487,7 +490,7 @@ describe('handleR2', () => {
       };
 
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(createMockR2ObjectHead()),
+        get: vi.fn<BucketGet>().mockResolvedValue(createMockR2ObjectHead()),
       };
 
       app.get('/media', c => handleR2(c, route));
@@ -515,7 +518,7 @@ describe('handleR2', () => {
       };
 
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(createMockR2ObjectHead()),
+        get: vi.fn<BucketGet>().mockResolvedValue(createMockR2ObjectHead()),
       };
 
       app.get('/media', c => handleR2(c, route));
@@ -539,7 +542,7 @@ describe('handleR2', () => {
       };
 
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(createMockR2ObjectHead()),
+        get: vi.fn<BucketGet>().mockResolvedValue(createMockR2ObjectHead()),
       };
 
       app.get('/media', c => handleR2(c, route));
@@ -565,7 +568,7 @@ describe('handleR2', () => {
       };
 
       const head = createMockR2ObjectHead();
-      const mockBucket = { get: vi.fn().mockResolvedValue(head) };
+      const mockBucket = { get: vi.fn<BucketGet>().mockResolvedValue(head) };
 
       app.get('/media', c => handleR2(c, route));
 
@@ -589,7 +592,7 @@ describe('handleR2', () => {
       };
 
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(createMockR2ObjectHead()),
+        get: vi.fn<BucketGet>().mockResolvedValue(createMockR2ObjectHead()),
       };
 
       app.get('/media', c => handleR2(c, route));
@@ -619,7 +622,7 @@ describe('handleR2', () => {
       };
 
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(createMockR2Object('text content', 'text/plain')),
+        get: vi.fn<BucketGet>().mockResolvedValue(createMockR2Object('text content', 'text/plain')),
       };
 
       app.get('/media', c => handleR2(c, route));
@@ -644,7 +647,7 @@ describe('handleR2', () => {
       };
 
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(createMockR2ObjectHead()),
+        get: vi.fn<BucketGet>().mockResolvedValue(createMockR2ObjectHead()),
       };
       const putSpy = vi.spyOn(caches.default, 'put').mockResolvedValue(undefined);
 
@@ -676,7 +679,7 @@ describe('handleR2', () => {
 
       const mockBucket = {
         get: vi
-          .fn()
+          .fn<BucketGet>()
           .mockResolvedValue(
             createMockR2RangeObject('a'.repeat(1024), { offset: 0, length: 1024 }, 4096),
           ),
@@ -708,7 +711,7 @@ describe('handleR2', () => {
 
       const mockBucket = {
         get: vi
-          .fn()
+          .fn<BucketGet>()
           .mockResolvedValue(createMockR2RangeObject('a'.repeat(3072), { offset: 1024 }, 4096)),
       };
 
@@ -739,7 +742,7 @@ describe('handleR2', () => {
 
       const mockBucket = {
         get: vi
-          .fn()
+          .fn<BucketGet>()
           .mockResolvedValue(createMockR2RangeObject('a'.repeat(512), { suffix: 512 }, 4096)),
       };
 
@@ -768,7 +771,7 @@ describe('handleR2', () => {
 
       const mockBucket = {
         get: vi
-          .fn()
+          .fn<BucketGet>()
           .mockResolvedValue(createMockR2RangeObject('a'.repeat(4096), { suffix: 9999 }, 4096)),
       };
 
@@ -795,7 +798,7 @@ describe('handleR2', () => {
       };
 
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(createMockR2Object('text content', 'text/plain')),
+        get: vi.fn<BucketGet>().mockResolvedValue(createMockR2Object('text content', 'text/plain')),
       };
       vi.spyOn(caches.default, 'match').mockResolvedValue(undefined);
 
@@ -822,7 +825,7 @@ describe('handleR2', () => {
 
       const mockBucket = {
         get: vi
-          .fn()
+          .fn<BucketGet>()
           .mockRejectedValueOnce(new Error('The requested range is not satisfiable'))
           .mockResolvedValueOnce(createMockR2Object('text content', 'text/plain')),
       };
@@ -851,7 +854,7 @@ describe('handleR2', () => {
 
       const mockBucket = {
         get: vi
-          .fn()
+          .fn<BucketGet>()
           .mockResolvedValue(
             createMockR2RangeObject('a'.repeat(1024), { offset: 0, length: 1024 }, 4096),
           ),
@@ -883,7 +886,7 @@ describe('handleR2', () => {
       };
 
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(createMockR2Object('text content', 'text/plain')),
+        get: vi.fn<BucketGet>().mockResolvedValue(createMockR2Object('text content', 'text/plain')),
       };
       vi.spyOn(caches.default, 'match').mockResolvedValue(undefined);
       const putSpy = vi.spyOn(caches.default, 'put').mockResolvedValue(undefined);
@@ -917,7 +920,7 @@ describe('handleR2', () => {
 
       const mockBucket = {
         get: vi
-          .fn()
+          .fn<BucketGet>()
           .mockResolvedValue(
             createMockR2RangeObject('a'.repeat(1024), { offset: 0, length: 1024 }, 4096),
           ),
@@ -950,7 +953,7 @@ describe('handleR2', () => {
       };
 
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(createMockR2Object('text content', 'text/plain')),
+        get: vi.fn<BucketGet>().mockResolvedValue(createMockR2Object('text content', 'text/plain')),
       };
       const matchSpy = vi.spyOn(caches.default, 'match').mockResolvedValue(undefined);
 
@@ -975,7 +978,7 @@ describe('handleR2', () => {
       };
 
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(createMockR2Object('text content', 'text/plain')),
+        get: vi.fn<BucketGet>().mockResolvedValue(createMockR2Object('text content', 'text/plain')),
       };
       const matchSpy = vi.spyOn(caches.default, 'match').mockResolvedValue(undefined);
 
@@ -1005,7 +1008,7 @@ describe('handleR2', () => {
       };
 
       const mockObject = createMockR2Object('text content', 'text/plain');
-      const mockBucket = { get: vi.fn().mockResolvedValue(mockObject) };
+      const mockBucket = { get: vi.fn<BucketGet>().mockResolvedValue(mockObject) };
       vi.spyOn(caches.default, 'match').mockResolvedValue(undefined);
 
       app.get('/media', c => handleR2(c, route));
@@ -1031,7 +1034,7 @@ describe('handleR2', () => {
 
       const mockBucket = {
         get: vi
-          .fn()
+          .fn<BucketGet>()
           .mockResolvedValue(
             createMockR2RangeObject(
               'a'.repeat(1024),
@@ -1071,7 +1074,7 @@ describe('handleR2', () => {
       };
 
       const mockObject = createMockR2Object('text content', 'text/plain');
-      const mockBucket = { get: vi.fn().mockResolvedValue(mockObject) };
+      const mockBucket = { get: vi.fn<BucketGet>().mockResolvedValue(mockObject) };
       vi.spyOn(caches.default, 'match').mockResolvedValue(undefined);
 
       app.get('/media', c => handleR2(c, route));
@@ -1097,7 +1100,7 @@ describe('handleR2', () => {
       };
 
       const head = createMockR2ObjectHead();
-      const mockBucket = { get: vi.fn().mockResolvedValue(head) };
+      const mockBucket = { get: vi.fn<BucketGet>().mockResolvedValue(head) };
 
       app.get('/media', c => handleR2(c, route));
 
@@ -1132,7 +1135,7 @@ describe('handleR2', () => {
       expect(object.etag).toBe('abc123');
       expect(object.httpEtag).toBe('"abc123"');
 
-      const mockBucket = { get: vi.fn().mockResolvedValue(object) };
+      const mockBucket = { get: vi.fn<BucketGet>().mockResolvedValue(object) };
       app.get('/media', c => handleR2(c, route));
 
       const response = await app.fetch(
@@ -1154,7 +1157,7 @@ describe('handleR2', () => {
         updatedAt: Date.now(),
       };
 
-      const mockBucket = { get: vi.fn().mockResolvedValue(createMockR2ObjectHead()) };
+      const mockBucket = { get: vi.fn<BucketGet>().mockResolvedValue(createMockR2ObjectHead()) };
       app.get('/media', c => handleR2(c, route));
 
       const response = await app.fetch(
@@ -1178,7 +1181,7 @@ describe('handleR2', () => {
 
     it('serves 206 when the entity-tag validator still matches', async () => {
       const app = new Hono<AppEnv>();
-      const mockBucket = { get: vi.fn().mockResolvedValue(sliceObject()) };
+      const mockBucket = { get: vi.fn<BucketGet>().mockResolvedValue(sliceObject()) };
 
       app.get('/media', c => handleR2(c, rangeRoute));
 
@@ -1198,7 +1201,7 @@ describe('handleR2', () => {
       const app = new Hono<AppEnv>();
       const full = createMockR2Object('a'.repeat(4096), 'text/plain');
       const mockBucket = {
-        get: vi.fn().mockResolvedValueOnce(sliceObject()).mockResolvedValueOnce(full),
+        get: vi.fn<BucketGet>().mockResolvedValueOnce(sliceObject()).mockResolvedValueOnce(full),
       };
 
       app.get('/media', c => handleR2(c, rangeRoute));
@@ -1225,7 +1228,7 @@ describe('handleR2', () => {
       const app = new Hono<AppEnv>();
       const full = createMockR2Object('a'.repeat(4096), 'text/plain');
       const mockBucket = {
-        get: vi.fn().mockResolvedValueOnce(sliceObject()).mockResolvedValueOnce(full),
+        get: vi.fn<BucketGet>().mockResolvedValueOnce(sliceObject()).mockResolvedValueOnce(full),
       };
 
       app.get('/media', c => handleR2(c, rangeRoute));
@@ -1243,7 +1246,7 @@ describe('handleR2', () => {
 
     it('serves 206 when the date-form validator matches the upload time exactly', async () => {
       const app = new Hono<AppEnv>();
-      const mockBucket = { get: vi.fn().mockResolvedValue(sliceObject()) };
+      const mockBucket = { get: vi.fn<BucketGet>().mockResolvedValue(sliceObject()) };
 
       app.get('/media', c => handleR2(c, rangeRoute));
 
@@ -1263,7 +1266,7 @@ describe('handleR2', () => {
       const app = new Hono<AppEnv>();
       const full = createMockR2Object('a'.repeat(4096), 'text/plain');
       const mockBucket = {
-        get: vi.fn().mockResolvedValueOnce(sliceObject()).mockResolvedValueOnce(full),
+        get: vi.fn<BucketGet>().mockResolvedValueOnce(sliceObject()).mockResolvedValueOnce(full),
       };
       const laterByOneSecond = new Date(UPLOADED_AT.getTime() + 1000).toUTCString();
 
@@ -1286,7 +1289,7 @@ describe('handleR2', () => {
       // evaluate. Treating garbage as a mismatch would let any client (or
       // attacker) disable seeking by sending a junk validator.
       const app = new Hono<AppEnv>();
-      const mockBucket = { get: vi.fn().mockResolvedValue(sliceObject()) };
+      const mockBucket = { get: vi.fn<BucketGet>().mockResolvedValue(sliceObject()) };
 
       app.get('/media', c => handleR2(c, rangeRoute));
 
@@ -1310,7 +1313,7 @@ describe('handleR2', () => {
       const app = new Hono<AppEnv>();
       const mockBucket = {
         get: vi
-          .fn()
+          .fn<BucketGet>()
           .mockResolvedValueOnce(sliceObject())
           .mockResolvedValueOnce(createMockR2ObjectHead()),
       };
@@ -1337,7 +1340,7 @@ describe('handleR2', () => {
       // treated as conditional, so it still uses the edge cache.
       const app = new Hono<AppEnv>();
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(createMockR2Object('text content', 'text/plain')),
+        get: vi.fn<BucketGet>().mockResolvedValue(createMockR2Object('text content', 'text/plain')),
       };
       const matchSpy = vi.spyOn(caches.default, 'match').mockResolvedValue(undefined);
 
@@ -1376,7 +1379,7 @@ describe('handleR2', () => {
         updatedAt: Date.now(),
       };
 
-      const mockBucket = { get: vi.fn() };
+      const mockBucket = { get: vi.fn<BucketGet>() };
       vi.spyOn(caches.default, 'match').mockResolvedValue(
         new Response('cached body', { headers: { 'Content-Type': 'application/pdf' } }),
       );
@@ -1409,7 +1412,9 @@ describe('handleR2', () => {
       };
 
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(createMockR2Object('PDF content', 'application/pdf')),
+        get: vi
+          .fn<BucketGet>()
+          .mockResolvedValue(createMockR2Object('PDF content', 'application/pdf')),
       };
       vi.spyOn(caches.default, 'match').mockResolvedValue(undefined);
 
@@ -1446,7 +1451,7 @@ describe('handleR2', () => {
       const app = new Hono<AppEnv>();
       const mockBucket = {
         get: vi
-          .fn()
+          .fn<BucketGet>()
           .mockRejectedValueOnce(new Error('Invalid ETag in if-none-match header'))
           .mockResolvedValueOnce(createMockR2Object('hello world')),
       };
@@ -1466,7 +1471,7 @@ describe('handleR2', () => {
       const app = new Hono<AppEnv>();
       const mockBucket = {
         get: vi
-          .fn()
+          .fn<BucketGet>()
           .mockRejectedValueOnce(new Error('Invalid ETag in if-none-match header'))
           .mockRejectedValueOnce(new Error('Invalid ETag in if-none-match header'))
           .mockResolvedValueOnce(createMockR2Object('hello world')),
@@ -1488,7 +1493,7 @@ describe('handleR2', () => {
       // on a request that carried neither a Range nor a precondition has
       // nothing to degrade to and must surface, not be swallowed as a 200.
       const app = new Hono<AppEnv>();
-      const mockBucket = { get: vi.fn().mockRejectedValue(new Error('R2 unavailable')) };
+      const mockBucket = { get: vi.fn<BucketGet>().mockRejectedValue(new Error('R2 unavailable')) };
       vi.spyOn(caches.default, 'match').mockResolvedValue(undefined);
       app.get('/media', c => handleR2(c, baseRoute));
 
@@ -1508,7 +1513,7 @@ describe('handleR2', () => {
       const app = new Hono<AppEnv>();
       const mockBucket = {
         get: vi
-          .fn()
+          .fn<BucketGet>()
           .mockResolvedValueOnce(createMockR2RangeObject('slice', { offset: 0, length: 5 }, 4096))
           .mockResolvedValueOnce(null),
       };
@@ -1528,7 +1533,7 @@ describe('handleR2', () => {
       // §13.2.2 step 2 the (stale) date validator must be IGNORED → 304.
       const app = new Hono<AppEnv>();
       const mockBucket = {
-        get: vi.fn().mockResolvedValue(createMockR2ObjectHead()),
+        get: vi.fn<BucketGet>().mockResolvedValue(createMockR2ObjectHead()),
       };
       app.get('/media', c => handleR2(c, baseRoute));
       const response = await app.fetch(
@@ -1547,7 +1552,7 @@ describe('handleR2', () => {
       const app = new Hono<AppEnv>();
       const mockBucket = {
         get: vi
-          .fn()
+          .fn<BucketGet>()
           .mockResolvedValue(
             createMockR2RangeObject('abcdef', { offset: 4090, length: 999999 }, 4096),
           ),
@@ -1585,7 +1590,7 @@ describe('handleR2', () => {
         const app = new Hono<AppEnv>();
         const mockBucket = {
           get: vi
-            .fn()
+            .fn<BucketGet>()
             .mockRejectedValueOnce(new Error('Invalid ETag in if-none-match header'))
             .mockResolvedValueOnce(createMockR2Object('hello world')),
         };
@@ -1609,7 +1614,7 @@ describe('handleR2', () => {
         const app = new Hono<AppEnv>();
         const mockBucket = {
           get: vi
-            .fn()
+            .fn<BucketGet>()
             .mockRejectedValueOnce(new Error('malformed range'))
             .mockRejectedValueOnce(new Error('Invalid ETag in if-match header'))
             .mockResolvedValueOnce(createMockR2Object('hello world')),
@@ -1631,7 +1636,7 @@ describe('handleR2', () => {
         const app = new Hono<AppEnv>();
         const mockBucket = {
           get: vi
-            .fn()
+            .fn<BucketGet>()
             .mockRejectedValueOnce(new Error('Invalid ETag in if-none-match header'))
             .mockResolvedValueOnce(createMockR2Object('hello world')),
         };
@@ -1655,7 +1660,7 @@ describe('handleR2', () => {
         const app = new Hono<AppEnv>();
         const mockBucket = {
           get: vi
-            .fn()
+            .fn<BucketGet>()
             .mockRejectedValueOnce(new Error('Invalid ETag in if-none-match header'))
             .mockResolvedValueOnce(createMockR2Object('hello world')),
         };
@@ -1677,7 +1682,7 @@ describe('handleR2', () => {
         // evaluation here would double-apply them.
         const app = new Hono<AppEnv>();
         const mockBucket = {
-          get: vi.fn().mockResolvedValue(createMockR2Object('hello world')),
+          get: vi.fn<BucketGet>().mockResolvedValue(createMockR2Object('hello world')),
         };
         vi.spyOn(caches.default, 'match').mockResolvedValue(undefined);
         app.get('/media', c => handleR2(c, baseRoute));
@@ -1696,7 +1701,9 @@ describe('handleR2', () => {
       it('hands R2 only the governing validator (RFC 9110 §13.2.2)', async () => {
         const app = new Hono<AppEnv>();
         const mockBucket = {
-          get: vi.fn().mockResolvedValue(createMockR2Object('text content', 'text/plain')),
+          get: vi
+            .fn<BucketGet>()
+            .mockResolvedValue(createMockR2Object('text content', 'text/plain')),
         };
         app.get('/media', c => handleR2(c, baseRoute));
 
@@ -1723,7 +1730,9 @@ describe('handleR2', () => {
       it('keeps If-Unmodified-Since when If-Match is absent', async () => {
         const app = new Hono<AppEnv>();
         const mockBucket = {
-          get: vi.fn().mockResolvedValue(createMockR2Object('text content', 'text/plain')),
+          get: vi
+            .fn<BucketGet>()
+            .mockResolvedValue(createMockR2Object('text content', 'text/plain')),
         };
         app.get('/media', c => handleR2(c, baseRoute));
 
@@ -1745,7 +1754,7 @@ describe('handleR2', () => {
       it('returns 412, never 304, for a failed precondition on a non-GET/HEAD method', async () => {
         // 304 is defined for GET and HEAD only (RFC 9110 §15.4.5).
         const app = new Hono<AppEnv>();
-        const mockBucket = { get: vi.fn().mockResolvedValue(createMockR2ObjectHead()) };
+        const mockBucket = { get: vi.fn<BucketGet>().mockResolvedValue(createMockR2ObjectHead()) };
         app.post('/media', c => handleR2(c, baseRoute));
 
         const response = await app.fetch(
@@ -1761,7 +1770,7 @@ describe('handleR2', () => {
 
       it('still returns 304 for a failed weak precondition on HEAD', async () => {
         const app = new Hono<AppEnv>();
-        const mockBucket = { get: vi.fn().mockResolvedValue(createMockR2ObjectHead()) };
+        const mockBucket = { get: vi.fn<BucketGet>().mockResolvedValue(createMockR2ObjectHead()) };
         app.all('/media', c => handleR2(c, baseRoute));
 
         const response = await app.fetch(
@@ -1779,7 +1788,9 @@ describe('handleR2', () => {
         // Range is GET-only (RFC 9110 §14.2).
         const app = new Hono<AppEnv>();
         const mockBucket = {
-          get: vi.fn().mockResolvedValue(createMockR2Object('text content', 'text/plain')),
+          get: vi
+            .fn<BucketGet>()
+            .mockResolvedValue(createMockR2Object('text content', 'text/plain')),
         };
         app.all('/media', c => handleR2(c, baseRoute));
 
@@ -1800,7 +1811,7 @@ describe('handleR2', () => {
         const app = new Hono<AppEnv>();
         const mockBucket = {
           get: vi
-            .fn()
+            .fn<BucketGet>()
             .mockResolvedValue(
               createMockR2RangeObject('a'.repeat(1024), { offset: 0, length: 1024 }, 4096),
             ),
@@ -1823,7 +1834,7 @@ describe('handleR2', () => {
     describe('If-Match against a missing object', () => {
       it('returns 412, not 404 (RFC 9110 §13.1.1)', async () => {
         const app = new Hono<AppEnv>();
-        const mockBucket = { get: vi.fn().mockResolvedValue(null) };
+        const mockBucket = { get: vi.fn<BucketGet>().mockResolvedValue(null) };
         app.get('/media', c => handleR2(c, baseRoute));
 
         const response = await app.fetch(
@@ -1837,7 +1848,7 @@ describe('handleR2', () => {
 
       it('returns 412 for If-Match: * against a missing object', async () => {
         const app = new Hono<AppEnv>();
-        const mockBucket = { get: vi.fn().mockResolvedValue(null) };
+        const mockBucket = { get: vi.fn<BucketGet>().mockResolvedValue(null) };
         app.get('/media', c => handleR2(c, baseRoute));
 
         const response = await app.fetch(
@@ -1850,7 +1861,7 @@ describe('handleR2', () => {
 
       it('still returns the ordinary 404 when no If-Match is present', async () => {
         const app = new Hono<AppEnv>();
-        const mockBucket = { get: vi.fn().mockResolvedValue(null) };
+        const mockBucket = { get: vi.fn<BucketGet>().mockResolvedValue(null) };
         vi.spyOn(caches.default, 'match').mockResolvedValue(undefined);
         app.get('/media', c => handleR2(c, baseRoute));
 
@@ -1873,7 +1884,7 @@ describe('handleR2', () => {
         const app = new Hono<AppEnv>();
         const mockBucket = {
           get: vi
-            .fn()
+            .fn<BucketGet>()
             .mockResolvedValue(createMockR2RangeObject('', { offset: 4096, length: 0 }, 4096)),
         };
         app.get('/media', c => handleR2(c, baseRoute));

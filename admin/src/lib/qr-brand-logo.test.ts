@@ -4,7 +4,9 @@ import { LOGO_SIZE_RATIO, WIDE_LOGO_MIN_RATIO, WIDE_LOGO_WIDTH_RATIO } from '@bi
 // qr-brand-logo.ts transitively imports @/lib/api-client → @/env, whose
 // window.__ENV__ read explodes in the node test environment. The functions
 // under test here are pure — mock the client module away.
-vi.mock('@/lib/api-client', () => ({ storageApi: { downloadObject: vi.fn() } }));
+vi.mock('@/lib/api-client', () => ({
+  storageApi: { downloadObject: vi.fn<(bucket: string, key: string) => Promise<Blob>>() },
+}));
 
 import { MAX_QR_SIZE, targetEmbedDim } from './qr-brand-logo';
 

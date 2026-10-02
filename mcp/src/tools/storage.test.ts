@@ -3,8 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EdgeRouterClient } from '@bifrost/shared';
 
 vi.mock('node:fs', () => ({
-  readFileSync: vi.fn(),
-  statSync: vi.fn(),
+  readFileSync: vi.fn<typeof readFileSync>(),
+  statSync: vi.fn<typeof statSync>(),
 }));
 import {
   listBuckets,
@@ -33,16 +33,16 @@ describe('Storage tool handlers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockClient = {
-      listBuckets: vi.fn(),
-      listObjects: vi.fn(),
-      getObjectMeta: vi.fn(),
-      downloadObject: vi.fn(),
-      uploadObject: vi.fn(),
-      deleteObject: vi.fn(),
-      renameObject: vi.fn(),
-      moveObject: vi.fn(),
-      updateObjectMetadata: vi.fn(),
-      updateObjectComment: vi.fn(),
+      listBuckets: vi.fn<EdgeRouterClient['listBuckets']>(),
+      listObjects: vi.fn<EdgeRouterClient['listObjects']>(),
+      getObjectMeta: vi.fn<EdgeRouterClient['getObjectMeta']>(),
+      downloadObject: vi.fn<EdgeRouterClient['downloadObject']>(),
+      uploadObject: vi.fn<EdgeRouterClient['uploadObject']>(),
+      deleteObject: vi.fn<EdgeRouterClient['deleteObject']>(),
+      renameObject: vi.fn<EdgeRouterClient['renameObject']>(),
+      moveObject: vi.fn<EdgeRouterClient['moveObject']>(),
+      updateObjectMetadata: vi.fn<EdgeRouterClient['updateObjectMetadata']>(),
+      updateObjectComment: vi.fn<EdgeRouterClient['updateObjectComment']>(),
     } as unknown as EdgeRouterClient;
   });
 

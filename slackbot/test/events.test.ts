@@ -8,10 +8,13 @@ import type { SlackEvent } from '../src/slack/verify';
 import type { SlackUserPermissions } from '../src/auth/types';
 import type { EdgeRouterClient } from '@bifrost/shared';
 
+/** A client method resolving a stand-in payload with only the fields the handlers read. */
+type ClientMethod = (...args: unknown[]) => Promise<unknown>;
+
 // Mock EdgeRouterClient
 function createMockClient(): EdgeRouterClient {
   return {
-    listRoutes: vi.fn().mockResolvedValue([
+    listRoutes: vi.fn<ClientMethod>().mockResolvedValue([
       {
         path: '/github',
         type: 'redirect',
@@ -21,7 +24,7 @@ function createMockClient(): EdgeRouterClient {
         updatedAt: Date.now(),
       },
     ]),
-    getRoute: vi.fn().mockResolvedValue({
+    getRoute: vi.fn<ClientMethod>().mockResolvedValue({
       path: '/github',
       type: 'redirect',
       target: 'https://github.com/user',
@@ -29,11 +32,11 @@ function createMockClient(): EdgeRouterClient {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }),
-    createRoute: vi.fn().mockResolvedValue(undefined),
-    updateRoute: vi.fn().mockResolvedValue(undefined),
-    deleteRoute: vi.fn().mockResolvedValue(undefined),
-    toggleRoute: vi.fn().mockResolvedValue(undefined),
-    getAnalyticsSummary: vi.fn().mockResolvedValue({
+    createRoute: vi.fn<ClientMethod>().mockResolvedValue(undefined),
+    updateRoute: vi.fn<ClientMethod>().mockResolvedValue(undefined),
+    deleteRoute: vi.fn<ClientMethod>().mockResolvedValue(undefined),
+    toggleRoute: vi.fn<ClientMethod>().mockResolvedValue(undefined),
+    getAnalyticsSummary: vi.fn<ClientMethod>().mockResolvedValue({
       period: '30d',
       domain: 'links.example.com',
       clicks: { total: 100, uniqueSlugs: 10 },
@@ -54,9 +57,13 @@ function createMockClient(): EdgeRouterClient {
       recentClicks: [],
       recentViews: [],
     }),
-    getClicks: vi.fn().mockResolvedValue({ clicks: [], total: 0, limit: 100, offset: 0 }),
-    getViews: vi.fn().mockResolvedValue({ views: [], total: 0, limit: 100, offset: 0 }),
-    getSlugStats: vi.fn().mockResolvedValue({
+    getClicks: vi
+      .fn<ClientMethod>()
+      .mockResolvedValue({ clicks: [], total: 0, limit: 100, offset: 0 }),
+    getViews: vi
+      .fn<ClientMethod>()
+      .mockResolvedValue({ views: [], total: 0, limit: 100, offset: 0 }),
+    getSlugStats: vi.fn<ClientMethod>().mockResolvedValue({
       slug: '/linkedin',
       totalClicks: 50,
       clicksByDay: [],

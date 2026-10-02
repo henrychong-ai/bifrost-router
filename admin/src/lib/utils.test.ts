@@ -3,7 +3,7 @@ import { formatBytes, cn, copyToClipboard } from './utils';
 
 // Mock sonner toast
 vi.mock('sonner', () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn<(message: string) => void>(), error: vi.fn<(message: string) => void>() },
 }));
 
 // =============================================================================
@@ -85,7 +85,7 @@ describe('copyToClipboard', () => {
   });
 
   test('copies text and shows success toast', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
+    const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
     await copyToClipboard('https://links.example.com/test');
     expect(writeText).toHaveBeenCalledWith('https://links.example.com/test');
@@ -94,7 +94,7 @@ describe('copyToClipboard', () => {
   });
 
   test('uses custom label in toast', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
+    const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
     await copyToClipboard('https://example.com', 'URL');
     const { toast } = await import('sonner');
@@ -102,7 +102,9 @@ describe('copyToClipboard', () => {
   });
 
   test('shows error toast when clipboard fails', async () => {
-    const writeText = vi.fn().mockRejectedValue(new Error('Denied'));
+    const writeText = vi
+      .fn<(text: string) => Promise<void>>()
+      .mockRejectedValue(new Error('Denied'));
     Object.assign(navigator, { clipboard: { writeText } });
     await copyToClipboard('https://example.com');
     const { toast } = await import('sonner');

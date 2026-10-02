@@ -68,7 +68,7 @@ function cfEntry(overrides: Record<string, unknown> = {}): Record<string, unknow
 
 function stubFetch(pages: Record<string, unknown>[][]): ReturnType<typeof vi.fn> {
   let call = 0;
-  const stub = vi.fn(async () => {
+  const stub = vi.fn<typeof fetch>(async () => {
     const result = pages[call] ?? [];
     call++;
     return new Response(JSON.stringify({ success: true, result }), { status: 200 });

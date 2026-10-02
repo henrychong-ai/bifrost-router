@@ -1,12 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EdgeRouterClient, EdgeRouterError, createClientFromEnv } from './client.js';
 
+/** A fetch whose responses are stand-ins carrying only the fields the client reads. */
+type StubFetch = (...args: Parameters<typeof fetch>) => Promise<unknown>;
+
 const okJson = (data: unknown) => ({ ok: true, json: async () => ({ success: true, data }) });
 
 const okText = (text: string) => ({ ok: true, text: async () => text });
 
 describe('EdgeRouterClient', () => {
-  const mockFetch = vi.fn();
+  const mockFetch = vi.fn<StubFetch>();
   let client: EdgeRouterClient;
 
   beforeEach(() => {
@@ -14,7 +17,7 @@ describe('EdgeRouterClient', () => {
     client = new EdgeRouterClient({
       baseUrl: 'https://test.example.com',
       apiKey: 'test-api-key',
-      fetch: mockFetch,
+      fetch: mockFetch as unknown as typeof fetch,
     });
   });
 
@@ -23,7 +26,7 @@ describe('EdgeRouterClient', () => {
       const clientWithSlash = new EdgeRouterClient({
         baseUrl: 'https://test.example.com/',
         apiKey: 'test-api-key',
-        fetch: mockFetch,
+        fetch: mockFetch as unknown as typeof fetch,
       });
 
       mockFetch.mockResolvedValueOnce({
@@ -442,7 +445,7 @@ describe('createClientFromEnv', () => {
     let fetchMock: ReturnType<typeof vi.fn>;
 
     beforeEach(() => {
-      fetchMock = vi.fn().mockResolvedValue({
+      fetchMock = vi.fn<StubFetch>().mockResolvedValue({
         ok: true,
         json: async () => ({ success: true, data: { routes: [], total: 0, items: [] } }),
       });
@@ -502,7 +505,7 @@ const okRoute = () => ({
 });
 
 describe('EdgeRouterClient credential-target acknowledgement and changelog', () => {
-  const mockFetch = vi.fn();
+  const mockFetch = vi.fn<StubFetch>();
   let client: EdgeRouterClient;
 
   beforeEach(() => {
@@ -510,11 +513,11 @@ describe('EdgeRouterClient credential-target acknowledgement and changelog', () 
     client = new EdgeRouterClient({
       baseUrl: 'https://test.example.com',
       apiKey: 'test-api-key',
-      fetch: mockFetch,
+      fetch: mockFetch as unknown as typeof fetch,
     });
   });
 
-  const sentBody = () => JSON.parse(mockFetch.mock.calls[0][1].body as string);
+  const sentBody = () => JSON.parse(mockFetch.mock.calls[0][1]?.body as string);
 
   it('omits the flag entirely when it was not set', async () => {
     mockFetch.mockResolvedValueOnce(okRoute());

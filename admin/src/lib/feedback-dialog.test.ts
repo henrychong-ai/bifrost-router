@@ -8,12 +8,14 @@ import {
 import { captureScreenshot } from './screenshot';
 import { addBreadcrumb } from './capture';
 
-vi.mock('./screenshot', () => ({ captureScreenshot: vi.fn().mockResolvedValue(null) }));
-vi.mock('./capture', () => ({ addBreadcrumb: vi.fn() }));
+vi.mock('./screenshot', () => ({
+  captureScreenshot: vi.fn<() => Promise<Blob | null>>().mockResolvedValue(null),
+}));
+vi.mock('./capture', () => ({ addBreadcrumb: vi.fn<(...args: unknown[]) => void>() }));
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.stubGlobal('window', { dispatchEvent: vi.fn() });
+  vi.stubGlobal('window', { dispatchEvent: vi.fn<(event: Event) => boolean>() });
 });
 
 afterEach(() => {

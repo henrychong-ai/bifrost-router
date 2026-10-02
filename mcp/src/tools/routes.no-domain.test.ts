@@ -36,21 +36,21 @@ describe('no-domain guard on every domain-required tool', () => {
   let mockClient: EdgeRouterClient;
   beforeEach(() => {
     mockClient = {
-      listRoutes: vi.fn(),
-      getRoute: vi.fn(),
-      createRoute: vi.fn(),
-      updateRoute: vi.fn(),
-      deleteRoute: vi.fn(),
-      toggleRoute: vi.fn(),
-      migrateRoute: vi.fn(),
-      transferRoute: vi.fn(),
-      listQrs: vi.fn(),
-      getQr: vi.fn(),
-      createQr: vi.fn(),
-      updateQr: vi.fn(),
-      deleteQr: vi.fn(),
-      getRouteQrSvg: vi.fn(),
-      getSlugStats: vi.fn(),
+      listRoutes: vi.fn<EdgeRouterClient['listRoutes']>(),
+      getRoute: vi.fn<EdgeRouterClient['getRoute']>(),
+      createRoute: vi.fn<EdgeRouterClient['createRoute']>(),
+      updateRoute: vi.fn<EdgeRouterClient['updateRoute']>(),
+      deleteRoute: vi.fn<EdgeRouterClient['deleteRoute']>(),
+      toggleRoute: vi.fn<EdgeRouterClient['toggleRoute']>(),
+      migrateRoute: vi.fn<EdgeRouterClient['migrateRoute']>(),
+      transferRoute: vi.fn<EdgeRouterClient['transferRoute']>(),
+      listQrs: vi.fn<EdgeRouterClient['listQrs']>(),
+      getQr: vi.fn<EdgeRouterClient['getQr']>(),
+      createQr: vi.fn<EdgeRouterClient['createQr']>(),
+      updateQr: vi.fn<EdgeRouterClient['updateQr']>(),
+      deleteQr: vi.fn<EdgeRouterClient['deleteQr']>(),
+      getRouteQrSvg: vi.fn<EdgeRouterClient['getRouteQrSvg']>(),
+      getSlugStats: vi.fn<EdgeRouterClient['getSlugStats']>(),
     } as unknown as EdgeRouterClient;
   });
 
@@ -233,7 +233,7 @@ describe('no-domain guard on every domain-required tool', () => {
   // domains in the right ORDER (swapping them would delete from the wrong one)
   // and that the report names the destination.
   it('a valid transfer calls the client with (path, fromDomain, toDomain) in that order', async () => {
-    const transferRoute = vi.fn().mockResolvedValue({
+    const transferRoute = vi.fn<EdgeRouterClient['transferRoute']>().mockResolvedValue({
       path: '/x',
       type: 'redirect',
       target: 'https://target.example.com',

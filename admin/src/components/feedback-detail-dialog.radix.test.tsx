@@ -22,13 +22,25 @@ const mocks = vi.hoisted(() => ({ item: null as unknown }));
 
 vi.mock('@/hooks/use-feedback', () => ({
   useFeedbackItem: () => ({ data: mocks.item, isLoading: false }),
-  useTriageFeedback: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useDeleteFeedback: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useTriageFeedback: () => ({
+    mutateAsync: vi.fn<(input: unknown) => Promise<unknown>>(),
+    isPending: false,
+  }),
+  useDeleteFeedback: () => ({
+    mutateAsync: vi.fn<(input: unknown) => Promise<unknown>>(),
+    isPending: false,
+  }),
 }));
 vi.mock('@/lib/api-client', () => ({
-  api: { feedback: { attachment: vi.fn(async () => new Blob(['{}'])) } },
+  api: {
+    feedback: {
+      attachment: vi.fn<(id: string, key: string) => Promise<Blob>>(async () => new Blob(['{}'])),
+    },
+  },
 }));
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn<(message: string) => void>(), error: vi.fn<(message: string) => void>() },
+}));
 
 import { FeedbackDetailDialog } from './feedback-detail-dialog';
 

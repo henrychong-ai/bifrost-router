@@ -17,7 +17,7 @@ import { summary } from './dashboard-summary.fixture';
  * `max-w-80` on the cell means long destination URLs stay truncated, so the
  * control appears to do nothing for the case it exists to serve.
  */
-const mockUseAnalyticsSummary = vi.hoisted(() => vi.fn());
+const mockUseAnalyticsSummary = vi.hoisted(() => vi.fn<(params: unknown) => unknown>());
 vi.mock('@/hooks', () => ({ useAnalyticsSummary: mockUseAnalyticsSummary }));
 vi.mock('@/components/backup-health-widget', () => ({ BackupHealthWidget: () => null }));
 
@@ -52,7 +52,7 @@ describe('leaderboard expand control (client render)', () => {
       isLoading: false,
       isFetching: false,
       error: null,
-      refetch: vi.fn(),
+      refetch: vi.fn<() => void>(),
     });
   });
 

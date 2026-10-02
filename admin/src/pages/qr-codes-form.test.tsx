@@ -21,7 +21,13 @@ vi.mock('@/hooks', () => ({
   useDeleteQr: () => ({ mutate: vi.fn<() => void>(), isPending: false }),
   useDebounce: <T,>(value: T) => value,
 }));
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
+vi.mock('sonner', () => ({
+  toast: {
+    success: vi.fn<(message: string) => void>(),
+    error: vi.fn<(message: string) => void>(),
+    warning: vi.fn<(message: string) => void>(),
+  },
+}));
 // The logo loaders pull in the API client, which reads its env at import time.
 vi.mock('@/lib/qr-brand-logo', () => ({
   computeLogoAspectRatio: async () => null,

@@ -17,15 +17,17 @@ const sampleQr: QRCode = {
 
 function mockClient(overrides: Partial<Record<string, unknown>> = {}): EdgeRouterClient {
   return {
-    listQrs: vi.fn().mockResolvedValue({
+    listQrs: vi.fn<EdgeRouterClient['listQrs']>().mockResolvedValue({
       items: [sampleQr],
       meta: { total: 1, count: 1, offset: 0, limit: 1, hasMore: false },
     }),
-    getQr: vi.fn().mockResolvedValue(sampleQr),
-    createQr: vi.fn().mockResolvedValue(sampleQr),
-    updateQr: vi.fn().mockResolvedValue(sampleQr),
-    deleteQr: vi.fn().mockResolvedValue({ deleted: true, id: 'office-wifi' }),
-    getRouteQrSvg: vi.fn().mockResolvedValue('<svg>qr</svg>'),
+    getQr: vi.fn<EdgeRouterClient['getQr']>().mockResolvedValue(sampleQr),
+    createQr: vi.fn<EdgeRouterClient['createQr']>().mockResolvedValue(sampleQr),
+    updateQr: vi.fn<EdgeRouterClient['updateQr']>().mockResolvedValue(sampleQr),
+    deleteQr: vi
+      .fn<EdgeRouterClient['deleteQr']>()
+      .mockResolvedValue({ deleted: true, id: 'office-wifi' }),
+    getRouteQrSvg: vi.fn<EdgeRouterClient['getRouteQrSvg']>().mockResolvedValue('<svg>qr</svg>'),
     ...overrides,
   } as unknown as EdgeRouterClient;
 }
@@ -44,7 +46,7 @@ describe('QR MCP tool handlers', () => {
 
   it('listQrs reports an empty catalogue plainly', async () => {
     const client = mockClient({
-      listQrs: vi.fn().mockResolvedValue({
+      listQrs: vi.fn<EdgeRouterClient['listQrs']>().mockResolvedValue({
         items: [],
         meta: { total: 0, count: 0, offset: 0, limit: 0, hasMore: false },
       }),
@@ -113,7 +115,9 @@ describe('QR MCP tool handlers', () => {
 
   it('surfaces API errors verbatim instead of throwing', async () => {
     const client = mockClient({
-      getQr: vi.fn().mockRejectedValue(new Error('QR code not found: nope')),
+      getQr: vi
+        .fn<EdgeRouterClient['getQr']>()
+        .mockRejectedValue(new Error('QR code not found: nope')),
     });
     expect(await getQr(client, { id: 'nope', domain: 'links.example.com' })).toBe(
       'Error: QR code not found: nope',

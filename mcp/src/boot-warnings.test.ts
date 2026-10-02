@@ -3,7 +3,7 @@ import { IGNORED_ENV_WARNINGS, warnIgnoredEnv } from './boot-warnings.js';
 
 describe('boot warnings for removed environment variables', () => {
   it('warns exactly once when EDGE_ROUTER_DOMAIN is still set', () => {
-    const log = vi.fn();
+    const log = vi.fn<(message: string) => void>();
 
     const warned = warnIgnoredEnv({ EDGE_ROUTER_DOMAIN: 'links.example.com' }, log);
 
@@ -19,7 +19,7 @@ describe('boot warnings for removed environment variables', () => {
   });
 
   it('says nothing when the variable is absent or empty', () => {
-    const log = vi.fn();
+    const log = vi.fn<(message: string) => void>();
 
     expect(warnIgnoredEnv({}, log)).toEqual([]);
     expect(warnIgnoredEnv({ EDGE_ROUTER_DOMAIN: undefined }, log)).toEqual([]);
@@ -28,7 +28,7 @@ describe('boot warnings for removed environment variables', () => {
   });
 
   it('ignores unrelated variables and never throws', () => {
-    const log = vi.fn();
+    const log = vi.fn<(message: string) => void>();
 
     expect(
       warnIgnoredEnv({ EDGE_ROUTER_URL: 'https://bifrost.example.com', PATH: '/usr/bin' }, log),

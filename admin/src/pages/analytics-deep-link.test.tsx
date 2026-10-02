@@ -20,10 +20,10 @@ import { ProxyPage } from './proxy';
  */
 const empty = { data: undefined, isLoading: false, isFetching: false, error: null };
 const hooks = vi.hoisted(() => ({
-  useClicks: vi.fn(),
-  useViews: vi.fn(),
-  useDownloads: vi.fn(),
-  useProxyRequests: vi.fn(),
+  useClicks: vi.fn<(params: unknown) => unknown>(),
+  useViews: vi.fn<(params: unknown) => unknown>(),
+  useDownloads: vi.fn<(params: unknown) => unknown>(),
+  useProxyRequests: vi.fn<(params: unknown) => unknown>(),
 }));
 
 // The hooks barrel pulls in the API/query clients, which touch `window` at

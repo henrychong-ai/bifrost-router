@@ -13,13 +13,13 @@ function createMockBucket(options: {
   const { delimitedPrefixes = [], manifest = null, files = new Map() } = options;
 
   return {
-    list: vi.fn().mockResolvedValue({
+    list: vi.fn<(options?: R2ListOptions) => Promise<unknown>>().mockResolvedValue({
       delimitedPrefixes,
       objects: [],
       truncated: false,
       cursor: undefined,
     }),
-    get: vi.fn().mockImplementation(async (key: string) => {
+    get: vi.fn<(key: string) => Promise<unknown>>().mockImplementation(async (key: string) => {
       if (key.endsWith('manifest.json') && manifest) {
         return {
           json: () => Promise.resolve(manifest),
@@ -27,7 +27,7 @@ function createMockBucket(options: {
       }
       return null;
     }),
-    head: vi.fn().mockImplementation(async (key: string) => {
+    head: vi.fn<(key: string) => Promise<unknown>>().mockImplementation(async (key: string) => {
       const file = files.get(key);
       return file ?? null;
     }),

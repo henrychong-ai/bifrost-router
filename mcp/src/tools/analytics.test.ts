@@ -227,10 +227,10 @@ describe('Analytics tool handlers', () => {
 
   beforeEach(() => {
     mockClient = {
-      getAnalyticsSummary: vi.fn(),
-      getClicks: vi.fn(),
-      getViews: vi.fn(),
-      getSlugStats: vi.fn(),
+      getAnalyticsSummary: vi.fn<EdgeRouterClient['getAnalyticsSummary']>(),
+      getClicks: vi.fn<EdgeRouterClient['getClicks']>(),
+      getViews: vi.fn<EdgeRouterClient['getViews']>(),
+      getSlugStats: vi.fn<EdgeRouterClient['getSlugStats']>(),
     } as unknown as EdgeRouterClient;
   });
 
@@ -461,25 +461,28 @@ describe('Analytics tool handlers', () => {
 });
 
 function realClient(): { client: EdgeRouterClient; fetchMock: ReturnType<typeof vi.fn> } {
-  const fetchMock = vi.fn().mockResolvedValue({
-    ok: true,
-    json: async () => ({
-      success: true,
-      data: {
-        totalClicks: 0,
-        uniqueLinks: 0,
-        totalPageViews: 0,
-        uniquePages: 0,
-        topClicks: [],
-        topPages: [],
-        topCountries: [],
-        topReferrers: [],
-        recentClicks: [],
-        items: [],
-        meta: { total: 0, count: 0, offset: 0, limit: 0, hasMore: false },
-      },
-    }),
-  });
+  // A fetch whose response is a stand-in with only the fields the client reads.
+  const fetchMock = vi
+    .fn<(...args: Parameters<typeof fetch>) => Promise<unknown>>()
+    .mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          totalClicks: 0,
+          uniqueLinks: 0,
+          totalPageViews: 0,
+          uniquePages: 0,
+          topClicks: [],
+          topPages: [],
+          topCountries: [],
+          topReferrers: [],
+          recentClicks: [],
+          items: [],
+          meta: { total: 0, count: 0, offset: 0, limit: 0, hasMore: false },
+        },
+      }),
+    });
   const client = new EdgeRouterClientImpl({
     baseUrl: 'https://admin.example.com',
     apiKey: 'test-key',
@@ -488,9 +491,12 @@ function realClient(): { client: EdgeRouterClient; fetchMock: ReturnType<typeof 
   return { client, fetchMock };
 }
 
+/** Placeholder payloads: the handler tests check only the arguments each method receives. */
+type PlaceholderMethod = (...args: unknown[]) => Promise<unknown>;
+
 function handlerMock(): EdgeRouterClient {
   return {
-    getAnalyticsSummary: vi.fn().mockResolvedValue({
+    getAnalyticsSummary: vi.fn<PlaceholderMethod>().mockResolvedValue({
       period: '30d',
       domain: 'all',
       totalClicks: 0,
@@ -504,10 +510,10 @@ function handlerMock(): EdgeRouterClient {
       recentClicks: [],
     }),
     getClicks: vi
-      .fn()
+      .fn<PlaceholderMethod>()
       .mockResolvedValue({ items: [], meta: { total: 0, count: 0, offset: 0, limit: 0 } }),
     getViews: vi
-      .fn()
+      .fn<PlaceholderMethod>()
       .mockResolvedValue({ items: [], meta: { total: 0, count: 0, offset: 0, limit: 0 } }),
   } as unknown as EdgeRouterClient;
 }
