@@ -11,6 +11,9 @@
     "noImplicitOverride": true,
     "noImplicitReturns": true,
     "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
@@ -18,6 +21,7 @@
     "declarationMap": true,
     "sourceMap": true,
     "resolveJsonModule": true,
+    "verbatimModuleSyntax": true,
     "isolatedModules": true
   },
   "include": ["src/**/*"],
