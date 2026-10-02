@@ -578,6 +578,16 @@ export const R2UpdateMetadataRequestSchema = z.object({
 });
 
 /**
+ * Request body of `PUT /:bucket/comment/:key`. The field is REQUIRED: a string
+ * sets the note, `null` or an empty string clears it, and a missing field is
+ * refused rather than read as "clear". The length ceiling is the one
+ * {@link CommentSchema} already applied on this endpoint.
+ */
+export const R2UpdateCommentRequestSchema = z.object({
+  comment: CommentSchema.nullable(),
+});
+
+/**
  * update_object_comment tool input schema (v1.30.0, ported from upstream
  * v1.58.7). The `comment` field is REQUIRED — send null (or an empty string)
  * to clear the note. Mirrors the explicit-set semantics of

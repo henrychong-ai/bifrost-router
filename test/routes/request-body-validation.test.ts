@@ -7,9 +7,9 @@ import type { AppEnv, Bindings } from '../../src/types';
 import { clearAllRoutes } from '../helpers';
 
 /**
- * Request-body validation for the four write endpoints that used to read their
- * JSON body through a type cast: storage rename / move / metadata and route
- * transfer.
+ * Request-body validation for the write endpoints that used to read their JSON
+ * body through a type cast or without a JSON guard: storage rename / move /
+ * metadata / comment, and route transfer / create / update / seed.
  *
  * Two properties are pinned here:
  *
@@ -18,8 +18,12 @@ import { clearAllRoutes } from '../helpers';
  *    against bindings that record — and throw on — every call, so a handler
  *    that reached storage fails the test twice over.
  * 2. Everything the handlers accepted before is still accepted: a `null`
- *    `destinationKey`, an empty metadata patch, undeclared extra keys, and a
- *    non-boolean `acknowledgeCredentialTarget`.
+ *    `destinationKey`, an empty metadata patch, undeclared extra keys, a
+ *    non-boolean `acknowledgeCredentialTarget`, and a string, `null` or empty
+ *    comment.
+ *
+ * One body is refused that used to succeed: a move with an EMPTY
+ * `destinationKey`, which skipped key validation and wrote to the empty key.
  */
 
 const ADMIN_HOST = 'example.com';
@@ -74,6 +78,10 @@ const ENDPOINTS = {
   move: { method: 'POST', path: '/storage/files/move' },
   metadata: { method: 'PUT', path: '/storage/files/metadata/validation/meta.txt' },
   transfer: { method: 'POST', path: '/routes/transfer' },
+  comment: { method: 'PUT', path: '/storage/files/comment/validation/comment.txt' },
+  create: { method: 'POST', path: `/routes?domain=${ADMIN_HOST}` },
+  update: { method: 'PUT', path: `/routes?domain=${ADMIN_HOST}&path=/validation` },
+  seed: { method: 'POST', path: `/routes/seed?domain=${ADMIN_HOST}` },
 } as const;
 
 type EndpointName = keyof typeof ENDPOINTS;
@@ -105,6 +113,35 @@ const REJECTED: Array<[EndpointName, string, string]> = [
     'a missing required field',
     JSON.stringify({ path: '/validation', fromDomain: ADMIN_HOST }),
   ],
+  // An empty destinationKey is a key, not an absent one: the key validator
+  // refuses it, exactly as it refuses an empty source key.
+  [
+    'move',
+    'an empty destinationKey',
+    JSON.stringify({ key: 'a.txt', destinationBucket: 'assets', destinationKey: '' }),
+  ],
+  ['comment', 'malformed JSON', MALFORMED],
+  ['comment', 'a wrong-typed field', JSON.stringify({ comment: 5 })],
+  ['comment', 'a missing required field', JSON.stringify({})],
+  ['comment', 'a null body', 'null'],
+  ['create', 'malformed JSON', MALFORMED],
+  [
+    'create',
+    'a wrong-typed field',
+    JSON.stringify({ path: '/validation', type: 'redirect', target: 5 }),
+  ],
+  ['create', 'a missing required field', JSON.stringify({ path: '/validation', type: 'redirect' })],
+  ['update', 'malformed JSON', MALFORMED],
+  ['update', 'a wrong-typed field', JSON.stringify({ enabled: 'yes' })],
+  // Every update field is optional, so there is no required field to omit; a
+  // `null` body used to reach KV as an empty patch and then fail on the audit step.
+  ['update', 'a null body', 'null'],
+  ['update', 'a non-object body', JSON.stringify(['enabled'])],
+  ['seed', 'malformed JSON', MALFORMED],
+  ['seed', 'a wrong-typed field', JSON.stringify({ routes: 'not-an-array' })],
+  ['seed', 'a missing required field', JSON.stringify({})],
+  ['seed', 'a null body', 'null'],
+  ['seed', 'a null route entry', JSON.stringify({ routes: [null] })],
 ];
 
 const WELL_FORMED: Record<EndpointName, string> = {
@@ -116,9 +153,15 @@ const WELL_FORMED: Record<EndpointName, string> = {
     fromDomain: ADMIN_HOST,
     toDomain: TRANSFER_TARGET_DOMAIN,
   }),
+  comment: JSON.stringify({ comment: 'a note' }),
+  create: JSON.stringify({ path: '/validation', type: 'redirect', target: 'https://example.com/' }),
+  update: JSON.stringify({ enabled: false }),
+  seed: JSON.stringify({
+    routes: [{ path: '/validation', type: 'redirect', target: 'https://example.com/' }],
+  }),
 };
 
-describe('request-body validation (rename / move / metadata / transfer)', () => {
+describe('request-body validation (storage and route write endpoints)', () => {
   beforeEach(async () => {
     await clearAllRoutes();
   });
@@ -227,6 +270,46 @@ describe('request-body validation (rename / move / metadata / transfer)', () => 
       contentType: 'text/plain',
       cacheControl: 'no-store',
     });
+  });
+
+  it('comment: still sets a string and clears on null or an empty string', async () => {
+    await env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS file_comments (
+        bucket TEXT NOT NULL,
+        key TEXT NOT NULL,
+        comment TEXT NOT NULL,
+        updated_by TEXT,
+        updated_at INTEGER DEFAULT (unixepoch()) NOT NULL,
+        PRIMARY KEY (bucket, key)
+      )`,
+    ).run();
+    await env.FILES_BUCKET.put('validation/comment.txt', 'x');
+    const stored = async () =>
+      (
+        await env.DB.prepare('SELECT comment FROM file_comments WHERE bucket = ? AND key = ?')
+          .bind('files', 'validation/comment.txt')
+          .first<{ comment: string }>()
+      )?.comment ?? null;
+
+    const set = await send(realEnv, 'PUT', ENDPOINTS.comment.path, '{"comment":"a note"}');
+    expect(set.status).toBe(200);
+    expect(await stored()).toBe('a note');
+
+    const clearedByNull = await send(realEnv, 'PUT', ENDPOINTS.comment.path, '{"comment":null}');
+    expect(clearedByNull.status).toBe(200);
+    expect(await stored()).toBeNull();
+
+    await send(realEnv, 'PUT', ENDPOINTS.comment.path, '{"comment":"again"}');
+    const clearedByEmpty = await send(realEnv, 'PUT', ENDPOINTS.comment.path, '{"comment":""}');
+    expect(clearedByEmpty.status).toBe(200);
+    expect(await stored()).toBeNull();
+  });
+
+  it('answers malformed JSON on a route write with "Invalid JSON body"', async () => {
+    const response = await send(recordingEnv([]), 'POST', ENDPOINTS.create.path, MALFORMED);
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain('Invalid JSON body');
   });
 
   it('transfer: still accepts a non-boolean acknowledgeCredentialTarget', async () => {

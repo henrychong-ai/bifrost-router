@@ -51,6 +51,7 @@ export {
   R2RenameRequestSchema,
   R2MoveRequestSchema,
   R2UpdateMetadataRequestSchema,
+  R2UpdateCommentRequestSchema,
   R2ObjectKeyInputSchema,
   R2GetObjectInputSchema,
   R2DeleteObjectInputSchema,

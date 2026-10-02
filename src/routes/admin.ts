@@ -445,7 +445,9 @@ adminRoutes.post('/routes', async c => {
   }
 
   const domain = domainResult.domain;
-  const body = await c.req.json();
+  const body = await c.req.json().catch(() => {
+    throw new HTTPException(400, { message: 'Invalid JSON body' });
+  });
 
   // Validate input
   const result = CreateRouteSchema.safeParse(body);
@@ -552,10 +554,15 @@ adminRoutes.put('/routes', async c => {
   }
 
   const domain = domainResult.domain;
-  const body = await c.req.json();
+  const body = await c.req.json().catch(() => {
+    throw new HTTPException(400, { message: 'Invalid JSON body' });
+  });
 
-  // Validate input
-  const result = UpdateRouteSchema.safeParse({ ...body, path });
+  // Validate input. A body that is not a JSON object goes to the schema as it
+  // is, so it is refused as a type error — spread over `path` it would read as
+  // an empty patch (and `null` then failed AFTER the write, on the audit step).
+  const isObjectBody = typeof body === 'object' && body !== null && !Array.isArray(body);
+  const result = UpdateRouteSchema.safeParse(isObjectBody ? { ...body, path } : body);
   if (!result.success) {
     return c.json(
       {
@@ -722,9 +729,12 @@ adminRoutes.post('/routes/seed', async c => {
   }
 
   const domain = domainResult.domain;
-  const body = await c.req.json();
+  const body = await c.req.json().catch(() => {
+    throw new HTTPException(400, { message: 'Invalid JSON body' });
+  });
 
-  if (!Array.isArray(body.routes)) {
+  // Optional chaining: a `null` body has no `routes` either.
+  if (!Array.isArray(body?.routes)) {
     return c.json(
       {
         success: false,
@@ -760,7 +770,8 @@ adminRoutes.post('/routes/seed', async c => {
       }
       validRoutes.push(result.data);
     } else {
-      errors.push({ path: route.path, issues: result.error.issues });
+      // A seed entry may be `null` or a primitive, which has no path to report.
+      errors.push({ path: route?.path, issues: result.error.issues });
     }
   }
 

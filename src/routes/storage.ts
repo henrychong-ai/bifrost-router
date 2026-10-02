@@ -22,6 +22,7 @@ import {
   CommentSchema,
   R2MoveRequestSchema,
   R2RenameRequestSchema,
+  R2UpdateCommentRequestSchema,
   R2UpdateMetadataRequestSchema,
   normalizeR2Key,
   redactSensitive,
@@ -698,11 +699,15 @@ storageRoutes.post('/:bucket/move', async c => {
     throw new HTTPException(400, { message: `Invalid key: ${keyValidation.error}` });
   }
 
+  // Absent means `null` or omitted, and only that. An EMPTY destinationKey is a
+  // key like any other and goes through the validator, which refuses it — it
+  // used to skip validation and write the object to the empty key.
+  const hasDestinationKey = destinationKey !== undefined && destinationKey !== null;
   const finalDestKey = destinationKey ?? keyValidation.sanitizedKey;
   // NEW-key site → normalize the destination (v1.27.0, flag-gated). The source
   // key references an existing object and is NOT normalized; an absent
   // destinationKey keeps the existing key (move to another bucket, same key).
-  const destKeyValidation = destinationKey
+  const destKeyValidation = hasDestinationKey
     ? validateR2Key(destinationKey, { normalize: c.env.R2_KEY_NORMALIZE === 'sanitize' })
     : { valid: true as const, sanitizedKey: finalDestKey };
   if (!destKeyValidation.valid) {
@@ -904,19 +909,15 @@ storageRoutes.put('/:bucket/comment/:key{.+}', async c => {
     throw new HTTPException(400, { message: validation.error ?? 'Invalid R2 key' });
   }
 
-  const requestBody = await c.req.json<{ comment?: string | null }>();
   // The `comment` field is required (send null or '' to clear). A missing field
   // is rejected rather than silently clearing the note — that keeps this
   // explicit-set endpoint from contradicting the "absent = preserve" semantics
   // the upload path uses.
-  const parsedComment = CommentSchema.nullable().safeParse(requestBody.comment);
-  if (!parsedComment.success) {
-    throw new HTTPException(400, {
-      message: `Invalid comment (send a string, or null/'' to clear): ${
-        parsedComment.error.issues[0]?.message ?? 'validation failed'
-      }`,
-    });
-  }
+  const { comment } = await parseJsonBody(
+    c,
+    R2UpdateCommentRequestSchema,
+    "comment update (send a string, or null/'' to clear)",
+  );
 
   // The object must exist — don't create comment rows for non-existent keys.
   const head = await bucket.head(validation.sanitizedKey);
@@ -932,7 +933,7 @@ storageRoutes.put('/:bucket/comment/:key{.+}', async c => {
   const after = await setFileComment(c.env.DB, {
     bucket: bucketName,
     key: validation.sanitizedKey,
-    comment: parsedComment.data ?? null,
+    comment,
     updatedBy,
   });
 
