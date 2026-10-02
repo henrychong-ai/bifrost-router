@@ -152,9 +152,9 @@ interface CredentialTargetRefusal {
 const URL_STRIPPED_CHARACTERS = /[\t\n\r]/g;
 
 export function credentialTargetParameters(route: {
-  type?: string;
-  target?: string;
-  enabled?: boolean;
+  type?: string | undefined;
+  target?: string | undefined;
+  enabled?: boolean | undefined;
 }): string[] {
   if (route.enabled === false) return [];
   if (route.type === 'r2') return [];

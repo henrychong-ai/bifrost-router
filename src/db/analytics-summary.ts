@@ -11,15 +11,15 @@ import {
 import type { Database } from './index';
 
 export interface AnalyticsSummaryOptions {
-  domain?: string;
-  days?: number;
-  country?: string;
-  search?: string;
-  includeMonitoring?: boolean;
-  unifiedTrafficEnabled?: boolean;
-  unifiedTrafficMode?: 'off' | 'shadow';
-  unifiedTrafficCutoverAt?: number | null;
-  unifiedTrafficRetentionDays?: number | null;
+  domain?: string | undefined;
+  days?: number | undefined;
+  country?: string | undefined;
+  search?: string | undefined;
+  includeMonitoring?: boolean | undefined;
+  unifiedTrafficEnabled?: boolean | undefined;
+  unifiedTrafficMode?: 'off' | 'shadow' | undefined;
+  unifiedTrafficCutoverAt?: number | null | undefined;
+  unifiedTrafficRetentionDays?: number | null | undefined;
 }
 
 function getDaysAgoTimestamp(days: number): number {

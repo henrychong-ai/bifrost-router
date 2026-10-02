@@ -33,7 +33,11 @@ export async function backupKV(
       let cursor: string | undefined;
 
       do {
-        const result = await kv.list({ prefix, cursor, limit: 1000 });
+        const result = await kv.list({
+          prefix,
+          ...(cursor !== undefined && { cursor }),
+          limit: 1000,
+        });
 
         for (const key of result.keys) {
           const value = await kv.get(key.name, 'json');

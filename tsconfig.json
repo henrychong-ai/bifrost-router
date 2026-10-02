@@ -5,6 +5,7 @@
     "moduleResolution": "bundler",
     "strict": true,
     "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "noPropertyAccessFromIndexSignature": true,

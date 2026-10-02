@@ -106,7 +106,7 @@ export async function getAllRoutes(kv: KVNamespace, domain: string): Promise<KVR
 
     // List all keys with domain prefix
     do {
-      const result = await kv.list({ prefix, cursor });
+      const result = await kv.list({ prefix, ...(cursor !== undefined && { cursor }) });
 
       // Fetch route values for each key
       const routePromises = result.keys.map(async key => {
@@ -150,7 +150,7 @@ export async function getAllRoutesAllDomains(kv: KVNamespace): Promise<KVRouteCo
 
     // List all keys (no prefix = all domains)
     do {
-      const result = await kv.list({ cursor });
+      const result = await kv.list({ ...(cursor !== undefined && { cursor }) });
 
       // Fetch route values and parse domain from key
       const routePromises = result.keys.map(async key => {
@@ -224,6 +224,13 @@ export async function createRoute(
 }
 
 /**
+ * The fields an update may carry. Each one may be left out, or be present with
+ * the value `undefined`: Zod's output type for an optional field allows both,
+ * even though a parsed JSON body only ever produces the first.
+ */
+type RoutePatch = { [K in keyof CreateRouteInput]?: CreateRouteInput[K] | undefined };
+
+/**
  * Update an existing route
  * Returns null if not found, throws KVWriteError on failure
  */
@@ -231,7 +238,7 @@ export async function updateRoute(
   kv: KVNamespace,
   domain: string,
   path: string,
-  updates: Partial<CreateRouteInput>,
+  updates: RoutePatch,
 ): Promise<KVRouteConfig | null> {
   const normalizedPath = normalizePath(path);
   const existing = await getRouteByNormalizedPath(kv, domain, normalizedPath);
@@ -241,6 +248,11 @@ export async function updateRoute(
   const updated: KVRouteConfig = {
     ...existing,
     ...updates,
+    // A stored route always has a type and a target. A patch that leaves either
+    // out keeps the stored value, as the spread alone already did; writing them
+    // out also keeps it when the key is present but `undefined`.
+    type: updates.type ?? existing.type,
+    target: updates.target ?? existing.target,
     path: normalizedPath, // Path cannot be changed
     createdAt: existing.createdAt,
     updatedAt: Date.now(),

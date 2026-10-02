@@ -76,7 +76,7 @@ export class EdgeRouterError extends Error {
  * it before anything reaches KV.
  */
 export interface CredentialTargetAcknowledgement {
-  acknowledgeCredentialTarget?: boolean;
+  acknowledgeCredentialTarget?: boolean | undefined;
 }
 
 /** Attach the acknowledgement to a write body only when it was actually set. */
@@ -124,14 +124,15 @@ export class EdgeRouterClient {
       }
     }
 
-    // Make request
+    // Make request. The `body` key is present only when there is a body: fetch
+    // reads an absent key and an explicit `undefined` as the same "no body".
     const response = await this.fetch(url.toString(), {
       method,
       headers: {
         'Content-Type': 'application/json',
         'X-Admin-Key': this.apiKey,
       },
-      body: options.body ? JSON.stringify(options.body) : undefined,
+      ...(options.body ? { body: JSON.stringify(options.body) } : {}),
     });
 
     // Parse response
@@ -502,7 +503,7 @@ export class EdgeRouterClient {
     key: string,
     content: Blob | Buffer,
     contentType: string,
-    options?: { overwrite?: boolean },
+    options?: { overwrite?: boolean | undefined },
   ): Promise<R2UploadResponse> {
     const formData = new FormData();
     const blob =
@@ -687,7 +688,12 @@ export class EdgeRouterClient {
   /** Render an ephemeral QR SVG for an existing route (persists nothing). */
   async getRouteQrSvg(
     path: string,
-    options: { domain: string; fg?: string; bg?: string; size?: number },
+    options: {
+      domain: string;
+      fg?: string | undefined;
+      bg?: string | undefined;
+      size?: number | undefined;
+    },
   ): Promise<string> {
     const response = await this.requestRaw('GET', '/api/qr/from-route', {
       domain: options.domain,

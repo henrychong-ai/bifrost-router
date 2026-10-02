@@ -125,7 +125,7 @@ export async function handleProxy(
     const response = await fetch(fullTargetUrl, {
       method: c.req.method,
       headers,
-      body: ['GET', 'HEAD'].includes(c.req.method) ? undefined : c.req.raw.body,
+      ...(!['GET', 'HEAD'].includes(c.req.method) && { body: c.req.raw.body }),
       signal: controller.signal,
     });
 

@@ -607,8 +607,8 @@ storageRoutes.post('/:bucket/rename', async c => {
   }
 
   const copied = await bucket.put(newValidation.sanitizedKey, original.body, {
-    httpMetadata: original.httpMetadata,
-    customMetadata: original.customMetadata,
+    ...(original.httpMetadata !== undefined && { httpMetadata: original.httpMetadata }),
+    ...(original.customMetadata !== undefined && { customMetadata: original.customMetadata }),
   });
 
   await bucket.delete(oldValidation.sanitizedKey);
@@ -748,8 +748,8 @@ storageRoutes.post('/:bucket/move', async c => {
   }
 
   const copied = await destBucket.put(destKeyValidation.sanitizedKey, original.body, {
-    httpMetadata: original.httpMetadata,
-    customMetadata: original.customMetadata,
+    ...(original.httpMetadata !== undefined && { httpMetadata: original.httpMetadata }),
+    ...(original.customMetadata !== undefined && { customMetadata: original.customMetadata }),
   });
 
   await sourceBucket.delete(keyValidation.sanitizedKey);
@@ -847,7 +847,7 @@ storageRoutes.put('/:bucket/metadata/:key{.+}', async c => {
 
   const updated = await bucket.put(validation.sanitizedKey, original.body, {
     httpMetadata: updatedMetadata,
-    customMetadata: original.customMetadata,
+    ...(original.customMetadata !== undefined && { customMetadata: original.customMetadata }),
   });
 
   try {

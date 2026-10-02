@@ -111,7 +111,7 @@ export async function listQRs(
 
   try {
     do {
-      const result = await kv.list({ prefix, cursor });
+      const result = await kv.list({ prefix, ...(cursor !== undefined && { cursor }) });
       const fetched = await Promise.all(result.keys.map(key => kv.get<QRCode>(key.name, 'json')));
       records.push(...fetched.filter((r): r is QRCode => r !== null));
       cursor = result.list_complete ? undefined : result.cursor;

@@ -378,28 +378,28 @@ export interface KVRouteConfig {
   target: string;
 
   /** HTTP status code for redirects (default: 302) */
-  statusCode?: RedirectStatusCode;
+  statusCode?: RedirectStatusCode | undefined;
 
   /** Preserve query params on redirect (default: true) */
-  preserveQuery?: boolean;
+  preserveQuery?: boolean | undefined;
 
   /** Preserve path for wildcard routes (default: false) */
-  preservePath?: boolean;
+  preservePath?: boolean | undefined;
 
   /** Cache-Control header for proxied/R2 content */
-  cacheControl?: string;
+  cacheControl?: string | undefined;
 
   /** Override Host header for proxy requests (e.g., "example.com" when proxying to cdn.webflow.com) */
-  hostHeader?: string;
+  hostHeader?: string | undefined;
 
   /** Force browser to download instead of display inline (R2 only, default: false) */
-  forceDownload?: boolean;
+  forceDownload?: boolean | undefined;
 
   /** R2 bucket name for file serving (R2 only, default: "files") */
-  bucket?: R2BucketName;
+  bucket?: R2BucketName | undefined;
 
   /** Enable/disable route without deleting (default: true) */
-  enabled?: boolean;
+  enabled?: boolean | undefined;
 
   /** Creation timestamp (Unix milliseconds — `Date.now()`) */
   createdAt: number;

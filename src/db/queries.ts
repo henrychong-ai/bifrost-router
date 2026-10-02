@@ -8,23 +8,23 @@ import type { AuditSource } from '@bifrost/shared';
  */
 export interface AnalyticsQueryOptions {
   /** Filter by domain */
-  domain?: string;
+  domain?: string | undefined;
   /** Time range in days (default: 30) */
-  days?: number;
+  days?: number | undefined;
   /** Results per page (default: 100, max: 1000) */
-  limit?: number;
+  limit?: number | undefined;
   /** Pagination offset */
-  offset?: number;
+  offset?: number | undefined;
   /** Filter clicks by slug */
-  slug?: string;
+  slug?: string | undefined;
   /** Filter views by path */
-  path?: string;
+  path?: string | undefined;
   /** Filter by country code */
-  country?: string;
+  country?: string | undefined;
   /** Filter downloads by R2 key */
-  r2Key?: string;
+  r2Key?: string | undefined;
   /** Filter proxy requests by target URL */
-  targetUrl?: string;
+  targetUrl?: string | undefined;
 }
 
 /**
@@ -728,21 +728,21 @@ export async function getProxyStats(
  */
 export interface AuditQueryOptions {
   /** Filter by domain */
-  domain?: string;
+  domain?: string | undefined;
   /** Filter by action type */
-  action?: string;
+  action?: string | undefined;
   /** Filter by actor login */
-  actor?: string;
+  actor?: string | undefined;
   /** Search by path */
-  path?: string;
+  path?: string | undefined;
   /** Filter by source pipeline (v1.28.0): bifrost | r2_event | cf_audit */
-  source?: AuditSource;
+  source?: AuditSource | undefined;
   /** Time range in days (default: 30) */
-  days?: number;
+  days?: number | undefined;
   /** Results per page (default: 100, max: 1000) */
-  limit?: number;
+  limit?: number | undefined;
   /** Pagination offset */
-  offset?: number;
+  offset?: number | undefined;
 }
 
 /**

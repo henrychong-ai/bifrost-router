@@ -168,6 +168,67 @@ describe('routes', () => {
     });
   });
 
+  describe('update keeps the stored type and target', () => {
+    async function storedRecord(): Promise<Record<string, unknown> | null> {
+      return env.ROUTES.get(routeKey(testDomain, '/test-route'), 'json');
+    }
+
+    beforeEach(async () => {
+      await createRoute(env.ROUTES, testDomain, {
+        path: '/test-route',
+        type: 'redirect',
+        target: 'https://example.com/original',
+      });
+    });
+
+    it('keeps both when the patch leaves them out', async () => {
+      const updated = await updateRoute(env.ROUTES, testDomain, '/test-route', {
+        cacheControl: 'no-store',
+      });
+
+      expect(updated?.type).toBe('redirect');
+      expect(updated?.target).toBe('https://example.com/original');
+      expect(updated?.cacheControl).toBe('no-store');
+      expect(await storedRecord()).toMatchObject({
+        type: 'redirect',
+        target: 'https://example.com/original',
+        cacheControl: 'no-store',
+      });
+    });
+
+    it('keeps both when the patch carries them as undefined', async () => {
+      // A parsed JSON body never produces this shape, but the patch type admits
+      // it. A stored route without a type or target cannot be served.
+      const updated = await updateRoute(env.ROUTES, testDomain, '/test-route', {
+        type: undefined,
+        target: undefined,
+        cacheControl: 'no-store',
+      });
+
+      expect(updated?.type).toBe('redirect');
+      expect(updated?.target).toBe('https://example.com/original');
+      expect(await storedRecord()).toMatchObject({
+        type: 'redirect',
+        target: 'https://example.com/original',
+        cacheControl: 'no-store',
+      });
+    });
+
+    it('replaces both when the patch sets them', async () => {
+      const updated = await updateRoute(env.ROUTES, testDomain, '/test-route', {
+        type: 'proxy',
+        target: 'https://example.net/replaced',
+      });
+
+      expect(updated?.type).toBe('proxy');
+      expect(updated?.target).toBe('https://example.net/replaced');
+      expect(await storedRecord()).toMatchObject({
+        type: 'proxy',
+        target: 'https://example.net/replaced',
+      });
+    });
+  });
+
   describe('path normalization on delete', () => {
     it('deletes a route by exact path', async () => {
       // Create route — createRoute normalizes the path on write

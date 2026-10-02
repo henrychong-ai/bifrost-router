@@ -129,30 +129,30 @@ export interface CreateRouteInput {
   path: string;
   type: RouteType;
   target: string;
-  statusCode?: RedirectStatusCode;
-  preserveQuery?: boolean;
-  preservePath?: boolean;
-  cacheControl?: string;
-  hostHeader?: string;
-  forceDownload?: boolean;
-  bucket?: R2BucketName;
-  enabled?: boolean;
+  statusCode?: RedirectStatusCode | undefined;
+  preserveQuery?: boolean | undefined;
+  preservePath?: boolean | undefined;
+  cacheControl?: string | undefined;
+  hostHeader?: string | undefined;
+  forceDownload?: boolean | undefined;
+  bucket?: R2BucketName | undefined;
+  enabled?: boolean | undefined;
 }
 
 /**
  * Input for updating an existing route (path cannot be changed)
  */
 export interface UpdateRouteInput {
-  type?: RouteType;
-  target?: string;
-  statusCode?: RedirectStatusCode;
-  preserveQuery?: boolean;
-  preservePath?: boolean;
-  cacheControl?: string;
-  hostHeader?: string;
-  forceDownload?: boolean;
-  bucket?: R2BucketName;
-  enabled?: boolean;
+  type?: RouteType | undefined;
+  target?: string | undefined;
+  statusCode?: RedirectStatusCode | undefined;
+  preserveQuery?: boolean | undefined;
+  preservePath?: boolean | undefined;
+  cacheControl?: string | undefined;
+  hostHeader?: string | undefined;
+  forceDownload?: boolean | undefined;
+  bucket?: R2BucketName | undefined;
+  enabled?: boolean | undefined;
 }
 
 // =============================================================================
@@ -446,23 +446,23 @@ export interface PaginatedApiResponse<T> {
  */
 export interface AnalyticsQueryOptions {
   /** Filter by domain */
-  domain?: string;
+  domain?: string | undefined;
   /** Time range in days (default: 30, max: 365) */
-  days?: number;
+  days?: number | undefined;
   /** Results per page (default: 100, max: 1000) */
-  limit?: number;
+  limit?: number | undefined;
   /** Pagination offset */
-  offset?: number;
+  offset?: number | undefined;
   /** Filter clicks by slug */
-  slug?: string;
+  slug?: string | undefined;
   /** Filter views by path */
-  path?: string;
+  path?: string | undefined;
   /** Filter by country code (2-letter ISO) */
-  country?: string;
+  country?: string | undefined;
   /** Search domain, path, target, and referrer fields. */
-  search?: string;
+  search?: string | undefined;
   /** Include Cloudflare Health Checks rows (excluded by default). */
-  includeMonitoring?: boolean;
+  includeMonitoring?: boolean | undefined;
 }
 
 // =============================================================================
@@ -488,14 +488,16 @@ export interface R2ObjectInfo {
   size: number;
   etag: string;
   uploaded: string;
-  httpMetadata?: {
-    contentType?: string;
-    cacheControl?: string;
-    contentDisposition?: string;
-    contentLanguage?: string;
-    contentEncoding?: string;
-  };
-  customMetadata?: Record<string, string>;
+  httpMetadata?:
+    | {
+        contentType?: string | undefined;
+        cacheControl?: string | undefined;
+        contentDisposition?: string | undefined;
+        contentLanguage?: string | undefined;
+        contentEncoding?: string | undefined;
+      }
+    | undefined;
+  customMetadata?: Record<string, string> | undefined;
 
   /**
    * Free-text comment / note for this file, stored in the D1 `file_comments`
@@ -571,21 +573,21 @@ export interface R2UploadResponse extends R2ObjectInfo {
  * R2 list objects query params
  */
 export interface R2ListObjectsParams {
-  prefix?: string;
-  cursor?: string;
+  prefix?: string | undefined;
+  cursor?: string | undefined;
   /** Offset-mode pagination; mutually exclusive with cursor. */
-  offset?: number;
-  limit?: number;
-  delimiter?: string;
+  offset?: number | undefined;
+  limit?: number | undefined;
+  delimiter?: string | undefined;
 }
 
 /**
  * R2 update metadata params
  */
 export interface R2UpdateMetadataParams {
-  contentType?: string;
-  cacheControl?: string;
-  contentDisposition?: string;
+  contentType?: string | undefined;
+  cacheControl?: string | undefined;
+  contentDisposition?: string | undefined;
 }
 
 // =============================================================================

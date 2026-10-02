@@ -61,12 +61,12 @@ export async function handleEvent(
  */
 interface ParsedCommand {
   action: 'list' | 'create' | 'delete' | 'toggle' | 'analytics' | 'stats';
-  domain?: string;
-  path?: string;
-  target?: string;
-  type?: 'redirect' | 'proxy' | 'r2';
-  days?: number;
-  enabled?: boolean;
+  domain?: string | undefined;
+  path?: string | undefined;
+  target?: string | undefined;
+  type?: 'redirect' | 'proxy' | 'r2' | undefined;
+  days?: number | undefined;
+  enabled?: boolean | undefined;
 }
 
 /**

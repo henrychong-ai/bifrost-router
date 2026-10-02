@@ -48,25 +48,25 @@ export interface LinkClickData {
   /** Target URL the user was redirected to */
   targetUrl: string;
   /** Query string from the request (e.g., '?utm_source=twitter') */
-  queryString?: string | null;
+  queryString?: string | null | undefined;
   /** HTTP Referer header */
-  referrer?: string | null;
+  referrer?: string | null | undefined;
   /** User-Agent header */
-  userAgent?: string | null;
+  userAgent?: string | null | undefined;
   /** Country code from Cloudflare cf.country */
-  country?: string | null;
+  country?: string | null | undefined;
   /** City from Cloudflare cf.city */
-  city?: string | null;
+  city?: string | null | undefined;
   /** Cloudflare datacenter code from cf.colo */
-  colo?: string | null;
+  colo?: string | null | undefined;
   /** Continent code from cf.continent */
-  continent?: string | null;
+  continent?: string | null | undefined;
   /** HTTP protocol version from cf.httpProtocol */
-  httpProtocol?: string | null;
+  httpProtocol?: string | null | undefined;
   /** IANA timezone from cf.timezone */
-  timezone?: string | null;
+  timezone?: string | null | undefined;
   /** Client IP address */
-  ipAddress?: string | null;
+  ipAddress?: string | null | undefined;
 }
 
 /**
@@ -78,25 +78,25 @@ export interface PageViewData {
   /** Path that was viewed */
   path: string;
   /** Query string from the request (e.g., '?page=2') */
-  queryString?: string | null;
+  queryString?: string | null | undefined;
   /** HTTP Referer header */
-  referrer?: string | null;
+  referrer?: string | null | undefined;
   /** User-Agent header */
-  userAgent?: string | null;
+  userAgent?: string | null | undefined;
   /** Country code from Cloudflare cf.country */
-  country?: string | null;
+  country?: string | null | undefined;
   /** City from Cloudflare cf.city */
-  city?: string | null;
+  city?: string | null | undefined;
   /** Cloudflare datacenter code from cf.colo */
-  colo?: string | null;
+  colo?: string | null | undefined;
   /** Continent code from cf.continent */
-  continent?: string | null;
+  continent?: string | null | undefined;
   /** HTTP protocol version from cf.httpProtocol */
-  httpProtocol?: string | null;
+  httpProtocol?: string | null | undefined;
   /** IANA timezone from cf.timezone */
-  timezone?: string | null;
+  timezone?: string | null | undefined;
   /** Client IP address */
-  ipAddress?: string | null;
+  ipAddress?: string | null | undefined;
 }
 
 /**
@@ -218,31 +218,31 @@ export interface FileDownloadData {
   /** R2 object key that was served */
   r2Key: string;
   /** Content-Type of the served file */
-  contentType?: string | null;
+  contentType?: string | null | undefined;
   /** File size in bytes */
-  fileSize?: number | null;
+  fileSize?: number | null | undefined;
   /** Cache status (HIT/MISS) from Cloudflare Cache API */
-  cacheStatus?: CacheStatus | null;
+  cacheStatus?: CacheStatus | null | undefined;
   /** Query string from the request */
-  queryString?: string | null;
+  queryString?: string | null | undefined;
   /** HTTP Referer header */
-  referrer?: string | null;
+  referrer?: string | null | undefined;
   /** User-Agent header */
-  userAgent?: string | null;
+  userAgent?: string | null | undefined;
   /** Country code from Cloudflare cf.country */
-  country?: string | null;
+  country?: string | null | undefined;
   /** City from Cloudflare cf.city */
-  city?: string | null;
+  city?: string | null | undefined;
   /** Cloudflare datacenter code from cf.colo */
-  colo?: string | null;
+  colo?: string | null | undefined;
   /** Continent code from cf.continent */
-  continent?: string | null;
+  continent?: string | null | undefined;
   /** HTTP protocol version from cf.httpProtocol */
-  httpProtocol?: string | null;
+  httpProtocol?: string | null | undefined;
   /** IANA timezone from cf.timezone */
-  timezone?: string | null;
+  timezone?: string | null | undefined;
   /** Client IP address */
-  ipAddress?: string | null;
+  ipAddress?: string | null | undefined;
 }
 
 /**
@@ -313,31 +313,31 @@ export interface ProxyRequestData {
   /** Target URL being proxied to */
   targetUrl: string;
   /** HTTP response status code from proxy target */
-  responseStatus?: number | null;
+  responseStatus?: number | null | undefined;
   /** Content-Type of the proxied response */
-  contentType?: string | null;
+  contentType?: string | null | undefined;
   /** Content-Length of the proxied response */
-  contentLength?: number | null;
+  contentLength?: number | null | undefined;
   /** Query string from the request */
-  queryString?: string | null;
+  queryString?: string | null | undefined;
   /** HTTP Referer header */
-  referrer?: string | null;
+  referrer?: string | null | undefined;
   /** User-Agent header */
-  userAgent?: string | null;
+  userAgent?: string | null | undefined;
   /** Country code from Cloudflare cf.country */
-  country?: string | null;
+  country?: string | null | undefined;
   /** City from Cloudflare cf.city */
-  city?: string | null;
+  city?: string | null | undefined;
   /** Cloudflare datacenter code from cf.colo */
-  colo?: string | null;
+  colo?: string | null | undefined;
   /** Continent code from cf.continent */
-  continent?: string | null;
+  continent?: string | null | undefined;
   /** HTTP protocol version from cf.httpProtocol */
-  httpProtocol?: string | null;
+  httpProtocol?: string | null | undefined;
   /** IANA timezone from cf.timezone */
-  timezone?: string | null;
+  timezone?: string | null | undefined;
   /** Client IP address */
-  ipAddress?: string | null;
+  ipAddress?: string | null | undefined;
 }
 
 /**
