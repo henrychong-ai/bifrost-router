@@ -123,18 +123,18 @@ function TriageQueue({ onOpen }: { onOpen: (id: string) => void }) {
               {items.map(it => (
                 <TableRow
                   key={it.id}
-                  role="button"
-                  tabIndex={0}
+                  // The whole row opens the item for a pointer; keyboard and
+                  // assistive-technology users reach the button in the first
+                  // cell, which keeps the row a table row.
                   onClick={() => onOpen(it.id)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      onOpen(it.id);
-                    }
-                  }}
                   className="cursor-pointer"
                 >
-                  <TableCell className="font-mono text-tiny">{it.shortId}</TableCell>
+                  <TableCell className="font-mono text-tiny">
+                    <button type="button" onClick={() => onOpen(it.id)} className="cursor-pointer">
+                      {it.shortId}
+                      <span className="sr-only">, open feedback item</span>
+                    </button>
+                  </TableCell>
                   <TableCell className="font-inter whitespace-nowrap" title={it.createdAt}>
                     {it.createdAt.slice(0, 10)}
                     {/* An unparseable timestamp yields no age — don't render an

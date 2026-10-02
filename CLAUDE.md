@@ -621,8 +621,6 @@ The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `sr
 
 **Oxlint rules off pending a code fix on this branch:**
 - `vitest/require-mock-type-parameters`
-- `jsx-a11y/label-has-associated-control`
-- `jsx-a11y/prefer-tag-over-role`
 
 **Oxlint override — test files (`**/*.test.ts`, `**/*.test.tsx`):** `import/default` is off. Source-pinning tests import a module's text with Vite's `?raw` suffix; the resolver follows the path to the `.ts` source and finds no default export there. Runtime code keeps the rule.
 
@@ -630,7 +628,7 @@ The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `sr
 
 **Oxlint override — test setup files:** `import/no-unassigned-import` is off for `test/setup.*`, `*.setup.*` and `setupTests.*`, as in the team template.
 
-**Oxlint rule options:** `vitest/expect-expect` takes `assertFunctionNames: ["expect", "expect*"]`, so a test asserting through a helper named `expect…` counts as having an assertion.
+**Oxlint rule options:** `vitest/expect-expect` takes `assertFunctionNames: ["expect", "expect*"]`, so a test asserting through a helper named `expect…` counts as having an assertion. `jsx-a11y/label-has-associated-control` takes `controlComponents: ["Input", "Select", "Switch"]` and `depth: 3`, so a `<label>` wrapping a shadcn control counts as associated; a sibling label needs `htmlFor` and the control an `id` (on a Select, the `SelectTrigger`).
 
 **Oxlint override — vendored shadcn/ui (`admin/src/components/ui/**`):** `react/purity`, `jsx-a11y/no-noninteractive-tabindex`, and `no-shadow` are off there only; the generated components are kept as upstream ships them. Outside that directory all three stay on.
 

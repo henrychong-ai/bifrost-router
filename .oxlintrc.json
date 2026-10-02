@@ -56,12 +56,17 @@
     "vitest/require-mock-type-parameters": "off",
     "react/react-in-jsx-scope": "off",
     "no-underscore-dangle": "off",
-    "jsx-a11y/label-has-associated-control": "off",
-    "jsx-a11y/prefer-tag-over-role": "off",
     "vitest/expect-expect": [
       "error",
       {
         "assertFunctionNames": ["expect", "expect*"]
+      }
+    ],
+    "jsx-a11y/label-has-associated-control": [
+      "error",
+      {
+        "controlComponents": ["Input", "Select", "Switch"],
+        "depth": 3
       }
     ]
   },

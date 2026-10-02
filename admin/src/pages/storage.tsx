@@ -1236,7 +1236,9 @@ export function StoragePage() {
       {/* Bucket selector + read-only badge */}
       <div className="animate-stagger-init animate-fade-in-up stagger-1 flex flex-wrap items-end gap-3">
         <div className="flex flex-col gap-1.5">
-          <label className="font-inter text-small text-charcoal-600">Bucket</label>
+          <label htmlFor="storage-bucket" className="font-inter text-small text-charcoal-600">
+            Bucket
+          </label>
           <Select
             value={selectedBucket}
             onValueChange={v => {
@@ -1245,7 +1247,7 @@ export function StoragePage() {
               setPrefixSearch('');
             }}
           >
-            <SelectTrigger className="w-56 font-mono">
+            <SelectTrigger id="storage-bucket" className="w-56 font-mono">
               <SelectValue placeholder="Select bucket" />
             </SelectTrigger>
             <SelectContent>

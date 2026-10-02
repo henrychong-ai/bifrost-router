@@ -9,6 +9,9 @@ import { useMemo } from 'react';
 import { renderQrSvg, type QRDesign } from '@bifrost/shared';
 import { svgToDataUri } from '@/lib/svg-to-png';
 
+/** A blank, transparent image: the unavailable state keeps the preview's box. */
+const BLANK_IMAGE = svgToDataUri('<svg xmlns="http://www.w3.org/2000/svg"/>');
+
 interface QrPreviewProps {
   /** The exact string the QR encodes (already serialized/resolved). */
   content: string;
@@ -27,25 +30,14 @@ export function QrPreview({ content, design, displaySize = 192, className }: QrP
     }
   }, [content, design]);
 
-  if (!dataUri) {
-    return (
-      <div
-        className={className}
-        style={{ width: displaySize, height: displaySize }}
-        role="img"
-        aria-label="QR preview unavailable"
-      />
-    );
-  }
-
   return (
     <img
-      src={dataUri}
+      src={dataUri ?? BLANK_IMAGE}
       width={displaySize}
       height={displaySize}
       // Neutral alt (codex F6): the encoded content can carry Wi-Fi credentials —
       // keep them out of the DOM/accessibility tree.
-      alt="QR code preview"
+      alt={dataUri ? 'QR code preview' : 'QR preview unavailable'}
       className={className}
     />
   );

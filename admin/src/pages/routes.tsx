@@ -1032,7 +1032,9 @@ export function RoutesPage() {
       <div className="flex flex-wrap items-end gap-3">
         {/* Domain Filter */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-inter text-charcoal-600">Domain</label>
+          <label htmlFor="routes-filter-domain" className="text-small font-inter text-charcoal-600">
+            Domain
+          </label>
           <Select
             value={filters.domain || 'all'}
             onValueChange={value =>
@@ -1042,7 +1044,7 @@ export function RoutesPage() {
               })
             }
           >
-            <SelectTrigger className="w-48 font-inter">
+            <SelectTrigger id="routes-filter-domain" className="w-48 font-inter">
               <SelectValue placeholder="All domains" />
             </SelectTrigger>
             <SelectContent>
@@ -1060,10 +1062,13 @@ export function RoutesPage() {
 
         {/* Search Input */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-inter text-charcoal-600">Search</label>
+          <label htmlFor="routes-filter-search" className="text-small font-inter text-charcoal-600">
+            Search
+          </label>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-charcoal-400" />
             <Input
+              id="routes-filter-search"
               type="text"
               placeholder="Search routes..."
               value={filters.search || ''}
@@ -1077,7 +1082,9 @@ export function RoutesPage() {
 
         {/* Type Filter */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-inter text-charcoal-600">Type</label>
+          <label htmlFor="routes-filter-type" className="text-small font-inter text-charcoal-600">
+            Type
+          </label>
           <Select
             value={filters.type || 'all'}
             onValueChange={value =>
@@ -1087,7 +1094,7 @@ export function RoutesPage() {
               })
             }
           >
-            <SelectTrigger className="w-32 font-inter">
+            <SelectTrigger id="routes-filter-type" className="w-32 font-inter">
               <SelectValue placeholder="All types" />
             </SelectTrigger>
             <SelectContent>
@@ -1109,7 +1116,9 @@ export function RoutesPage() {
 
         {/* Enabled Filter */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-inter text-charcoal-600">Status</label>
+          <label htmlFor="routes-filter-status" className="text-small font-inter text-charcoal-600">
+            Status
+          </label>
           <Select
             value={filters.enabled === undefined ? 'all' : filters.enabled ? 'active' : 'disabled'}
             onValueChange={value =>
@@ -1119,7 +1128,7 @@ export function RoutesPage() {
               })
             }
           >
-            <SelectTrigger className="w-32 font-inter">
+            <SelectTrigger id="routes-filter-status" className="w-32 font-inter">
               <SelectValue placeholder="All" />
             </SelectTrigger>
             <SelectContent>

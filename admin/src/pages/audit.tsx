@@ -153,9 +153,11 @@ export function AuditPage() {
 
         {/* Action filter */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-inter text-charcoal-600">Action</label>
+          <label htmlFor="audit-filter-action" className="text-small font-inter text-charcoal-600">
+            Action
+          </label>
           <Select value={filters.action || 'all'} onValueChange={handleActionChange}>
-            <SelectTrigger className="w-[140px] font-inter">
+            <SelectTrigger id="audit-filter-action" className="w-[140px] font-inter">
               <SelectValue placeholder="Action" />
             </SelectTrigger>
             <SelectContent>
@@ -231,9 +233,11 @@ export function AuditPage() {
 
         {/* Source filter (v1.28.0) — which pipeline recorded the entry */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-small font-inter text-charcoal-600">Source</label>
+          <label htmlFor="audit-filter-source" className="text-small font-inter text-charcoal-600">
+            Source
+          </label>
           <Select value={filters.source || 'all'} onValueChange={handleSourceChange}>
-            <SelectTrigger className="w-[140px] font-inter">
+            <SelectTrigger id="audit-filter-source" className="w-[140px] font-inter">
               <SelectValue placeholder="Source" />
             </SelectTrigger>
             <SelectContent>
@@ -301,28 +305,28 @@ export function AuditPage() {
                     {data?.items.map((log: AuditLog) => (
                       <TableRow
                         key={log.id}
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`View audit record ${log.id}`}
+                        // The whole row opens the record for a pointer; keyboard
+                        // and assistive-technology users reach the button in
+                        // the first cell, which keeps the row a table row.
                         onClick={() => setSelectedLog(log)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            setSelectedLog(log);
-                          }
-                        }}
                         className="
                           cursor-pointer transition-colors
                           hover:bg-gold-50/50
-                          focus-visible:ring-2 focus-visible:ring-gold-300
-                          focus-visible:outline-none
+                          has-[button:focus-visible]:ring-2 has-[button:focus-visible]:ring-gold-300
                         "
                       >
                         <TableCell
                           className="text-small font-inter whitespace-nowrap"
                           title={formatDate(log.createdAt)}
                         >
-                          {formatRelativeTime(log.createdAt)}
+                          <button
+                            type="button"
+                            onClick={() => setSelectedLog(log)}
+                            className="cursor-pointer text-left focus-visible:outline-none"
+                          >
+                            {formatRelativeTime(log.createdAt)}
+                            <span className="sr-only">, view audit record {log.id}</span>
+                          </button>
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-wrap items-center gap-1">
