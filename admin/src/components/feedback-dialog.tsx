@@ -230,7 +230,7 @@ export function FeedbackDialog() {
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={e => void handleSubmit(e)} className="space-y-4">
           {/* Type — segmented selector */}
           <div className="space-y-1.5">
             <Label className="font-inter">Type</Label>

@@ -133,7 +133,7 @@ async function main(argv) {
 
   console.log(
     `✓ No changelog release heading in ${scanned} file(s) under ` +
-      `${relative(repoRoot, target) || target}`,
+      (relative(repoRoot, target) || target),
   );
   return 0;
 }

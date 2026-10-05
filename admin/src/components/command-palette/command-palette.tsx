@@ -177,7 +177,7 @@ export function CommandPalette() {
         icon: Plus,
         shortcut: 'N',
         action: () => {
-          navigate('/routes');
+          void navigate('/routes');
           setTimeout(() => {
             const createButton = document.querySelector('[data-create-route-trigger]');
             if (createButton instanceof HTMLElement) {
@@ -221,7 +221,7 @@ export function CommandPalette() {
       setRoutesFilters({
         search: route.path,
       });
-      navigate('/routes');
+      void navigate('/routes');
     },
     [resetAndClose, navigate, setRoutesFilters],
   );
@@ -230,7 +230,7 @@ export function CommandPalette() {
     (searchQuery: string) => {
       resetAndClose();
       setRoutesFilters({ search: searchQuery });
-      navigate('/routes');
+      void navigate('/routes');
     },
     [resetAndClose, navigate, setRoutesFilters],
   );
@@ -245,7 +245,7 @@ export function CommandPalette() {
       document.addEventListener('keydown', handleEscape);
       return () => document.removeEventListener('keydown', handleEscape);
     }
-    return;
+    return undefined;
   }, [isOpen, resetAndClose]);
 
   const navigationCommands = commands.filter(c => c.group === 'navigation');

@@ -16,7 +16,7 @@ import css from '../index.css?raw';
  * font, update the URLs in this test to match your @font-face declarations —
  * or delete this file entirely if you don't need the regression guardrail.
  */
-const cssText = css as string;
+const cssText = css;
 
 describe('typography — four-font stack', () => {
   test.each([

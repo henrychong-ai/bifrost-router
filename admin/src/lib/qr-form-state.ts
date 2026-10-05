@@ -189,6 +189,10 @@ export function payloadFromState(s: QrFormState): Record<string, unknown> {
         ...(s.title ? { title: s.title } : {}),
         ...(s.vurl ? { url: s.vurl } : {}),
       };
+    default: {
+      const unsupported: never = s.type;
+      throw new Error(`Unsupported QR type: ${String(unsupported)}`);
+    }
   }
 }
 

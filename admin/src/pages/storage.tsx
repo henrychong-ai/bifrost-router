@@ -251,7 +251,7 @@ function UploadDialog({
             Upload a file to <code className="font-mono text-blue-600">{bucket}</code>
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={e => void handleSubmit(e)} className="space-y-4">
           <div className="space-y-2">
             <Label className="font-inter font-medium text-charcoal-700">File</Label>
             <Input
@@ -481,7 +481,7 @@ function StorageEditDialog({
     setCommentSaving(true);
     try {
       await storageApi.setComment(bucket, object.key, comment.trim() || null);
-      queryClient.invalidateQueries({ queryKey: storageKeys.all });
+      void queryClient.invalidateQueries({ queryKey: storageKeys.all });
       toast.success(comment.trim() ? 'Comment saved' : 'Comment cleared');
     } catch (err) {
       toast.error(`Comment save failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -591,7 +591,7 @@ function StorageEditDialog({
                 </a>
                 <button
                   type="button"
-                  onClick={() => copyToClipboard(fileUrl)}
+                  onClick={() => void copyToClipboard(fileUrl)}
                   className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-blue-50 hover:text-blue-600"
                   title="Copy link"
                 >
@@ -640,7 +640,7 @@ function StorageEditDialog({
                       key={`${route.domain}:${route.path}`}
                       onClick={() => {
                         onOpenChange(false);
-                        navigate('/routes', { state: { editRoute: route } });
+                        void navigate('/routes', { state: { editRoute: route } });
                       }}
                       className="flex w-full items-center gap-2 rounded-md border border-charcoal-100 bg-charcoal-50/50 px-3 py-2 transition-colors hover:border-blue-200 hover:bg-blue-50/50"
                     >
@@ -664,7 +664,7 @@ function StorageEditDialog({
               <Button
                 size="sm"
                 variant="outline"
-                onClick={handlePurgeCache}
+                onClick={() => void handlePurgeCache()}
                 disabled={purgeCacheMutation.isPending}
                 className="font-inter"
               >
@@ -691,7 +691,7 @@ function StorageEditDialog({
                   />
                   <Button
                     size="sm"
-                    onClick={handleCommentSave}
+                    onClick={() => void handleCommentSave()}
                     disabled={!commentChanged || commentSaving}
                     className="bg-blue-950 font-inter hover:bg-blue-900"
                   >
@@ -723,7 +723,7 @@ function StorageEditDialog({
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={handleReplace}
+                    onClick={() => void handleReplace()}
                     disabled={!replaceFile || upload.isPending}
                     className="font-inter"
                   >
@@ -777,7 +777,7 @@ function StorageEditDialog({
                       <span className="inline-flex">
                         <Button
                           size="sm"
-                          onClick={handleRename}
+                          onClick={() => void handleRename()}
                           disabled={renameDisabled}
                           className="bg-blue-950 font-inter hover:bg-blue-900"
                         >
@@ -866,7 +866,7 @@ function StorageEditDialog({
                   </div>
                   <Button
                     size="sm"
-                    onClick={handleMetadataSave}
+                    onClick={() => void handleMetadataSave()}
                     disabled={updateMeta.isPending}
                     className="bg-blue-950 font-inter hover:bg-blue-900"
                   >
@@ -948,7 +948,7 @@ function MoveDialog({
             <code className="font-mono text-blue-600">{bucket}</code> to another bucket.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={e => void handleSubmit(e)} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="dest-bucket" className="font-inter font-medium text-charcoal-700">
               Destination Bucket
@@ -1125,9 +1125,9 @@ export function StoragePage() {
   // with pagination the target may live on a later page, so a page-scoped search
   // would falsely report "not found" and consume the link.
   useEffect(() => {
-    if (!openKey || openConsumed.current) return;
+    if (!openKey || openConsumed.current) return undefined;
     // Wait for the correct bucket to be selected before resolving.
-    if (openBucket && selectedBucket !== openBucket) return;
+    if (openBucket && selectedBucket !== openBucket) return undefined;
     openConsumed.current = true;
     let cancelled = false;
     void (async () => {
@@ -1146,6 +1146,31 @@ export function StoragePage() {
       cancelled = true;
     };
   }, [openKey, openBucket, selectedBucket, setSearchParams]);
+
+  const handleDownload = async (obj: R2ObjectInfo) => {
+    try {
+      const response = await storageApi.downloadObject(selectedBucket, obj.key);
+      const url = URL.createObjectURL(response);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = getBasename(obj.key);
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(`Download failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleRowPurgeCache = async (obj: R2ObjectInfo) => {
+    try {
+      const result = await storageApi.purgeCache(selectedBucket, obj.key);
+      showPurgeCacheToast(result);
+    } catch (err) {
+      toast.error(`Purge failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -1177,7 +1202,7 @@ export function StoragePage() {
       <div className="space-y-6">
         <h1 className="font-inter text-huge font-bold text-blue-950">Storage</h1>
         <div className="space-y-2">
-          {[...Array(3)].map((_, i) => (
+          {Array.from({ length: 3 }, (_, i) => (
             <Skeleton key={i} className="h-12 w-full" />
           ))}
         </div>
@@ -1331,7 +1356,7 @@ export function StoragePage() {
         <CardContent>
           {isLoading ? (
             <div className="space-y-2">
-              {[...Array(5)].map((_, i) => (
+              {Array.from({ length: 5 }, (_, i) => (
                 <Skeleton key={i} className="h-12 w-full" />
               ))}
             </div>
@@ -1412,7 +1437,7 @@ export function StoragePage() {
                           {getR2ObjectUrl(selectedBucket, obj.key) && (
                             <DropdownMenuItem
                               onClick={() =>
-                                copyToClipboard(getR2ObjectUrl(selectedBucket, obj.key)!)
+                                void copyToClipboard(getR2ObjectUrl(selectedBucket, obj.key)!)
                               }
                               className="font-inter"
                             >
@@ -1434,26 +1459,7 @@ export function StoragePage() {
                           )}
                           <DropdownMenuItem
                             className="font-inter"
-                            onClick={async () => {
-                              try {
-                                const response = await storageApi.downloadObject(
-                                  selectedBucket,
-                                  obj.key,
-                                );
-                                const url = URL.createObjectURL(response);
-                                const a = document.createElement('a');
-                                a.href = url;
-                                a.download = getBasename(obj.key);
-                                document.body.appendChild(a);
-                                a.click();
-                                document.body.removeChild(a);
-                                URL.revokeObjectURL(url);
-                              } catch (err) {
-                                toast.error(
-                                  `Download failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
-                                );
-                              }
-                            }}
+                            onClick={() => void handleDownload(obj)}
                           >
                             <Download className="mr-2 h-4 w-4" />
                             Download
@@ -1467,16 +1473,7 @@ export function StoragePage() {
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             className="font-inter"
-                            onClick={async () => {
-                              try {
-                                const result = await storageApi.purgeCache(selectedBucket, obj.key);
-                                showPurgeCacheToast(result);
-                              } catch (err) {
-                                toast.error(
-                                  `Purge failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
-                                );
-                              }
-                            }}
+                            onClick={() => void handleRowPurgeCache(obj)}
                           >
                             <RotateCcw className="mr-2 h-4 w-4" />
                             Purge Cache
@@ -1557,7 +1554,7 @@ export function StoragePage() {
           onOpenChange={() => setEditTarget(null)}
           bucket={selectedBucket}
           object={editTarget}
-          readOnly={!!readOnly}
+          readOnly={readOnly}
           allowedBuckets={writableBuckets}
         />
       )}
@@ -1579,7 +1576,7 @@ export function StoragePage() {
           <AlertDialogFooter>
             <AlertDialogCancel className="font-inter">Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleDelete}
+              onClick={() => void handleDelete()}
               disabled={deleteObject.isPending}
               className="bg-destructive font-inter text-white hover:bg-destructive/90"
             >

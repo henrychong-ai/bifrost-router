@@ -138,7 +138,7 @@ export function rateLimit(config: Partial<RateLimitConfig> = {}) {
 
       await next();
     }
-    return;
+    return undefined;
   };
 }
 
@@ -225,6 +225,6 @@ export function rateLimitStrict(config: Partial<RateLimitConfig> = {}) {
         503,
       );
     }
-    return;
+    return undefined;
   };
 }

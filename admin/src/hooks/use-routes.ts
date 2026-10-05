@@ -49,7 +49,7 @@ export function usePrefetchAllDomainRoutes(domains: readonly string[], currentDo
   useEffect(() => {
     for (const domain of domains) {
       if (domain === currentDomain) continue;
-      queryClient.prefetchQuery({
+      void queryClient.prefetchQuery({
         queryKey: routeKeys.list(domain, undefined, 1000),
         queryFn: () => api.routes.list(domain, { limit: 1000 }),
         staleTime: 60_000,
@@ -105,7 +105,7 @@ export function useCreateRoute() {
     }) => api.routes.create(data, domain, acknowledgeCredentialTarget),
     onSuccess: () => {
       // Invalidate routes list to refetch
-      queryClient.invalidateQueries({ queryKey: routeKeys.all });
+      void queryClient.invalidateQueries({ queryKey: routeKeys.all });
     },
   });
 }
@@ -132,8 +132,8 @@ export function useUpdateRoute() {
     }) => api.routes.update(path, data, domain, acknowledgeCredentialTarget),
     onSuccess: (_data, variables) => {
       // Invalidate both the list and the specific route
-      queryClient.invalidateQueries({ queryKey: routeKeys.all });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({ queryKey: routeKeys.all });
+      void queryClient.invalidateQueries({
         queryKey: routeKeys.detail(variables.path),
       });
     },
@@ -152,7 +152,7 @@ export function useDeleteRoute() {
       api.routes.delete(path, domain),
     onSuccess: (_data, variables) => {
       // Invalidate and remove the specific route from cache
-      queryClient.invalidateQueries({ queryKey: routeKeys.all });
+      void queryClient.invalidateQueries({ queryKey: routeKeys.all });
       queryClient.removeQueries({ queryKey: routeKeys.detail(variables.path) });
     },
   });
@@ -179,8 +179,8 @@ export function useToggleRoute() {
       acknowledgeCredentialTarget?: boolean;
     }) => api.routes.update(path, { enabled }, domain, acknowledgeCredentialTarget),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: routeKeys.all });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({ queryKey: routeKeys.all });
+      void queryClient.invalidateQueries({
         queryKey: routeKeys.detail(variables.path),
       });
     },
@@ -204,7 +204,7 @@ export function useMigrateRoute() {
       domain?: string;
     }) => api.routes.migrate(oldPath, newPath, domain),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: routeKeys.all });
+      void queryClient.invalidateQueries({ queryKey: routeKeys.all });
       queryClient.removeQueries({
         queryKey: routeKeys.detail(variables.oldPath),
       });
@@ -233,7 +233,7 @@ export function useTransferRoute() {
       acknowledgeCredentialTarget?: boolean;
     }) => api.routes.transfer(path, fromDomain, toDomain, acknowledgeCredentialTarget),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: routeKeys.all });
+      void queryClient.invalidateQueries({ queryKey: routeKeys.all });
     },
   });
 }

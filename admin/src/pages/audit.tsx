@@ -32,7 +32,6 @@ import {
 } from '@/lib/audit-format';
 import { AuditActionIcon } from '@/components/audit-action-icon';
 import { AuditDetailDialog } from '@/components/audit-detail-dialog';
-import type { AuditFilterState } from '@/context';
 import { AuditSourceSchema } from '@/lib/schemas';
 import type { AuditAction, AuditLog, AuditSource } from '@/lib/schemas';
 
@@ -76,7 +75,7 @@ export function AuditPage() {
   // Handle filter changes - reset pagination when filters change
   const handleFilterChange = (newFilters: FilterState) => {
     setOffset(0);
-    setFilters({ ...filters, ...newFilters } as AuditFilterState);
+    setFilters({ ...filters, ...newFilters });
   };
 
   // Handle action filter change
@@ -268,7 +267,7 @@ export function AuditPage() {
         <CardContent>
           {isLoading ? (
             <div className="space-y-2">
-              {[...Array(10)].map((_, i) => (
+              {Array.from({ length: 10 }, (_, i) => (
                 <Skeleton key={i} className="h-12 w-full" />
               ))}
             </div>

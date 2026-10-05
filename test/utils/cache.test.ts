@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } 
 import { env } from 'cloudflare:test';
 import { purgeR2CacheForObject, purgeRouteUrl } from '../../src/utils/cache';
 import { CLOUDFLARE_ZONE_IDS, R2_BUCKET_CUSTOM_DOMAINS } from '../../src/types';
-import { clearAllRoutes, seedRoute } from '../helpers';
+import { clearAllRoutes, requestBodyText, seedRoute } from '../helpers';
 
 /**
  * This template ships `CLOUDFLARE_ZONE_IDS` and `R2_BUCKET_CUSTOM_DOMAINS`
@@ -46,7 +46,7 @@ function stubPurgeApi(body: unknown = { success: true }): void {
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input instanceof Request ? input.url : String(input);
       if (url.includes('/purge_cache')) {
-        purgeBodies.push(JSON.parse(String(init?.body ?? '{}')) as { files: string[] });
+        purgeBodies.push(JSON.parse(requestBodyText(init)) as { files: string[] });
       }
       return new Response(JSON.stringify(body), {
         status: 200,
@@ -86,7 +86,7 @@ describe('purgeRouteUrl', () => {
     expect(result.purged).toBe(1);
     // The example.com zone, reached by walking up from the subdomain.
     const [call] = (globalThis.fetch as unknown as { mock: { calls: [string][] } }).mock.calls;
-    expect(String(call[0])).toContain(TEST_ZONE_ID);
+    expect(call[0]).toContain(TEST_ZONE_ID);
   });
 
   it('percent-encodes path segments so the purge matches the cached URL', async () => {

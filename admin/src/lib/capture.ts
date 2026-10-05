@@ -63,11 +63,7 @@ export function installCapture(): void {
   window.fetch = async (...args: Parameters<typeof fetch>): Promise<Response> => {
     const [input, init] = args;
     const url =
-      typeof input === 'string'
-        ? input
-        : input instanceof URL
-          ? input.toString()
-          : (input as Request).url;
+      typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     const method = (
       init?.method ?? (input instanceof Request ? input.method : 'GET')
     ).toUpperCase();

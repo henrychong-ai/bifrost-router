@@ -48,7 +48,7 @@ async function main(): Promise<void> {
   // Create the Edge Router client
   let client: EdgeRouterClient;
   try {
-    client = createClientFromEnv(process.env as Record<string, string | undefined>);
+    client = createClientFromEnv(process.env);
   } catch (error) {
     console.error(
       'Failed to initialize Edge Router client:',
@@ -100,7 +100,7 @@ async function main(): Promise<void> {
       switch (name) {
         // Route management tools
         case 'list_routes':
-          result = await listRoutes(client, args as { domain?: string });
+          result = await listRoutes(client, args);
           break;
 
         case 'get_route':
@@ -189,35 +189,15 @@ async function main(): Promise<void> {
 
         // Analytics tools
         case 'get_analytics_summary':
-          result = await getAnalyticsSummary(client, args as { domain?: string; days?: number });
+          result = await getAnalyticsSummary(client, args);
           break;
 
         case 'get_clicks':
-          result = await getClicks(
-            client,
-            args as {
-              domain?: string;
-              days?: number;
-              limit?: number;
-              offset?: number;
-              slug?: string;
-              country?: string;
-            },
-          );
+          result = await getClicks(client, args);
           break;
 
         case 'get_views':
-          result = await getViews(
-            client,
-            args as {
-              domain?: string;
-              days?: number;
-              limit?: number;
-              offset?: number;
-              path?: string;
-              country?: string;
-            },
-          );
+          result = await getViews(client, args);
           break;
 
         case 'get_slug_stats':
@@ -336,17 +316,7 @@ async function main(): Promise<void> {
           break;
 
         case 'list_qrs':
-          result = await listQrs(
-            client,
-            args as {
-              domain?: string;
-              type?: string;
-              tag?: string;
-              search?: string;
-              limit?: number;
-              offset?: number;
-            },
-          );
+          result = await listQrs(client, args);
           break;
 
         case 'get_qr':

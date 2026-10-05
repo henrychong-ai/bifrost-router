@@ -4,7 +4,7 @@ import { env } from 'cloudflare:test';
 import { adminRoutes } from '../../src/routes/admin';
 import type { AppEnv } from '../../src/types';
 import { CLOUDFLARE_ZONE_IDS } from '../../src/types';
-import { clearAllRoutes } from '../helpers';
+import { clearAllRoutes, requestBodyText } from '../helpers';
 
 /** ExecutionContext that lets the test await the handler's waitUntil work. */
 function createExecutionContext(): { ctx: ExecutionContext; settled: () => Promise<void> } {
@@ -1755,7 +1755,7 @@ describe('admin routes', () => {
         vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
           const url = input instanceof Request ? input.url : String(input);
           if (url.includes('/purge_cache')) {
-            purgeBodies.push(JSON.parse(String(init?.body ?? '{}')) as { files: string[] });
+            purgeBodies.push(JSON.parse(requestBodyText(init)) as { files: string[] });
           }
           return new Response(JSON.stringify({ success: true }), {
             status: 200,

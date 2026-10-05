@@ -514,6 +514,10 @@ export function serializePayload(type: QRType, payload: QRPayload): string {
       if (vcard.url) parts.push(`URL:${escapeMecard(vcard.url)}`);
       return `MECARD:${parts.join(';')};;`;
     }
+    default: {
+      const unsupported: never = type;
+      throw new Error(`Unsupported QR type: ${String(unsupported)}`);
+    }
   }
 }
 

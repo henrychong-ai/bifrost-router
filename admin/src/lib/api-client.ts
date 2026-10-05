@@ -47,6 +47,17 @@ const API_KEY = env.ADMIN_API_KEY;
 // Base Fetch Functions
 // =============================================================================
 
+/**
+ * A failed response's error body. `error` is kept only when it is a string; a
+ * body that is not JSON reads as `{ error: 'Unknown error' }`.
+ */
+async function readErrorBody(response: Response): Promise<{ error?: string; details?: unknown }> {
+  const body: unknown = await response.json().catch(() => ({ error: 'Unknown error' }));
+  if (typeof body !== 'object' || body === null) return {};
+  const { error, details } = body as { error?: unknown; details?: unknown };
+  return { error: typeof error === 'string' ? error : undefined, details };
+}
+
 async function fetchApi<T>(
   path: string,
   schema: z.ZodSchema<T>,
@@ -54,25 +65,18 @@ async function fetchApi<T>(
 ): Promise<T> {
   const url = new URL(path, API_BASE);
 
-  const response = await fetch(url.toString(), {
-    ...options,
-    headers: {
-      'X-Admin-Key': API_KEY,
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
+  const headers = new Headers({ 'X-Admin-Key': API_KEY, 'Content-Type': 'application/json' });
+  // Caller headers win, in any HeadersInit form (a spread would drop a Headers
+  // instance or an entry list).
+  new Headers(options.headers).forEach((value, name) => headers.set(name, value));
+  const response = await fetch(url.toString(), { ...options, headers });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new ApiError(
-      response.status,
-      error.error || `HTTP ${response.status}`,
-      (error as { details?: unknown }).details,
-    );
+    const error = await readErrorBody(response);
+    throw new ApiError(response.status, error.error || `HTTP ${response.status}`, error.details);
   }
 
-  const data = await response.json();
+  const data: unknown = await response.json();
   return schema.parse(data);
 }
 
@@ -448,11 +452,11 @@ export const backupApi = {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+      const error = await readErrorBody(response);
       throw new ApiError(response.status, error.error || `HTTP ${response.status}`);
     }
 
-    return response.json();
+    return (await response.json()) as BackupHealthResponse;
   },
 };
 
@@ -732,11 +736,8 @@ export const storageApi = {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-      throw new ApiError(
-        response.status,
-        (error as { error?: string }).error || `HTTP ${response.status}`,
-      );
+      const error = await readErrorBody(response);
+      throw new ApiError(response.status, error.error || `HTTP ${response.status}`);
     }
 
     return response.blob();
@@ -769,14 +770,11 @@ export const storageApi = {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-      throw new ApiError(
-        response.status,
-        (error as { error?: string }).error || `HTTP ${response.status}`,
-      );
+      const error = await readErrorBody(response);
+      throw new ApiError(response.status, error.error || `HTTP ${response.status}`);
     }
 
-    const data = await response.json();
+    const data: unknown = await response.json();
     return (data as { data: R2ObjectInfo }).data;
   },
 
@@ -998,13 +996,10 @@ export const feedbackApi = {
       body: formData,
     });
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-      throw new ApiError(
-        response.status,
-        (error as { error?: string }).error || `HTTP ${response.status}`,
-      );
+      const error = await readErrorBody(response);
+      throw new ApiError(response.status, error.error || `HTTP ${response.status}`);
     }
-    const data = await response.json();
+    const data: unknown = await response.json();
     return (data as { data: FeedbackItem }).data;
   },
 
@@ -1037,11 +1032,8 @@ export const feedbackApi = {
       headers: { 'X-Admin-Key': API_KEY },
     });
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-      throw new ApiError(
-        response.status,
-        (error as { error?: string }).error || `HTTP ${response.status}`,
-      );
+      const error = await readErrorBody(response);
+      throw new ApiError(response.status, error.error || `HTTP ${response.status}`);
     }
     return response.blob();
   },
@@ -1179,7 +1171,7 @@ export const changelogApi = {
       headers: { 'X-Admin-Key': API_KEY },
     });
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+      const error = await readErrorBody(response);
       throw new ApiError(response.status, error.error || `HTTP ${response.status}`);
     }
     return response.text();

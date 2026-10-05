@@ -50,7 +50,7 @@ export function CodeBlock({ code, title, copyLabel = 'Snippet', className }: Cod
         </pre>
         <button
           type="button"
-          onClick={handleCopy}
+          onClick={() => void handleCopy()}
           aria-label={`Copy ${copyLabel.toLowerCase()}`}
           title="Copy"
           className="

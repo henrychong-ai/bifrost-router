@@ -9,7 +9,7 @@ describe('boot warnings for removed environment variables', () => {
 
     expect(warned).toEqual(['EDGE_ROUTER_DOMAIN']);
     expect(log).toHaveBeenCalledTimes(1);
-    const message = String(log.mock.calls[0][0]);
+    const message = log.mock.calls[0][0];
     // Name the variable, say it is ignored, and say what to do instead — an
     // operator reading one stderr line must not have to guess any of the three.
     expect(message).toContain('EDGE_ROUTER_DOMAIN');

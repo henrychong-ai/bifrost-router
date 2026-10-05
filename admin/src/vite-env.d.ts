@@ -1,5 +1,12 @@
 /// <reference types="vite/client" />
 
+interface ImportMetaEnv {
+  /** Base URL of the Worker API (local dev and builds). */
+  readonly VITE_API_URL?: string;
+  /** Admin key for local dev; production injects it at runtime instead. */
+  readonly VITE_ADMIN_API_KEY?: string;
+}
+
 /**
  * Version injected at build time from root package.json
  * @see vite.config.ts define.APP_VERSION

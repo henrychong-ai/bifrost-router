@@ -470,7 +470,7 @@ export async function pruneUnifiedTrafficEvents(
       .prepare('DELETE FROM unified_traffic_events WHERE created_at < ?')
       .bind(cutoff)
       .run();
-    return Number(result.meta.changes ?? 0);
+    return result.meta.changes ?? 0;
   } catch (error) {
     console.error(
       JSON.stringify({

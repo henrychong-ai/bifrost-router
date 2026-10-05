@@ -143,6 +143,6 @@ export function denySensitivePaths() {
     }
 
     await next();
-    return;
+    return undefined;
   };
 }

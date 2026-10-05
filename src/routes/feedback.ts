@@ -221,7 +221,7 @@ feedbackRoutes.post('/', async c => {
   const context: FeedbackContext =
     parsedContext && typeof parsedContext === 'object' && !Array.isArray(parsedContext)
       ? (parsedContext as FeedbackContext)
-      : ({ url: '', timestamp: '' } as FeedbackContext);
+      : { url: '', timestamp: '' };
   if (typeof context.url === 'string') context.url = redactSensitive(context.url);
   if (typeof context.referrer === 'string') context.referrer = redactSensitive(context.referrer);
   context.timestamp = new Date().toISOString();
@@ -436,7 +436,7 @@ feedbackRoutes.get('/:id/attachment/:key{.+}', async c => {
 feedbackRoutes.patch('/:id', async c => {
   const id = c.req.param('id');
 
-  const raw = await c.req.json().catch(() => null);
+  const raw: unknown = await c.req.json().catch(() => null);
   const parsed = TriageFeedbackRequestSchema.safeParse(raw);
   if (!parsed.success) {
     throw new HTTPException(400, {

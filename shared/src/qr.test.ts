@@ -515,6 +515,12 @@ describe('qr contract', () => {
   });
 
   describe('serializePayload', () => {
+    it('refuses a type outside the QR type list instead of returning nothing', () => {
+      expect(() => serializePayload('bogus' as never, {} as never)).toThrow(
+        'Unsupported QR type: bogus',
+      );
+    });
+
     it('returns url and text verbatim (no escaping)', () => {
       expect(serializePayload('url', { url: 'https://x.example/?a=1;b=2' })).toBe(
         'https://x.example/?a=1;b=2',

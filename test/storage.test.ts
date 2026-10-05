@@ -5,6 +5,7 @@ import { adminRoutes } from '../src/routes/admin';
 import { getR2CopySizeLimit } from '../src/routes/storage';
 import type { AppEnv } from '../src/types';
 import { CLOUDFLARE_ZONE_IDS, R2_BUCKET_CUSTOM_DOMAINS } from '../src/types';
+import { requestBodyText } from './helpers';
 
 function createApp() {
   return new Hono<AppEnv>().route('/api', adminRoutes);
@@ -1078,7 +1079,7 @@ describe('storage routes', () => {
         vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
           const url = input instanceof Request ? input.url : String(input);
           if (url.includes('/purge_cache')) {
-            purgeBodies.push(JSON.parse(String(init?.body ?? '{}')) as { files: string[] });
+            purgeBodies.push(JSON.parse(requestBodyText(init)) as { files: string[] });
           }
           return new Response(JSON.stringify({ success: true }), {
             status: 200,

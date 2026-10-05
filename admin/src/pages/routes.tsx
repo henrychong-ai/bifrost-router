@@ -16,7 +16,7 @@ import {
 } from '@/hooks';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRoutesFilters, SUPPORTED_DOMAINS, type SupportedDomain } from '@/context';
-import { QRDesignSchema, renderQrSvg, getContentTypeFromKey, type QRDesign } from '@bifrost/shared';
+import { QRDesignSchema, renderQrSvg, getContentTypeFromKey } from '@bifrost/shared';
 import { QrPreview } from '@/components/qr-preview';
 import { CredentialTargetDialog } from '@/components/credential-target-dialog';
 import { credentialTargetParametersFromError } from '@/lib/credential-target';
@@ -143,7 +143,7 @@ function RouteForm(props: RouteFormProps) {
     cacheControl: route?.cacheControl || '',
     hostHeader: route?.hostHeader || '',
     forceDownload: route?.forceDownload ?? false,
-    bucket: (route?.bucket || 'files') as R2BucketName,
+    bucket: route?.bucket || 'files',
     enabled: route?.enabled ?? true,
     domain: 'example.com' as SupportedDomain, // Default to example.com
   });
@@ -177,10 +177,9 @@ function RouteForm(props: RouteFormProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const baseData = {
-      type: formData.type as Route['type'],
+      type: formData.type,
       target: formData.target,
-      statusCode:
-        formData.type === 'redirect' ? (formData.statusCode as 301 | 302 | 307 | 308) : undefined,
+      statusCode: formData.type === 'redirect' ? formData.statusCode : undefined,
       preserveQuery: formData.preserveQuery,
       preservePath: formData.preservePath,
       cacheControl: formData.cacheControl || undefined,
@@ -191,10 +190,10 @@ function RouteForm(props: RouteFormProps) {
     };
 
     if (mode === 'create') {
-      onSubmit({ ...baseData, path: formData.path } as CreateRouteInput, formData.domain);
+      onSubmit({ ...baseData, path: formData.path }, formData.domain);
     } else {
       const pathChanged = formData.path !== route.path;
-      onSubmit(baseData as UpdateRouteInput, pathChanged, pathChanged ? formData.path : undefined);
+      onSubmit(baseData, pathChanged, pathChanged ? formData.path : undefined);
     }
   };
 
@@ -252,7 +251,7 @@ function RouteForm(props: RouteFormProps) {
           </a>
           <button
             type="button"
-            onClick={() => copyToClipboard(r2PreviewUrl)}
+            onClick={() => void copyToClipboard(r2PreviewUrl)}
             className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-blue-50 hover:text-blue-600"
             title="Copy file URL"
           >
@@ -262,7 +261,7 @@ function RouteForm(props: RouteFormProps) {
             type="button"
             onClick={() => {
               onCancel();
-              navigate(
+              void navigate(
                 `/storage?bucket=${encodeURIComponent(formData.bucket)}&open=${encodeURIComponent(formData.target)}`,
               );
             }}
@@ -288,7 +287,7 @@ function RouteForm(props: RouteFormProps) {
           </a>
           <button
             type="button"
-            onClick={() => copyToClipboard(formData.target)}
+            onClick={() => void copyToClipboard(formData.target)}
             className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-blue-50 hover:text-blue-600"
             title="Copy target URL"
           >
@@ -1019,7 +1018,7 @@ export function RoutesPage() {
             </DialogHeader>
             <RouteForm
               mode="create"
-              onSubmit={handleCreate}
+              onSubmit={(input, routeDomain) => void handleCreate(input, routeDomain)}
               onCancel={() => setCreateDialogOpen(false)}
               isSubmitting={createRoute.isPending}
               allDomainRoutes={allDomainRoutes}
@@ -1171,7 +1170,7 @@ export function RoutesPage() {
         <CardContent>
           {isLoading ? (
             <div className="space-y-2">
-              {[...Array(5)].map((_, i) => (
+              {Array.from({ length: 5 }, (_, i) => (
                 <Skeleton key={i} className="h-12 w-full" />
               ))}
             </div>
@@ -1237,7 +1236,7 @@ export function RoutesPage() {
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem
                             onClick={() =>
-                              copyToClipboard(
+                              void copyToClipboard(
                                 `https://${route.domain ?? filters.domain}${route.path}`,
                               )
                             }
@@ -1269,7 +1268,7 @@ export function RoutesPage() {
                             Edit
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onClick={() => handleToggle(route)}
+                            onClick={() => void handleToggle(route)}
                             className="font-inter"
                           >
                             {route.enabled !== false ? (
@@ -1337,7 +1336,7 @@ export function RoutesPage() {
             (() => {
               const qrDomain = qrRoute.domain || filters.domain || SUPPORTED_DOMAINS[0];
               const shortUrl = `https://${qrDomain}${qrRoute.path}`;
-              const design = QRDesignSchema.parse({}) as QRDesign;
+              const design = QRDesignSchema.parse({});
               return (
                 <div className="flex flex-col items-center gap-4">
                   <QrPreview content={shortUrl} design={design} />
@@ -1354,7 +1353,7 @@ export function RoutesPage() {
                     <Button
                       variant="outline"
                       onClick={() =>
-                        downloadPng(
+                        void downloadPng(
                           renderQrSvg(shortUrl, design),
                           design.size,
                           qrRoute.path.slice(1) || 'qr',
@@ -1367,7 +1366,7 @@ export function RoutesPage() {
                       <Button
                         onClick={() => {
                           setQrRoute(null);
-                          navigate('/qr-codes');
+                          void navigate('/qr-codes');
                         }}
                       >
                         View QR
@@ -1391,7 +1390,7 @@ export function RoutesPage() {
                               onSuccess: qr => {
                                 toast.success(`Saved as QR code: ${qr.id}`);
                                 setQrRoute(null);
-                                navigate('/qr-codes');
+                                void navigate('/qr-codes');
                               },
                               onError: e =>
                                 toast.error(e instanceof Error ? e.message : 'Save failed'),
@@ -1434,7 +1433,7 @@ export function RoutesPage() {
                 <button
                   type="button"
                   onClick={() =>
-                    copyToClipboard(
+                    void copyToClipboard(
                       `https://${editRoute.domain ?? filters.domain}${editRoute.path}`,
                     )
                   }
@@ -1450,7 +1449,9 @@ export function RoutesPage() {
             <RouteForm
               mode="edit"
               route={editRoute}
-              onSubmit={handleUpdate}
+              onSubmit={(updates, pathChanged, newPath) =>
+                void handleUpdate(updates, pathChanged, newPath)
+              }
               onCancel={() => setEditRoute(null)}
               isSubmitting={updateRoute.isPending}
               allowedDomains={[...SUPPORTED_DOMAINS]}
@@ -1493,7 +1494,7 @@ export function RoutesPage() {
             </Button>
             <Button
               variant="destructive"
-              onClick={handleDelete}
+              onClick={() => void handleDelete()}
               disabled={deleteRoute.isPending}
               className="font-inter"
             >
@@ -1507,7 +1508,7 @@ export function RoutesPage() {
         parameters={credentialConfirm?.parameters ?? null}
         verb={credentialConfirm?.verb ?? 'Save'}
         pending={credentialConfirmPending}
-        onConfirm={handleConfirmCredentialTarget}
+        onConfirm={() => void handleConfirmCredentialTarget()}
         onCancel={() => setCredentialConfirm(null)}
       />
 
@@ -1544,7 +1545,7 @@ export function RoutesPage() {
           <AlertDialogFooter>
             <AlertDialogCancel className="font-inter">Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleConfirmMigration}
+              onClick={() => void handleConfirmMigration()}
               className="bg-blue-600 hover:bg-blue-700 font-inter"
               disabled={migrateRoute.isPending || updateRoute.isPending}
             >
@@ -1574,7 +1575,7 @@ export function RoutesPage() {
           <AlertDialogFooter>
             <AlertDialogCancel className="font-inter">Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => handleTransferConfirm()}
+              onClick={() => void handleTransferConfirm()}
               disabled={transferRoute.isPending}
               className="bg-blue-950 font-inter hover:bg-blue-900"
             >

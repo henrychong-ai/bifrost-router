@@ -30,7 +30,7 @@ export function WelcomeDialog() {
 
   const openGuide = () => {
     dismiss();
-    navigate('/guide');
+    void navigate('/guide');
   };
 
   return (

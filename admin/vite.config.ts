@@ -9,7 +9,7 @@ import { stripHtmlComments } from './src/lib/strip-html-comments';
 // Read version from root package.json at build time
 const rootPackageJson = JSON.parse(
   readFileSync(path.resolve(import.meta.dirname, '../package.json'), 'utf-8'),
-);
+) as { version: string };
 const APP_VERSION = rootPackageJson.version;
 
 /**

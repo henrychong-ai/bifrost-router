@@ -138,7 +138,7 @@ export class EdgeRouterClient {
     // Parse response
     let data: ApiResponse<T> | PaginatedApiResponse<T>;
     try {
-      data = await response.json();
+      data = (await response.json()) as ApiResponse<T> | PaginatedApiResponse<T>;
     } catch {
       throw new EdgeRouterError(
         `Failed to parse response: ${response.statusText}`,
@@ -184,7 +184,7 @@ export class EdgeRouterClient {
 
     let data: ApiResponse<T>;
     try {
-      data = await response.json();
+      data = (await response.json()) as ApiResponse<T>;
     } catch {
       throw new EdgeRouterError(
         `Failed to parse response: ${response.statusText}`,

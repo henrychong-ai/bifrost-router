@@ -520,7 +520,7 @@ storageRoutes.delete('/:bucket/objects/:key{.+}', async c => {
     c.executionCtx.waitUntil(
       recordAuditLog(c.env.DB, {
         domain: 'storage',
-        action: 'r2_delete' as AuditAction,
+        action: 'r2_delete',
         actorLogin: actor.login,
         actorName: actor.name,
         path: `${bucketName}/${validation.sanitizedKey}`,
@@ -575,7 +575,7 @@ storageRoutes.post('/:bucket/rename', async c => {
     throw new HTTPException(400, { message: `Invalid newKey: ${newValidation.error}` });
   }
 
-  const copySizeLimit = getR2CopySizeLimit(c.env as Record<string, unknown>);
+  const copySizeLimit = getR2CopySizeLimit(c.env);
   const headResult = await bucket.head(oldValidation.sanitizedKey);
   if (!headResult) {
     throw new HTTPException(404, {
@@ -626,7 +626,7 @@ storageRoutes.post('/:bucket/rename', async c => {
     c.executionCtx.waitUntil(
       recordAuditLog(c.env.DB, {
         domain: 'storage',
-        action: 'r2_rename' as AuditAction,
+        action: 'r2_rename',
         actorLogin: actor.login,
         actorName: actor.name,
         path: `${bucketName}/${newValidation.sanitizedKey}`,
@@ -714,7 +714,7 @@ storageRoutes.post('/:bucket/move', async c => {
     throw new HTTPException(400, { message: `Invalid destinationKey: ${destKeyValidation.error}` });
   }
 
-  const copySizeLimit = getR2CopySizeLimit(c.env as Record<string, unknown>);
+  const copySizeLimit = getR2CopySizeLimit(c.env);
   const headResult = await sourceBucket.head(keyValidation.sanitizedKey);
   if (!headResult) {
     throw new HTTPException(404, {
@@ -767,7 +767,7 @@ storageRoutes.post('/:bucket/move', async c => {
     c.executionCtx.waitUntil(
       recordAuditLog(c.env.DB, {
         domain: 'storage',
-        action: 'r2_move' as AuditAction,
+        action: 'r2_move',
         actorLogin: actor.login,
         actorName: actor.name,
         path: `${destBucketName}/${destKeyValidation.sanitizedKey}`,
@@ -820,7 +820,7 @@ storageRoutes.put('/:bucket/metadata/:key{.+}', async c => {
     'metadata update',
   );
 
-  const copySizeLimit = getR2CopySizeLimit(c.env as Record<string, unknown>);
+  const copySizeLimit = getR2CopySizeLimit(c.env);
   const headResult = await bucket.head(validation.sanitizedKey);
   if (!headResult) {
     throw new HTTPException(404, { message: `Object not found: ${validation.sanitizedKey}` });
@@ -855,7 +855,7 @@ storageRoutes.put('/:bucket/metadata/:key{.+}', async c => {
     c.executionCtx.waitUntil(
       recordAuditLog(c.env.DB, {
         domain: 'storage',
-        action: 'r2_metadata_update' as AuditAction,
+        action: 'r2_metadata_update',
         actorLogin: actor.login,
         actorName: actor.name,
         path: `${bucketName}/${validation.sanitizedKey}`,
@@ -941,7 +941,7 @@ storageRoutes.put('/:bucket/comment/:key{.+}', async c => {
     c.executionCtx.waitUntil(
       recordAuditLog(c.env.DB, {
         domain: 'storage',
-        action: 'r2_comment_update' as AuditAction,
+        action: 'r2_comment_update',
         actorLogin: actor.login,
         actorName: actor.name,
         path: `${bucketName}/${validation.sanitizedKey}`,
@@ -998,7 +998,7 @@ storageRoutes.post('/:bucket/purge-cache/:key{.+}', async c => {
     const actor = getActorInfo(c);
     c.executionCtx.waitUntil(
       recordAuditLog(c.env.DB, {
-        action: 'r2_cache_purge' as AuditAction,
+        action: 'r2_cache_purge',
         domain: 'bifrost.example.com',
         path: `/${bucketName}/${key}`,
         actorLogin: actor.login,

@@ -5,6 +5,8 @@ import {
   renderInlineCode,
   type ChangelogVersion,
 } from './parse-changelog';
+// The repository changelog, as text: the test reads the real file, never a bundle.
+import changelogText from '../../../CHANGELOG.md?raw';
 
 /**
  * `items[index]`, failing the test by name when the element is missing —
@@ -546,39 +548,14 @@ Two R2 security improvements identified during review.
   describe('real CHANGELOG.md regression', () => {
     let versions: ReturnType<typeof parseChangelog>;
 
-    // Dynamic imports with ts-expect-error — admin tsconfig is browser-only (no @types/node in types)
-    // but vitest runs in Node where these modules are available
-    beforeAll(async () => {
-      // @ts-expect-error -- node:fs available at test runtime, not in browser tsconfig
-      const fs = await import('node:fs');
-      // @ts-expect-error -- node:path available at test runtime, not in browser tsconfig
-      const path = await import('node:path');
-      // @ts-expect-error -- process available at test runtime
-      const cwd: string = process.cwd();
-      // Adaptive path: works from admin/ (cwd=admin) and from root (cwd=repo root)
-      const changelogPath = fs.existsSync(path.resolve(cwd, 'CHANGELOG.md'))
-        ? path.resolve(cwd, 'CHANGELOG.md')
-        : path.resolve(cwd, '../CHANGELOG.md');
-      const raw = fs.readFileSync(changelogPath, 'utf-8');
-      versions = parseChangelog(raw);
+    beforeAll(() => {
+      versions = parseChangelog(changelogText);
     });
 
     let rawHeadings: string[];
 
-    beforeAll(async () => {
-      // @ts-expect-error -- node:fs available at test runtime
-      const fs = await import('node:fs');
-      // @ts-expect-error -- node:path available at test runtime
-      const path = await import('node:path');
-      // @ts-expect-error -- process available at test runtime
-      const cwd: string = process.cwd();
-      const changelogPath = fs.existsSync(path.resolve(cwd, 'CHANGELOG.md'))
-        ? path.resolve(cwd, 'CHANGELOG.md')
-        : path.resolve(cwd, '../CHANGELOG.md');
-      rawHeadings = fs
-        .readFileSync(changelogPath, 'utf-8')
-        .split('\n')
-        .filter((l: string) => /^## v\d/.test(l));
+    beforeAll(() => {
+      rawHeadings = changelogText.split('\n').filter(l => /^## v\d/.test(l));
     });
 
     test('parses all versions', () => {

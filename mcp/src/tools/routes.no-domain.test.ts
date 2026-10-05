@@ -241,7 +241,7 @@ describe('no-domain guard on every domain-required tool', () => {
       createdAt: 1700000000000,
       updatedAt: 1700000000000,
     });
-    const client = { ...mockClient, transferRoute } as unknown as EdgeRouterClient;
+    const client = Object.assign({}, mockClient, { transferRoute }) as unknown as EdgeRouterClient;
 
     const result = await handleTransferRoute(client, {
       path: '/x',

@@ -296,3 +296,16 @@ export async function createLegacyRecorderTables(): Promise<void> {
 export async function parseJsonResponse<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
+
+/**
+ * The JSON text of a stubbed `fetch` call's request body, `{}` when it has
+ * none. Any other body type fails the test rather than being stringified.
+ */
+export function requestBodyText(init?: RequestInit): string {
+  const body = init?.body;
+  if (body === undefined || body === null) return '{}';
+  if (typeof body !== 'string') {
+    throw new Error(`expected a JSON string body, got ${Object.prototype.toString.call(body)}`);
+  }
+  return body;
+}

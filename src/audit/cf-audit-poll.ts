@@ -90,7 +90,11 @@ async function writeCursor(db: ReturnType<typeof createDb>, cursor: PollCursor):
 }
 
 /** Fetch one page of account audit logs (since → now, ascending). */
-async function fetchAuditPage(env: Bindings, since: string, page: number): Promise<CfAuditEntry[]> {
+async function fetchAuditPage(
+  credentials: { accountId: string; token: string },
+  since: string,
+  page: number,
+): Promise<CfAuditEntry[]> {
   const params = new URLSearchParams({
     since,
     per_page: String(PAGE_SIZE),
@@ -98,8 +102,8 @@ async function fetchAuditPage(env: Bindings, since: string, page: number): Promi
     direction: 'asc',
   });
   const response = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/audit_logs?${params}`,
-    { headers: { Authorization: `Bearer ${env.CF_AUDIT_API_TOKEN}` } },
+    `https://api.cloudflare.com/client/v4/accounts/${credentials.accountId}/audit_logs?${params.toString()}`,
+    { headers: { Authorization: `Bearer ${credentials.token}` } },
   );
   if (!response.ok) {
     throw new Error(
@@ -153,6 +157,7 @@ export async function pollCfAuditLogs(env: Bindings): Promise<void> {
     );
     return;
   }
+  const credentials = { accountId: env.CF_ACCOUNT_ID, token: env.CF_AUDIT_API_TOKEN };
 
   try {
     const db = createDb(env.DB);
@@ -195,7 +200,7 @@ export async function pollCfAuditLogs(env: Bindings): Promise<void> {
     };
 
     for (let page = 1; page <= MAX_PAGES_PER_RUN; page++) {
-      const entries = await fetchAuditPage(env, queryFrom, page);
+      const entries = await fetchAuditPage(credentials, queryFrom, page);
       if (entries.length === 0) break;
 
       for (const entry of entries) {

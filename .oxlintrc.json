@@ -19,6 +19,9 @@
     "restriction": "off",
     "nursery": "off"
   },
+  "options": {
+    "typeAware": true
+  },
   "rules": {
     "no-unused-vars": [
       "error",
@@ -67,7 +70,26 @@
         "controlComponents": ["Input", "Select", "Switch"],
         "depth": 3
       }
-    ]
+    ],
+    "typescript/no-floating-promises": [
+      "error",
+      {
+        "allowForKnownSafeCalls": [
+          {
+            "from": "package",
+            "name": ["describe", "it", "test"],
+            "package": "node:test"
+          }
+        ]
+      }
+    ],
+    "typescript/no-misused-promises": "error",
+    "typescript/no-unsafe-argument": "error",
+    "typescript/no-unsafe-assignment": "error",
+    "typescript/no-unsafe-call": "error",
+    "typescript/no-unsafe-member-access": "error",
+    "typescript/no-unsafe-return": "error",
+    "typescript/no-unsafe-type-assertion": "off"
   },
   "ignorePatterns": [
     "dist",
@@ -86,7 +108,10 @@
       "rules": {
         "react/purity": "off",
         "jsx-a11y/no-noninteractive-tabindex": "off",
-        "no-shadow": "off"
+        "no-shadow": "off",
+        "typescript/no-unnecessary-template-expression": "off",
+        "typescript/no-unnecessary-type-assertion": "off",
+        "typescript/no-unnecessary-type-conversion": "off"
       }
     },
     {
@@ -111,6 +136,41 @@
       "files": ["src/**", "slackbot/src/**"],
       "rules": {
         "oxc/no-async-endpoint-handlers": "off"
+      }
+    },
+    {
+      "files": ["**/*.js", "**/*.mjs", "**/*.cjs"],
+      "rules": {
+        "typescript/no-unsafe-argument": "off",
+        "typescript/no-unsafe-assignment": "off",
+        "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-return": "off"
+      }
+    },
+    {
+      "files": [
+        "test/**",
+        "scripts/**/*.ts",
+        "shared/src/**/*.test.ts",
+        "mcp/src/**/*.test.ts",
+        "**/vitest.config.ts",
+        "drizzle.config.ts"
+      ],
+      "rules": {
+        "typescript/no-unsafe-argument": "off",
+        "typescript/no-unsafe-assignment": "off",
+        "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-return": "off",
+        "typescript/no-unnecessary-type-assertion": "off",
+        "typescript/no-redundant-type-constituents": "off"
+      }
+    },
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx"],
+      "rules": {
+        "typescript/unbound-method": "off"
       }
     }
   ]

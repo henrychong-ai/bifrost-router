@@ -64,10 +64,10 @@ export function FeedbackDetailDialog({
   // Load attachments (screenshots + capture bundle) as object URLs. The
   // cleanup revokes those URLs and clears the state that points at them.
   useEffect(() => {
-    if (!open || !item) return;
+    if (!open || !item) return undefined;
     let cancelled = false;
     const urls: string[] = [];
-    (async () => {
+    void (async () => {
       const loaded: string[] = [];
       for (const key of item.screenshotKeys) {
         try {
@@ -239,7 +239,7 @@ export function FeedbackDetailDialog({
               <div className="space-y-1.5">
                 <Label className="font-inter">Status</Label>
                 <Select
-                  value={field('status') as string | undefined}
+                  value={field('status')}
                   onValueChange={v => set('status', v as FeedbackStatus)}
                 >
                   <SelectTrigger className="font-inter">
@@ -280,9 +280,7 @@ export function FeedbackDetailDialog({
                       priority, so an off-scale value is never written back.
                     */}
                     <SelectValue>
-                      {formatFeedbackPriority(
-                        (field('priority') as number | undefined) ?? FEEDBACK_PRIORITY_DEFAULT,
-                      )}
+                      {formatFeedbackPriority(field('priority') ?? FEEDBACK_PRIORITY_DEFAULT)}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
@@ -296,10 +294,7 @@ export function FeedbackDetailDialog({
               </div>
               <div className="space-y-1.5">
                 <Label className="font-inter">Type</Label>
-                <Select
-                  value={field('type') as string | undefined}
-                  onValueChange={v => set('type', v as FeedbackType)}
-                >
+                <Select value={field('type')} onValueChange={v => set('type', v as FeedbackType)}>
                   <SelectTrigger className="font-inter">
                     <SelectValue />
                   </SelectTrigger>
@@ -363,7 +358,7 @@ export function FeedbackDetailDialog({
           <Button
             type="button"
             variant="outline"
-            onClick={handleDelete}
+            onClick={() => void handleDelete()}
             disabled={!item || del.isPending}
             className="font-inter text-red-600 hover:text-red-700"
           >
@@ -385,7 +380,7 @@ export function FeedbackDetailDialog({
             )}
             <Button
               type="button"
-              onClick={handleSave}
+              onClick={() => void handleSave()}
               disabled={!item || triage.isPending}
               className="bg-blue-950 font-inter hover:bg-blue-900"
             >

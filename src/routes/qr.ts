@@ -297,7 +297,7 @@ qrRoutes.get('/:id', async c => {
 qrRoutes.post('/', async c => {
   const domain = requireDomain(c);
 
-  const body = await c.req.json().catch(() => {
+  const body: unknown = await c.req.json().catch(() => {
     throw new HTTPException(400, { message: 'Invalid JSON body' });
   });
   const parsedInput = CreateQRInputSchema.safeParse(body);
@@ -339,7 +339,7 @@ qrRoutes.post('/', async c => {
   });
 
   await putQR(c.env.ROUTES, record);
-  auditQr(c, 'qr_create' as AuditAction, domain, record, { qr: redactQrForAudit(record) });
+  auditQr(c, 'qr_create', domain, record, { qr: redactQrForAudit(record) });
 
   return c.json({ success: true as const, data: record }, 201);
 });
@@ -348,7 +348,7 @@ qrRoutes.put('/:id', async c => {
   const domain = requireDomain(c);
   const existing = await requireQR(c, domain, c.req.param('id'));
 
-  const body = await c.req.json().catch(() => {
+  const body: unknown = await c.req.json().catch(() => {
     throw new HTTPException(400, { message: 'Invalid JSON body' });
   });
   const parsedInput = UpdateQRInputSchema.safeParse(body);
@@ -410,7 +410,7 @@ qrRoutes.put('/:id', async c => {
   }
 
   await putQR(c.env.ROUTES, updated);
-  auditQr(c, 'qr_update' as AuditAction, domain, updated, {
+  auditQr(c, 'qr_update', domain, updated, {
     before: redactQrForAudit(existing),
     after: redactQrForAudit(updated),
   });
@@ -423,7 +423,7 @@ qrRoutes.delete('/:id', async c => {
   const existing = await requireQR(c, domain, c.req.param('id'));
 
   await deleteQR(c.env.ROUTES, domain, existing.id);
-  auditQr(c, 'qr_delete' as AuditAction, domain, existing, { qr: redactQrForAudit(existing) });
+  auditQr(c, 'qr_delete', domain, existing, { qr: redactQrForAudit(existing) });
 
   return c.json({ success: true as const, data: { deleted: true as const, id: existing.id } });
 });

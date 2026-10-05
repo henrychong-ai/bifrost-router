@@ -63,9 +63,9 @@ export default function GuidePage() {
   // and flash a highlight ring. Also fires on in-page hash navigation.
   useEffect(() => {
     const id = location.hash.replace('#', '');
-    if (!id) return;
+    if (!id) return undefined;
     const el = document.getElementById(id);
-    if (!el) return;
+    if (!el) return undefined;
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     const card = el.querySelector('[data-slot="card"]') ?? el;
     card.classList.add('ring-2', 'ring-gold-400/50');

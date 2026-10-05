@@ -79,7 +79,7 @@ export function BackupHealthWidget() {
 
   if (isLoading) return <BackupHealthSkeleton />;
   if (error || !health)
-    return <BackupHealthError onRetry={() => refetch()} isRetrying={isFetching} />;
+    return <BackupHealthError onRetry={() => void refetch()} isRetrying={isFetching} />;
 
   const statusIcon = {
     healthy: <CheckCircle className="h-4 w-4" />,
@@ -105,7 +105,7 @@ export function BackupHealthWidget() {
         <CardTitle className="text-sm font-medium">Backup Status</CardTitle>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => refetch()}
+            onClick={() => void refetch()}
             disabled={isFetching}
             className="p-1 hover:bg-muted rounded transition-colors disabled:opacity-50"
             title="Refresh backup status"

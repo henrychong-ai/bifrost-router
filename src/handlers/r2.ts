@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import { getContentTypeFromKey, redactSensitive } from '@bifrost/shared';
-import type { AppEnv, Bindings, KVRouteConfig, R2BucketName } from '../types';
+import type { AppEnv, Bindings, KVRouteConfig } from '../types';
 import { BUCKET_BINDINGS, isValidR2Bucket } from '../types';
 import { validateR2Key } from '../utils/path-validation';
 
@@ -188,7 +188,8 @@ function resolveRange(range: R2Range, size: number): { offset: number; length: n
  */
 export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promise<Response> {
   // Get bucket name from route config, default to "files"
-  const bucketName: R2BucketName = route.bucket ?? 'files';
+  // Stored config is not trusted to hold a known bucket until it is validated.
+  const bucketName: string = route.bucket ?? 'files';
 
   // Validate bucket name
   if (!isValidR2Bucket(bucketName)) {
@@ -428,7 +429,7 @@ export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promis
   const ifRange = requestHeaders.get('if-range');
   if (ifRange && object.range && evaluateIfRange(ifRange, object) === 'mismatch') {
     const fullObject = await bucket.get(validation.sanitizedKey, { onlyIf: onlyIfHeaders });
-    const fullBody = (fullObject as R2ObjectBody | null)?.body as ReadableStream | undefined;
+    const fullBody = (fullObject as R2ObjectBody | null)?.body;
     if (fullObject && fullBody) {
       await objectBody.cancel().catch(() => {});
       object = fullObject;

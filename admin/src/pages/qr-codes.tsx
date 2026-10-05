@@ -22,7 +22,6 @@ import {
   renderQrSvg,
   serializePayload,
   type QRCode,
-  type QRDesign,
   type QRType,
   type QrBrandPreset,
 } from '@bifrost/shared';
@@ -260,7 +259,7 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
   // preview must agree with the list-row preview and the Worker render.
   const preview = useMemo(() => {
     try {
-      const design = QRDesignSchema.parse(designFromState(s)) as QRDesign;
+      const design = QRDesignSchema.parse(designFromState(s));
       const content = initial?.linkedRoute
         ? `https://${initial.linkedRoute.domain}${initial.linkedRoute.path}`
         : serializePayload(s.type, payloadFromState(s) as never);
@@ -286,7 +285,8 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
     setLogoPending(n => n + 1);
     const reader = new FileReader();
     reader.addEventListener('load', () => {
-      const dataUri = String(reader.result);
+      // readAsDataURL always yields a string result.
+      const dataUri = typeof reader.result === 'string' ? reader.result : '';
       setCustom({ logoDataUri: dataUri, logoAspectRatio: null });
       // Wordmark-shaped uploads get the wide-logo window too (ratio computed
       // client-side; undecodable images just keep the square window).
@@ -883,7 +883,7 @@ export function QrCodesPage() {
                           variant="ghost"
                           size="icon"
                           title="Download SVG"
-                          onClick={() => handleDownload(qr, 'svg')}
+                          onClick={() => void handleDownload(qr, 'svg')}
                         >
                           <Download className="size-4" />
                         </Button>
@@ -891,7 +891,7 @@ export function QrCodesPage() {
                           variant="ghost"
                           size="icon"
                           title="Download PNG"
-                          onClick={() => handleDownload(qr, 'png')}
+                          onClick={() => void handleDownload(qr, 'png')}
                         >
                           <QrCodeIcon className="size-4" />
                         </Button>

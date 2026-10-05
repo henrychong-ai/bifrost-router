@@ -60,7 +60,7 @@ export function useUploadObject() {
       options?: { overwrite?: boolean };
     }) => api.storage.uploadObject(bucket, file, key, options),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: storageKeys.all });
+      void queryClient.invalidateQueries({ queryKey: storageKeys.all });
     },
   });
 }
@@ -71,7 +71,7 @@ export function useDeleteObject() {
     mutationFn: ({ bucket, key }: { bucket: string; key: string }) =>
       api.storage.deleteObject(bucket, key),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: storageKeys.all });
+      void queryClient.invalidateQueries({ queryKey: storageKeys.all });
     },
   });
 }
@@ -82,7 +82,7 @@ export function useRenameObject() {
     mutationFn: ({ bucket, oldKey, newKey }: { bucket: string; oldKey: string; newKey: string }) =>
       api.storage.renameObject(bucket, oldKey, newKey),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: storageKeys.all });
+      void queryClient.invalidateQueries({ queryKey: storageKeys.all });
     },
   });
 }
@@ -102,7 +102,7 @@ export function useMoveObject() {
       destinationKey?: string;
     }) => api.storage.moveObject(bucket, key, destinationBucket, destinationKey),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: storageKeys.all });
+      void queryClient.invalidateQueries({ queryKey: storageKeys.all });
     },
   });
 }
@@ -120,7 +120,7 @@ export function useUpdateObjectMetadata() {
       metadata: R2MetadataUpdate;
     }) => api.storage.updateObjectMetadata(bucket, key, metadata),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: storageKeys.all });
+      void queryClient.invalidateQueries({ queryKey: storageKeys.all });
     },
   });
 }

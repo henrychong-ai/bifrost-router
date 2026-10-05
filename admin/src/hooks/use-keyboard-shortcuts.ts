@@ -65,7 +65,7 @@ export function useKeyboardShortcut(
   );
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) return undefined;
 
     document.addEventListener('keydown', handleKeyDown);
     return () => {

@@ -22,7 +22,7 @@ describe('EdgeRouterClient', () => {
   });
 
   describe('constructor', () => {
-    it('removes trailing slash from baseUrl', () => {
+    it('removes trailing slash from baseUrl', async () => {
       const clientWithSlash = new EdgeRouterClient({
         baseUrl: 'https://test.example.com/',
         apiKey: 'test-api-key',
@@ -34,7 +34,7 @@ describe('EdgeRouterClient', () => {
         json: async () => ({ success: true, data: [] }),
       });
 
-      clientWithSlash.listRoutes('links.example.com');
+      await clientWithSlash.listRoutes('links.example.com');
 
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining('https://test.example.com/api/routes'),
@@ -286,7 +286,10 @@ describe('EdgeRouterClient', () => {
     });
   });
 
-  const calledUrl = () => String(mockFetch.mock.calls[0][0]);
+  const calledUrl = () => {
+    const input = mockFetch.mock.calls[0][0];
+    return input instanceof Request ? input.url : input.toString();
+  };
   const calledMethod = () => (mockFetch.mock.calls[0][1] as { method: string }).method;
 
   // v1.35.0 — every domain-bearing method sends exactly the domain it is given

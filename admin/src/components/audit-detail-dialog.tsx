@@ -156,7 +156,7 @@ export function AuditDetailDialog({
                 onClick={() => {
                   // Copy the raw details payload only — not the full row (which
                   // carries actor login + IP already shown above).
-                  copyToClipboard(log.details ?? '{}', 'Details JSON');
+                  void copyToClipboard(log.details ?? '{}', 'Details JSON');
                 }}
               >
                 <Copy />
@@ -175,10 +175,10 @@ export function AuditDetailDialog({
                         domain: t.domain as SupportedDomain,
                         search: t.path,
                       });
-                      navigate('/routes');
+                      void navigate('/routes');
                     } else {
                       const params = new URLSearchParams({ bucket: t.bucket, open: t.key });
-                      navigate(`/storage?${params.toString()}`);
+                      void navigate(`/storage?${params.toString()}`);
                     }
                     onClose();
                   }}

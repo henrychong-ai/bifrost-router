@@ -159,8 +159,8 @@ function decodeHtmlEntities(text: string): string {
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&nbsp;/g, ' ')
-    .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num, 10)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, num: string) => String.fromCharCode(parseInt(num, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
     .replace(/&amp;/g, '&'); // Must be LAST to prevent double-unescaping (e.g., &amp;lt; → &lt; → <)
 }
 
@@ -191,7 +191,8 @@ async function readResponseWithSizeLimit(response: Response, maxSize: number): P
   }
 
   // Stream the response and enforce size limit
-  const reader = response.body?.getReader();
+  // A fetch Response body is a byte stream.
+  const reader = response.body?.getReader() as ReadableStreamDefaultReader<Uint8Array> | undefined;
   if (!reader) {
     return '';
   }

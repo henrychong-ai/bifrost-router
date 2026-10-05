@@ -58,10 +58,37 @@ export const SOURCE_COLORS: Record<AuditSource, string> = {
   cf_audit: 'bg-blue-100 text-blue-800 border-blue-200',
 };
 
+/**
+ * The detail fields the Worker writes to an audit row; which are present
+ * depends on the action, and any may be absent.
+ */
+interface AuditDetailFields {
+  cf_audit_id?: string;
+  actionType?: string;
+  resource?: { type?: string; id?: string };
+  r2Action?: string;
+  bucket?: string;
+  key?: string;
+  enabled?: boolean;
+  count?: number;
+  oldPath?: string;
+  newPath?: string;
+  sourceBucket?: string;
+  destinationBucket?: string;
+  destinationKey?: string;
+  replaced?: { size?: number };
+  size?: number;
+  oldKey?: string;
+  newKey?: string;
+  route?: { target?: string };
+  before?: unknown;
+  after?: unknown;
+}
+
 export function parseDetails(details: string | null): string {
   if (!details) return '-';
   try {
-    const parsed = JSON.parse(details);
+    const parsed = JSON.parse(details) as AuditDetailFields;
     // CF audit-log poller entries: show the control-plane action type.
     if ('cf_audit_id' in parsed) {
       const resource = parsed.resource?.type

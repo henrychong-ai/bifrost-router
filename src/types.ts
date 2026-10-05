@@ -175,8 +175,8 @@ export type Bindings = {
   // D1 database for analytics
   DB: D1Database;
 
-  /** Privacy-bounded unified request stream: dormant unless exactly `shadow`. */
-  UNIFIED_TRAFFIC_MODE?: 'off' | 'shadow' | string;
+  /** Privacy-bounded unified request stream: dormant unless exactly `shadow` (documented values: `off`, `shadow`). */
+  UNIFIED_TRAFFIC_MODE?: string;
   /** Explicit timezone-bearing RFC3339 activation point. */
   UNIFIED_TRAFFIC_CUTOVER_AT?: string;
   /** Positive whole-day retention for unified rows. */

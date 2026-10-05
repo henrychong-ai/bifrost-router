@@ -614,6 +614,11 @@ The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `sr
 
 **Rule levels:** the team template's, with `typescript/no-explicit-any` at `error`. Rules in the `style` category (for example `react/hook-use-state`) are off with the category.
 
+**Type-aware rules:** `options.typeAware` is on, with `oxlint-tsgolint` (the TypeScript 7 checker). The tsconfigs are TypeScript 7-ready: no `baseUrl` (the dashboard's `@/*` paths resolve relative to their tsconfig) and explicit `types` (`shared` and `mcp` list `node`, because TypeScript 7 no longer loads every installed `@types` package). Every type-aware rule in the enabled categories is on, plus `typescript/no-misused-promises` and the `no-unsafe-*` family (`argument`, `assignment`, `call`, `member-access`, `return`). `typescript/no-floating-promises` treats `node:test`'s `describe`/`it`/`test` as safe calls; an intentionally unawaited promise is marked `void`. `tsc --noEmit` remains the type gate.
+
+**Oxlint rule off pending an owner decision:**
+- `typescript/no-unsafe-type-assertion` — 148 assertions in runtime code (MCP tool arguments, API and D1 results read with `as`) and 228 in tests. Turning it on means validating those values at runtime instead of asserting their types, which changes behaviour on malformed input; it is a design change, not a lint fix.
+
 **Oxlint rules off everywhere (each does not apply to this stack):**
 - `react/react-in-jsx-scope` — the dashboard uses the automatic JSX runtime (`"jsx": "react-jsx"`); `React` need not be in scope
 - `no-underscore-dangle` — it flags `const _unused`, the `_`-prefix convention that `no-unused-vars` allows (`argsIgnorePattern`/`varsIgnorePattern` `^_`)
@@ -625,9 +630,15 @@ The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `sr
 
 **Oxlint override — test setup files:** `import/no-unassigned-import` is off for `test/setup.*`, `*.setup.*` and `setupTests.*`, as in the team template.
 
+**Oxlint override — untyped JavaScript (`**/*.js`, `**/*.mjs`, `**/*.cjs`):** the `no-unsafe-*` family is off. Plain JavaScript carries no type annotations, so every parsed or imported value is `any` and there is no typed boundary for these rules to protect.
+
+**Oxlint override — TypeScript outside every tsconfig (`test/**`, `scripts/**/*.ts`, `shared/src/**/*.test.ts`, `mcp/src/**/*.test.ts`, `**/vitest.config.ts`, `drizzle.config.ts`):** the `no-unsafe-*` family, `typescript/no-unnecessary-type-assertion` and `typescript/no-redundant-type-constituents` are off. No tsconfig includes these files (`shared` and `mcp` exclude their tests from the build), so tsgolint reads the Worker bindings, `cloudflare:test` and the ES2023 library as error types and these rules report the missing types, not the code. The other type-aware rules stay on. Follow-up: a lint tsconfig for each, with the root tests' `cloudflare:test` environment typed as the Worker bindings.
+
+**Oxlint override — test files (`**/*.test.ts`, `**/*.test.tsx`):** `typescript/unbound-method` is off. `expect(client.method)` hands vitest the mock itself, which is never called with a lost `this`.
+
 **Oxlint rule options:** `vitest/expect-expect` takes `assertFunctionNames: ["expect", "expect*"]`, so a test asserting through a helper named `expect…` counts as having an assertion. `jsx-a11y/label-has-associated-control` takes `controlComponents: ["Input", "Select", "Switch"]` and `depth: 3`, so a `<label>` wrapping a shadcn control counts as associated; a sibling label needs `htmlFor` and the control an `id` (on a Select, the `SelectTrigger`).
 
-**Oxlint override — vendored shadcn/ui (`admin/src/components/ui/**`):** `react/purity`, `jsx-a11y/no-noninteractive-tabindex`, and `no-shadow` are off there only; the generated components are kept as upstream ships them. Outside that directory all three stay on.
+**Oxlint override — vendored shadcn/ui (`admin/src/components/ui/**`):** `react/purity`, `jsx-a11y/no-noninteractive-tabindex`, `no-shadow`, and the type-aware `typescript/no-unnecessary-type-assertion`, `typescript/no-unnecessary-type-conversion` and `typescript/no-unnecessary-template-expression` are off there only; the generated components are kept as upstream ships them. Outside that directory all six stay on.
 
 **Oxlint override — vendored credential-policy test (`test/utils/credential-redaction.test.ts`):** `no-shadow` is off for this one file. It is byte-pinned by `credential-redaction.json` (`pnpm run redaction:check`), so neither a rename nor an inline disable comment can be applied locally; fix the shadowed `target` in the canonical copy when the policy is next revised.
 

@@ -88,7 +88,7 @@ describe('analytics routes', () => {
         ...options,
         headers: {
           'X-Admin-Key': validApiKey,
-          ...options.headers,
+          ...Object.fromEntries(new Headers(options.headers)),
         },
       }),
       testEnv,

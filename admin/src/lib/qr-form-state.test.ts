@@ -20,6 +20,14 @@ function wifiState(patch: Partial<QrFormState>): QrFormState {
   return { ...stateFromQr(), type: 'wifi', ssid: 'Corp', ...patch };
 }
 
+describe('payloadFromState — unknown type', () => {
+  it('refuses a type outside the QR type list instead of returning nothing', () => {
+    expect(() => payloadFromState({ ...stateFromQr(), type: 'bogus' as never })).toThrow(
+      'Unsupported QR type: bogus',
+    );
+  });
+});
+
 describe('payloadFromState — wifi credential exclusions', () => {
   it('TLS NEVER submits a password, even when stale state holds one (review MAJOR)', () => {
     // User typed a password under PEAP, then switched to TLS (field hidden).

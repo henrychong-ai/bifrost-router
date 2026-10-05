@@ -228,7 +228,7 @@ adminRoutes.use('*', async (c, next) => {
     );
   }
   await next();
-  return;
+  return undefined;
 });
 
 /**
@@ -445,7 +445,7 @@ adminRoutes.post('/routes', async c => {
   }
 
   const domain = domainResult.domain;
-  const body = await c.req.json().catch(() => {
+  const body: unknown = await c.req.json().catch(() => {
     throw new HTTPException(400, { message: 'Invalid JSON body' });
   });
 
@@ -489,7 +489,7 @@ adminRoutes.post('/routes', async c => {
     c.executionCtx.waitUntil(
       recordAuditLog(c.env.DB, {
         domain,
-        action: 'create' as AuditAction,
+        action: 'create',
         actorLogin: actor.login,
         actorName: actor.name,
         path: result.data.path,
@@ -554,7 +554,7 @@ adminRoutes.put('/routes', async c => {
   }
 
   const domain = domainResult.domain;
-  const body = await c.req.json().catch(() => {
+  const body: unknown = await c.req.json().catch(() => {
     throw new HTTPException(400, { message: 'Invalid JSON body' });
   });
 
@@ -573,6 +573,8 @@ adminRoutes.put('/routes', async c => {
       400,
     );
   }
+  // The schema accepted an object, so its fields can be read for the audit row.
+  const fields = body as Record<string, unknown>;
 
   // Get current route state before update
   const beforeRoute = await getRoute(c.env.ROUTES, domain, path);
@@ -601,7 +603,7 @@ adminRoutes.put('/routes', async c => {
   // Determine if this is a toggle action or general update. The
   // acknowledgement is a request-only flag, not an edited field, so it must not
   // turn a toggle into an 'update' in the audit trail.
-  const editedKeys = Object.keys(body).filter(key => key !== 'acknowledgeCredentialTarget');
+  const editedKeys = Object.keys(fields).filter(key => key !== 'acknowledgeCredentialTarget');
   const isToggle = editedKeys.length === 1 && editedKeys[0] === 'enabled';
   const action: AuditAction = isToggle ? 'toggle' : 'update';
 
@@ -616,7 +618,7 @@ adminRoutes.put('/routes', async c => {
         actorName: actor.name,
         path,
         details: JSON.stringify({
-          ...(isToggle ? { enabled: body.enabled } : { before: beforeRoute, after: route }),
+          ...(isToggle ? { enabled: fields['enabled'] } : { before: beforeRoute, after: route }),
           ...(credentialParams.length > 0
             ? { credentialTargetAcknowledged: credentialParams }
             : {}),
@@ -689,7 +691,7 @@ adminRoutes.delete('/routes', async c => {
     c.executionCtx.waitUntil(
       recordAuditLog(c.env.DB, {
         domain,
-        action: 'delete' as AuditAction,
+        action: 'delete',
         actorLogin: actor.login,
         actorName: actor.name,
         path,
@@ -729,9 +731,11 @@ adminRoutes.post('/routes/seed', async c => {
   }
 
   const domain = domainResult.domain;
-  const body = await c.req.json().catch(() => {
+  // Read as an object that may carry `routes`; anything else, `null` included,
+  // fails the array check below.
+  const body = (await c.req.json().catch(() => {
     throw new HTTPException(400, { message: 'Invalid JSON body' });
-  });
+  })) as { routes?: unknown } | null;
 
   // Optional chaining: a `null` body has no `routes` either.
   if (!Array.isArray(body?.routes)) {
@@ -752,7 +756,7 @@ adminRoutes.post('/routes/seed', async c => {
   const seedCredentialPaths = new Set<string>();
   const seedCredentialParamsByPath = new Map<string, string[]>();
 
-  for (const route of body.routes) {
+  for (const route of body.routes as unknown[]) {
     const result = CreateRouteSchema.safeParse(route);
     if (result.success) {
       // Seed takes full route bodies, so it can plant exactly what create
@@ -771,7 +775,10 @@ adminRoutes.post('/routes/seed', async c => {
       validRoutes.push(result.data);
     } else {
       // A seed entry may be `null` or a primitive, which has no path to report.
-      errors.push({ path: route?.path, issues: result.error.issues });
+      errors.push({
+        path: (route as { path?: unknown } | null)?.path,
+        issues: result.error.issues,
+      });
     }
   }
 
@@ -818,7 +825,7 @@ adminRoutes.post('/routes/seed', async c => {
     c.executionCtx.waitUntil(
       recordAuditLog(c.env.DB, {
         domain,
-        action: 'seed' as AuditAction,
+        action: 'seed',
         actorLogin: actor.login,
         actorName: actor.name,
         path: null,
@@ -898,7 +905,7 @@ adminRoutes.post('/routes/migrate', async c => {
       c.executionCtx.waitUntil(
         recordAuditLog(c.env.DB, {
           domain,
-          action: 'migrate' as AuditAction,
+          action: 'migrate',
           actorLogin: actor.login,
           actorName: actor.name,
           path: newPath,
@@ -1155,7 +1162,7 @@ adminRoutes.post('/routes/transfer', async c => {
       const actor = getActorInfo(c);
       c.executionCtx.waitUntil(
         recordAuditLog(c.env.DB, {
-          action: 'transfer' as AuditAction,
+          action: 'transfer',
           domain: toDomain,
           path,
           actorLogin: actor.login,

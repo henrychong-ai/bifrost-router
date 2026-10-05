@@ -33,7 +33,7 @@ describe('KV permission CRUD', () => {
       get: vi.fn<(key: string, type?: string) => Promise<unknown>>(async (key, type) => {
         const value = store.get(key);
         if (!value) return null;
-        return type === 'json' ? JSON.parse(value) : value;
+        return type === 'json' ? (JSON.parse(value) as unknown) : value;
       }),
       put: vi.fn<(key: string, value: string) => Promise<void>>(async (key, value) => {
         store.set(key, value);
