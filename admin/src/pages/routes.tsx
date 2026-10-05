@@ -86,6 +86,8 @@ import {
 } from '@/hooks';
 import { getPersistedPageSize, getR2ObjectUrl, persistPageSize } from '@/lib/constants';
 import { credentialTargetParametersFromError } from '@/lib/credential-target';
+import type { QrPageNavState } from '@/lib/qr-page-domain';
+import { requireWriteDomain } from '@/lib/route-write-domain';
 import type { CreateRouteInput, R2BucketName, Route, UpdateRouteInput } from '@/lib/schemas';
 import { R2_BUCKETS } from '@/lib/schemas';
 import { downloadPng, downloadSvg } from '@/lib/svg-to-png';
@@ -661,12 +663,12 @@ export function RoutesPage() {
   const navigate = useNavigate();
   const [qrRoute, setQrRoute] = useState<(Route & { domain?: string }) | null>(null);
   const createQrMutation = useCreateQr();
-  const qrGuardDomain = qrRoute
-    ? qrRoute.domain || filters.domain || SUPPORTED_DOMAINS[0]
-    : undefined;
+  // The route's own domain, else the filtered one; never a guessed default.
+  // With neither, the dialog says so and saves nothing.
+  const qrGuardDomain = qrRoute ? qrRoute.domain || filters.domain : undefined;
   const { data: qrGuardList } = useQrCodes(
     { domain: qrGuardDomain, type: 'url', limit: 1000 },
-    { enabled: !!qrRoute },
+    { enabled: !!qrRoute && !!qrGuardDomain },
   );
   const existingLinkedQr =
     qrRoute && qrGuardList
@@ -853,7 +855,7 @@ export function RoutesPage() {
       await updateRoute.mutateAsync({
         path: target.path,
         data: updates,
-        domain: target.domain ?? filters.domain,
+        domain: requireWriteDomain(target.domain, filters.domain),
         acknowledgeCredentialTarget,
       });
       toast.success('Route updated successfully');
@@ -882,7 +884,7 @@ export function RoutesPage() {
       // Pass domain from route when in all-domains view to ensure correct mutation
       await deleteRoute.mutateAsync({
         path: deleteConfirmRoute.path,
-        domain: deleteConfirmRoute.domain ?? filters.domain,
+        domain: requireWriteDomain(deleteConfirmRoute.domain, filters.domain),
       });
       toast.success('Route deleted successfully');
       setDeleteConfirmRoute(null);
@@ -899,7 +901,7 @@ export function RoutesPage() {
       await toggleRoute.mutateAsync({
         path: route.path,
         enabled: !route.enabled,
-        domain: route.domain ?? filters.domain,
+        domain: requireWriteDomain(route.domain, filters.domain),
         acknowledgeCredentialTarget,
       });
       toast.success(`Route ${route.enabled ? 'disabled' : 'enabled'}`);
@@ -936,14 +938,13 @@ export function RoutesPage() {
     if (!migrationConfirm) return;
 
     const { route, newPath } = migrationConfirm;
-    const domain = route.domain ?? filters.domain;
 
     try {
       // Migrate the route to new path (preserves all config)
       await migrateRoute.mutateAsync({
         oldPath: route.path,
         newPath,
-        domain,
+        domain: requireWriteDomain(route.domain, filters.domain),
       });
 
       setMigrationConfirm(null);
@@ -1332,9 +1333,15 @@ export function RoutesPage() {
               Encodes the short URL — re-point the route later and printed copies keep working.
             </DialogDescription>
           </DialogHeader>
+          {qrRoute && !qrGuardDomain && (
+            <p className="font-inter text-sm text-red-600">
+              This route has no domain. Select its domain and try again.
+            </p>
+          )}
           {qrRoute &&
+            qrGuardDomain &&
             (() => {
-              const qrDomain = qrRoute.domain || filters.domain || SUPPORTED_DOMAINS[0];
+              const qrDomain = qrGuardDomain;
               const shortUrl = `https://${qrDomain}${qrRoute.path}`;
               const design = QRDesignSchema.parse({});
               return (
@@ -1366,7 +1373,9 @@ export function RoutesPage() {
                       <Button
                         onClick={() => {
                           setQrRoute(null);
-                          void navigate('/qr-codes');
+                          void navigate('/qr-codes', {
+                            state: { domain: qrDomain } satisfies QrPageNavState,
+                          });
                         }}
                       >
                         View QR
@@ -1390,7 +1399,9 @@ export function RoutesPage() {
                               onSuccess: qr => {
                                 toast.success(`Saved as QR code: ${qr.id}`);
                                 setQrRoute(null);
-                                void navigate('/qr-codes');
+                                void navigate('/qr-codes', {
+                                  state: { domain: qr.domain } satisfies QrPageNavState,
+                                });
                               },
                               onError: e =>
                                 toast.error(e instanceof Error ? e.message : 'Save failed'),

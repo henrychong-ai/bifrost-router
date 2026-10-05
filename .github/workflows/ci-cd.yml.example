@@ -4,7 +4,8 @@
 # Required Repository Secrets (Settings > Secrets and variables > Actions):
 #   CLOUDFLARE_API_TOKEN    - Cloudflare API token with Workers Edit permission
 #   CLOUDFLARE_ACCOUNT_ID   - Cloudflare account ID
-#   ADMIN_API_KEY           - Admin API key for dashboard build
+#   (The dashboard image takes no API key at build time: set ADMIN_API_KEY in
+#    the container's environment on the server, e.g. admin/auth.env.)
 #   TS_OAUTH_CLIENT_ID      - Tailscale OAuth client ID for VPS deployment
 #   TS_OAUTH_SECRET         - Tailscale OAuth secret for VPS deployment
 
@@ -163,7 +164,6 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VITE_API_URL=https://bifrost.example.com
-            VITE_ADMIN_API_KEY=${{ secrets.ADMIN_API_KEY }}
 
   deploy-to-vps:
     name: Deploy to VPS

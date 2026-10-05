@@ -1,5 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { gzipCompress } from '../../src/backup/compress';
 import { checkBackupHealth } from '../../src/backup/health';
+import { MAX_BACKUP_BYTES } from '../../src/backup/integrity';
 import type { BackupManifest } from '../../src/backup/types';
 
 /**
@@ -25,6 +27,16 @@ function createMockBucket(options: {
           json: () => Promise.resolve(manifest),
         };
       }
+      //: health reads the archive back, so a present archive holds
+      // exactly the manifest's record count.
+      if (manifest && key === manifest.kv.file && files.get(key)) {
+        const data = await gzipCompress(
+          Array.from({ length: manifest.kv.totalRoutes }, (_, i) =>
+            JSON.stringify({ key: `fixture:${i}`, value: { target: 'https://example.com' } }),
+          ).join('\n'),
+        );
+        return { size: data.byteLength, body: new Response(data).body };
+      }
       return null;
     }),
     head: vi.fn<(key: string) => Promise<unknown>>().mockImplementation(async (key: string) => {
@@ -38,6 +50,7 @@ function createMockBucket(options: {
  * Create a valid test manifest
  */
 function createTestManifest(overrides: Partial<BackupManifest> = {}): BackupManifest {
+  const date = overrides.date ?? '20260123';
   return {
     version: '2.0.0',
     timestamp: Date.now() - 4 * 60 * 60 * 1000, // 4 hours ago
@@ -45,7 +58,7 @@ function createTestManifest(overrides: Partial<BackupManifest> = {}): BackupMani
     kv: {
       domains: ['example.com', 'links.example.com'],
       totalRoutes: 320,
-      file: 'daily/20260123/kv-routes.ndjson.gz',
+      file: `daily/${date}/kv-routes.ndjson.gz`,
     },
     ...overrides,
   };
@@ -66,6 +79,10 @@ describe('checkBackupHealth', () => {
     vi.useFakeTimers();
     // Set current time to 2026-01-23 12:00:00 UTC
     vi.setSystemTime(new Date('2026-01-23T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe('healthy status', () => {
@@ -372,6 +389,184 @@ describe('checkBackupHealth', () => {
       const health = await checkBackupHealth(bucket);
 
       expect(health.lastBackup?.date).toBe('20260122');
+    });
+  });
+});
+
+describe('backup integrity health boundaries', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-23T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('checks later listing pages before choosing the latest backup', async () => {
+    const bucket = createMockBucket({
+      manifest: createTestManifest(),
+      files: createCompleteFilesMap('20260123'),
+    });
+    vi.mocked(bucket.list)
+      .mockResolvedValueOnce({
+        delimitedPrefixes: ['daily/20260101/'],
+        objects: [],
+        truncated: true,
+        cursor: 'next',
+      } as R2Objects)
+      .mockResolvedValueOnce({
+        delimitedPrefixes: ['daily/20260123/'],
+        objects: [],
+        truncated: false,
+      } as R2Objects);
+    expect((await checkBackupHealth(bucket)).lastBackup?.date).toBe('20260123');
+    expect(bucket.list).toHaveBeenLastCalledWith({
+      prefix: 'daily/',
+      delimiter: '/',
+      cursor: 'next',
+    });
+  });
+
+  it('reports a repeated or missing cursor as critical instead of looping, throwing or certifying a partial listing', async () => {
+    const repeated = createMockBucket({});
+    vi.mocked(repeated.list).mockResolvedValue({
+      delimitedPrefixes: [],
+      objects: [],
+      truncated: true,
+      cursor: 'same',
+    } as R2Objects);
+    const missing = createMockBucket({});
+    vi.mocked(missing.list).mockResolvedValue({
+      delimitedPrefixes: ['daily/20260123/'],
+      objects: [],
+      truncated: true,
+      cursor: '',
+    } as R2Objects);
+
+    for (const bucket of [repeated, missing]) {
+      const health = await checkBackupHealth(bucket);
+      expect(health.status).toBe('critical');
+      expect(health.lastBackup).toBeNull();
+      expect(health.issues).toEqual([
+        { severity: 'critical', message: 'Backup listing cursor invalid' },
+      ]);
+    }
+    // The repeated cursor was requested once more, then the listing stopped
+    expect(repeated.list).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads a listing page without delimitedPrefixes as no directories, not a crash', async () => {
+    const bucket = createMockBucket({});
+    vi.mocked(bucket.list).mockResolvedValue({
+      objects: [],
+      truncated: false,
+    } as unknown as R2Objects);
+    const health = await checkBackupHealth(bucket);
+    expect(health.status).toBe('critical');
+    expect(health.issues).toEqual([
+      { severity: 'critical', message: 'No backup found in R2 bucket' },
+    ]);
+  });
+
+  it('still throws a listing failure that is not a cursor problem', async () => {
+    const bucket = createMockBucket({});
+    vi.mocked(bucket.list).mockRejectedValue(new Error('R2 unavailable'));
+    await expect(checkBackupHealth(bucket)).rejects.toThrow('R2 unavailable');
+  });
+
+  it('reports the verified archive size and record count', async () => {
+    const health = await checkBackupHealth(
+      createMockBucket({
+        delimitedPrefixes: ['daily/20260123/'],
+        manifest: createTestManifest(),
+        files: createCompleteFilesMap('20260123'),
+      }),
+    );
+    expect(health.lastBackup?.archive?.records).toBe(320);
+    expect(health.lastBackup?.archive?.inflatedBytes).toBeGreaterThan(0);
+    expect(health.issues.some(issue => issue.message.includes('verification cap'))).toBe(false);
+  });
+
+  it('warns once the inflated archive passes half the verification cap', async () => {
+    const bucket = createMockBucket({
+      delimitedPrefixes: ['daily/20260123/'],
+      manifest: createTestManifest({
+        kv: { domains: [], totalRoutes: 1, file: 'daily/20260123/kv-routes.ndjson.gz' },
+      }),
+      files: createCompleteFilesMap('20260123'),
+    });
+    // One record padded past 8 MiB inflated; it gzips to a few KB
+    const big = await gzipCompress(
+      JSON.stringify({ key: 'big', value: 'a'.repeat(MAX_BACKUP_BYTES / 2 + 1024) }),
+    );
+    vi.mocked(bucket.get).mockImplementation(async key =>
+      key.endsWith('manifest.json')
+        ? ({
+            json: async () =>
+              createTestManifest({
+                kv: { domains: [], totalRoutes: 1, file: 'daily/20260123/kv-routes.ndjson.gz' },
+              }),
+          } as R2ObjectBody)
+        : ({ size: big.byteLength, body: new Response(big).body } as R2ObjectBody),
+    );
+    const health = await checkBackupHealth(bucket);
+    expect(health.lastBackup?.archive?.inflatedBytes).toBeGreaterThan(MAX_BACKUP_BYTES / 2);
+    expect(health.status).toBe('warning');
+    expect(health.issues).toContainEqual({
+      severity: 'warning',
+      message: 'Backup archive is 8.0 MiB inflated, over half the 16.0 MiB verification cap',
+    });
+  });
+
+  it('reports malformed manifests, and one naming another archive, as invalid', async () => {
+    for (const manifest of [
+      {} as BackupManifest,
+      createTestManifest({
+        kv: { domains: [], totalRoutes: 1, file: 'daily/20260122/kv-routes.ndjson.gz' },
+      }),
+    ]) {
+      const bucket = createMockBucket({ delimitedPrefixes: ['daily/20260123/'], manifest });
+      const health = await checkBackupHealth(bucket);
+      expect(health.checks.manifestValid).toBe(false);
+      expect(health.status).toBe('critical');
+    }
+  });
+
+  it('treats an empty backup file as missing', async () => {
+    const files = createCompleteFilesMap('20260123');
+    files.set('daily/20260123/kv-routes.ndjson.gz', { size: 0 });
+    const health = await checkBackupHealth(
+      createMockBucket({
+        delimitedPrefixes: ['daily/20260123/'],
+        manifest: createTestManifest(),
+        files,
+      }),
+    );
+    expect(health.checks.filesComplete).toBe(false);
+    expect(health.status).toBe('critical');
+    expect(health.issues).toContainEqual({
+      severity: 'critical',
+      message: 'Missing backup files: daily/20260123/kv-routes.ndjson.gz',
+    });
+  });
+
+  it('reports a corrupt archive as critical even when every object exists', async () => {
+    const bucket = createMockBucket({
+      delimitedPrefixes: ['daily/20260123/'],
+      manifest: createTestManifest(),
+      files: createCompleteFilesMap('20260123'),
+    });
+    vi.mocked(bucket.get).mockImplementation(async key =>
+      key.endsWith('manifest.json')
+        ? ({ json: async () => createTestManifest() } as R2ObjectBody)
+        : ({ size: 6, body: new Response('broken').body } as R2ObjectBody),
+    );
+    const health = await checkBackupHealth(bucket);
+    expect(health.status).toBe('critical');
+    expect(health.issues).toContainEqual({
+      severity: 'critical',
+      message: 'Backup content verification failed',
     });
   });
 });

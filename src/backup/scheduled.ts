@@ -1,4 +1,5 @@
 import type { Bindings } from '../types';
+import { backupManifestKey } from './constants';
 import { backupKV } from './kv';
 import { writeManifest } from './manifest';
 import type { BackupResult } from './types';
@@ -18,7 +19,7 @@ function getDateString(): string {
  * Handle scheduled backup event
  *
  * Orchestrates the backup process:
- * 1. Backup KV routes (all domains)
+ * 1. Backup KV routes (all domains): verify the archive in memory, then put it once
  * 2. Write manifest file
  *
  * D1 analytics are NOT backed up here — Cloudflare D1 Time Travel
@@ -43,14 +44,20 @@ export async function handleScheduled(env: Bindings): Promise<BackupResult> {
       };
     }
 
-    // Step 1: Backup KV routes
+    // Step 1: Backup KV routes. backupKV verifies the archive in memory, then
+    // writes it once with its SHA-256 and record count. A failure throws
+    // here having written nothing, so the previous backup stays in place.
     console.log(`[Backup] Starting KV backup for ${date}`);
     const kvResult = await backupKV(env.ROUTES, env.BACKUP_BUCKET, date);
     console.log(`[Backup] KV backup complete: ${kvResult.totalRoutes} routes`);
 
-    // Step 2: Write manifest
+    // Step 2: Write the manifest that certifies the verified archive. If this
+    // write fails, the stored archive is still verified and carries its own
+    // count. On a same-day re-run the earlier manifest stays, no longer matches,
+    // and health WARNS; on the day's first run there is no manifest for the
+    // date and health is CRITICAL (manifest missing). Both are deliberate.
     const manifest = await writeManifest(env.BACKUP_BUCKET, date, kvResult);
-    console.log(`[Backup] Manifest written: daily/${date}/manifest.json`);
+    console.log(`[Backup] Manifest written: ${backupManifestKey(date)}`);
 
     return {
       success: true,

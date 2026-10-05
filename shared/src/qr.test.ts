@@ -1,6 +1,7 @@
 import { assert, describe, expect, it } from 'vitest';
 import {
   CreateQRInputSchema,
+  CreateQrToolInputSchema,
   escapeMecard,
   generateQrId,
   MAX_QR_PAYLOAD_LENGTH,
@@ -11,11 +12,15 @@ import {
   QR_TYPES,
   QRCodeSchema,
   QRDesignSchema,
+  QRLinkedRouteInputSchema,
+  QRLinkedRouteSchema,
   QRListQuerySchema,
   QRTypeSchema,
+  qrMatchesListFilters,
   serializePayload,
   TextPayloadSchema,
   UpdateQRInputSchema,
+  UpdateQrToolInputSchema,
   UrlPayloadSchema,
   VcardPayloadSchema,
   WifiPayloadSchema,
@@ -736,5 +741,86 @@ describe('logoDataUri attribute-breakout hardening', () => {
         expect(normalizeQrId(raw)).toBe(normalizeQrIdInput(raw).replace(/-+$/, ''));
       }
     });
+  });
+});
+
+describe('qrMatchesListFilters', () => {
+  const qr = { id: 'Spring-Launch', type: 'url', tags: ['print'], description: 'Brochure cover' };
+
+  it('passes everything with no filters', () => {
+    expect(qrMatchesListFilters(qr, {})).toBe(true);
+    expect(qrMatchesListFilters({ id: 'x', type: 'text' }, { search: '' })).toBe(true);
+  });
+
+  it('matches type exactly and tags by membership', () => {
+    expect(qrMatchesListFilters(qr, { type: 'url', tag: 'print' })).toBe(true);
+    expect(qrMatchesListFilters(qr, { type: 'text' })).toBe(false);
+    expect(qrMatchesListFilters(qr, { tag: 'web' })).toBe(false);
+    expect(qrMatchesListFilters({ id: 'x', type: 'url' }, { tag: 'print' })).toBe(false);
+  });
+
+  it('searches the description and the id, case-insensitively', () => {
+    expect(qrMatchesListFilters(qr, { search: 'BROCHURE' })).toBe(true);
+    expect(qrMatchesListFilters(qr, { search: 'spring-l' })).toBe(true);
+    expect(qrMatchesListFilters(qr, { search: 'print' })).toBe(false);
+    expect(qrMatchesListFilters({ id: 'abc', type: 'url' }, { search: 'b' })).toBe(true);
+  });
+});
+
+describe('linked route domain: enumerated on input, tolerant when stored', () => {
+  it('accepts a supported domain on input and rejects any other', () => {
+    expect(QRLinkedRouteInputSchema.safeParse({ domain: 'example.com', path: '/x' }).success).toBe(
+      true,
+    );
+    for (const domain of ['evil.test', 'bifrost-dev.example.com', '', 'EXAMPLE.COM']) {
+      expect(QRLinkedRouteInputSchema.safeParse({ domain, path: '/x' }).success).toBe(false);
+    }
+  });
+
+  it('enforces the enum on the create and update bodies and the MCP tool inputs', () => {
+    const linkedRoute = { domain: 'evil.test', path: '/x' };
+    expect(
+      CreateQRInputSchema.safeParse({
+        type: 'url',
+        payload: { url: 'https://example.com' },
+        linkedRoute,
+      }).success,
+    ).toBe(false);
+    expect(UpdateQRInputSchema.safeParse({ linkedRoute }).success).toBe(false);
+    expect(UpdateQRInputSchema.safeParse({ linkedRoute: null }).success).toBe(true);
+    expect(
+      CreateQrToolInputSchema.safeParse({
+        domain: 'example.com',
+        type: 'url',
+        payload: { url: 'https://example.com' },
+        linkedRoute,
+      }).success,
+    ).toBe(false);
+    expect(
+      UpdateQrToolInputSchema.safeParse({ id: 'x', domain: 'example.com', linkedRoute }).success,
+    ).toBe(false);
+    expect(
+      UpdateQrToolInputSchema.safeParse({
+        id: 'x',
+        domain: 'example.com',
+        linkedRoute: { domain: 'example.com', path: '/x' },
+      }).success,
+    ).toBe(true);
+  });
+
+  it('keeps reading a stored record whose linked domain has since been retired', () => {
+    const stored = {
+      id: 'old-code',
+      domain: 'retired.example',
+      type: 'url',
+      payload: { url: 'https://example.com' },
+      design: QRDesignSchema.parse({}),
+      linkedRoute: { domain: 'retired.example', path: '/old' },
+      createdAt: 1,
+      updatedAt: 1,
+      createdBy: 'test',
+    };
+    expect(QRLinkedRouteSchema.safeParse(stored.linkedRoute).success).toBe(true);
+    expect(QRCodeSchema.safeParse(stored).success).toBe(true);
   });
 });

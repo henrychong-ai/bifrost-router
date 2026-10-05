@@ -1,4 +1,4 @@
-import type { QRCode, QRListQuery } from '@bifrost/shared';
+import { type QRCode, type QRListQuery, qrMatchesListFilters } from '@bifrost/shared';
 import {
   KVDeleteError,
   KVReadError,
@@ -124,16 +124,8 @@ export async function listQRs(
     );
   }
 
-  const search = query.search?.toLowerCase();
-  const filtered = records.filter(qr => {
-    if (query.type && qr.type !== query.type) return false;
-    if (query.tag && !(qr.tags ?? []).includes(query.tag)) return false;
-    if (search) {
-      const haystack = [qr.description ?? '', qr.id].map(s => s.toLowerCase());
-      if (!haystack.some(field => field.includes(search))) return false;
-    }
-    return true;
-  });
+  // Same predicate as the dashboard's create reconciliation (shared)
+  const filtered = records.filter(qr => qrMatchesListFilters(qr, query));
 
   filtered.sort((a, b) => b.updatedAt - a.updatedAt);
 

@@ -2,9 +2,10 @@
 node_modules/
 .pnpm-store/
 
-# Wrangler
+# Wrangler (.dev.vars and per-environment .dev.vars.<env> hold local secrets)
 .wrangler/
-.dev.vars
+.dev.vars*
+!.dev.vars.example
 
 # Build output
 dist/
@@ -28,8 +29,16 @@ pnpm-debug.log*
 coverage/
 .ci-artifacts/
 
-# Environment variables
+# Environment variables (examples stay tracked)
 .env
+.env.*
+!.env.example
+
+# Operator credentials and state for the dashboard container: auth.env holds
+# TAILSCALE_AUTHKEY and ADMIN_API_KEY; admin/tailscale/ is the Tailscale
+# node state (its machine key) the compose file mounts.
+auth.env
+admin/tailscale/
 
 # Coding-harness isolated worktrees (git worktree add under the repo)
 .claude/worktrees/

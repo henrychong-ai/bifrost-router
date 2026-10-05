@@ -2,7 +2,7 @@
 
 Guidance for AI coding agents (Claude Code, Codex and others) working with this repository. This is the canonical instruction file; `CLAUDE.md` only imports it (`@AGENTS.md`), so edit this file.
 
-**Version:** 1.36.2 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.37.0 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Public repository — sanitisation (MANDATORY)
 
@@ -150,7 +150,7 @@ Update **all 6 locations** — missing any one causes silent failures (routes re
 | 1 | `src/types.ts` | `SUPPORTED_DOMAINS` array — Worker-side route validation |
 | 2 | `shared/src/types.ts` | `SUPPORTED_DOMAINS` array — MCP tool enums + admin form schemas. Rebuild with `pnpm -C shared build` after |
 | 3 | `admin/src/context/filter-types.ts` | `SUPPORTED_DOMAINS` array — dashboard Domain filter dropdown (duplicates the shared list) |
-| 4 | `openapi/bifrost-api.yaml` | `DomainQuery` enum — **API Shield (block mode) returns 403 for unknown domain values** |
+| 4 | `openapi/bifrost-api.yaml` | Every `DomainQuery*` enum (`DomainQuery` for reads, `DomainQueryWrite` for writes) — **API Shield (block mode) returns 403 for unknown domain values**; `test/supported-domains-consistency.test.ts` checks them all |
 | 5 | Cloudflare Dashboard | Add as Custom Domain on the Worker |
 | 6 | `wrangler.toml` | Add service binding if domain uses Worker-to-Worker fallback |
 
@@ -200,6 +200,7 @@ interface KVRouteConfig {
 | `POST /api/routes/transfer` | Transfer route between domains |
 | `POST /api/routes/normalize-case` | One-time migration: convert all route paths to lowercase |
 | `GET /api/routes/by-target` | Find routes serving an R2 object |
+| `GET /api/metadata/og?url=` | Open Graph preview of a URL: SSRF-checked on every hop, 1 MB body cap, at most 5 redirects (the cap is checked before the `Location` is read) with a 5 s timeout each |
 | `GET /api/changelog` | The engineering changelog as Markdown (authenticated) |
 | `GET /api/analytics/*` | Analytics endpoints |
 | `GET /api/storage/buckets` | List R2 buckets |
@@ -212,6 +213,8 @@ interface KVRouteConfig {
 | `POST /api/storage/:bucket/move` | Move object to different bucket |
 | `PUT /api/storage/:bucket/metadata/:key` | Update metadata |
 | `POST /api/storage/:bucket/purge-cache/:key` | Purge CDN cache for object |
+
+**Domain on writes:** every domain-scoped write — route create, update, delete, seed and migrate, and QR create, update and delete — names its domain in `?domain=` or the `X-Domain` header, and the two must agree when both are sent. Omitting it, or sending conflicting values, answers 400 and writes nothing (`src/routes/request-context.ts` → `getRequiredDomainFromRequest`, `MISSING_DOMAIN_ERROR`). There is no default: the admin host (`ADMIN_API_DOMAIN`, `bifrost.example.com` in the example config) is itself a supported domain, so the old fallback wrote a domainless request into the admin host's namespace without an error. Reads that need one domain (a route by `path`, QR codes) still default to `ADMIN_API_DOMAIN` (`getDomainOrDefaultFromRequest`), and only when that value is itself a supported domain; otherwise they answer 400. **Conflicting selectors are refused on the route and QR endpoints:** the check lives in `getDomainFromRequest`, which the route and QR resolvers go through, so an `X-Domain` header and a `?domain=` that disagree answer 400 `Conflicting domain parameters` on route lists, single-domain reads and writes alike (an empty selector counts as absent). The analytics endpoints read only `?domain=` and ignore `X-Domain`. Transfer takes `fromDomain` and `toDomain` in its body; normalize-case covers every domain. In `openapi/bifrost-api.yaml` the write operations use `DomainQueryWrite`, optional in the spec because the header can carry the domain instead.
 
 ### Analytics Endpoints
 
@@ -393,7 +396,8 @@ Config in `~/.claude.json`:
 - `EDGE_ROUTER_DOMAIN` is REMOVED (v1.35.0) — nothing reads it; a stale key logs one stderr warning at stdio boot and never fails startup. `EdgeRouterClient` has no `defaultDomain` and no `getDomain()`.
 - ⚠️ Never add a silent default — a defaulted write landing on the wrong domain is worse than a clear error.
 - Enforcement: this repo has no hosted MCP server, and the stdio server's low-level `Server` validates nothing, so the handler guards (`requireDomain()` + `NO_DOMAIN_ERROR` in `mcp/src/tools/routes.ts`) ARE the enforcement — pinned across all 14 by `mcp/src/tools/routes.no-domain.test.ts`, with the JSON-Schema catalog pinned by the `v1.35.0 domain contract (catalog)` block in `shared/src/tools.test.ts`.
-- Open follow-up: the REST API's own `ADMIN_API_DOMAIN` fallback (`src/routes/request-context.ts`) is unchanged and still reachable by non-MCP callers. This repo keeps no `TODO.md`; the open items live in the **Follow-ups** list of the v1.35.0 entry in [CHANGELOG.md](./CHANGELOG.md).
+- The REST API no longer defaults a write's domain either (Admin API → Domain on writes): a route or QR write without one answers 400, so no client, MCP or otherwise, can reach the old `ADMIN_API_DOMAIN` fallback with a write. Single-domain reads keep it. `requireDomain()` checks only for a non-empty string; an unsupported value is refused by the API's own validation. This repo keeps no `TODO.md`; open items live in the **Follow-ups** lists in [CHANGELOG.md](./CHANGELOG.md).
+- `create_qr` and `update_qr` advertise `linkedRoute` as `{ domain, path }`, both required, with `domain` enumerated (`linkedRouteProperty` in `shared/src/tools.ts`; nested `properties`/`required` on `JsonSchemaProperty`).
 - Clients cache tool schemas: after rebuilding the server, reconnect (`/mcp` in Claude Code) before trusting the advertised inputs.
 
 ### Installing the MCP for a user ("install mcp" trigger)
@@ -479,6 +483,10 @@ Contributors/ports must preserve all four rows — do not ship an uncommented co
 
 Unified QR resource with optional route linking. Feature files: `shared/src/qr.ts` (contract) + `qr-render.ts` (SVG renderer) + `qr-brand-presets.ts` (ships NEUTRAL — self-hosters add presets; a drift-guard test forces every SUPPORTED_DOMAIN to be branded or deliberately neutral), `src/kv/qr.ts` (KV under `qr:{domain}:{id}` in the ROUTES namespace — full scans skip the prefix), `src/routes/qr.ts` (CRUD + `/from-route` + `/:id/image`, authed-only serving, `private, no-store` — Wi-Fi payloads can carry credentials), `admin/src/pages/qr-codes.tsx` + `lib/qr-form-state.ts` + `lib/qr-brand-logo.ts`, `mcp/src/tools/qr.ts` (6 tools). Audit actions `qr_create`/`qr_update`/`qr_delete` (Wi-Fi credentials redacted in audit projections). The record `id` is surfaced as "Reference", normalised by `normalizeQrId()`, prefilled from the type's payload field only (never the description); type is immutable post-create.
 
+**List after create:** KV listing is eventually consistent, so a list fetched right after a create can miss the new code. Codes created in this session go into a pending store (`admin/src/lib/qr-pending.ts`, keyed by domain and id) and are merged into the first page of every list for their domain whose filters match, by the Worker's own predicate (`qrMatchesListFilters` in `shared/src/qr.ts`, also used by `src/kv/qr.ts`). Page 1 grows by the pending codes instead of dropping server rows, so no server row is pushed off every page; `total`, `offset`, `limit` and `hasMore` stay the server's and only `count` follows the merged items (the pagination labels derive from `total`, so adding the pending codes to it would announce a page the server does not have). An entry is dropped once the server lists it, when the code is deleted, or after 5 minutes. The merge happens inside the list query's fetch, so cached lists are never patched and marked fresh. "Save as QR Code" on the Routes page uses the route's own domain (else the filtered one, never a guessed default) and opens the QR page on that domain via navigation state, which the QR page reads once and clears.
+
+**Linked route domain:** create and update bodies, the MCP tool inputs and the tool catalogue accept only a supported domain (`QRLinkedRouteInputSchema`), and the handlers also require it to be the QR code's own domain. Stored records stay tolerant (`QRLinkedRouteSchema` keeps a string), so a domain later retired from `SUPPORTED_DOMAINS` never makes a record unreadable.
+
 ## User Guide + Resources (v1.30.0)
 
 In-dashboard guide at `/guide` (lazy-loaded, 11 sections + first-visit welcome dialog), MCP tab at `/integrations/mcp` (stdio install + live tool catalog), sidebar Resources group (User Guide → MCP → Changelog — order pinned by `guide-coverage.test.ts`, which also fails CI when a sidebar page ships without guide coverage; items in `layout/nav-items.ts`). Changelog headers carry release dates rendered on the Changelog page. **Release step: update the User Guide when a release adds/changes user-facing behaviour.**
@@ -492,6 +500,16 @@ In-dashboard guide at `/guide` (lazy-loaded, 11 sections + first-visit welcome d
 **Contents:** KV routes as compressed NDJSON (`kv-routes.ndjson.gz`) + manifest (`manifest.json`)
 **Retention:** Indefinite (~8KB/day, negligible storage)
 **Manifest version:** 2.0.0
+
+**Integrity (`src/backup/integrity.ts`):**
+- `backupKV` verifies the gzip in memory, with the same scan the health check runs, before anything reaches R2, then writes it once to `daily/{date}/kv-routes.ndjson.gz` with its SHA-256 (R2 refuses a body that arrives corrupted) and `customMetadata` `{date, type: 'kv-routes', routeCount}`. There is no temporary key. The archive's `routeCount` is the source of truth for its own record count; `manifest.json` is written after it (`buildManifest` stays private to `src/backup/manifest.ts`).
+- **A failed run writes nothing.** `backupKV` counts the serialised NDJSON while it reads KV and stops as soon as it passes the cap (`Backup exceeds the size limit (MAX_BACKUP_BYTES)`), before any join or gzip and without reading the rest; it also stops on a duplicate key and on a KV listing page that is truncated but has no cursor or repeats one (`Backup listing cursor invalid`). If verification fails or R2 refuses the put, no object is written and the job reports the error: the previous backup (the previous day's, or an earlier run's the same day) stays byte-identical, and the health check turns warning, then critical, as that backup ages past `warningAgeHours` and `criticalAgeHours`.
+- If the manifest write fails after the archive is stored: on a same-day re-run the earlier manifest stays, no longer matches the archive's `routeCount`, and health warns `Backup manifest is out of date with its archive` (two overlapping runs can leave the same state); on the day's first run there is no manifest and health reports critical.
+- Verification streams the archive through the runtime's `DecompressionStream` (which rejects a truncated stream and a bad CRC-32), pumping it by hand so any early exit cancels the source; decodes strict UTF-8; and requires every line to be a `{key, value}` record with a non-null value, no repeated key, and exactly the archive's `routeCount` records (the manifest's `kv.totalRoutes` when that metadata is missing or malformed). It holds one line and the key set, never the records. Each check fails with its own fixed message (`BACKUP_ERRORS` in `src/backup/integrity.ts`): missing or empty archive, size limit (inflated, or compressed), record count mismatch and duplicate key; decoder, inflater and JSON errors share `Backup content verification failed`. No message names a key or payload. Every failure is critical in health, which reports the fixed message (an R2 read error reports the generic one).
+- **Cap: 16 MiB**, compressed and inflated, enforced while streaming (`MAX_BACKUP_BYTES`). It is derived from the write schemas, not from any one deployment: a QR record is bounded by `shared/src/qr.ts` (the logo, at most `QR_LOGO_MAX_BYTES` decoded, dominates; one record stays under 140 KiB), so 50 logo QR codes plus 10,000 routes at 600 bytes fit. Route targets have no length limit, so a very large route set can reach the cap; the backup then stops while reading KV with `Backup exceeds the size limit (MAX_BACKUP_BYTES)` and writes nothing, and that message means `MAX_BACKUP_BYTES` is the constant to raise. The byte cap and the KV operation budget are separate limits: KV allows 1,000 operations per invocation, and `backupKV` reads values in bulk (`KV_BULK_GET_MAX_KEYS`, 100 keys per read, one operation each) after one list call per prefix (18 with nine domains) and per further 1,000 keys. That is about 11 operations per 1,000 records, so the budget holds about 89,000 records; the 16 MiB cap binds first for any record over about 190 bytes (about 28,000 routes at 600 bytes). One read per key, as before, failed above about 1,000 records. The health response reports `lastBackup.archive` (`records`, `inflatedBytes`) and warns past half the cap.
+- Falsy JSON values (`false`, `0`, `""`) are backed up; only a key that vanished between list and get (`null`) is skipped.
+- The manifest must be version 2.0.0 (`BACKUP_MANIFEST_VERSION`), name its own date, and point at that date's archive (`backupArchiveKey`; both in `src/backup/constants.ts`). The health check lists every page of `daily/` (a page without `delimitedPrefixes` adds none), treats an empty file as missing, and re-verifies the latest archive count-only on every call; its route-count check uses the verified count. A repeated or missing listing cursor is reported as a critical issue; the endpoint still answers 200.
+- Restore is KV-only: `test/backup/recovery.test.ts` rehearses a full restore of routes and QR codes into an empty namespace and exercises them through the Worker, reading the archive with the test helper `test/backup/archive-records.ts` (the Worker never builds the record array). R2 object content is not in the backup and is recovered separately.
 
 ### D1 Analytics (Time Travel)
 
@@ -529,13 +547,19 @@ pnpm -C admin lint           # Lint (oxlint)
 
 ### Docker Container Architecture
 
+**Security model:** the dashboard has no login of its own. The plain image serves `/env-config.js`, which holds the full `ADMIN_API_KEY`, to whoever can load the page, so the container must only be reachable on a private network or behind an authenticating front door (Tailscale Serve, as the `:tailscale` image does, or Cloudflare Access or similar), never directly from the internet. Both compose files publish `127.0.0.1:3001:3001`. The key never enters the image: `.dockerignore` keeps `**/.env*` (except `.env.example`), `.dev.vars` and `admin/auth.env` out of the build context, `.gitignore` and `.dockerignore` both exclude `auth.env` and the mounted Tailscale state `admin/tailscale/`, and `admin/src/env.ts` reads `VITE_ADMIN_API_KEY` only when `import.meta.env.DEV`, so a production build cannot inline it (`scripts/check-dashboard-security.test.mjs` builds once with a synthetic key and checks the bundle).
+
 The `:tailscale` image includes nginx (serves SPA on localhost:3001), tailscaled (userspace networking), and Tailscale Serve (proxies HTTPS). Authenticates to tailnet as `bifrost.your-tailnet.ts.net`.
 
 | File | Purpose |
 |------|---------|
 | `admin/Dockerfile.tailscale` | Multi-stage build with Tailscale |
 | `admin/docker-compose.tailscale.yml` | Production deployment config |
-| `admin/scripts/start-with-tailscale.sh` | Container startup script |
+| `admin/scripts/start-with-tailscale.sh` | Container startup script (`:tailscale` image) |
+| `admin/scripts/start.sh` | Container startup script (`admin/Dockerfile` image) |
+| `admin/nginx.conf.template` | nginx config; rendered at container start |
+| `admin/scripts/render-nginx-conf.sh` | Renders the template; adds `R2_PREVIEW_ORIGINS` to the CSP |
+| `admin/scripts/write-env-config.sh` | Writes `env-config.js` from `ADMIN_API_KEY` as a JSON-escaped string |
 
 ## Implementation Notes
 
@@ -547,13 +571,11 @@ Routes and storage dialogs link to each other for R2-type routes:
 
 **Storage → Routes** (navigate state): Clicking an associated route row navigates to `/routes` with `{ state: { editRoute: routeObj } }`. Routes page reads `location.state.editRoute`, opens edit dialog, and clears state via `window.history.replaceState`.
 
-### Domain Parameter Handling (v1.8.2)
+### Domain Parameter Handling (v1.8.2; required on writes)
 
-When mutating routes, the dashboard passes the correct domain using a fallback pattern:
-```typescript
-domain: route.domain ?? filters.domain  // Fallback to active filter
-```
-Single-domain API responses include `domain` on each route, but the fallback ensures correct behaviour if the field is missing.
+Every dashboard mutation sends a domain, and the API client's route and QR write methods type it as a required `string`. The routes page resolves it with `requireWriteDomain(route.domain, filters.domain)` (`admin/src/lib/route-write-domain.ts`): the route's own domain (set on every row of the all-domains view), else the filtered domain; with neither, the write is not sent and the page reports the error.
+
+On the API side the route and QR resolvers read the two selectors through `getDomainFromRequest` (`src/routes/request-context.ts`): the `X-Domain` header, else `?domain=`, and when both are sent they must agree or the request answers 400 `Conflicting domain parameters`, for reads and writes alike. The analytics endpoints read only `?domain=` and ignore `X-Domain`.
 
 ### API Client Query Parameters
 
@@ -692,6 +714,9 @@ strict static CSP (`script-src 'self'`) instead of runtime nonces. Nonces would
 add moving parts without protecting an inline-script surface: the Vite build has
 no required inline scripts. The nginx policy and baseline browser headers are
 covered by `scripts/check-dashboard-security.test.mjs`.
+
+- **The config is a template.** `admin/nginx.conf.template` is rendered at container start by `admin/scripts/render-nginx-conf.sh` (called from `start.sh` and `start-with-tailscale.sh`). `R2_PREVIEW_ORIGINS` (space-separated bare https origins, the hosts in `R2_BUCKET_CUSTOM_DOMAINS` in `admin/src/lib/constants.ts`) is added to `object-src` and `frame-src` so the storage and route-editor PDF previews (`<object type="application/pdf">`) load. Unset, the policy keeps `object-src 'none'` and `frame-src 'self'`; any other value stops the container rather than reaching the header. Never mount or copy the template as-is: its placeholders are not valid CSP sources.
+- **zod runs jitless.** `admin/src/lib/zod-jitless.ts` is `main.tsx`'s first import and shares the dedicated `zod` Rolldown chunk with zod (`admin/vite.config.ts`), so zod's `new Function` probe never runs under `script-src 'self'`. Never answer an eval violation with `'unsafe-eval'`.
 
 If switching to Workers Static Assets in future, add a KV-route-precedence check (call `matchRoute()` first, fall through to the KV catch-all if a route exists; otherwise serve the SPA) to prevent KV-configured routes on admin domains from being masked by `index.html`.
 

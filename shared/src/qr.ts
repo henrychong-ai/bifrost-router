@@ -323,8 +323,19 @@ export type QRDesign = z.infer<typeof QRDesignSchema>;
  * falls back to the stored `payload.url` if the route no longer exists.
  */
 export const QRLinkedRouteSchema = z.object({
+  // Stored records stay tolerant: a domain later retired from
+  // SUPPORTED_DOMAINS must never make an existing record unreadable.
   domain: z.string().min(1).describe('Domain of the linked route'),
   path: z.string().min(1).startsWith('/').describe('Path of the linked route'),
+});
+
+/**
+ * The link as a create or update body may set it: the domain must be a
+ * supported domain. The QR handlers also require it to be the QR code's own
+ * domain.
+ */
+export const QRLinkedRouteInputSchema = QRLinkedRouteSchema.extend({
+  domain: z.enum(SUPPORTED_DOMAINS).describe('Domain of the linked route'),
 });
 
 const QRDescriptionSchema = z
@@ -394,7 +405,7 @@ export const CreateQRInputSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('url'),
     payload: UrlPayloadSchema,
-    linkedRoute: QRLinkedRouteSchema.optional(),
+    linkedRoute: QRLinkedRouteInputSchema.optional(),
     ...createQrCommonFields,
   }),
   z.object({ type: z.literal('text'), payload: TextPayloadSchema, ...createQrCommonFields }),
@@ -430,7 +441,7 @@ export const UpdateQRInputSchema = z.object({
   design: QRDesignSchema.optional().describe(
     'FULL design replacement — omitted design fields reset to their defaults (fg #000000, bg #ffffff, size 512, margin 4, EC M)',
   ),
-  linkedRoute: QRLinkedRouteSchema.nullable()
+  linkedRoute: QRLinkedRouteInputSchema.nullable()
     .optional()
     .describe('Linked route (url type only; null clears the link)'),
 });
@@ -450,6 +461,26 @@ export const QRListQuerySchema = z.object({
   limit: z.coerce.number().min(1).max(1000).optional().describe('Results per page'),
 });
 export type QRListQuery = z.infer<typeof QRListQuerySchema>;
+
+/**
+ * The QR list filters: `type` exact, `tag` exact membership, and `search` as a
+ * case-insensitive substring of the description or the id. One predicate for
+ * the Worker's listQRs and the dashboard's create reconciliation, so a code
+ * the server would list is the code the dashboard shows.
+ */
+export function qrMatchesListFilters(
+  qr: { id: string; type: string; tags?: string[] | undefined; description?: string | undefined },
+  query: { type?: string | undefined; tag?: string | undefined; search?: string | undefined },
+): boolean {
+  if (query.type && qr.type !== query.type) return false;
+  if (query.tag && !(qr.tags ?? []).includes(query.tag)) return false;
+  const search = query.search?.toLowerCase();
+  if (search) {
+    const haystack = [qr.description ?? '', qr.id].map(field => field.toLowerCase());
+    if (!haystack.some(field => field.includes(search))) return false;
+  }
+  return true;
+}
 
 // Inferred payload types
 export type QRUrlPayload = z.infer<typeof UrlPayloadSchema>;
@@ -595,7 +626,7 @@ export const CreateQrToolInputSchema = z.object({
       'Design overrides: fg/bg (#rrggbb), size (128-2048), margin (0-16), errorCorrection (L|M|Q|H), logoDataUri, logoAspectRatio (w/h, >2 = wide wordmark window)',
     ),
   linkedRoute: z
-    .object({ domain: z.string(), path: z.string() })
+    .object({ domain: z.enum(SUPPORTED_DOMAINS), path: z.string() })
     .optional()
     .describe(
       'url-type only: link to a Bifrost route so the QR encodes the short URL (dynamic QR)',
@@ -622,7 +653,7 @@ export const UpdateQrToolInputSchema = z.object({
     ),
   clearLinkedRoute: z.boolean().optional().describe('Set true to unlink the route'),
   linkedRoute: z
-    .object({ domain: z.string(), path: z.string() })
+    .object({ domain: z.enum(SUPPORTED_DOMAINS), path: z.string() })
     .optional()
     .describe('url-type only: link/re-link to a Bifrost route'),
 });

@@ -322,3 +322,26 @@ describe('credential-target acknowledgement (catalog)', () => {
     ).toBeUndefined();
   });
 });
+
+describe('QR linkedRoute', () => {
+  it.each(['create_qr', 'update_qr'])(
+    '%s advertises linkedRoute as { domain (enumerated), path }, both required',
+    name => {
+      const linkedRoute = getToolDefinition(name)?.inputSchema.properties['linkedRoute'];
+      expect(linkedRoute).toMatchObject({
+        type: 'object',
+        required: ['domain', 'path'],
+        properties: {
+          domain: { type: 'string', enum: [...SUPPORTED_DOMAINS] },
+          path: { type: 'string' },
+        },
+      });
+    },
+  );
+
+  it('reaches MCP clients unchanged', () => {
+    const tool = toMCPTools().find(t => t.name === 'create_qr');
+    expect(tool?.inputSchema).toEqual(getToolDefinition('create_qr')?.inputSchema);
+    expect(JSON.stringify(tool)).toContain(JSON.stringify([...SUPPORTED_DOMAINS]));
+  });
+});

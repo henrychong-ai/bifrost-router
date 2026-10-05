@@ -39,8 +39,8 @@ openapitools.json
 !CHANGELOG.md
 
 # Admin files not needed in any container stage — keeps the vite build cache
-# from invalidating on Dockerfile/compose/lint-config edits. admin/nginx.conf
-# and admin/scripts/ stay in context (stage-1 COPYs them).
+# from invalidating on Dockerfile/compose/lint-config edits.
+# admin/nginx.conf.template and admin/scripts/ stay in context (stage-1 COPYs them).
 admin/Dockerfile*
 admin/docker-compose*.yml
 admin/vitest.config.ts
@@ -49,6 +49,19 @@ admin/dist
 
 # Shared build output — rebuilt inside the container
 shared/dist
+
+# Credential files: never in the build context. COPY admin/ would otherwise put
+# admin/.env.local (VITE_ADMIN_API_KEY) into the builder, and Vite would inline
+# it. The examples stay, as they hold no secrets.
+**/.env
+**/.env.*
+!**/.env.example
+**/.dev.vars
+**/.dev.vars.*
+admin/auth.env
+**/auth.env
+# Tailscale node state (machine key) the compose file mounts at admin/tailscale
+admin/tailscale/
 
 # OS files
 .DS_Store

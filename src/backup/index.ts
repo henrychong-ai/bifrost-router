@@ -17,6 +17,7 @@
 export { gzipCompress } from './compress';
 export { checkBackupHealth } from './health';
 export type {
+  ArchiveInfo,
   BackupAgeStatus,
   BackupFileStatus,
   BackupHealthResponse,

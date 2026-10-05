@@ -3,8 +3,14 @@
 // compatibility_date) — no import needed since the migration off
 // @cloudflare/workers-types.
 
-import { BACKUP_DAILY_PREFIX } from './constants';
+import {
+  BACKUP_DAILY_PREFIX,
+  BACKUP_LISTING_CURSOR_INVALID,
+  backupArchiveKey,
+  backupManifestKey,
+} from './constants';
 import type {
+  ArchiveInfo,
   BackupAgeStatus,
   BackupFileStatus,
   BackupHealthResponse,
@@ -14,12 +20,23 @@ import type {
   ManifestSummary,
 } from './health-schemas';
 import { DEFAULT_HEALTH_CONFIG } from './health-schemas';
+import {
+  BACKUP_ERRORS,
+  BackupIntegrityError,
+  MAX_BACKUP_BYTES,
+  parseBackupManifest,
+  verifyBackupArchive,
+} from './integrity';
 import type { BackupManifest } from './types';
 
-/**
- * Expected backup files for a given date
- */
-const EXPECTED_FILES = ['manifest.json', 'kv-routes.ndjson.gz'] as const;
+/** The objects a complete backup for `date` consists of. */
+const expectedFiles = (date: string): string[] => [backupManifestKey(date), backupArchiveKey(date)];
+
+/** Bytes as MiB with one decimal, for health messages. */
+const mib = (bytes: number): string => (bytes / (1024 * 1024)).toFixed(1);
+
+/** Error findLatestBackup throws on a broken listing; reported, never thrown. */
+const LISTING_CURSOR_INVALID = BACKUP_LISTING_CURSOR_INVALID;
 
 /**
  * Find the most recent backup in the R2 bucket
@@ -27,15 +44,30 @@ const EXPECTED_FILES = ['manifest.json', 'kv-routes.ndjson.gz'] as const;
 async function findLatestBackup(
   bucket: R2Bucket,
 ): Promise<{ date: string; timestamp: string } | null> {
-  // List objects with the daily-backup prefix to find backup directories
-  const list = await bucket.list({ prefix: BACKUP_DAILY_PREFIX, delimiter: '/' });
-
-  if (!list.delimitedPrefixes || list.delimitedPrefixes.length === 0) {
-    return null;
-  }
+  // List every page of daily-backup directories: backups are kept
+  // indefinitely, so the archive outgrows one R2 list page and the newest date
+  // can sit on a later one. A repeated or missing cursor on a truncated page
+  // is an error, never a silent stop on a partial listing.
+  const prefixes: string[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+  do {
+    const page = await bucket.list({
+      prefix: BACKUP_DAILY_PREFIX,
+      delimiter: '/',
+      ...(cursor !== undefined && { cursor }),
+    });
+    // A page without delimited prefixes (no directories on it) adds none
+    prefixes.push(...(page.delimitedPrefixes ?? []));
+    cursor = page.truncated ? page.cursor : undefined;
+    if (page.truncated && (!cursor || seenCursors.has(cursor))) {
+      throw new Error(LISTING_CURSOR_INVALID);
+    }
+    if (cursor) seenCursors.add(cursor);
+  } while (cursor);
 
   // Extract dates and sort descending to get most recent
-  const dates = list.delimitedPrefixes
+  const dates = prefixes
     .map(p => p.replace(BACKUP_DAILY_PREFIX, '').replace('/', ''))
     .filter(d => /^\d{8}$/.test(d))
     .toSorted((a, b) => b.localeCompare(a));
@@ -58,9 +90,9 @@ async function findLatestBackup(
  */
 async function fetchManifest(bucket: R2Bucket, date: string): Promise<BackupManifest | null> {
   try {
-    const obj = await bucket.get(`${BACKUP_DAILY_PREFIX}${date}/manifest.json`);
+    const obj = await bucket.get(backupManifestKey(date));
     if (!obj) return null;
-    return (await obj.json()) as BackupManifest;
+    return parseBackupManifest(await obj.json(), date);
   } catch {
     return null;
   }
@@ -84,8 +116,7 @@ function manifestToSummary(manifest: BackupManifest): ManifestSummary {
  */
 async function checkBackupFiles(bucket: R2Bucket, date: string): Promise<BackupFileStatus[]> {
   const results = await Promise.all(
-    EXPECTED_FILES.map(async filename => {
-      const key = `${BACKUP_DAILY_PREFIX}${date}/${filename}`;
+    expectedFiles(date).map(async key => {
       const obj = await bucket.head(key);
       return {
         key,
@@ -116,8 +147,27 @@ export async function checkBackupHealth(
   const now = new Date();
   const issues: HealthIssue[] = [];
 
-  // Find latest backup
-  const latestBackup = await findLatestBackup(bucket);
+  // Find latest backup. A broken listing is reported as critical, never
+  // thrown, so the endpoint keeps answering 200 with a body that says why.
+  let latestBackup: Awaited<ReturnType<typeof findLatestBackup>>;
+  try {
+    latestBackup = await findLatestBackup(bucket);
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== LISTING_CURSOR_INVALID) throw error;
+    return {
+      status: 'critical',
+      timestamp: now.toISOString(),
+      lastBackup: null,
+      issues: [{ severity: 'critical', message: LISTING_CURSOR_INVALID }],
+      checks: {
+        backupExists: false,
+        backupAge: 'critical',
+        manifestValid: false,
+        filesComplete: false,
+        routeCountOk: false,
+      },
+    };
+  }
 
   // No backup found - critical
   if (!latestBackup) {
@@ -168,23 +218,59 @@ export async function checkBackupHealth(
 
   // Check file completeness
   const files = await checkBackupFiles(bucket, latestBackup.date);
-  const filesComplete = files.every(f => f.exists);
+  // An empty object is as unusable as a missing one.
+  const filesComplete = files.every(f => f.exists && f.size > 0);
 
   if (!filesComplete) {
-    const missing = files.filter(f => !f.exists).map(f => f.key);
+    const missing = files.filter(f => !f.exists || f.size === 0).map(f => f.key);
     issues.push({
       severity: 'critical',
       message: `Missing backup files: ${missing.join(', ')}`,
     });
   }
 
-  // Check route count
+  // Read the archive back, counting only (no record array): every object can
+  // exist and still be unrestorable (truncated, corrupt, or holding a different
+  // record count). It is checked against its own routeCount metadata (the
+  // manifest's count only for a legacy archive without it).
+  let archive: ArchiveInfo | null = null;
+  if (manifest && filesComplete) {
+    try {
+      const scan = await verifyBackupArchive(bucket, manifest.kv.file, manifest.kv.totalRoutes);
+      archive = { records: scan.records, inflatedBytes: scan.inflatedBytes };
+      // A manifest write that failed after the archive was replaced, or two
+      // overlapping runs: the archive is sound, its manifest is stale.
+      if (scan.countSource === 'archive' && scan.records !== manifest.kv.totalRoutes) {
+        issues.push({
+          severity: 'warning',
+          message: 'Backup manifest is out of date with its archive',
+        });
+      }
+    } catch (error) {
+      // Every failure is critical. A fixed integrity message (size limit,
+      // count, duplicate key, missing archive) is reported as is; anything
+      // else, an R2 read error included, as the generic content failure.
+      issues.push({
+        severity: 'critical',
+        message: error instanceof BackupIntegrityError ? error.message : BACKUP_ERRORS.content,
+      });
+    }
+  }
+  if (archive && archive.inflatedBytes > MAX_BACKUP_BYTES / 2) {
+    issues.push({
+      severity: 'warning',
+      message: `Backup archive is ${mib(archive.inflatedBytes)} MiB inflated, over half the ${mib(MAX_BACKUP_BYTES)} MiB verification cap`,
+    });
+  }
+
+  // Check route count: the archive's verified count, else the manifest's
   let routeCountOk = true;
-  if (manifest && manifest.kv.totalRoutes < cfg.minExpectedRoutes) {
+  const routeCount = archive?.records ?? manifest?.kv.totalRoutes;
+  if (routeCount !== undefined && routeCount < cfg.minExpectedRoutes) {
     routeCountOk = false;
     issues.push({
       severity: 'warning',
-      message: `Route count (${manifest.kv.totalRoutes}) below minimum expected (${cfg.minExpectedRoutes})`,
+      message: `Route count (${routeCount}) below minimum expected (${cfg.minExpectedRoutes})`,
     });
   }
 
@@ -202,6 +288,7 @@ export async function checkBackupHealth(
       ageHours,
       manifest: manifest ? manifestToSummary(manifest) : null,
       files,
+      archive,
     },
     issues,
     checks: {

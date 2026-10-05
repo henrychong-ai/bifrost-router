@@ -46,7 +46,11 @@ import { type AuditAction, recordAuditLog } from '../db/analytics';
 import { deleteQR, getQR, listQRs, putQR } from '../kv/qr';
 import { getRoute } from '../kv/routes';
 import type { AppEnv } from '../types';
-import { getActorInfo, getRequiredDomainFromRequest } from './request-context';
+import {
+  getActorInfo,
+  getDomainOrDefaultFromRequest,
+  getRequiredDomainFromRequest,
+} from './request-context';
 
 export const qrRoutes = new Hono<AppEnv>();
 
@@ -54,13 +58,23 @@ export const qrRoutes = new Hono<AppEnv>();
 // Shared handler plumbing
 // =============================================================================
 
-/** Resolve the target domain (X-Domain > ?domain > ADMIN_API_DOMAIN). */
+/**
+ * Resolve a READ's domain: X-Domain or ?domain (both sent must agree, or 400),
+ * else ADMIN_API_DOMAIN.
+ */
+function readDomain(c: Context<AppEnv>): string {
+  const result = getDomainOrDefaultFromRequest(c);
+  if (!result.valid) {
+    throw new HTTPException(400, { message: result.error });
+  }
+  return result.domain;
+}
+
+/** Resolve a WRITE's domain: X-Domain or ?domain, never a default. */
 function requireDomain(c: Context<AppEnv>): string {
   const result = getRequiredDomainFromRequest(c);
   if (!result.valid) {
-    throw new HTTPException(400, {
-      message: result.error || 'Domain is required for this operation',
-    });
+    throw new HTTPException(400, { message: result.error });
   }
   return result.domain;
 }
@@ -198,7 +212,7 @@ const FromRouteQuerySchema = z.object({
 });
 
 qrRoutes.get('/from-route', async c => {
-  const domain = requireDomain(c);
+  const domain = readDomain(c);
 
   const parsed = FromRouteQuerySchema.safeParse({
     domain: c.req.query('domain'),
@@ -232,7 +246,7 @@ qrRoutes.get('/from-route', async c => {
 });
 
 qrRoutes.get('/:id/image', async c => {
-  const domain = requireDomain(c);
+  const domain = readDomain(c);
   const record = await requireQR(c, domain, c.req.param('id'));
   const content = await resolveQrContent(c, record);
   return svgResponse(c, renderQrSvg(content, record.design));
@@ -251,7 +265,7 @@ const ListQuerySchema = z.object({
 });
 
 qrRoutes.get('/', async c => {
-  const domain = requireDomain(c);
+  const domain = readDomain(c);
 
   const parsed = ListQuerySchema.safeParse({
     type: c.req.query('type'),
@@ -289,7 +303,7 @@ qrRoutes.get('/', async c => {
 });
 
 qrRoutes.get('/:id', async c => {
-  const domain = requireDomain(c);
+  const domain = readDomain(c);
   const record = await requireQR(c, domain, c.req.param('id'));
   return c.json({ success: true as const, data: record });
 });

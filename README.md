@@ -257,12 +257,11 @@ pnpm run deploy
 # Health check
 curl https://bifrost.yourdomain.com/health
 
-# Create your first route
-curl -X POST https://bifrost.yourdomain.com/api/routes \
+# Create your first route (writes name their domain in ?domain= or X-Domain)
+curl -X POST 'https://bifrost.yourdomain.com/api/routes?domain=yourdomain.com' \
   -H "X-Admin-Key: your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "domain": "yourdomain.com",
     "path": "/github",
     "type": "redirect",
     "target": "https://github.com/YOUR-USERNAME",
@@ -293,13 +292,34 @@ EOF
 # Development
 pnpm --filter admin dev    # Runs on port 3001
 
-# Production (Docker)
+# Production (Docker): build from the repository root
 docker build \
   --build-arg VITE_API_URL=https://bifrost.yourdomain.com \
-  --build-arg VITE_ADMIN_API_KEY=your-api-key \
   -f admin/Dockerfile \
   -t bifrost-dashboard:latest .
+
+docker run -p 127.0.0.1:3001:3001 \
+  -e ADMIN_API_KEY=your-api-key \
+  -e R2_PREVIEW_ORIGINS="https://files.yourdomain.com" \
+  bifrost-dashboard:latest
 ```
+
+> **⚠️ Never expose the dashboard container directly to the internet.** The
+> plain image serves `/env-config.js`, which holds the full admin API key, to
+> anyone who can load the dashboard. Publish it only on a private network or
+> behind an authenticating front door: Tailscale Serve (as the `:tailscale`
+> image does), Cloudflare Access or similar. The compose files and the
+> `docker run` example above bind it to `127.0.0.1` for that reason.
+
+The image never contains the API key. `VITE_API_URL` is the only build argument;
+`ADMIN_API_KEY` is read from the container's environment when it starts and
+written to `env-config.js`, which the dashboard loads at runtime
+(`VITE_ADMIN_API_KEY` in `admin/.env.local` is for local development only). With
+Docker Compose, `admin/docker-compose.yml` builds the same image and passes both
+variables through from your shell or a `.env` file:
+`ADMIN_API_KEY=your-api-key docker compose -f admin/docker-compose.yml up --build`.
+
+`R2_PREVIEW_ORIGINS` is optional: list the R2 custom-domain origins the dashboard previews PDFs from (the hosts you set in `R2_BUCKET_CUSTOM_DOMAINS` in `admin/src/lib/constants.ts`), separated by spaces. The container adds them to the dashboard CSP's `object-src` and `frame-src`, and refuses to start if an entry is not a bare `https://host[:port]` origin.
 
 ### Optional: MCP Server
 
@@ -349,7 +369,7 @@ A GitHub Actions template is provided at `.github/workflows/ci-cd.yml.example`.
 2. Add repository secrets:
    - `CLOUDFLARE_API_TOKEN` — Cloudflare API token with Workers Edit scope
    - `CLOUDFLARE_ACCOUNT_ID` — Your Cloudflare account ID
-   - `ADMIN_API_KEY` — For admin dashboard build
+   - The dashboard image needs no API key at build time: set `ADMIN_API_KEY` in the container's environment on the server (for the Tailscale image, in `admin/auth.env`)
 
 The active CI pipeline (`.github/workflows/ci.yml`) runs secret and public-sanitisation
 scans, lint/format/type checks, tests with locked coverage floors, the dashboard
@@ -396,7 +416,7 @@ Rollback for either layer: flip its flag to `"off"` and redeploy (~90s). Notific
 ### Add a Redirect
 
 ```bash
-curl -X POST https://bifrost.yourdomain.com/api/routes \
+curl -X POST 'https://bifrost.yourdomain.com/api/routes?domain=yourdomain.com' \
   -H "X-Admin-Key: your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -409,7 +429,7 @@ curl -X POST https://bifrost.yourdomain.com/api/routes \
 ### Add a Proxy
 
 ```bash
-curl -X POST https://bifrost.yourdomain.com/api/routes \
+curl -X POST 'https://bifrost.yourdomain.com/api/routes?domain=yourdomain.com' \
   -H "X-Admin-Key: your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -431,6 +451,11 @@ curl -X POST "https://bifrost.yourdomain.com/api/routes/migrate?domain=yourdomai
 ## API Reference
 
 All admin endpoints require `X-Admin-Key` header or `Authorization: Bearer <key>`.
+
+Route and QR writes (create, update, delete, seed, migrate) must name their
+domain in `?domain=` or the `X-Domain` header; without one, or with the two
+disagreeing, the API answers 400 and writes nothing. There is no default
+domain for writes.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|

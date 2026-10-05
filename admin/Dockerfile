@@ -39,12 +39,20 @@ FROM nginx:alpine
 # Copy built assets
 COPY --from=builder /app/admin/dist /usr/share/nginx/html
 
-# Copy nginx configuration
-COPY admin/nginx.conf /etc/nginx/conf.d/default.conf
+# Copy the nginx config template and its renderer; start.sh renders it into
+# conf.d at container start (the CSP takes R2_PREVIEW_ORIGINS).
+COPY admin/nginx.conf.template /etc/nginx/bifrost/default.conf.template
+COPY admin/scripts/render-nginx-conf.sh /usr/local/bin/render-nginx-conf.sh
+COPY admin/scripts/write-env-config.sh /usr/local/bin/write-env-config.sh
 
-# Copy startup script (generates env-config.js at container start)
+# Copy startup script (renders nginx config, generates env-config.js at container start)
 COPY admin/scripts/start.sh /start.sh
-RUN chmod +x /start.sh
+RUN chmod +x /start.sh /usr/local/bin/render-nginx-conf.sh /usr/local/bin/write-env-config.sh
+
+# Remove the stock nginx site: it serves the same files without the dashboard's
+# CSP and security headers, so a launch that bypasses the start script must
+# find no config to serve rather than that one.
+RUN rm -f /etc/nginx/conf.d/default.conf
 
 # Expose port
 EXPOSE 3001

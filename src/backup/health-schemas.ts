@@ -64,6 +64,16 @@ export const ManifestSummarySchema = z.object({
 
 export type ManifestSummary = z.infer<typeof ManifestSummarySchema>;
 
+/** The latest archive as verified. */
+export const ArchiveInfoSchema = z.object({
+  /** Records the archive holds (its own `routeCount`, or the manifest's for a legacy archive) */
+  records: z.number(),
+  /** Inflated NDJSON size in bytes */
+  inflatedBytes: z.number(),
+});
+
+export type ArchiveInfo = z.infer<typeof ArchiveInfoSchema>;
+
 /**
  * Last backup information
  */
@@ -78,6 +88,8 @@ export const LastBackupInfoSchema = z.object({
   manifest: ManifestSummarySchema.nullable(),
   /** Status of individual backup files */
   files: z.array(BackupFileStatusSchema),
+  /** The archive as read back and verified; null when it was not verified or verification failed */
+  archive: ArchiveInfoSchema.nullable(),
 });
 
 export type LastBackupInfo = z.infer<typeof LastBackupInfoSchema>;

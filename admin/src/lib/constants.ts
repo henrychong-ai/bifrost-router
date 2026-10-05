@@ -23,7 +23,11 @@ export function persistPageSize(size: number): void {
   }
 }
 
-/** Maps R2 bucket names to their Cloudflare custom domain. Mirrors src/types.ts. */
+/**
+ * Maps R2 bucket names to their Cloudflare custom domain. Mirrors src/types.ts.
+ * List each origin in the dashboard container's R2_PREVIEW_ORIGINS too, or the
+ * CSP blocks PDF previews from it (admin/scripts/render-nginx-conf.sh).
+ */
 export const R2_BUCKET_CUSTOM_DOMAINS: Record<string, string> = {
   // Configure with your R2 custom domain URLs.
   // Example: files: 'files.example.com',

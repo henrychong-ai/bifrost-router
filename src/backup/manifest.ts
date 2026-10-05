@@ -1,17 +1,22 @@
-import { BACKUP_DAILY_PREFIX } from './constants';
+import { BACKUP_MANIFEST_VERSION, backupManifestKey } from './constants';
 import type { BackupManifest, KVBackupResult } from './types';
 
-/**
- * Manifest schema version
- * v2.0.0: KV-only backup (D1 removed — covered by Cloudflare Time Travel)
- */
-const MANIFEST_VERSION = '2.0.0';
+/** The manifest certifying a verified KV archive for `date`. */
+function buildManifest(date: string, kvResult: KVBackupResult): BackupManifest {
+  return {
+    version: BACKUP_MANIFEST_VERSION,
+    timestamp: Date.now(),
+    date,
+    kv: kvResult,
+  };
+}
 
 /**
  * Write backup manifest to R2
  *
  * Creates a JSON manifest file describing the backup contents,
- * enabling easy discovery and restoration.
+ * enabling easy discovery and restoration. Written only after the archive it
+ * names has been verified and stored (see backupKV).
  *
  * @param bucket - R2 bucket for backup storage
  * @param date - Backup date in YYYYMMDD format
@@ -23,15 +28,9 @@ export async function writeManifest(
   date: string,
   kvResult: KVBackupResult,
 ): Promise<BackupManifest> {
-  const manifest: BackupManifest = {
-    version: MANIFEST_VERSION,
-    timestamp: Date.now(),
-    date,
-    kv: kvResult,
-  };
+  const manifest = buildManifest(date, kvResult);
 
-  const filename = `${BACKUP_DAILY_PREFIX}${date}/manifest.json`;
-  await bucket.put(filename, JSON.stringify(manifest, null, 2), {
+  await bucket.put(backupManifestKey(date), JSON.stringify(manifest, null, 2), {
     customMetadata: {
       date,
       type: 'manifest',

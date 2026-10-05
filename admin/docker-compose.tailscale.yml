@@ -5,7 +5,9 @@
 # 1. Generate Tailscale auth key at https://login.tailscale.com/admin/settings/keys
 #    - Reusable: Yes
 #    - Tags: tag:server (or appropriate tag)
-# 2. Create auth.env file with TAILSCALE_AUTHKEY=tskey-auth-xxx
+# 2. Create auth.env file with TAILSCALE_AUTHKEY=tskey-auth-xxx and
+#    ADMIN_API_KEY=<your admin API key> (read at container start, never baked
+#    into the image); optionally R2_PREVIEW_ORIGINS=https://files.example.com
 #
 # Deploy:
 #   docker compose -f docker-compose.tailscale.yml pull

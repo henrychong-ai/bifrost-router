@@ -22,8 +22,13 @@ export type RequiredDomainParseResult =
   | { valid: false; error: string; domain?: undefined };
 
 /**
- * Get target domain from request (for listing routes)
- * Priority: X-Domain header > ?domain query param > undefined (all domains)
+ * Get target domain from request (for listing routes). The one place both
+ * selectors are read, so the route and QR resolvers (list, single-domain read,
+ * write) apply the same rules: the X-Domain header or the ?domain query param
+ * names the domain, and neither means undefined (all domains). When both are
+ * sent they must name the same domain: a disagreement is refused (400), never
+ * settled by precedence. The conflict is checked before validation, so an
+ * unsupported value in either slot still conflicts.
  * Returns validation result including whether an invalid domain was provided
  */
 export function getDomainFromRequest(c: {
@@ -32,6 +37,15 @@ export function getDomainFromRequest(c: {
     query: (name: string) => string | undefined;
   };
 }): DomainParseResult {
+  const header = c.req.header('X-Domain') || undefined;
+  const query = c.req.query('domain') || undefined;
+  if (header !== undefined && query !== undefined && header !== query) {
+    return {
+      valid: false,
+      error: `Conflicting domain parameters: X-Domain is ${header} but domain is ${query}`,
+    };
+  }
+
   // Check X-Domain header first
   const domainHeader = c.req.header('X-Domain');
   if (domainHeader) {
@@ -54,12 +68,43 @@ export function getDomainFromRequest(c: {
   return { valid: true, domain: undefined };
 }
 
+/** Error a mutation answers when the request names no domain at all. */
+export const MISSING_DOMAIN_ERROR =
+  'An explicit domain is required (X-Domain header or domain query parameter).';
+
 /**
- * Get target domain from request (required for mutations)
- * Priority: X-Domain header > ?domain query param > ADMIN_API_DOMAIN env var > example.com fallback
- * Returns validation result - if invalid domain provided, returns validation failure
+ * Get target domain from request (required for mutations).
+ * Requires the X-Domain header or the ?domain query parameter and never
+ * defaults. An omitted domain used to fall back to ADMIN_API_DOMAIN, but the
+ * admin host is itself a supported domain (bifrost.example.com in the example
+ * config), so a write that forgot its domain landed silently in the admin
+ * host's namespace instead of failing. When both selectors are sent they must
+ * name the same domain (checked in getDomainFromRequest, for reads too).
  */
 export function getRequiredDomainFromRequest(c: {
+  req: {
+    header: (name: string) => string | undefined;
+    query: (name: string) => string | undefined;
+  };
+}): RequiredDomainParseResult {
+  // getDomainFromRequest refuses conflicting selectors for reads and writes
+  const result = getDomainFromRequest(c);
+  if (!result.valid) {
+    // Invalid domain provided - caller should return 400
+    return result;
+  }
+  if (result.domain) return { valid: true, domain: result.domain };
+  return { valid: false, error: MISSING_DOMAIN_ERROR };
+}
+
+/**
+ * Get target domain from request for a single-domain READ (a route by path,
+ * QR codes): the X-Domain header or the ?domain query param (both sent must
+ * agree, or 400), else the ADMIN_API_DOMAIN env var, else example.com. Reads
+ * keep this fallback; mutations use getRequiredDomainFromRequest, which has
+ * none.
+ */
+export function getDomainOrDefaultFromRequest(c: {
   req: {
     header: (name: string) => string | undefined;
     query: (name: string) => string | undefined;
@@ -71,9 +116,16 @@ export function getRequiredDomainFromRequest(c: {
     // Invalid domain provided - caller should return 400
     return result;
   }
-  // Default to ADMIN_API_DOMAIN from env, or 'example.com' as fallback
+  if (result.domain) return { valid: true, domain: result.domain };
+  // Default only to a supported domain. An admin host outside
+  // SUPPORTED_DOMAINS (a development admin host, for example) is a request
+  // host, not a route-storage domain, and must never bypass the validation
+  // applied to explicit input.
   const defaultDomain = c.env.ADMIN_API_DOMAIN || 'example.com';
-  return { valid: true, domain: result.domain ?? defaultDomain };
+  if (!isValidDomain(defaultDomain)) {
+    return { valid: false, error: `Invalid default domain: ${defaultDomain}` };
+  }
+  return { valid: true, domain: defaultDomain };
 }
 
 /**

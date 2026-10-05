@@ -86,7 +86,7 @@ describe('QR API (v1.30.0 port seams)', () => {
 
   it('creates, fetches, lists, and deletes a QR code (and 404s after delete)', async () => {
     const created = await fetchSettled(
-      authedJson('POST', BASE, {
+      authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
         type: 'url',
         id: 'test-crud',
         payload: { url: 'https://example.com/page' },
@@ -96,7 +96,7 @@ describe('QR API (v1.30.0 port seams)', () => {
     expect(created.status).toBe(201);
 
     const dup = await fetchSettled(
-      authedJson('POST', BASE, {
+      authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
         type: 'url',
         id: 'test-crud',
         payload: { url: 'https://example.com' },
@@ -117,10 +117,79 @@ describe('QR API (v1.30.0 port seams)', () => {
     };
     expect(listBody.data.some(q => q.id === 'test-crud')).toBe(true);
 
-    const del = await fetchSettled(authedJson('DELETE', `${BASE}/test-crud`));
+    const del = await fetchSettled(authedJson('DELETE', `${BASE}/test-crud?domain=${DOMAIN}`));
     expect(del.status).toBe(200);
     const gone = await fetchSettled(authedJson('GET', `${BASE}/test-crud`));
     expect(gone.status).toBe(404);
+  });
+
+  it('refuses QR create, update and delete without a domain; reads still default', async () => {
+    const noDomainCreate = await fetchSettled(
+      authedJson('POST', BASE, {
+        type: 'url',
+        id: 'test-nodomain',
+        payload: { url: 'https://example.com' },
+      }),
+    );
+    expect(noDomainCreate.status).toBe(400);
+    expect(await noDomainCreate.text()).toContain('An explicit domain is required');
+    // Nothing was written to ADMIN_API_DOMAIN's namespace
+    expect((await fetchSettled(authedJson('GET', `${BASE}/test-nodomain`))).status).toBe(404);
+
+    const created = await fetchSettled(
+      authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
+        type: 'url',
+        id: 'test-nodomain',
+        payload: { url: 'https://example.com' },
+        description: 'kept',
+      }),
+    );
+    expect(created.status).toBe(201);
+
+    const noDomainUpdate = await fetchSettled(
+      authedJson('PUT', `${BASE}/test-nodomain`, { description: 'changed' }),
+    );
+    expect(noDomainUpdate.status).toBe(400);
+    const noDomainDelete = await fetchSettled(authedJson('DELETE', `${BASE}/test-nodomain`));
+    expect(noDomainDelete.status).toBe(400);
+
+    // A domainless GET still reads ADMIN_API_DOMAIN: the record is intact
+    const got = await fetchSettled(authedJson('GET', `${BASE}/test-nodomain`));
+    expect(got.status).toBe(200);
+    expect(((await got.json()) as { data: { description?: string } }).data.description).toBe(
+      'kept',
+    );
+
+    const conflict = await fetchSettled(
+      new Request(`${BASE}/test-nodomain?domain=${OTHER_DOMAIN}`, {
+        method: 'DELETE',
+        headers: { 'X-Admin-Key': VALID_KEY, 'X-Domain': DOMAIN },
+      }),
+    );
+    expect(conflict.status).toBe(400);
+    expect((await fetchSettled(authedJson('GET', `${BASE}/test-nodomain`))).status).toBe(200);
+
+    expect(
+      (await fetchSettled(authedJson('DELETE', `${BASE}/test-nodomain?domain=${DOMAIN}`))).status,
+    ).toBe(200);
+  });
+
+  it('answers 400 for a read whose X-Domain conflicts with ?domain', async () => {
+    const res = await fetchSettled(
+      new Request(`${BASE}?domain=${OTHER_DOMAIN}`, {
+        headers: { 'X-Admin-Key': VALID_KEY, 'X-Domain': DOMAIN },
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain('Conflicting domain parameters');
+  });
+
+  it('answers 400 for a read naming an unsupported domain (read resolver)', async () => {
+    for (const url of [`${BASE}?domain=evil.test`, `${BASE}/any?domain=evil.test`]) {
+      const res = await fetchSettled(authedJson('GET', url));
+      expect(res.status).toBe(400);
+      expect(await res.text()).toContain('Invalid domain: evil.test');
+    }
   });
 
   it('enforces the serialized-payload BYTE budget (multibyte text passes the char cap but not the byte cap)', async () => {
@@ -128,7 +197,10 @@ describe('QR API (v1.30.0 port seams)', () => {
     // UTF-8 bytes — over MAX_QR_PAYLOAD_LENGTH (1024). The byte-oriented
     // check (upstream codex F2) must reject with a byte count.
     const res = await fetchSettled(
-      authedJson('POST', BASE, { type: 'text', payload: { text: '測'.repeat(400) } }),
+      authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
+        type: 'text',
+        payload: { text: '測'.repeat(400) },
+      }),
     );
     expect(res.status).toBe(400);
     expect(await res.text()).toMatch(/bytes/);
@@ -136,7 +208,7 @@ describe('QR API (v1.30.0 port seams)', () => {
 
   it('rejects a linkedRoute on a different domain (route-existence oracle guard)', async () => {
     const res = await fetchSettled(
-      authedJson('POST', BASE, {
+      authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
         type: 'url',
         payload: { url: 'https://example.com' },
         linkedRoute: { domain: OTHER_DOMAIN, path: '/foreign' },
@@ -146,9 +218,26 @@ describe('QR API (v1.30.0 port seams)', () => {
     expect(await res.text()).toMatch(/must match the QR domain/);
   });
 
+  it('rejects a linkedRoute on an unsupported domain before the same-domain guard', async () => {
+    const res = await fetchSettled(
+      authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
+        type: 'url',
+        id: 'test-bad-link',
+        payload: { url: 'https://example.com' },
+        linkedRoute: { domain: 'evil.test', path: '/foreign' },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.text();
+    // Refused by the body schema (the supported-domain enum), not the same-domain guard
+    expect(body).toMatch(/Invalid option: expected one of "example\.com"/);
+    expect(body).not.toMatch(/must match the QR domain/);
+    expect((await fetchSettled(authedJson('GET', `${BASE}/test-bad-link`))).status).toBe(404);
+  });
+
   it('rejects changing the type on update (immutable), and treats explicit "" as clear-description', async () => {
     await fetchSettled(
-      authedJson('POST', BASE, {
+      authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
         type: 'text',
         id: 'test-immutable',
         payload: { text: 'hello' },
@@ -157,13 +246,13 @@ describe('QR API (v1.30.0 port seams)', () => {
     );
 
     const typeChange = await fetchSettled(
-      authedJson('PUT', `${BASE}/test-immutable`, { type: 'url' }),
+      authedJson('PUT', `${BASE}/test-immutable?domain=${DOMAIN}`, { type: 'url' }),
     );
     expect(typeChange.status).toBe(400);
     expect(await typeChange.text()).toMatch(/cannot change/);
 
     const cleared = await fetchSettled(
-      authedJson('PUT', `${BASE}/test-immutable`, { description: '' }),
+      authedJson('PUT', `${BASE}/test-immutable?domain=${DOMAIN}`, { description: '' }),
     );
     expect(cleared.status).toBe(200);
     const body = (await cleared.json()) as { data: { description?: string } };
@@ -176,7 +265,7 @@ describe('QR API (v1.30.0 port seams)', () => {
 
   it('redacts wifi password/identity/anonymousIdentity in the audit row, not the record', async () => {
     const created = await fetchSettled(
-      authedJson('POST', BASE, {
+      authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
         type: 'wifi',
         id: 'test-wifi-audit',
         payload: {
@@ -213,7 +302,7 @@ describe('QR API (v1.30.0 port seams)', () => {
 
   it('serves the stored-record SVG and the ephemeral from-route SVG with private, no-store', async () => {
     await fetchSettled(
-      authedJson('POST', BASE, {
+      authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
         type: 'url',
         id: 'test-image',
         payload: { url: 'https://example.com' },
@@ -246,7 +335,7 @@ describe('QR API (v1.30.0 port seams)', () => {
 
   it('never surfaces qr: records as routes in the all-domains scan', async () => {
     await fetchSettled(
-      authedJson('POST', BASE, {
+      authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
         type: 'text',
         id: 'test-cohab',
         payload: { text: 'kv cohabitation' },
@@ -268,7 +357,7 @@ describe('QR API (v1.30.0 port seams)', () => {
       target: 'https://example.com',
     });
     await fetchSettled(
-      authedJson('POST', BASE, {
+      authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
         type: 'text',
         id: 'test-backup',
         payload: { text: 'back me up' },

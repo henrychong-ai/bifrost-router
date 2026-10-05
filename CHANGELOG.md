@@ -6,6 +6,254 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.37.0 (2026-10-05) — Writes name their domain; backups are verified before they count; a hardened dashboard container
+
+**Breaking for direct API callers:** REST writes now require a domain, in the
+`X-Domain` header or the `?domain=` query parameter. A route or QR write that
+names none, or names two that disagree, answers 400 and writes nothing. The
+dashboard, the MCP server and the shared `EdgeRouterClient` already send one.
+No D1 migration.
+
+**Dashboard container deployers:** `admin/nginx.conf` is now
+`admin/nginx.conf.template`, rendered by the start scripts when the container
+starts; never mount or copy the template as an nginx config, because its
+placeholders are not valid CSP sources. The image takes only
+`VITE_API_URL` at build time and reads `ADMIN_API_KEY` from the container's
+environment. An optional `R2_PREVIEW_ORIGINS` allows PDF previews from your R2
+custom domains; a malformed value stops the container rather than reaching the
+header. **Expose the dashboard only on a private network or behind an
+authenticating front door** (Tailscale Serve, Cloudflare Access or similar):
+the plain image serves `/env-config.js`, holding the full admin key, to anyone
+who can load the page. The compose files now publish it on `127.0.0.1` only.
+
+**Why:** the admin API defaulted a write's domain to the admin host, which is
+itself a supported domain, so a write that forgot its domain landed in the
+wrong namespace without an error. The daily backup wrote whatever it read
+without checking it could be restored, dropped falsy values, and read KV one
+key at a time, which fails above about 1,000 records. The dashboard container
+could carry a developer's admin key into the image, did not build in its
+default form, and its CSP reported an eval violation on every load (zod's
+probe) and blocked the PDF previews.
+
+### Admin API
+
+- **Route create, update, delete, seed and migrate, and QR create, update and
+  delete, require a domain** in `?domain=` or the `X-Domain` header. Without
+  one the request answers 400 `An explicit domain is required (X-Domain header
+  or domain query parameter).` and nothing is written. The old fallback was
+  `ADMIN_API_DOMAIN`, and the admin host is itself a supported domain
+  (`bifrost.example.com` in the example config), so a write without a domain
+  landed in the admin host's namespace without an error. Reads that need one
+  domain (a route by `path`, QR codes) keep that default, and only when it is
+  a supported domain; otherwise they answer 400. This closes follow-up 1 of
+  v1.35.0.
+- **A route or QR request whose `X-Domain` header and `?domain=` disagree
+  answers 400** `Conflicting domain parameters: …` instead of silently using
+  the header: writes, single-domain reads and route lists alike. The analytics
+  endpoints read only `?domain=` and ignore `X-Domain`.
+- **The OpenAPI schema marks every write with `DomainQueryWrite`** (optional in
+  the spec, because the header can carry the domain instead).
+- **A QR create or update must link a supported domain** (`linkedRoute.domain`,
+  400 otherwise); the handlers still require it to be the QR code's own domain.
+  Stored records are read as before, so a domain retired later never makes one
+  unreadable.
+- **`GET /api/metadata/og` follows at most five redirects.** It had no cap, so
+  an A→B→A loop ran until the Worker's subrequest limit; past the cap it now
+  answers 502 with `Too many redirects (max 5)`. Each hop is still SSRF-checked
+  and has its own 5 s timeout. The cap is checked before the `Location` header
+  is read, so at the cap every 3xx (no `Location`, a malformed one or an SSRF
+  target) ends as `Too many redirects`.
+- **Link previews release every body they do not read to the end** — a
+  redirect, an error answer, a non-HTML file, a `Content-Length` over the 1 MB
+  limit, or a stream that runs past it — so no early exit leaves a connection
+  open or keeps the rest of a large body arriving.
+- **Link previews decode HTML entities in one pass.** The old chain decoded
+  twice (`&#38;amp;` became `&`), and astral or surrogate references produced
+  invalid strings; `&#0;` and surrogates now give U+FFFD and out-of-range
+  references are left as written. A page's `og:image` and `og:url` are kept
+  only when they resolve to `http:` or `https:`, so a `javascript:` or `data:`
+  value is dropped.
+
+### Backups
+
+- **A backup is verified before it is written, and a failed one writes
+  nothing.** The daily job checks the gzip in memory (the stream must be
+  complete with a valid checksum, every line a `{key, value}` record with a
+  non-null value, no key repeated, and the count equal to the records it read),
+  then writes the archive once, with its SHA-256 so R2 refuses a corrupted
+  upload and its record count as `routeCount` metadata, and then
+  `manifest.json`. There is no temporary object. A run that fails writes
+  nothing, so the previous backup stays in place and the health check turns
+  warning, then critical, as that backup ages.
+- **Archives are capped at 16 MiB, compressed and inflated,** enforced while
+  streaming. The cap is derived from the write schemas: 50 QR codes with the
+  largest logo plus 10,000 typical routes fit with room to spare. The job
+  counts the serialised records while it reads KV and stops as soon as they
+  pass the cap, with `Backup exceeds the size limit (MAX_BACKUP_BYTES)`, before
+  any gzip and without reading the rest of the namespace.
+- **Each failed check has its own message:** missing or empty archive, size
+  limit, record count mismatch and duplicate key. None names a key or a value;
+  decoder and JSON errors stay `Backup content verification failed`. The
+  backup also stops on a duplicate key while reading, and on a KV listing page
+  that is truncated without a cursor or repeats one.
+- **The backup reads KV in bulk.** KV allows 1,000 operations per invocation
+  on every plan and counts a bulk read as one; the job read one key at a time,
+  so it failed above about 1,000 records. It now reads 100 keys per call, about
+  11 operations per 1,000 records, which holds about 89,000 records; the 16 MiB
+  byte cap is reached first for any record over about 190 bytes. Records keep
+  their order and values.
+- **Falsy values are backed up.** A record whose JSON value was `false`, `0` or
+  `""` was dropped by a truthiness check and lost on restore.
+- **The health check is stricter:** it lists every page of `daily/` before
+  picking the latest backup, validates the manifest's version, date and
+  archive path, treats an empty file as missing, and re-verifies the latest
+  archive's contents against the archive's own record count without loading
+  its records. A failed check is critical and reports its fixed message; a manifest whose count no
+  longer matches its archive (a manifest write that failed on a same-day
+  re-run, or two overlapping runs) is a warning. It reports the archive's
+  record count and inflated size (`lastBackup.archive`) and warns past half
+  the cap. A broken listing cursor is reported as a critical issue, and a
+  listing page without directory prefixes counts as none; the endpoint still
+  answers 200.
+- **A restore rehearsal test** writes routes and a QR code, backs them up,
+  empties the namespace, restores from the verified archive and exercises the
+  result through the Worker. R2 file content is not in the backup and is
+  recovered separately.
+
+### Dashboard
+
+- **A newly created QR code stays visible.** KV listing is eventually
+  consistent, so a list fetched right after a create could miss the new code.
+  Codes created in the session are now merged into the first page of every
+  list for their domain whose filters match (the Worker's own filter) until the
+  server lists them, the code is deleted, or five minutes pass. Page 1 grows by
+  those codes rather than dropping a server row, and the list's total and page
+  count stay the server's, so the pagination never announces a page that does
+  not exist. The User Guide explains where a new code appears.
+- **Route and QR writes always name a domain.** From the all-domains view the
+  route's own domain is sent; a route with no domain shows an error instead of
+  being sent.
+- **"Save as QR Code" on the Routes page** uses the route's own domain (or the
+  filtered one) and opens the QR page on that domain; it no longer falls back
+  to the first domain in the list.
+
+### Dashboard security and container
+
+- **No eval violation under the dashboard's CSP.** The static policy
+  (`script-src 'self'`) refused zod's `new Function` probe, so every load
+  reported a `script-src` eval violation. Zod now runs jitless:
+  `admin/src/lib/zod-jitless.ts` is `main.tsx`'s first import and shares a
+  dedicated `zod` chunk with zod, because import order alone did not survive
+  chunking. A boot check logs if zod is not jitless. The fix is never
+  `'unsafe-eval'`.
+- **PDF previews load under the CSP.** `object-src 'none'` blocked the storage
+  and route-editor PDF previews served from the R2 custom domains. The nginx
+  config is now a template (`admin/nginx.conf.template`) rendered at container
+  start by `admin/scripts/render-nginx-conf.sh`: `R2_PREVIEW_ORIGINS`
+  (space-separated bare `https://host[:port]` origins) joins `object-src` and
+  `frame-src`. Unset, the policy keeps `object-src 'none'` and
+  `frame-src 'self'`; any other value stops the container before nginx starts.
+  The rendered file is written atomically.
+- **The API key can no longer break or inject into `env-config.js`.** Both
+  start scripts pasted `ADMIN_API_KEY` between double quotes, so a `"`, `\` or
+  newline in the key broke the file and a crafted value could add script to
+  every dashboard page. `admin/scripts/write-env-config.sh` now writes the key
+  as a JSON string literal, escaping quotes, backslashes and every control
+  character, and writes the file atomically.
+- **The default dashboard image builds.** Its Dockerfile copied an
+  `admin/scripts/start.sh` that did not exist; the script now exists, renders
+  the nginx config, writes `env-config.js` and starts nginx. The Tailscale image
+  renders before `tailscaled` starts.
+- **`admin/docker-compose.yml` builds** with the repository root as its
+  context (the Dockerfile copies the workspace from there), and the production
+  and Tailscale compose files pass `ADMIN_API_KEY` (and optionally
+  `R2_PREVIEW_ORIGINS`) to the container.
+- **The documented build no longer passes the API key as a build argument.**
+  The README and the CI/CD example passed `--build-arg VITE_ADMIN_API_KEY`,
+  which the Dockerfile never declared, so it did nothing (and the example put a
+  secret into build arguments). `ADMIN_API_KEY` is runtime container
+  environment; `VITE_ADMIN_API_KEY` is for local development only.
+- **The admin key can no longer be built into an image.** `COPY admin/` put
+  `admin/.env.local` into the build stage, and the dashboard read
+  `VITE_ADMIN_API_KEY` in every build, so a developer's local key was inlined
+  into the shipped bundle. `.dockerignore` now keeps every `.env` and
+  `.env.*` file (except `.env.example`), `.dev.vars` and `admin/auth.env` out
+  of the build context, and `admin/src/env.ts` reads `VITE_ADMIN_API_KEY` only
+  in development. `auth.env` and the mounted Tailscale state `admin/tailscale/`
+  are ignored by git and kept out of the build context too.
+- **The compose files publish the dashboard on `127.0.0.1:3001` only,** and the
+  README's `docker run` example does the same, with a warning never to expose
+  the plain image directly to the internet.
+- **Both images remove nginx's stock site,** so a launch that bypasses the start
+  script finds no config rather than one without the dashboard's CSP and
+  headers.
+- **`write-env-config.sh` stops if encoding the key fails** instead of writing
+  a broken `env-config.js`; the previous file stays in place.
+- `scripts/check-dashboard-security.test.mjs` (in `test:gates`) pins the
+  template's CSP and placeholders, the renderer's accepted and refused values,
+  an exact round trip of hostile keys through `env-config.js`, the failing
+  encoder, the `.dockerignore` exclusions, the loopback ports and the stock
+  site's removal, and runs one production build with a synthetic
+  `VITE_ADMIN_API_KEY` to check the key is absent from the bundle.
+
+### MCP
+
+- **`create_qr` and `update_qr` advertise `linkedRoute` as `{ domain, path }`,
+  both required, with `domain` enumerated** like every other domain field, and
+  their input schemas accept only a supported domain. This closes the
+  `linkedRoute.domain` part of follow-up 2 of v1.35.0. The MCP server's own
+  `requireDomain()` guard is unchanged: it refuses a missing domain, and the
+  API refuses an unsupported one.
+
+### Follow-ups
+
+- **Link previews: one deadline across redirect hops.** Each hop has its own
+  5 s timeout, so a preview that follows five redirects can take about 30 s.
+- **Backup health verifies the archive on every call,** and reads each object
+  twice: a HEAD for the file check, then a GET of the same objects for the
+  manifest and the content scan. Record a verified archive's SHA-256 or ETag
+  and skip the scan while the stored object still matches, and take sizes from
+  the GET instead of a separate HEAD.
+- **Backup health cannot tell an R2 read error from corruption.** Both are
+  reported critical as `Backup content verification failed`; report R2 errors
+  as a warning and only a content failure as critical.
+- **A new QR code can be missing from MCP `list_qrs`, the REST API and other
+  browser tabs** until KV listing catches up: only the dashboard that created
+  it merges it. A server-side recent-writes key would give every client the
+  same list.
+- **A failed backup still completes the cron invocation.** `handleScheduled`
+  returns `{ success: false }` and the scheduled handler only logs it, so an
+  invocation-error alert never sees it. Rethrow after logging.
+- **Keep the admin key out of the browser.** Proxy `/api` through nginx and add
+  `X-Admin-Key` server-side, so the key never reaches the browser and
+  `/env-config.js` no longer carries it.
+- **A pending QR code can show on page 1 after the server has moved it to page
+  2.** The pending store drops a code only when the page it merges into lists
+  it, so a code the server lists on a later page still appears on page 1 for up
+  to five minutes.
+- **Detect an invalid backup listing cursor by error class,** not by matching
+  the error's message text.
+- **The 16 MiB backup cap is all-or-nothing across every domain.** About 120
+  QR codes with the largest logo, or one route target of several MiB, stop
+  every backup until `MAX_BACKUP_BYTES` is raised; health warns from 8 MiB.
+  Possible remedies: skip and report oversized records, or stream the gzip so
+  the cap can be higher.
+- **Release the collected `lines` array after the join** in `backupKV`. At the
+  cap the job peaks at about 48–70 MiB (the lines, the joined NDJSON and its
+  gzip).
+- **The backup's byte counter is one byte stricter than the verifier:** it
+  counts a newline after the last record, which the joined NDJSON does not
+  have.
+- **Repeat the security headers in the nginx `/assets/`, `/env-config.js` and
+  `/health` locations.** A location with its own `add_header` does not inherit
+  the server-level ones.
+- **Add a shared `nextCursor` helper** for the R2 and KV listings, and drop the
+  `LISTING_CURSOR_INVALID` alias in `src/backup/health.ts`.
+- **Simplify the double read in `getDomainFromRequest`,** which reads each
+  selector once for the conflict check and again to validate it.
+
+---
+
 ## v1.36.2 (2026-10-02) — Partial route updates keep stored flags; request-body validation; TypeScript 6
 
 **Why:** a maintenance release with one behaviour fix that matters to every

@@ -21,6 +21,9 @@ export interface JsonSchemaProperty {
   default?: unknown;
   minimum?: number;
   maximum?: number;
+  /** Nested object fields (the QR tools' `linkedRoute`). */
+  properties?: Record<string, JsonSchemaProperty>;
+  required?: string[];
 }
 
 /**
@@ -74,6 +77,23 @@ const slugStatsDomainProperty = domainProperty(
 const qrDomainProperty = domainProperty(
   `Domain namespace the QR belongs to. Required — one of: ${SUPPORTED_DOMAINS_LIST}.`,
 );
+
+/**
+ * create_qr / update_qr `linkedRoute`: `{ domain, path }`, with the domain
+ * enumerated like every other domain field. The QR handlers also require it
+ * to be the QR code's own domain.
+ */
+const linkedRouteProperty = (description: string): JsonSchemaProperty => ({
+  type: 'object',
+  description,
+  properties: {
+    domain: domainProperty(
+      `Domain of the linked route: the QR code's own domain. One of: ${SUPPORTED_DOMAINS_LIST}.`,
+    ),
+    path: { type: 'string', description: 'Path of the linked route, starting with /' },
+  },
+  required: ['domain', 'path'],
+});
 
 /** get_route_qr: selects the ROUTE TABLE searched — required, never defaulted. */
 const routeQrDomainProperty = domainProperty(
@@ -781,11 +801,9 @@ export const toolDefinitions: ToolDefinition[] = [
           description:
             'Design overrides: fg/bg (#rrggbb), size (128-2048), margin (0-16), errorCorrection (L|M|Q|H), logoDataUri (<=100KB data URI), logoAspectRatio (w/h, >2 = wide wordmark window)',
         },
-        linkedRoute: {
-          type: 'object',
-          description:
-            'url-type only: { domain, path } of the Bifrost route to encode as a short URL',
-        },
+        linkedRoute: linkedRouteProperty(
+          'url-type only: the Bifrost route to encode as a short URL (dynamic QR)',
+        ),
       },
       required: ['domain', 'type', 'payload'],
     },
@@ -806,7 +824,7 @@ export const toolDefinitions: ToolDefinition[] = [
           type: 'object',
           description: 'FULL design replacement — omitted design fields reset to defaults',
         },
-        linkedRoute: { type: 'object', description: 'url-type only: { domain, path } to link' },
+        linkedRoute: linkedRouteProperty('url-type only: the Bifrost route to link'),
         clearLinkedRoute: { type: 'boolean', description: 'Set true to unlink the route' },
       },
       required: ['domain', 'id'],

@@ -55,6 +55,10 @@ function tailscaleIdentityPlugin(): Plugin {
   };
 }
 
+/** The zod package (plain or pnpm store path) and the module that configures it. */
+const ZOD_CHUNK =
+  /[\\/]node_modules[\\/](?:\.pnpm[\\/][^\\/]+[\\/]node_modules[\\/])?zod[\\/]|[\\/]src[\\/]lib[\\/]zod-jitless\.ts$/;
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss(), tailscaleIdentityPlugin(), stripHtmlComments()],
@@ -65,6 +69,22 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(import.meta.dirname, './src'),
+    },
+  },
+  build: {
+    rolldownOptions: {
+      output: {
+        // zod + the jitless config in one import-free chunk (v1.37.0). Chunk
+        // evaluation order, not source import order, decides when the config
+        // runs: imported chunks evaluate before the entry body, and by default
+        // zod shares a chunk with @bifrost/shared's schemas, which trigger
+        // zod's eval probe under the CSP before main.tsx's first import runs.
+        // Every zod user imports this chunk, so jitless is set before any
+        // schema is built (src/lib/zod-jitless.ts).
+        codeSplitting: {
+          groups: [{ name: 'zod', test: ZOD_CHUNK }],
+        },
+      },
     },
   },
   server: {

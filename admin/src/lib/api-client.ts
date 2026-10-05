@@ -145,14 +145,15 @@ export const routesApi = {
   /**
    * Create a new route
    * @param data - Route configuration
-   * @param domain - Target domain for the route
+   * @param domain - Target domain for the route. Required: the API refuses a
+   *   write that names no domain.
    */
   async create(
     data: CreateRouteInput,
-    domain?: string,
+    domain: string,
     acknowledgeCredentialTarget?: boolean,
   ): Promise<Route> {
-    const query = domain ? buildQueryString({ domain }) : '';
+    const query = buildQueryString({ domain });
     // Request-only override, never part of the stored route — the Worker reads
     // it off the raw body and Zod strips it before KV.
     const response = await fetchApi(`/api/routes${query}`, RouteResponseSchema, {
@@ -171,12 +172,12 @@ export const routesApi = {
    * Update an existing route
    * @param path - Route path to update
    * @param data - Update data
-   * @param domain - Target domain (required when viewing all domains)
+   * @param domain - Target domain (required; the route's own in the all-domains view)
    */
   async update(
     path: string,
     data: UpdateRouteInput,
-    domain?: string,
+    domain: string,
     acknowledgeCredentialTarget?: boolean,
   ): Promise<Route> {
     const query = buildQueryString({ path, domain });
@@ -195,9 +196,9 @@ export const routesApi = {
   /**
    * Delete a route
    * @param path - Route path to delete
-   * @param domain - Target domain (required when viewing all domains)
+   * @param domain - Target domain (required; the route's own in the all-domains view)
    */
-  async delete(path: string, domain?: string): Promise<void> {
+  async delete(path: string, domain: string): Promise<void> {
     const query = buildQueryString({ path, domain });
     await fetchApi(
       `/api/routes${query}`,
@@ -212,7 +213,7 @@ export const routesApi = {
    * @param newPath - New route path
    * @param domain - Target domain
    */
-  async migrate(oldPath: string, newPath: string, domain?: string): Promise<Route> {
+  async migrate(oldPath: string, newPath: string, domain: string): Promise<Route> {
     const query = buildQueryString({ oldPath, newPath, domain });
     const response = await fetchApi(`/api/routes/migrate${query}`, RouteResponseSchema, {
       method: 'POST',
@@ -484,6 +485,8 @@ export interface LastBackupInfo {
   ageHours: number;
   manifest: ManifestSummary | null;
   files: BackupFileStatus[];
+  /** The latest archive as verified; null when it was not or could not be. */
+  archive?: { records: number; inflatedBytes: number } | null;
 }
 
 export interface HealthIssue {
@@ -1107,7 +1110,7 @@ export const qrApi = {
     return response.data;
   },
 
-  async create(input: Record<string, unknown>, domain?: string): Promise<QRCode> {
+  async create(input: Record<string, unknown>, domain: string): Promise<QRCode> {
     const response = await fetchApi(
       `/api/qr${buildQueryString({ domain })}`,
       QRItemResponseSchema,
@@ -1122,7 +1125,7 @@ export const qrApi = {
     return response.data;
   },
 
-  async update(id: string, input: Record<string, unknown>, domain?: string): Promise<QRCode> {
+  async update(id: string, input: Record<string, unknown>, domain: string): Promise<QRCode> {
     const response = await fetchApi(
       `/api/qr/${encodeURIComponent(id)}${buildQueryString({ domain })}`,
       QRItemResponseSchema,
@@ -1137,7 +1140,7 @@ export const qrApi = {
     return response.data;
   },
 
-  async delete(id: string, domain?: string): Promise<void> {
+  async delete(id: string, domain: string): Promise<void> {
     await fetchApi(
       `/api/qr/${encodeURIComponent(id)}${buildQueryString({ domain })}`,
       z.object({ success: z.boolean() }),

@@ -40,6 +40,7 @@ import { qrRoutes } from './qr';
 import {
   getActorInfo,
   getDomainFromRequest,
+  getDomainOrDefaultFromRequest,
   getRequiredDomainFromRequest,
 } from './request-context';
 import { storageRoutes } from './storage';
@@ -280,14 +281,15 @@ adminRoutes.use('*', async (c, next) => {
  * List mode (no ?path): Returns all routes for domain (or all domains)
  * Single mode (?path=/linkedin): Returns specific route
  *
- * Supports: X-Domain header, ?domain= query param, ?path= query param
+ * Supports: X-Domain header or ?domain= query param (both sent must agree, or
+ * 400), and ?path= query param
  */
 adminRoutes.get('/routes', async c => {
   const pathQuery = c.req.query('path');
 
-  // Single route lookup mode
+  // Single route lookup mode (a read: keeps the ADMIN_API_DOMAIN default)
   if (pathQuery) {
-    const domainResult = getRequiredDomainFromRequest(c);
+    const domainResult = getDomainOrDefaultFromRequest(c);
 
     if (!domainResult.valid) {
       return c.json(

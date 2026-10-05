@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Bifrost Admin API
   description: Edge router management API for route configuration and analytics
-  version: 1.36.2
+  version: 1.37.0
   contact:
     name: Bifrost Maintainers
     url: https://example.com
@@ -62,7 +62,7 @@ paths:
     post:
       summary: Create route
       parameters:
-        - $ref: '#/components/parameters/DomainQuery'
+        - $ref: '#/components/parameters/DomainQueryWrite'
       requestBody:
         required: true
         content:
@@ -76,7 +76,7 @@ paths:
       summary: Update route
       parameters:
         - $ref: '#/components/parameters/PathQueryRequired'
-        - $ref: '#/components/parameters/DomainQuery'
+        - $ref: '#/components/parameters/DomainQueryWrite'
       requestBody:
         required: true
         content:
@@ -90,7 +90,7 @@ paths:
       summary: Delete route
       parameters:
         - $ref: '#/components/parameters/PathQueryRequired'
-        - $ref: '#/components/parameters/DomainQuery'
+        - $ref: '#/components/parameters/DomainQueryWrite'
       responses:
         '200':
           description: Deleted
@@ -99,7 +99,7 @@ paths:
     post:
       summary: Bulk seed routes
       parameters:
-        - $ref: '#/components/parameters/DomainQuery'
+        - $ref: '#/components/parameters/DomainQueryWrite'
       requestBody:
         required: true
         content:
@@ -130,7 +130,7 @@ paths:
           schema:
             type: string
             pattern: ^/.*
-        - $ref: '#/components/parameters/DomainQuery'
+        - $ref: '#/components/parameters/DomainQueryWrite'
       responses:
         '200':
           description: Route migrated successfully
@@ -920,7 +920,7 @@ paths:
       summary: Create a QR code
       tags: [QR Codes]
       parameters:
-        - $ref: '#/components/parameters/DomainQuery'
+        - $ref: '#/components/parameters/DomainQueryWrite'
       requestBody:
         required: true
         content:
@@ -986,7 +986,7 @@ paths:
       tags: [QR Codes]
       parameters:
         - $ref: '#/components/parameters/QrIdPath'
-        - $ref: '#/components/parameters/DomainQuery'
+        - $ref: '#/components/parameters/DomainQueryWrite'
       requestBody:
         required: true
         content:
@@ -1003,7 +1003,7 @@ paths:
       tags: [QR Codes]
       parameters:
         - $ref: '#/components/parameters/QrIdPath'
-        - $ref: '#/components/parameters/DomainQuery'
+        - $ref: '#/components/parameters/DomainQueryWrite'
       responses:
         '200':
           description: QR code deleted
@@ -1064,6 +1064,27 @@ components:
       name: domain
       in: query
       description: Target domain
+      schema:
+        type: string
+        enum:
+          - example.com
+          - links.example.com
+          - bifrost.example.com
+          - secondary.example.net
+          - user1.example.com
+          - user2.example.com
+          - user3.example.com
+          - couple.example.com
+          - user5.example.com
+
+    DomainQueryWrite:
+      name: domain
+      in: query
+      description: >-
+        Target domain of the write. Required here or in the `X-Domain` header,
+        and the two must match when both are sent; a write that names neither,
+        or names conflicting domains, is refused with 400 and nothing is
+        written. There is no default domain for writes.
       schema:
         type: string
         enum:
@@ -1440,6 +1461,17 @@ components:
                     type: integer
                   exists:
                     type: boolean
+            archive:
+              type: object
+              nullable: true
+              description: >-
+                The latest archive as read back and verified; null when it was
+                not verified or verification failed.
+              properties:
+                records:
+                  type: integer
+                inflatedBytes:
+                  type: integer
         issues:
           type: array
           items:

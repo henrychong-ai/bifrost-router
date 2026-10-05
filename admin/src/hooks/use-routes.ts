@@ -99,7 +99,7 @@ export function useCreateRoute() {
       acknowledgeCredentialTarget,
     }: {
       data: CreateRouteInput;
-      domain?: string;
+      domain: string;
       /** Set only after the operator confirmed the credential-target dialog. */
       acknowledgeCredentialTarget?: boolean;
     }) => api.routes.create(data, domain, acknowledgeCredentialTarget),
@@ -112,7 +112,7 @@ export function useCreateRoute() {
 
 /**
  * Update an existing route
- * @param domain - Target domain from route.domain (required when viewing all domains)
+ * @param domain - Target domain: required, never defaulted (the route's own in the all-domains view)
  */
 export function useUpdateRoute() {
   const queryClient = useQueryClient();
@@ -126,7 +126,7 @@ export function useUpdateRoute() {
     }: {
       path: string;
       data: UpdateRouteInput;
-      domain?: string;
+      domain: string;
       /** Set only after the operator confirmed the credential-target dialog. */
       acknowledgeCredentialTarget?: boolean;
     }) => api.routes.update(path, data, domain, acknowledgeCredentialTarget),
@@ -142,13 +142,13 @@ export function useUpdateRoute() {
 
 /**
  * Delete a route
- * @param domain - Target domain from route.domain (required when viewing all domains)
+ * @param domain - Target domain: required, never defaulted (the route's own in the all-domains view)
  */
 export function useDeleteRoute() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ path, domain }: { path: string; domain?: string }) =>
+    mutationFn: ({ path, domain }: { path: string; domain: string }) =>
       api.routes.delete(path, domain),
     onSuccess: (_data, variables) => {
       // Invalidate and remove the specific route from cache
@@ -160,7 +160,7 @@ export function useDeleteRoute() {
 
 /**
  * Toggle route enabled status
- * @param domain - Target domain from route.domain (required when viewing all domains)
+ * @param domain - Target domain: required, never defaulted (the route's own in the all-domains view)
  */
 export function useToggleRoute() {
   const queryClient = useQueryClient();
@@ -174,7 +174,7 @@ export function useToggleRoute() {
     }: {
       path: string;
       enabled: boolean;
-      domain?: string;
+      domain: string;
       /** Set only after the operator confirmed the credential-target dialog. */
       acknowledgeCredentialTarget?: boolean;
     }) => api.routes.update(path, { enabled }, domain, acknowledgeCredentialTarget),
@@ -201,7 +201,7 @@ export function useMigrateRoute() {
     }: {
       oldPath: string;
       newPath: string;
-      domain?: string;
+      domain: string;
     }) => api.routes.migrate(oldPath, newPath, domain),
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: routeKeys.all });

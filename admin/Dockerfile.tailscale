@@ -62,12 +62,20 @@ RUN --mount=type=cache,id=apk-cache,target=/var/cache/apk \
 # Copy built assets
 COPY --link --from=builder /app/admin/dist /usr/share/nginx/html
 
-# Copy nginx configuration (listen on localhost:3001 for internal use)
-COPY --link admin/nginx.conf /etc/nginx/conf.d/default.conf
+# Copy the nginx config template (listen on localhost:3001 for internal use) and
+# its renderer; start.sh renders it into conf.d (the CSP takes R2_PREVIEW_ORIGINS).
+COPY --link admin/nginx.conf.template /etc/nginx/bifrost/default.conf.template
+COPY --link admin/scripts/render-nginx-conf.sh /usr/local/bin/render-nginx-conf.sh
+COPY --link admin/scripts/write-env-config.sh /usr/local/bin/write-env-config.sh
 
 # Copy startup script
 COPY --link admin/scripts/start-with-tailscale.sh /start.sh
-RUN chmod +x /start.sh
+RUN chmod +x /start.sh /usr/local/bin/render-nginx-conf.sh /usr/local/bin/write-env-config.sh
+
+# Remove the stock nginx site: it serves the same files without the dashboard's
+# CSP and security headers, so a launch that bypasses the start script must
+# find no config to serve rather than that one.
+RUN rm -f /etc/nginx/conf.d/default.conf
 
 # Tailscale state directory (mount as volume for persistence)
 VOLUME /var/lib/tailscale

@@ -23,6 +23,7 @@ import {
 } from '@bifrost/shared';
 import { Download, Pencil, Plus, QrCode as QrCodeIcon, Trash2 } from 'lucide-react';
 import { type Dispatch, type SetStateAction, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router';
 import { toast } from 'sonner';
 import { ContextualHelp } from '@/components/contextual-help';
 import { FieldHint } from '@/components/field-hint';
@@ -81,6 +82,7 @@ import {
   TUNNELED_EAP_METHODS,
   WIFI_AUTH_TRIGGER_LABELS,
 } from '@/lib/qr-form-state';
+import { initialQrPageDomain, qrPageNavDomain } from '@/lib/qr-page-domain';
 import { downloadPng, downloadSvg } from '@/lib/svg-to-png';
 
 // =============================================================================
@@ -668,7 +670,16 @@ export function QrCodesPage() {
   // Single-operator deployment: every supported domain is writable.
   const allowedDomains = SUPPORTED_DOMAINS;
   const readOnly = false;
-  const [domain, setDomain] = useState<string>(() => allowedDomains[0] ?? 'example.com');
+  // "Save as QR Code" on the Routes page opens this page on the new code's domain
+  const location = useLocation();
+  const [domain, setDomain] = useState<string>(() =>
+    initialQrPageDomain(location.state, allowedDomains),
+  );
+  // Clear the domain from the history entry once read, so a reload or a
+  // return to this entry opens on the page's own default (as routes.tsx does)
+  useEffect(() => {
+    if (qrPageNavDomain(location.state) !== undefined) window.history.replaceState({}, '');
+  }, [location.state]);
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);

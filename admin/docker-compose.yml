@@ -1,15 +1,21 @@
 services:
   admin:
     build:
-      context: .
+      # The Dockerfile copies the workspace (shared/, admin/, lockfile), so the
+      # context is the repository root.
+      context: ..
+      dockerfile: admin/Dockerfile
       args:
         VITE_API_URL: https://example.com
     environment:
       # ADMIN_API_KEY is injected at runtime (not baked into the image).
       # Set via a .env file or shell export before running docker compose up.
       ADMIN_API_KEY: ${ADMIN_API_KEY}
+      # Optional: R2 custom-domain origins the dashboard previews PDFs from,
+      # space-separated (e.g. "https://files.example.com"). See the root README.md.
+      R2_PREVIEW_ORIGINS: ${R2_PREVIEW_ORIGINS:-}
     ports:
-      - "3001:3001"
+      - "127.0.0.1:3001:3001"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3001/health"]

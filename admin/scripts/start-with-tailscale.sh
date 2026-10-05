@@ -6,6 +6,11 @@ set -e
 
 echo "[startup] Starting admin dashboard with Tailscale..."
 
+# Render the nginx config first: its CSP admits the R2 preview origins
+# (R2_PREVIEW_ORIGINS), and a bad value must stop the container here.
+echo "[startup] Rendering nginx config..."
+/usr/local/bin/render-nginx-conf.sh /etc/nginx/bifrost/default.conf.template /etc/nginx/conf.d/default.conf
+
 # Start tailscaled in userspace networking mode (required for containers)
 echo "[startup] Starting tailscaled..."
 tailscaled --state=/var/lib/tailscale/tailscaled.state \
@@ -46,9 +51,7 @@ tailscale serve status
 # This keeps the API key out of the Docker image and build cache entirely.
 # The key is injected at container startup, not baked into the JS bundle.
 echo "[startup] Writing runtime env config..."
-cat > /usr/share/nginx/html/env-config.js << EOF
-window.__ENV__ = { "ADMIN_API_KEY": "${ADMIN_API_KEY:-}" };
-EOF
+/usr/local/bin/write-env-config.sh /usr/share/nginx/html/env-config.js
 
 # Start nginx in the background
 echo "[startup] Starting nginx..."

@@ -27,6 +27,11 @@ export function QrCodesSection() {
         can reword them any time without reprinting. Hover the ⓘ beside any field for details.
       </p>
       <p>
+        After saving, the new code appears on the first page when it matches your current domain and
+        filters. If you are on a later page or have narrowed the search, return to the first page
+        and check the filters to find it.
+      </p>
+      <p>
         <strong>Brand designs.</strong> The editor's <strong>Brand design</strong> selector applies
         your own presets in one click — the template ships neutral (black on white), and any presets
         you add to the registry appear here with <strong>Auto</strong> resolving the right design

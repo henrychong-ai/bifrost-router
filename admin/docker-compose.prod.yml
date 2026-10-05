@@ -4,8 +4,13 @@
 services:
   admin:
     image: ghcr.io/your-username/bifrost-dashboard:latest
+    environment:
+      # Read at container start and written to env-config.js; never in the image.
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
+      # Optional: R2 custom-domain origins for PDF previews (see the root README.md).
+      R2_PREVIEW_ORIGINS: ${R2_PREVIEW_ORIGINS:-}
     ports:
-      - "3001:3001"
+      - "127.0.0.1:3001:3001"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3001/health"]

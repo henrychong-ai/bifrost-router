@@ -8,7 +8,13 @@ server {
     # The public template serves a static Vite bundle from nginx, so a nonce is
     # unnecessary: scripts are restricted to same-origin hashed assets. Keep
     # CSP here (not in the routing Worker) so proxied/R2 responses are untouched.
-    add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' https://assets.fusang.co data:; img-src 'self' data: blob: https:; connect-src 'self' https:; manifest-src 'self'; worker-src 'self' blob:; upgrade-insecure-requests" always;
+    #
+    # Template: admin/scripts/render-nginx-conf.sh fills the object-src and
+    # frame-src placeholders at container start from R2_PREVIEW_ORIGINS, the R2
+    # custom-domain origins the dashboard previews PDFs from (v1.37.0). Unset,
+    # they render as object-src 'none' and frame-src 'self'. connect-src
+    # already admits https: origins.
+    add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src __CSP_OBJECT_SRC__; frame-src __CSP_FRAME_SRC__; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' https://assets.fusang.co data:; img-src 'self' data: blob: https:; connect-src 'self' https:; manifest-src 'self'; worker-src 'self' blob:; upgrade-insecure-requests" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
