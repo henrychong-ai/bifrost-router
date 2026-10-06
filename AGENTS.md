@@ -93,7 +93,7 @@ pnpm run deploy
 | Trigger | Actions |
 |---------|---------|
 | Push to any branch / PR | Gitleaks → Public sanitisation → Lint → Format → Typecheck → Tests + coverage → Runtime types → Dashboard build → performance gates → production/development Wrangler dry-runs |
-| Version tag (`v*`) | Same CI checks; no deployment is enabled by default |
+| Version tag (`v*`) | No run: the tag points at a commit its branch push already verified, and no deployment is enabled by default |
 | Manual dispatch | Same CI checks |
 
 The secret-scanning action pins Gitleaks 8.30.1 to match the global
@@ -104,6 +104,11 @@ The same scanner also runs locally: `.husky/pre-commit` scans the STAGED changes
 lint-staged, reading the same `.gitleaks.toml` allowlists as CI. With no local
 `gitleaks` binary the hook warns and continues, so CI stays the enforcing gate
 (`brew install gitleaks`; keep it at the CI-pinned version).
+
+The workflow runs each test once. Root, `shared`, `admin` and `mcp` run only
+under coverage (`test:coverage:all`); `slackbot` has no coverage run, so it
+keeps a plain `pnpm -C slackbot test` step. A new workspace package with tests
+needs one or the other, or CI never runs them.
 
 The only active workflow is `.github/workflows/ci.yml`, which is CI-only. The
 repository includes `.github/workflows/ci-cd.yml.example` as an opt-in template;
@@ -732,6 +737,7 @@ If switching to Workers Static Assets in future, add a KV-route-precedence check
 8. Run `pnpm run changelog:generate` (the Worker serves the generated module; `pnpm run check` fails while it is stale)
 9. Commit, tag (`git tag v1.x.x`), and push the branch and that one tag by name (`git push origin main v1.x.x`) — never `--tags`, which pushes every stale local tag
 
-Release tags run the same CI checks as other pushes. This template does not
+Release tags do not run CI (`tags-ignore: ['v*']`): the tagged commit was
+verified when its branch was pushed. This template does not
 automatically deploy from tags; deploy manually with `pnpm run deploy` or enable
 and configure the reviewed CI/CD example for your own infrastructure.

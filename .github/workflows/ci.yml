@@ -1,11 +1,16 @@
 # CI Pipeline for Bifrost
-# Runs build, lint, typecheck, and tests on all pushes and pull requests
+# Runs build, lint, typecheck, and tests on branch pushes and pull requests
 # For a full CI/CD pipeline with deployment, see ci-cd.yml.example
 
 name: CI
 
 on:
   push:
+    # A version tag points at a commit main has already verified, and no
+    # deployment runs from tags, so a tag push would only repeat that run.
+    # `branches` must stay: with only a tag filter, GitHub skips branch pushes.
+    branches: ['**']
+    tags-ignore: ['v*']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -67,10 +72,11 @@ jobs:
           pnpm run typecheck
           pnpm run -r typecheck
 
-      - name: Test
-        run: |
-          pnpm run test
-          pnpm run -r test
+      # Root, shared, admin and mcp run once, under coverage in the next step
+      # (`test:coverage:all`); a plain run here would repeat the same tests.
+      # Slackbot has no coverage run, so it keeps its plain run.
+      - name: Test (slackbot)
+        run: pnpm -C slackbot test
 
       - name: Coverage regression gates
         run: pnpm run test:coverage:all
