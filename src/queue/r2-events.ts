@@ -95,7 +95,7 @@ interface CandidateRow {
 /**
  * Does this Bifrost audit row explain the event for this object?
  *
- * Exact, structured matching only (review hardening — the original substring
+ * Exact, structured matching only (the original substring
  * containment let a crafted key correlate against an unrelated entry and
  * suppress/misattribute audit evidence):
  *  - direct path match (`bucket/key`)

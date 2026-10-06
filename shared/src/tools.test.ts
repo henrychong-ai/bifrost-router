@@ -361,7 +361,7 @@ describe('QR linkedRoute', () => {
       // both agree with the schema the server parses
       const ours = new RegExp(path?.pattern ?? '(?!)');
       const theirs = new RegExp(zodPath?.pattern ?? '(?!)');
-      const samples = ['/', '/a', '/a/b?c=1', 'a', '', ' /a', 'https://example.com/'];
+      const samples = ['/', '/a', '/a/b', 'a', '', ' /a', 'https://example.com/'];
       const accepted = samples.map(sample => ours.test(sample));
       expect(accepted).toEqual([true, true, true, false, false, false, false]);
       expect(samples.map(sample => theirs.test(sample))).toEqual(accepted);
@@ -372,6 +372,14 @@ describe('QR linkedRoute', () => {
               .success,
         ),
       ).toEqual(accepted);
+      // The server also applies the route path rules and the route key limit
+      // (v1.37.2), which the catalogue cannot express
+      for (const refused of ['/a/b?c=1', `/${'a'.repeat(2 * 1024 * 1024)}`]) {
+        expect(
+          QRLinkedRouteInputSchema.safeParse({ domain: SUPPORTED_DOMAINS[0], path: refused })
+            .success,
+        ).toBe(false);
+      }
     }
   });
 

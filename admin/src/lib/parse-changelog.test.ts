@@ -522,7 +522,7 @@ The middleware now normalises domain access.
     const input = `## v1.19.6 (2026-02-19)
 **Security: Strict R2 key validation**
 
-Two R2 security improvements identified during review.
+Two R2 security improvements.
 
 - **Path validation** — Rejects dangerous patterns
 - \`src/utils/path-validation.ts\`: Return valid: false when sanitizedKey !== key

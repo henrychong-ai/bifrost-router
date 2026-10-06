@@ -1,5 +1,6 @@
+import { normalizeRoutePath } from '@bifrost/shared';
 import type { KVRouteConfig } from '../types';
-import { routeKey } from './schema';
+import { fitsKvKey, routeKey } from './schema';
 
 /**
  * Normalize a path for consistent lookup
@@ -12,33 +13,8 @@ import { routeKey } from './schema';
  * - Ensures path starts with /
  */
 export function normalizePath(path: string): string {
-  // Remove query string and hash
-  let normalized = path.split('?')[0].split('#')[0];
-
-  // URL decode the path (handle %20, etc.)
-  try {
-    normalized = decodeURIComponent(normalized);
-  } catch {
-    // Keep original if decoding fails (malformed encoding)
-  }
-
-  // Collapse multiple consecutive slashes to single slash
-  normalized = normalized.replace(/\/+/g, '/');
-
-  // Ensure path starts with /
-  if (!normalized.startsWith('/')) {
-    normalized = '/' + normalized;
-  }
-
-  // Remove trailing slash (except for root)
-  if (normalized.length > 1 && normalized.endsWith('/')) {
-    normalized = normalized.slice(0, -1);
-  }
-
-  // Normalize to lowercase for case-insensitive matching
-  normalized = normalized.toLowerCase();
-
-  return normalized;
+  // One implementation, shared with the write schemas' key limit
+  return normalizeRoutePath(path);
 }
 
 /**
@@ -80,8 +56,10 @@ export async function matchRoute(
   const path = normalizePath(requestPath);
 
   // 1. Try exact match first
+  // KV refuses a key over its 512-byte limit even on read (a 500 for any
+  // visitor with a long enough path); no route can be stored under one
   const exactKey = routeKey(domain, path);
-  const exact = await kv.get<KVRouteConfig>(exactKey, 'json');
+  const exact = fitsKvKey(exactKey) ? await kv.get<KVRouteConfig>(exactKey, 'json') : null;
   if (exact && exact.enabled !== false) {
     return exact;
   }
@@ -94,9 +72,10 @@ export async function matchRoute(
   // A deep root-wildcard hit or miss therefore pays one wildcard KV round trip
   // instead of one round trip per path segment.
   const wildcardRoutes = await Promise.all(
-    wildcardCandidates.map(wildcardPath =>
-      kv.get<KVRouteConfig>(routeKey(domain, wildcardPath), 'json'),
-    ),
+    wildcardCandidates.map(wildcardPath => {
+      const key = routeKey(domain, wildcardPath);
+      return fitsKvKey(key) ? kv.get<KVRouteConfig>(key, 'json') : null;
+    }),
   );
 
   for (const wildcard of wildcardRoutes) {
@@ -110,16 +89,42 @@ export async function matchRoute(
 }
 
 /**
- * Extract the remaining path after a wildcard match
- * Example: path="/blog/my-post", routePath="/blog/*" → "/my-post"
+ * The remainder of the RAW request path (`URL.pathname`, still
+ * percent-encoded) after a wildcard route's base, for the handlers that append
+ * it to a target: the redirect's `preservePath`, the proxy and the own-host
+ * preview (v1.37.2). Example: `/blog/my-post` against `/blog/*` gives
+ * `/my-post`.
+ *
+ * The raw path is walked segment by segment against the route's base segments
+ * (empty segments skipped, as normalizePath collapses them): each raw base
+ * segment is decoded once and must equal the base segment as the lookup
+ * normalised it (case-insensitive). A raw base segment that decodes to a `/` or
+ * `\` (`/docs%2Fv1/page` against `/docs/v1/*`), or a malformed escape in one,
+ * aligns with nothing, so the answer is null (the caller answers 404). The rest
+ * of the raw path, as written, is the remainder; `/` when nothing follows the
+ * base. Slicing the raw path by the length of the normalised base cut into the
+ * remainder whenever the two differed (`//blog/post`, `/%62log/post`).
  */
-export function getWildcardRemainder(path: string, routePath: string): string {
-  if (!routePath.endsWith('/*')) {
-    return '';
+export function rawWildcardRemainder(rawPath: string, routePath: string): string | null {
+  if (!routePath.endsWith('/*')) return null;
+  const baseSegments = routePath.slice(0, -2).split('/').filter(Boolean);
+  const parts = rawPath.split('/');
+  let cut = 1;
+  let matched = 0;
+  while (matched < baseSegments.length) {
+    if (cut >= parts.length) return null;
+    const part = parts[cut] ?? '';
+    cut += 1;
+    if (part === '') continue;
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(part);
+    } catch {
+      return null;
+    }
+    if (decoded.includes('/') || decoded.includes('\\')) return null;
+    if (decoded.toLowerCase() !== baseSegments[matched]) return null;
+    matched += 1;
   }
-
-  const basePath = routePath.slice(0, -2); // Remove "/*"
-  const remainder = path.slice(basePath.length);
-
-  return remainder || '/';
+  return `/${parts.slice(cut).join('/')}`;
 }

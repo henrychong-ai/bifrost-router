@@ -6,10 +6,214 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.37.2 (2026-10-06) — Bounded backup inflation; linear preview parsing; one outbound host policy; own-domain previews
+
+**Why:** hardening of the backup verifier and the link-preview endpoint. The
+v1.37.1 bomb bound rested on workerd's event-loop ordering, and an archive
+with no newline was rescanned on every chunk. Meta-tag parsing backtracked:
+about 52 KB of unclosed tags took tens of seconds. The preview fetcher and the proxy
+validator kept two different, narrower block lists. Previews of links on the
+Worker's own domains always failed, because a Worker cannot fetch a host it
+serves through the public edge. A proxy wildcard path could climb out of its
+target's base path, and a redirect's `preservePath` could cut into the path it
+appended. No D1 migration.
+
+**Route writes are bounded.** Field caps: `target` at most 8,192 characters,
+`hostHeader` 253, `cacheControl` 256 (also `maxLength` in the OpenAPI inputs
+and the MCP catalogue); the server enforces them, and the dashboard shows its
+400 message. Record limits: the whole stored
+record 64 KiB, and the route key `{domain}:{path}` 512 UTF-8 bytes (KV's own
+limit). What each KV writer checks, on the exact record it stores:
+- create and seed: every field cap, the record size and the key;
+- update: the caps of the fields in its patch only, and the merged record's
+  size and key, so a stored route already over a cap can still be toggled or
+  edited elsewhere (the record's new `updatedAt` counts towards its size); a
+  patch that only sets `enabled` skips the size check, so an oversized legacy
+  route can always be disabled;
+- migrate and transfer: the key and the record size;
+- normalize-case: the key and the record size, reporting each refused record
+  in its `errors` list while still answering 200.
+
+A refusal is a 400 with a fixed message (`Route path is too long for this
+domain`, `Route record is too large`, or the field's cap) and writes nothing.
+Stored routes are not rewritten, and the route response schema
+(`RouteSchema`) carries none of the write caps, so a stored route over one
+still reads back. A route update answers 404 for a missing route before it
+validates the patch. A seed batch is checked whole before anything is
+written, a refusal names the offending `path`, and entries that normalise to
+a key already in the batch are skipped, the first winning.
+
+**Proxy routes:** a stored proxy target on a host the new policy refuses (an
+IPv6 address outside global unicast, `100.64.0.0/10`, a documentation or
+benchmarking range, a `.local`, `.internal` or `.localhost` name, a numeric
+host that is not a canonical IPv4 address) now answers 502
+`validation_error`. Check your proxy routes before deploying.
+
+### Backups
+
+- **The inflater bounds a decompression bomb itself.** Verification now
+  inflates with pako (pinned exactly at 3.0.2) instead of the runtime's
+  `DecompressionStream` and its paced 4 KiB pump. pako calls an output
+  callback for every 16 KiB of output, inside `push`, and the inflated cap
+  throws from that callback, so a small high-ratio archive delivered as one
+  chunk stops within 16 KiB of the 16 MiB cap; the bound no longer depends on
+  timer ordering. `INFLATE_SLICE_BYTES` is gone. Each chunk is pushed with a
+  sync flush, so its records are checked before the next read is awaited.
+  pako costs more CPU than the native inflater, so a very large archive may
+  pass the CPU limit of the free Workers plan on a health call.
+- **One gzip member, still.** A chunk that arrives after the member has ended
+  is refused, and a tail inside the member's last chunk shows as fewer
+  compressed bytes consumed (pako's `total_in`) than arrived; both are
+  `Backup content verification failed`, as before, in any chunking. If a pako
+  upgrade stops exposing that count, verification fails with the new fixed
+  message `Backup verification cannot count compressed bytes (pako internals
+  changed)` rather than passing unchecked.
+- **Linear line splitting with a 1 MiB line cap.** Lines are split by
+  searching only the newly inflated output, never the pending line again, and
+  one record line is capped at `MAX_RECORD_LINE_BYTES` (1 MiB of UTF-8, counted
+  in bytes). A longer line fails as `Backup content verification failed`, so a
+  16 MiB archive with no newline is refused in milliseconds and never held
+  whole. A line that crosses output chunks is held in one contiguous buffer
+  that grows geometrically to the cap, so input delivered a byte at a time
+  costs a dozen reallocations, not one retained piece per chunk.
+- **Oversized records fail explicitly, before the write.** `backupKV` refuses
+  a record whose line passes the cap with the new fixed message `Backup record
+  exceeds the line limit (MAX_RECORD_LINE_BYTES)`, before any gzip, logged by
+  prefix and listing index and never by key. Every API write is now checked
+  as stored far below the line limit (route records at 64 KiB, QR records at
+  192 KiB, with a QR's linked route path held to the route path rules and the
+  512-byte key limit; a 2 MiB linked path used to be accepted), so only a
+  record written before these caps or straight to KV can hit it.
+- **Read failures stay read failures.** The source is cancelled only after the
+  last read, so verification's own cancel can never turn a size, count or
+  content failure into `Backup archive could not be read`.
+
+### Link previews
+
+- **Meta tags and the title are parsed in linear time.** One pass reads every
+  tag in the page with HTML's attribute tokenizer states (a quote opens a
+  value only after `=`), collecting attributes up to 16 KiB per tag; a longer
+  tag is skipped whole to its real end. Comments (ended as HTML ends them:
+  `<!-->` and `<!--->` at once, otherwise at `-->` or `--!>`), `<!…>` and `<?…>` are
+  skipped; the content of `script` (with its escaped states), `style`, `xmp`,
+  `iframe`, `noembed`, `noframes` and `noscript` is raw text, and that of
+  `title` and `textarea` RCDATA, so no meta tag inside any of them, or inside
+  another tag's attribute value, is read. Tag names end only at ASCII
+  whitespace, `/` or `>`, so `<meta` followed by a non-breaking space is not a
+  meta tag. 1 MB of adversarial markup parses in well under a second. The
+  outputs and the entity decoder are unchanged, with four corrections: a
+  value keeps an apostrophe inside double quotes (and the other way round), an
+  unquoted value is read, `<metadata>` is no longer taken for a meta tag, and
+  title text runs to `</title>` as RCDATA (`<title>a <b> c</title>` gives
+  `a <b> c`); a `<title>` that is never closed gives no title (a `</title`
+  with nothing after it is text, not an end tag). The script data states
+  follow the HTML specification, and a differential run of 900,000 generated
+  pages against a spec-conforming parser found no metadata it would not
+  produce. A
+  `property` match still wins over a `name` match, now the first in document
+  order whatever the attribute order.
+- **`og:image` and `og:url` must pass the host policy.** An image or canonical
+  URL on a loopback, private, link-local, metadata or other refused host is
+  dropped (`og:url` falls back to the fetched page), as a non-http(s) one
+  already was. Because the operator's browser loads them, they also refuse a
+  single-label name and the private-network suffixes `.ts.net`, `.lan`,
+  `.home.arpa`, `.corp`, `.home`, `.intranet`, `.private` and `.localdomain`.
+  Hostnames are not resolved, so a public wildcard-DNS name that answers with
+  a private address (`*.nip.io`, `*.sslip.io`) is not caught.
+- **Own-domain links are resolved in process.** A preview hop on a supported
+  domain or on the admin host (`ADMIN_API_DOMAIN`, so a development deployment
+  previews its own links) is answered from the same KV routes and service
+  bindings the router uses, as the router would answer a visitor: a redirect
+  route as a 3xx to the handler's destination (followed under the same
+  five-hop cap; a `tel:` or `mailto:` destination gives the minimal result); a
+  proxy route as its upstream, fetched hop by hop with each upstream redirect
+  checked as a proxy target, reported under the public URL (never the
+  upstream page's own `og:url`), with no error naming the upstream (the
+  page's own `og:image` may still be an absolute upstream URL) (an
+  upstream on one of our own hosts, a refused hop or passing the cap gives the
+  minimal result); no route, or a disabled one, through the host's service
+  binding if it has one, else 404. An r2 route, a path the Worker answers
+  itself (`/health`, `/.well-known/security.txt`, `/api` and `/api/*`), or a
+  URL with userinfo gives the minimal result. A trailing-dot host is resolved
+  with its dot, as the router sees it, and a non-default port is fetched. The host policy, the per-hop 5 s timeout and the 1 MB body cap apply
+  to every hop, in process or fetched. Only Worker-level behaviour is
+  reproduced: edge rules, Access and zone redirects in front of the Worker are
+  not applied. A parity test holds the Worker-answered paths to `src/index.ts`
+  and the running Worker. The path is derived without building a `Request`,
+  and an unexpected resolver failure is a bare `HTTP 502`, so no error text
+  reaches the response. Previews record no analytics. Other hosts are fetched
+  as before.
+
+### Proxy and redirects
+
+- **Wildcard paths stay under the target.** The remainder appended to a
+  wildcard proxy target came from the router's decoded path, so `%5c` became
+  `\`, which the URL parser reads as `/`, and `/docs/..%5c..%5cadmin`
+  reached a path outside the target's base. The proxy now judges each raw
+  remainder segment by its decoded text and every variant an upstream may
+  derive from it by NFKC normalisation, by dropping ignorable code points
+  (U+1806, which StringPrep maps to nothing, included) and by stripping
+  combining marks, and forwards the visitor's raw segment byte for byte when it
+  passes, so `;jsessionid`, `+`, `%40` and `[ ] |` reach the upstream as
+  before. It answers 404, fetching nothing, for a segment that does not
+  decode, or where any variant holds a `/` or `\` (fullwidth and division-slash
+  look-alikes included), a C0
+  or C1 control character or a `%hh`/`%u` that a second decode would act on,
+  or has a core before any `;`, `?`, `#` or `:` that is empty or only dots, spaces,
+  `+`, Unicode White_Space, combining marks or ignorable code points (`..;x`,
+  `...`, `‥`, `..%C2%85`); for a remainder that starts with
+  an empty segment; for a path the URL setter would change; and for a result
+  outside the target's path. The query string passes through unchanged.
+  **Legitimate inputs that now 404:** a bare `%` (`100%.pdf`), a literal `%`
+  before two hex characters (`50%25de.pdf`), Latin-1 bytes (`caf%E9`), an
+  encoded `/` (`@scope%2fpkg`), a parameter-only segment (`;jsessionid=X`), a
+  segment of only dots, spaces, `+`, Unicode whitespace (U+0085 NEL, U+00A0,
+  U+2028), combining marks or ignorable code points (`..%CC%81`), a C1 control
+  character, an escape split by an ignorable code point (`%25%E2%80%8B2e`), a
+  segment starting with `:` or a dot name followed by `:` (`..::$INDEX_ALLOCATION`),
+  a division-slash look-alike (`a%E2%88%95b`), and a leading empty segment
+  (`/docs//x`).
+  `/docs/100%25.pdf` and `/docs/50%25off` still forward. **Accepted
+  residuals:** best-fit code-page mappings outside NFKC (for example `¥` or
+  `₩` read as `\` by a CP932 or CP949 IIS upstream), and upstreams that decode the whole request
+  target before splitting it. A property test models sixteen upstream
+  behaviours and checks that no forwarded path leaves the target's path.
+- **One raw-remainder helper.** `rawWildcardRemainder` aligns the raw path
+  with the route's base segment by segment, for the redirect's `preservePath`,
+  the proxy and own-host previews. Slicing the raw path by the normalised
+  base's length sent `//blog/post` to `…/xg/post` and `/%62log/post` to
+  `/xog/post`; both now reach `…/post`. A raw base segment that decodes to a
+  separator (`/docs%2Fv1/page` matched against `/docs/v1/*`) is 404.
+- **Known limitation: proxy redirects.** The proxy handler follows upstream
+  redirects with the runtime's `fetch`, so a redirect hop is not checked
+  against the host policy, and with the
+  `retain_authorization_on_cross_origin_redirect` compatibility flag visitor
+  request headers, `Authorization` included, can reach a redirect target on
+  another origin.
+- **Long request paths are a 404, not a 500.** KV refuses a key over 512 bytes
+  even on read, so route lookups no longer ask for one.
+- **A refused path records no analytics.** A preservePath or proxy request
+  whose path the route refuses is a 404 decided before dispatch: no click or
+  proxy row is recorded, and its unified traffic event is `not_found`.
+
+### Security
+
+- **One outbound host policy** (`src/utils/host-policy.ts`) for the preview
+  fetcher (every hop) and the proxy target check: names (one trailing dot
+  stripped, empty labels and non-canonical numeric hosts refused, `localhost`,
+  `*.localhost`, `*.internal`, `*.local` and internal metadata names refused),
+  a numeric IPv4 block list of every non-public range, and an IPv6 allow-list
+  of global unicast `2000::/3` minus Teredo, documentation, benchmarking,
+  ORCHID and 6to4. Hostnames are not resolved.
+- **Dependency audit:** `pnpm audit` reports no known vulnerabilities, with
+  pako added.
+
+---
+
 ## v1.37.1 (2026-10-06) — Failed backups fail loudly; health survives R2 errors; security headers on every dashboard path
 
-**Why:** follow-ups to v1.37.0, from its own follow-up list and from review of
-its backup, health and dashboard changes. A failed nightly backup was only
+**Why:** follow-ups to v1.37.0, from its own follow-up list and from a second
+look at its backup, health and dashboard changes. A failed nightly backup was only
 logged, so the cron invocation still counted as a success and no failure alert
 could see it. Backup health answered 500 when R2 failed a listing or a HEAD,
 instead of the 200 critical report the endpoint promises. The dashboard's nginx
@@ -696,7 +900,7 @@ into its JavaScript bundle, which is served with no credential check.
   the sentence is the part a human or an MCP caller needs. Bodies without
   `message` are byte-identical to before.
 
-### Also in this release (review round)
+### Also in this release
 
 - **Two upstream hotfix shapes, ported before this release shipped.** A `;`
   inside a parameter NAME (`?access_token;v=LIVE`) or inside the VALUE after a
@@ -1475,7 +1679,7 @@ File comments (readable via object list/meta responses) are now writable via MCP
 - **Sidebar Resources group** (User Guide → MCP → Changelog, order pinned by test) via a new `layout/nav-items.ts` module; Cmd+K palette gains QR Codes / User Guide / MCP entries; contextual `?` help icons deep-link into guide sections.
 - **Changelog release dates**: version headers now carry dates rendered on the Changelog page; all undated historical headers were backfilled from git history (80/80 dated).
 
-**Review round (codex GPT-5.6 + code review + security review, converged in 1 iteration):** security CLEAN (auth-chain inheritance, SVG injection surfaces, KV keying, audit redaction all verified). Applied in-loop: `backupKV` now includes `qr:{domain}:` keys (QR records were silently absent from daily backups) + regression test; MCP tab snippets corrected to `EDGE_ROUTER_API_KEY` (the variable the stdio server actually reads); the Routes-row "QR Code" action (preview/downloads + Save-as-QR route linking with dedup guard) added so the dynamic-QR workflow is reachable from the dashboard; `@vitest/coverage-v8` realigned to the vitest-3 root graph (admin carries its own v4 pin); mcp/README tool tables completed + catalog count pins in tests; guide prose corrected; deep sanitisation pass on fixtures/comments (generic names, example-family domains); 9 QR route integration tests added. **Known considerations (deferred):** admin API errors are plain-text `HTTPException` responses repo-wide (the dashboard shows a generic message rather than the server detail); stored-QR dashboard previews always encode the short URL (the Worker's image endpoint additionally falls back to the stored payload if a linked route was deleted); MCP `clearLinkedRoute` expects a real boolean.
+**Also in this release:** `backupKV` now includes `qr:{domain}:` keys (QR records were silently absent from daily backups) + regression test; MCP tab snippets corrected to `EDGE_ROUTER_API_KEY` (the variable the stdio server actually reads); the Routes-row "QR Code" action (preview/downloads + Save-as-QR route linking with dedup guard) added so the dynamic-QR workflow is reachable from the dashboard; `@vitest/coverage-v8` realigned to the vitest-3 root graph (admin carries its own v4 pin); mcp/README tool tables completed + catalog count pins in tests; guide prose corrected; deep sanitisation pass on fixtures/comments (generic names, example-family domains); 9 QR route integration tests added. **Known considerations:** admin API errors are plain-text `HTTPException` responses repo-wide (the dashboard shows a generic message rather than the server detail); stored-QR dashboard previews always encode the short URL (the Worker's image endpoint additionally falls back to the stored payload if a linked route was deleted); MCP `clearLinkedRoute` expects a real boolean.
 
 ### Internals & chores
 
@@ -1490,7 +1694,7 @@ File comments (readable via object list/meta responses) are now writable via MCP
 
 ## v1.28.0 (2026-06-10) — External R2 operations audit capture (optional, ships dormant)
 
-Closes the audit blind spot for self-hosters who want it: R2 operations made **outside Bifrost** (Cloudflare dashboard, Wrangler, direct S3/REST API keys) can now land in the same `audit_logs` table and dashboard audit page, labelled by a new `source` column (`bifrost` | `r2_event` | `cf_audit`). Ported from hardened upstream releases (multi-reviewer synthesis + live verification upstream).
+Closes the audit blind spot for self-hosters who want it: R2 operations made **outside Bifrost** (Cloudflare dashboard, Wrangler, direct S3/REST API keys) can now land in the same `audit_logs` table and dashboard audit page, labelled by a new `source` column (`bifrost` | `r2_event` | `cf_audit`). Ported from hardened upstream releases.
 
 - **[feature] Layer 1 — R2 event consumer** (`src/queue/r2-events.ts`, `queue()` export): R2 event notifications → Cloudflare Queue (60s delivery delay) → consumer with exact structured correlation dedup (events explained by Bifrost's own audit rows are dropped — never substring matching; one create + one delete slot per row via `r2_event_correlations`), at-least-once idempotency via `r2_event_seen` fingerprints written in the same atomic D1 batch, and STRICT inserts (failure → retry → DLQ, never ack-and-lose). Backup-cron writes system-attributed; feedback-bucket writes always recorded with pipeline attribution. **Requires Workers Paid (Queues).**
 - **[feature] Layer 2 — CF account audit-log poller** (`src/audit/cf-audit-poll.ts`, new `*/30 * * * *` cron): records R2/queue-scoped control-plane changes **with the real Cloudflare actor** — and tamper-protects Layer 1 (rule deletion is itself captured). Watermark cursor with 60s overlap re-query + exact `json_extract` idempotency. **Works on the free plan.**
@@ -1550,7 +1754,7 @@ Behaviour-preserving cleanup of `admin/src/index.css`: the duplicated Maple Mono
 Defense-in-depth follow-up to v1.26.1 (no functional change to valid flows). `pnpm run check` green.
 
 - `feedback-dialog.tsx`: both attachment paths (auto screenshot + file picker) now route through a `makeAttachment()` helper that validates the blob MIME type against the accepted-image set and asserts the `URL.createObjectURL()` result uses the `blob:` scheme before storing it.
-- Belt-and-braces for the CodeQL `js/xss-through-dom` alert, which was dismissed as a false positive after a GPT-5.5 data-flow review (`a.url` is always an opaque local `blob:` URL used only as an `<img src>`, never interpreted as HTML).
+- Belt-and-braces for the CodeQL `js/xss-through-dom` alert, which was dismissed as a false positive after a data-flow review (`a.url` is always an opaque local `blob:` URL used only as an `<img src>`, never interpreted as HTML).
 
 ## v1.26.1 (2026-06-01) — Dependency maintenance + security patches
 
@@ -1797,7 +2001,7 @@ CSS + className changes only; no logic or component-behaviour changes. Existing 
 > v1.22.9 adds a tested `safeServiceFetch` helper around the service-binding
 > fallback (skipping v1.22.8 since the inline-wrap → helper-extraction
 > happened in lockstep upstream), v1.22.10 corrects the failure status
-> code from 404 to 503 per Codex review.
+> code from 404 to 503.
 
 ## v1.22.10 (2026-05-07)
 

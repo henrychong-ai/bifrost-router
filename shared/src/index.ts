@@ -91,6 +91,7 @@ export {
   // MCP tool input schemas
   ListQrsInputSchema,
   MAX_QR_PAYLOAD_LENGTH,
+  MAX_QR_RECORD_BYTES,
   normalizeQrId,
   normalizeQrIdInput,
   QR_DESCRIPTION_MAX_LENGTH,
@@ -190,6 +191,12 @@ export {
   type ListRoutesInput,
   // MCP Tool input schemas
   ListRoutesInputSchema,
+  MAX_CACHE_CONTROL_LENGTH,
+  MAX_HOST_HEADER_LENGTH,
+  MAX_ROUTE_KEY_BYTES,
+  MAX_ROUTE_RECORD_BYTES,
+  MAX_ROUTE_TARGET_LENGTH,
+  normalizeRoutePath,
   OptionalDomainSchema,
   type R2DeleteObjectInput,
   R2DeleteObjectInputSchema,
@@ -211,6 +218,8 @@ export {
   R2UploadInputSchema,
   RedirectStatusCodeSchema,
   RequiredDomainSchema,
+  RouteCacheControlSchema,
+  RouteHostHeaderSchema,
   RoutePathSchema,
   RouteSchema,
   type RoutesListQuery,
@@ -219,6 +228,7 @@ export {
   RouteTargetSchema,
   // Route schemas
   RouteTypeSchema,
+  routeKeyBytes,
   SlugStatsQuerySchema,
   type ToggleRouteInput,
   ToggleRouteInputSchema,

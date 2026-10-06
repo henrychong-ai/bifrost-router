@@ -183,9 +183,66 @@ export const RoutePathSchema = z
     message: 'Route path must not contain ? or #, or a double-encoded %',
   });
 
+/**
+ * Write-time size limits for a route record (v1.37.2). A route record is one
+ * line of the nightly backup archive, whose verifier refuses a line over
+ * 1 MiB, so every variable-length field is bounded and the whole serialised
+ * record is capped far below that line limit. The field caps apply to the
+ * fields being WRITTEN (an update checks only its patch), so a stored record
+ * already over one is still served, toggled and edited elsewhere.
+ */
+/** Longest route target, in characters. Far above any real URL or R2 key. */
+export const MAX_ROUTE_TARGET_LENGTH = 8192;
+/** Longest Host header override: the DNS name limit. */
+export const MAX_HOST_HEADER_LENGTH = 253;
+/** Longest Cache-Control override. */
+export const MAX_CACHE_CONTROL_LENGTH = 256;
+/** Largest serialised route record (UTF-8 bytes) on create, update and seed. */
+export const MAX_ROUTE_RECORD_BYTES = 64 * 1024;
+/** Largest route KV key, `{domain}:{path}`, in UTF-8 bytes: KV's own key limit. */
+export const MAX_ROUTE_KEY_BYTES = 512;
+
+/**
+ * A route path in the form route keys use: query and fragment removed, then
+ * percent-decoded (kept as is when malformed), runs of `/` collapsed, a
+ * leading `/` ensured, a trailing `/` removed (except for the root), and
+ * lower-cased. The Worker's `normalizePath` (src/kv/lookup.ts) is this
+ * function, so a key measured here is the key KV is asked for.
+ */
+export function normalizeRoutePath(path: string): string {
+  let normalized = path.split('?')[0]?.split('#')[0] ?? '';
+  try {
+    normalized = decodeURIComponent(normalized);
+  } catch {
+    // Keep the original if decoding fails (malformed encoding)
+  }
+  normalized = normalized.replace(/\/+/g, '/');
+  if (!normalized.startsWith('/')) normalized = `/${normalized}`;
+  if (normalized.length > 1 && normalized.endsWith('/')) normalized = normalized.slice(0, -1);
+  return normalized.toLowerCase();
+}
+
+/** The UTF-8 length of the route key `{domain}:{path}`, path normalised as lookups do. */
+export function routeKeyBytes(domain: string, path: string): number {
+  return new TextEncoder().encode(`${domain}:${normalizeRoutePath(path)}`).byteLength;
+}
+
+/** A Host header override on write. */
+export const RouteHostHeaderSchema = z.string().max(MAX_HOST_HEADER_LENGTH, {
+  message: `Host header must be at most ${MAX_HOST_HEADER_LENGTH} characters`,
+});
+
+/** A Cache-Control override on write. */
+export const RouteCacheControlSchema = z.string().max(MAX_CACHE_CONTROL_LENGTH, {
+  message: `Cache-Control must be at most ${MAX_CACHE_CONTROL_LENGTH} characters`,
+});
+
 export const RouteTargetSchema = z
   .string()
   .min(1)
+  .max(MAX_ROUTE_TARGET_LENGTH, {
+    message: `Target must be at most ${MAX_ROUTE_TARGET_LENGTH} characters`,
+  })
   .refine(value => !hasControlCharacter(value), {
     message: 'Target must not contain control characters',
   });
@@ -224,12 +281,16 @@ export const AcknowledgeCredentialTargetToolSchema = mcpBoolean()
   .describe(ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION);
 
 /**
- * Full route configuration schema (from API response)
+ * Full route configuration schema (from API response).
+ *
+ * ⚠️ A RESPONSE schema: it describes what is STORED, so it carries none of
+ * the write rules (v1.37.2). A route stored before a cap, or with a legacy
+ * path, must still read back; the write schemas below carry the caps.
  */
 export const RouteSchema = z.object({
-  path: RoutePathSchema.describe('URL path pattern (e.g., "/github", "/blog/*")'),
+  path: z.string().min(1).describe('URL path pattern (e.g., "/github", "/blog/*")'),
   type: RouteTypeSchema.describe('Route handler type'),
-  target: RouteTargetSchema.describe('Target URL or R2 object key'),
+  target: z.string().describe('Target URL or R2 object key'),
   statusCode: RedirectStatusCodeSchema.optional().describe('HTTP redirect status code'),
   preserveQuery: z.boolean().optional().default(true).describe('Preserve query params on redirect'),
   preservePath: z.boolean().optional().default(false).describe('Preserve path for wildcard routes'),
@@ -258,8 +319,8 @@ export const CreateRouteInputSchema = z.object({
   statusCode: RedirectStatusCodeSchema.optional().describe('HTTP status code (301, 302, 307, 308)'),
   preserveQuery: z.boolean().optional().default(true).describe('Preserve query params on redirect'),
   preservePath: z.boolean().optional().default(false).describe('Preserve path for wildcard routes'),
-  cacheControl: z.string().optional().describe('Cache-Control header value'),
-  hostHeader: z.string().optional().describe('Override Host header for proxy requests'),
+  cacheControl: RouteCacheControlSchema.optional().describe('Cache-Control header value'),
+  hostHeader: RouteHostHeaderSchema.optional().describe('Override Host header for proxy requests'),
   forceDownload: z
     .boolean()
     .optional()
@@ -280,8 +341,8 @@ export const UpdateRouteInputSchema = z.object({
   statusCode: RedirectStatusCodeSchema.optional().describe('HTTP status code (301, 302, 307, 308)'),
   preserveQuery: z.boolean().optional().describe('Preserve query params on redirect'),
   preservePath: z.boolean().optional().describe('Preserve path for wildcard routes'),
-  cacheControl: z.string().optional().describe('Cache-Control header value'),
-  hostHeader: z.string().optional().describe('Override Host header for proxy requests'),
+  cacheControl: RouteCacheControlSchema.optional().describe('Cache-Control header value'),
+  hostHeader: RouteHostHeaderSchema.optional().describe('Override Host header for proxy requests'),
   forceDownload: z
     .boolean()
     .optional()
@@ -366,8 +427,8 @@ export const CreateRouteToolInputSchema = z.object({
   statusCode: z.number().optional().describe('HTTP status (301/302/307/308) for redirects'),
   preserveQuery: z.boolean().optional().default(true).describe('Preserve query params on redirect'),
   preservePath: z.boolean().optional().default(false).describe('Preserve path for wildcard routes'),
-  cacheControl: z.string().optional().describe('Cache-Control header'),
-  hostHeader: z.string().optional().describe('Override Host header for proxy requests'),
+  cacheControl: RouteCacheControlSchema.optional().describe('Cache-Control header'),
+  hostHeader: RouteHostHeaderSchema.optional().describe('Override Host header for proxy requests'),
   forceDownload: z
     .boolean()
     .optional()
@@ -390,8 +451,10 @@ export const UpdateRouteToolInputSchema = z.object({
   statusCode: z.number().optional().describe('New HTTP status code'),
   preserveQuery: z.boolean().optional().describe('New preserve query setting'),
   preservePath: z.boolean().optional().describe('New preserve path setting'),
-  cacheControl: z.string().optional().describe('New Cache-Control header'),
-  hostHeader: z.string().optional().describe('New Host header override for proxy routes'),
+  cacheControl: RouteCacheControlSchema.optional().describe('New Cache-Control header'),
+  hostHeader: RouteHostHeaderSchema.optional().describe(
+    'New Host header override for proxy routes',
+  ),
   forceDownload: z.boolean().optional().describe('New force download setting (R2 only)'),
   bucket: R2BucketSchema.optional().describe('R2 bucket for file serving (R2 only)'),
   domain: RequiredDomainSchema,

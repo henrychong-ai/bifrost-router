@@ -6,6 +6,7 @@ import {
   BackupIntegrityError,
   BackupListingError,
   MAX_BACKUP_BYTES,
+  MAX_RECORD_LINE_BYTES,
   verifyArchiveBytes,
 } from './integrity';
 import type { KVBackupResult } from './types';
@@ -117,7 +118,16 @@ export async function backupKV(
             if (seenKeys.has(name)) throw new BackupIntegrityError(BACKUP_ERRORS.duplicateKey);
             seenKeys.add(name);
             const line = JSON.stringify({ key: name, value });
-            ndjsonBytes += encoder.encode(line).byteLength + 1;
+            const lineBytes = encoder.encode(line).byteLength;
+            // A line verification would refuse fails here, explicitly and
+            // before any gzip (v1.37.2), located like a malformed value
+            if (lineBytes > MAX_RECORD_LINE_BYTES) {
+              console.error(
+                `[Backup] ${BACKUP_ERRORS.recordTooLarge}: prefix ${prefix}, listing index ${index}`,
+              );
+              throw new BackupIntegrityError(BACKUP_ERRORS.recordTooLarge);
+            }
+            ndjsonBytes += lineBytes + 1;
             if (ndjsonBytes > maxBytes) throw new BackupIntegrityError(BACKUP_ERRORS.sizeLimit);
             lines.push(line);
           }

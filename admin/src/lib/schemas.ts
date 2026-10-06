@@ -8,6 +8,9 @@ import {
   QRCodeSchema,
   R2_BUCKETS,
   type R2BucketName,
+  RouteCacheControlSchema,
+  RouteHostHeaderSchema,
+  RouteTargetSchema,
   SUPPORTED_DOMAINS,
   type SupportedDomain,
 } from '@bifrost/shared';
@@ -66,15 +69,18 @@ export const RouteWithDomainSchema = RouteSchema.extend({
 });
 export type RouteWithDomain = z.infer<typeof RouteWithDomainSchema>;
 
+// The shared write schemas for the capped fields (v1.37.2). The dashboard
+// uses this schema for its types only; the server enforces the caps, and the
+// dashboard shows its refusal
 export const CreateRouteSchema = z.object({
   path: z.string().min(1).regex(/^\//, 'Path must start with /'),
   type: RouteTypeSchema,
-  target: z.string().min(1),
+  target: RouteTargetSchema,
   statusCode: RedirectStatusCodeSchema.optional(),
   preserveQuery: z.boolean().optional(),
   preservePath: z.boolean().optional(),
-  cacheControl: z.string().optional(),
-  hostHeader: z.string().optional(),
+  cacheControl: RouteCacheControlSchema.optional(),
+  hostHeader: RouteHostHeaderSchema.optional(),
   forceDownload: z.boolean().optional(),
   bucket: R2BucketSchema.optional(),
   enabled: z.boolean().optional(),

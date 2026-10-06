@@ -232,8 +232,11 @@ describe('handleScheduled', () => {
       keys: await bucketKeys(),
     };
 
-    // A record that takes the serialised records past the 16 MiB cap
-    await env.ROUTES.put('links.example.com:/huge', JSON.stringify('a'.repeat(17 * 1024 * 1024)));
+    // Records that together take the serialised records past the 16 MiB cap,
+    // each under the 1 MiB record line limit
+    for (let i = 0; i < 17; i += 1) {
+      await env.ROUTES.put(`links.example.com:/huge${i}`, JSON.stringify('a'.repeat(1_000_000)));
+    }
     const calls: RecordedCall[] = [];
     const second = await handleScheduled({
       ...env,

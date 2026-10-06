@@ -1,8 +1,8 @@
 /**
  * Backup content verification.
- * The archive is inflated with the runtime's DecompressionStream, so these
- * cases also pin what workerd's gzip decoder refuses: a truncated stream, a
- * bad CRC-32 trailer, and any byte after the gzip member.
+ * The archive is inflated with pako chunk by chunk, so these cases also pin
+ * what the scanner refuses: a truncated stream, a bad CRC-32 trailer, and any
+ * byte after the gzip member.
  */
 
 import { env } from 'cloudflare:test';
@@ -13,9 +13,11 @@ import {
   BACKUP_ERRORS,
   BackupIntegrityError,
   BackupReadError,
-  INFLATE_SLICE_BYTES,
+  inflatedInputBytes,
   MAX_BACKUP_BYTES,
+  MAX_RECORD_LINE_BYTES,
   parseBackupManifest,
+  RecordLineBuffer,
   verifyArchiveBytes,
   verifyBackupArchive,
 } from '../../src/backup/integrity';
@@ -76,12 +78,11 @@ async function gzipBytes(text: string): Promise<Uint8Array> {
   return new Uint8Array(await gzipCompress(text));
 }
 
-// A real R2 body arrives over time, so the pump is usually waiting in
-// source.read() when verification stops, and cancelling a native stream
-// rejects that pending read ("Stream was cancelled."); a JS-constructed
-// stream resolves it instead, and Miniflare's local R2 delivers too fast to
-// show it. These bodies are workerd-native streams (IdentityTransformStream)
-// written chunk by chunk, `delayMs` apart.
+// A real R2 body arrives over time, and cancelling a native stream rejects a
+// pending read ("Stream was cancelled."); a JS-constructed stream resolves it
+// instead, and Miniflare's local R2 delivers too fast to show it. These bodies
+// are workerd-native streams (IdentityTransformStream) written chunk by chunk,
+// `delayMs` apart.
 function slowBucket(
   bytes: Uint8Array,
   opts: { size?: number; delayMs?: number; failAfter?: number },
@@ -115,10 +116,9 @@ function cancelledError(): Error {
 /**
  * A body whose reader hands out `chunks`, then waits; once cancelled, it
  * rejects the waiting read and every later one with "Stream was
- * cancelled.", as workerd does for its native streams. With no more data
- * coming, the pump is waiting in, or about to call, source.read() when
- * verification stops, which pins the race the timed streams above can only
- * sometimes hit.
+ * cancelled.", as workerd does for its native streams. Verification must
+ * cancel it exactly once, and its own cancel must never turn a size, count or
+ * content failure into a read failure.
  */
 function cancelRejectingBucket(
   chunks: Uint8Array[],
@@ -460,10 +460,10 @@ describe('verification before and after the write', () => {
 });
 
 // backupKV writes exactly one gzip member. Anything after it, junk or a second
-// member, is refused wherever the chunk boundaries fall (v1.37.1). The check is
-// workerd's: its DecompressionStream fails with "Trailing bytes after end of
-// compressed data" once a member has ended, and the verifier reports that, like
-// every decoder error, as the fixed content failure. These cases pin it.
+// member, is refused wherever the chunk boundaries fall (v1.37.1). The scanner
+// refuses any chunk that arrives once the member has ended, and compares the
+// bytes the member consumed with the bytes that arrived for a tail inside the
+// same chunk; either way the failure is the fixed content message.
 describe('one gzip member only (v1.37.1)', () => {
   const record = '{"key":"a","value":1}';
 
@@ -682,53 +682,70 @@ describe('archive read failures', () => {
   });
 });
 
-// v1.37.1: workerd inflates each written chunk in full before any of it is
-// read, so a small high-ratio archive delivered as one chunk could expand
-// far past the inflated cap before the cap was checked. The scanner writes at
-// most INFLATE_SLICE_BYTES at a time, and only once the previous slice's
-// output has been read.
-describe('decompression bomb', () => {
-  it('stops a one-chunk bomb at the inflated cap after a few slices', {
-    timeout: 30_000,
-  }, async () => {
-    // 64 MiB of zeros: about 64 KiB of gzip, four times the 16 MiB cap
-    let made = 0;
-    const zeros = new Uint8Array(1024 * 1024);
-    const source = new ReadableStream<Uint8Array>({
-      pull(controller) {
-        if (made++ < 64) controller.enqueue(zeros);
-        else controller.close();
-      },
-    });
-    const bomb = new Uint8Array(
-      await new Response(source.pipeThrough(new CompressionStream('gzip'))).arrayBuffer(),
-    );
-    const slices = Math.ceil(bomb.byteLength / INFLATE_SLICE_BYTES);
-    expect(bomb.byteLength).toBeLessThan(MAX_BACKUP_BYTES);
-    expect(slices).toBeGreaterThan(10);
+/** A gzip of `total` bytes repeating `unit`, compressed as a stream. */
+async function gzipRepeated(unit: Uint8Array, total: number): Promise<Uint8Array> {
+  let made = 0;
+  const source = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (made >= total) {
+        controller.close();
+        return;
+      }
+      const block = new Uint8Array(Math.min(1024 * 1024, total - made));
+      for (let at = 0; at < block.byteLength; at += unit.byteLength) block.set(unit, at);
+      made += block.byteLength;
+      controller.enqueue(block);
+    },
+  });
+  return new Uint8Array(
+    await new Response(source.pipeThrough(new CompressionStream('gzip'))).arrayBuffer(),
+  );
+}
 
-    const writes: number[] = [];
-    const write = WritableStreamDefaultWriter.prototype.write;
-    const spy = vi
-      .spyOn(WritableStreamDefaultWriter.prototype, 'write')
-      .mockImplementation(function (this: WritableStreamDefaultWriter, chunk?: unknown) {
-        writes.push(chunk instanceof Uint8Array ? chunk.byteLength : -1);
-        return write.call(this, chunk);
-      });
-    try {
-      // One chunk, as R2 might deliver a small object
-      await expect(verifyBackupArchive(chunkedBucket([bomb]), 'k', 1)).rejects.toMatchObject({
+/** Bytes handed to TextDecoder.decode while `run` runs. */
+async function decodedBytesDuring(run: () => Promise<unknown>): Promise<number[]> {
+  const sizes: number[] = [];
+  const decode = TextDecoder.prototype.decode;
+  const spy = vi.spyOn(TextDecoder.prototype, 'decode').mockImplementation(function (
+    this: TextDecoder,
+    input?: AllowSharedBufferSource,
+    options?,
+  ) {
+    sizes.push(input === undefined ? 0 : input.byteLength);
+    return decode.call(this, input, options);
+  });
+  try {
+    await run();
+  } finally {
+    spy.mockRestore();
+  }
+  return sizes;
+}
+
+// The inflated cap is enforced inside the inflater's output callback, which
+// pako calls for every 16 KiB of output and which throws mid-chunk: a small
+// high-ratio archive delivered as one chunk stops at the cap instead of
+// inflating in full first.
+describe('decompression bomb', () => {
+  it('stops a one-chunk bomb at the inflated cap', { timeout: 30_000 }, async () => {
+    // 64 MiB of blank lines: about 64 KiB of gzip, four times the 16 MiB cap.
+    // Blank lines are skipped, so only the inflated cap can stop it.
+    const unit = new TextEncoder().encode(`${' '.repeat(1023)}\n`);
+    const bomb = await gzipRepeated(unit, 64 * 1024 * 1024);
+    expect(bomb.byteLength).toBeLessThan(MAX_BACKUP_BYTES / 64);
+
+    const sizes = await decodedBytesDuring(() =>
+      expect(verifyBackupArchive(chunkedBucket([bomb]), 'k', 1)).rejects.toMatchObject({
         message: BACKUP_ERRORS.sizeLimit,
-      });
-    } finally {
-      spy.mockRestore();
-    }
-    // Every write is one slice at most, and the cap stopped the scan after a
-    // handful: 16 MiB at about 4 MiB a slice, not all of them
-    expect(writes.length).toBeGreaterThan(0);
-    expect(Math.max(...writes)).toBeLessThanOrEqual(INFLATE_SLICE_BYTES);
-    expect(writes.length).toBeLessThanOrEqual(6);
-    expect(writes.length).toBeLessThan(slices);
+      }),
+    );
+    // Every piece of output is at most one 16 KiB chunk, and no more than the
+    // cap was ever decoded: the rest of the 64 MiB was never inflated
+    expect(sizes.length).toBeGreaterThan(0);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(16 * 1024);
+    const decoded = sizes.reduce((sum, size) => sum + size, 0);
+    expect(decoded).toBeLessThanOrEqual(MAX_BACKUP_BYTES);
+    expect(decoded).toBeGreaterThan(MAX_BACKUP_BYTES - 16 * 1024);
   });
 
   it('still verifies an ordinary archive delivered as one large chunk', async () => {
@@ -736,53 +753,186 @@ describe('decompression bomb', () => {
       { length: 3000 },
       (_, i) => `{"key":"k${i}","value":"${'v'.repeat(i % 40)}"}`,
     );
-    const gzip = await gzipBytes(records.join('\n'));
-    expect(gzip.byteLength).toBeGreaterThan(INFLATE_SLICE_BYTES);
+    const text = records.join('\n');
+    // Many 16 KiB output chunks from one input chunk
+    expect(new TextEncoder().encode(text).byteLength).toBeGreaterThan(4 * 16 * 1024);
+    const gzip = await gzipBytes(text);
     expect(await verifyBackupArchive(chunkedBucket([gzip]), 'k', 3000)).toMatchObject({
       records: 3000,
     });
   });
 
-  // If the inflated stream ends while the pump still holds archive bytes, the
-  // pump must stop, not wait for a request that never comes, and the leftover
-  // bytes are trailing data.
-  it('rejects promptly when the inflater ends before all input is written', async () => {
-    const encoder = new TextEncoder();
-    class EarlyEndInflater {
-      readonly readable: ReadableStream<Uint8Array>;
-      readonly writable: WritableStream<Uint8Array>;
-      constructor() {
-        let output!: ReadableStreamDefaultController<Uint8Array>;
-        this.readable = new ReadableStream<Uint8Array>({
-          start(controller) {
-            output = controller;
-          },
-        });
-        let first = true;
-        this.writable = new WritableStream<Uint8Array>({
-          write() {
-            if (!first) return;
-            first = false;
-            // One valid record, then the end, after the first slice only
-            output.enqueue(encoder.encode('{"key":"a","value":1}\n'));
-            output.close();
-          },
-        });
-      }
+  it('fails with a fixed message when pako stops exposing its compressed byte count', () => {
+    for (const inflator of [
+      {},
+      { strm: {} },
+      { strm: { total_in: '12' } },
+      { strm: { total_in: Number.NaN } },
+      { strm: { total_in: Number.POSITIVE_INFINITY } },
+    ]) {
+      expect(() => inflatedInputBytes(inflator as never)).toThrow(
+        new BackupIntegrityError(BACKUP_ERRORS.inflaterUnsupported),
+      );
     }
-    vi.stubGlobal('DecompressionStream', EarlyEndInflater);
-    try {
-      const threeSlices = new Uint8Array(INFLATE_SLICE_BYTES * 3).fill(7);
-      const outcome = await Promise.race([
-        verifyBackupArchive(chunkedBucket([threeSlices]), 'k', 1).then(
-          () => 'resolved',
-          (error: unknown) => (error as Error).message,
-        ),
-        new Promise(resolve => setTimeout(() => resolve('hung'), 2000)),
-      ]);
+    expect(inflatedInputBytes({ strm: { total_in: 12 } } as never)).toBe(12);
+  });
+
+  it('cancels a body that streams past its declared size, at the compressed cap', async () => {
+    let cancelled = false;
+    let sent = 0;
+    // Incompressible records: valid gzip, far more than 100 bytes of it
+    const gzip = await gzipBytes(
+      Array.from(
+        { length: 400 },
+        (_, i) => `{"key":"k${i}","value":"${crypto.randomUUID()}"}`,
+      ).join('\n'),
+    );
+    expect(gzip.byteLength).toBeGreaterThan(1000);
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(gzip.slice(sent, sent + 16));
+        sent += 16;
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    // The object claims 10 bytes; the body keeps streaming past the 100-byte cap
+    const bucket = { get: async () => ({ size: 10, body }) } as unknown as R2Bucket;
+    await expect(verifyBackupArchive(bucket, 'k', 400, 100)).rejects.toMatchObject({
+      message: BACKUP_ERRORS.compressedSizeLimit,
+    });
+    expect(cancelled).toBe(true);
+    expect(sent).toBeLessThan(200);
+  });
+});
+
+/**
+ * A record line of exactly `bytes` UTF-8 bytes. {"key":"k","value":"…"} is 22
+ * bytes around the value; 'é' is two bytes, so a cap counted in characters
+ * would differ from one counted in bytes.
+ */
+function recordLineOf(bytes: number): string {
+  const doubles = Math.floor((bytes - 22) / 2);
+  const single = 'a'.repeat(bytes - 22 - doubles * 2);
+  const line = JSON.stringify({ key: 'k', value: `${single}${'é'.repeat(doubles)}` });
+  expect(new TextEncoder().encode(line).byteLength).toBe(bytes);
+  return line;
+}
+
+// The line split searches only newly inflated output, and one record line is
+// capped at MAX_RECORD_LINE_BYTES of UTF-8, so an archive with no newline is
+// neither rescanned on every chunk nor held whole.
+describe('record lines', () => {
+  it('rejects a 16 MiB archive of one newline-free line, quickly', {
+    timeout: 30_000,
+  }, async () => {
+    const line = await gzipRepeated(new TextEncoder().encode('a'), MAX_BACKUP_BYTES);
+    expect(line.byteLength).toBeLessThan(MAX_BACKUP_BYTES / 64);
+    let elapsed = 0;
+    const sizes = await decodedBytesDuring(async () => {
+      const started = performance.now();
+      const outcome = await verifyArchiveBytes(line, 1).then(
+        () => 'resolved',
+        (error: unknown) => (error as Error).message,
+      );
+      elapsed = performance.now() - started;
       expect(outcome).toBe(BACKUP_ERRORS.content);
-    } finally {
-      vi.unstubAllGlobals();
+    });
+    expect(elapsed).toBeLessThan(1000);
+    // Stopped at the line cap, long before the inflated cap
+    const decoded = sizes.reduce((sum, size) => sum + size, 0);
+    expect(decoded).toBeLessThanOrEqual(MAX_RECORD_LINE_BYTES);
+    expect(MAX_RECORD_LINE_BYTES).toBe(1024 * 1024);
+  });
+
+  it.each([
+    ['followed by another record', (long: string) => `${long}\n{"key":"b","value":1}`],
+    ['as the last line', (long: string) => `{"key":"b","value":1}\n${long}`],
+    ['before a trailing newline', (long: string) => `{"key":"b","value":1}\n${long}\n`],
+  ])(
+    'accepts a line of exactly the cap and refuses one byte more, %s',
+    {
+      timeout: 30_000,
+    },
+    async (_label, archiveOf) => {
+      const accepted = await gzipBytes(archiveOf(recordLineOf(MAX_RECORD_LINE_BYTES)));
+      expect(await verifyArchiveBytes(accepted, 2)).toMatchObject({ records: 2 });
+      const refused = await gzipBytes(archiveOf(recordLineOf(MAX_RECORD_LINE_BYTES + 1)));
+      await expect(verifyArchiveBytes(refused, 2)).rejects.toMatchObject({
+        message: BACKUP_ERRORS.content,
+      });
+    },
+  );
+
+  it('splits lines identically however the inflated output is chunked', async () => {
+    // Records of every length around a 16 KiB output chunk, multi-byte text
+    // included, so line ends fall at, before and after each chunk boundary
+    const records = Array.from({ length: 40 }, (_, i) =>
+      JSON.stringify({ key: `k${i}`, value: `${'é'.repeat(i * 37)}${'x'.repeat(8180 + i)}` }),
+    );
+    const text = records.join('\n');
+    const gzip = await gzipBytes(text);
+    for (const chunks of [[gzip], split(gzip, 7), split(gzip, 4096)]) {
+      expect(await verifyBackupArchive(chunkedBucket(chunks), 'k', 40)).toEqual({
+        records: 40,
+        inflatedBytes: new TextEncoder().encode(text).byteLength,
+        countSource: 'manifest',
+      });
     }
+  });
+
+  it('holds a line in one buffer that grows a few times, however finely it arrives', () => {
+    const buffer = new RecordLineBuffer();
+    const byte = new Uint8Array([0x61]);
+    for (let i = 0; i < MAX_RECORD_LINE_BYTES; i += 1) buffer.append(byte);
+    // 1 KiB doubling to 1 MiB: ten reallocations, not one piece per append
+    expect(buffer.growths).toBe(10);
+    expect(buffer.take().byteLength).toBe(MAX_RECORD_LINE_BYTES);
+    // Kept for the next line, so no further growth
+    buffer.append(new Uint8Array(MAX_RECORD_LINE_BYTES));
+    expect(buffer.growths).toBe(10);
+    expect(() => buffer.append(byte)).toThrow(new BackupIntegrityError(BACKUP_ERRORS.content));
+  });
+
+  it('verifies a near-cap record delivered one compressed byte at a time, in bounded memory', {
+    timeout: 30_000,
+  }, async () => {
+    const text = `${recordLineOf(MAX_RECORD_LINE_BYTES - 64)}\n{"key":"b","value":1}`;
+    const gzip = await gzipBytes(text);
+    const appends = vi.spyOn(RecordLineBuffer.prototype, 'append');
+    // grow is private; spied through its shape
+    const grows = vi.spyOn(
+      RecordLineBuffer.prototype as unknown as { grow(needed: number): void },
+      'grow',
+    );
+    try {
+      expect(await verifyBackupArchive(chunkedBucket(split(gzip, 1)), 'k', 2)).toMatchObject({
+        records: 2,
+        inflatedBytes: new TextEncoder().encode(text).byteLength,
+      });
+      // The line arrived in hundreds of pieces, all copied into one buffer
+      expect(appends.mock.calls.length).toBeGreaterThan(500);
+      expect(grows.mock.calls.length).toBeLessThanOrEqual(10);
+    } finally {
+      appends.mockRestore();
+      grows.mockRestore();
+    }
+  });
+
+  it('refuses a multi-byte character cut by a newline', async () => {
+    // 0xC3 starts a two-byte character; a newline cannot continue it, even
+    // when the byte after the newline would
+    const bytes = concat(
+      new TextEncoder().encode('{"key":"a","value":"'),
+      new Uint8Array([0xc3, 0x0a, 0xa9]),
+      new TextEncoder().encode('"}'),
+    );
+    const gzip = new Uint8Array(
+      await new Response(
+        new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip')),
+      ).arrayBuffer(),
+    );
+    await expect(verifyArchiveBytes(gzip, 1)).rejects.toThrow(BACKUP_ERRORS.content);
   });
 });

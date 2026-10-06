@@ -1,6 +1,11 @@
 import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BackupIntegrityError, BackupListingError } from '../../src/backup/integrity';
+import {
+  BACKUP_ERRORS,
+  BackupIntegrityError,
+  BackupListingError,
+  MAX_RECORD_LINE_BYTES,
+} from '../../src/backup/integrity';
 import { backupKV, KV_BULK_GET_MAX_KEYS } from '../../src/backup/kv';
 import { readBackupRecords } from './archive-records';
 
@@ -296,6 +301,39 @@ describe('backupKV', () => {
     expect((failure as Error).cause).toBeUndefined();
     expect(JSON.stringify(failure, Object.getOwnPropertyNames(failure))).not.toContain(secret);
     expect(await env.BACKUP_BUCKET.head('daily/20260115/kv-routes.ndjson.gz')).toBeNull();
+  });
+
+  // v1.37.2: a record the verifier would refuse as an over-long line fails
+  // before any gzip, with its own fixed message, located but never named.
+  it('refuses a record over the line limit with fixed text, before writing', async () => {
+    await env.ROUTES.put('links.example.com:/good', JSON.stringify({ target: 'x' }));
+    await env.ROUTES.put(
+      'links.example.com:/huge',
+      JSON.stringify({ target: `https://app.example/${'a'.repeat(MAX_RECORD_LINE_BYTES)}` }),
+    );
+
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const failure = await backupKV(env.ROUTES, env.BACKUP_BUCKET, '20260115').then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(BackupIntegrityError);
+    expect((failure as Error).message).toBe(BACKUP_ERRORS.recordTooLarge);
+    // `/good` sorts before `/huge`
+    expect(errorLog.mock.calls).toEqual([
+      [`[Backup] ${BACKUP_ERRORS.recordTooLarge}: prefix links.example.com:, listing index 1`],
+    ]);
+    expect(await env.BACKUP_BUCKET.head('daily/20260115/kv-routes.ndjson.gz')).toBeNull();
+  });
+
+  it('keeps a record just under the line limit', async () => {
+    // {"key":"links.example.com:/edge","value":{"target":"…"}} wraps the target
+    const key = 'links.example.com:/edge';
+    const wrapper = JSON.stringify({ key, value: { target: '' } }).length;
+    const target = 'a'.repeat(MAX_RECORD_LINE_BYTES - wrapper);
+    await env.ROUTES.put(key, JSON.stringify({ target }));
+    const result = await backupKV(env.ROUTES, env.BACKUP_BUCKET, '20260115');
+    expect(result.totalRoutes).toBe(1);
   });
 
   it('skips a stored JSON null like a key that vanished', async () => {

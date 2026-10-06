@@ -22,12 +22,19 @@ import {
   R2UpdateCommentInputSchema,
   RedirectStatusCodeSchema,
   RoutePathSchema,
+  RouteSchema,
   RouteTypeSchema,
   ToggleRouteInputSchema,
   UpdateRouteInputSchema,
   UpdateRouteToolInputSchema,
 } from './schemas.js';
 import { SUPPORTED_DOMAINS } from './types.js';
+
+const validRoute = () => ({
+  path: '/ok',
+  type: 'redirect',
+  target: 'https://app.example/landing',
+});
 
 const create = (overrides: Record<string, unknown>) =>
   CreateRouteToolInputSchema.safeParse({
@@ -218,6 +225,57 @@ describe('schemas', () => {
       expect(create({ target: 'https://app.example/?to\tken=LIVE' }).success).toBe(false);
       expect(create({ target: 'https://app.example/\nlanding' }).success).toBe(false);
       expect(create({ target: 'https://app.example/\u007flanding' }).success).toBe(false);
+    });
+
+    // v1.37.2: a cap at write time keeps every route record far below the
+    // backup's 1 MiB record line limit
+    it('caps a target at 8,192 characters, with a fixed message', () => {
+      const base = 'https://app.example/';
+      const at = (length: number) => `${base}${'a'.repeat(length - base.length)}`;
+      expect(create({ target: at(8192) }).success).toBe(true);
+      const over = create({ target: at(8193) });
+      expect(over.success).toBe(false);
+      expect(over.error?.issues.map(issue => issue.message)).toEqual([
+        'Target must be at most 8192 characters',
+      ]);
+      expect(UpdateRouteInputSchema.safeParse({ target: at(8193) }).success).toBe(false);
+    });
+
+    it('caps hostHeader at 253 and cacheControl at 256 characters, on every route write schema', () => {
+      for (const schema of [CreateRouteInputSchema, UpdateRouteInputSchema]) {
+        const base = schema === CreateRouteInputSchema ? validRoute() : {};
+        expect(schema.safeParse({ ...base, hostHeader: 'h'.repeat(253) }).success).toBe(true);
+        expect(schema.safeParse({ ...base, hostHeader: 'h'.repeat(254) }).success).toBe(false);
+        expect(schema.safeParse({ ...base, cacheControl: 'c'.repeat(256) }).success).toBe(true);
+        expect(schema.safeParse({ ...base, cacheControl: 'c'.repeat(257) }).success).toBe(false);
+      }
+      for (const schema of [CreateRouteToolInputSchema, UpdateRouteToolInputSchema]) {
+        const base = { ...validRoute(), domain: 'example.com' };
+        expect(schema.safeParse({ ...base, hostHeader: 'h'.repeat(254) }).success).toBe(false);
+        expect(schema.safeParse({ ...base, cacheControl: 'c'.repeat(257) }).success).toBe(false);
+      }
+    });
+  });
+
+  // v1.37.2: the response schema describes what is stored, so a route written
+  // before the caps, or with a legacy path, still reads back
+  describe('RouteSchema (response)', () => {
+    it('accepts a legacy stored route over every write cap', () => {
+      const legacy = {
+        path: '/p?x',
+        type: 'proxy',
+        target: `https://app.example/${'a'.repeat(20_000)}`,
+        hostHeader: 'h'.repeat(300),
+        cacheControl: 'c'.repeat(300),
+        createdAt: 1,
+        updatedAt: 2,
+      };
+      expect(RouteSchema.safeParse(legacy).success).toBe(true);
+      // The write schemas still refuse each of those fields
+      expect(CreateRouteInputSchema.safeParse(legacy).success).toBe(false);
+      for (const field of ['target', 'hostHeader', 'cacheControl'] as const) {
+        expect(UpdateRouteInputSchema.safeParse({ [field]: legacy[field] }).success).toBe(false);
+      }
     });
   });
 

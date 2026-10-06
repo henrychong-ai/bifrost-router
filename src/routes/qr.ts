@@ -89,7 +89,7 @@ async function requireQR(c: Context<AppEnv>, domain: string, id: string): Promis
 }
 
 /**
- * linkedRoute must live on the SAME domain as the QR (a review finding):
+ * linkedRoute must live on the SAME domain as the QR:
  * allowing a foreign domain would make the render-time fallback an
  * existence oracle for routes on other domains.
  */
@@ -107,7 +107,7 @@ function assertSameDomainLink(
 /** Enforce the serialized-payload budget (QR density limit). */
 function assertPayloadSize(type: QRCode['type'], payload: QRCode['payload']): string {
   const serialized = serializePayload(type, payload);
-  // Byte length, not char length (a review finding): QR capacity is
+  // Byte length, not char length: QR capacity is
   // byte-oriented, so multibyte payloads must count at their UTF-8 size.
   const bytes = new TextEncoder().encode(serialized).length;
   if (bytes > MAX_QR_PAYLOAD_LENGTH) {
@@ -409,7 +409,7 @@ qrRoutes.put('/:id', async c => {
 
   const updated = QRCodeSchema.parse({
     ...existing,
-    // Explicit '' clears the description (a review finding); undefined
+    // Explicit '' clears the description; undefined
     // preserves it.
     description:
       input.description !== undefined ? input.description || undefined : existing.description,

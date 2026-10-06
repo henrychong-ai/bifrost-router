@@ -14,6 +14,7 @@
  */
 
 import { z } from 'zod';
+import { MAX_ROUTE_KEY_BYTES, RoutePathSchema, routeKeyBytes } from './schemas.js';
 import { SUPPORTED_DOMAINS, SUPPORTED_DOMAINS_LIST } from './types.js';
 
 // ---------------------------------------------------------------------------
@@ -80,6 +81,13 @@ export const QR_TAG_MAX_LENGTH = 30;
 export const MAX_QR_PAYLOAD_LENGTH = 1024;
 /** Max decoded size of the embedded logo (100 KB). */
 export const QR_LOGO_MAX_BYTES = 102400;
+/**
+ * Largest serialised QR record (UTF-8 bytes) accepted on write (v1.37.2). A
+ * QR record is one line of the nightly backup, whose verifier refuses a line
+ * over 1 MiB; every field is capped, the logo dominating at about 134 KiB as a
+ * data URI, and the whole record is checked as stored.
+ */
+export const MAX_QR_RECORD_BYTES = 192 * 1024;
 
 // ---------------------------------------------------------------------------
 // Per-type payload schemas
@@ -92,7 +100,7 @@ export const QR_LOGO_MAX_BYTES = 102400;
 const URI_SCHEME_REGEX = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 
 /** `url` payload — any free-form scheme-bearing URI. */
-// All payload schemas are .strict() (a review fix): the QRPayloadSchema
+// All payload schemas are .strict(): the QRPayloadSchema
 // union is first-match-wins, and non-strict z.object STRIPS unknown keys — a
 // vcard payload whose website is a scheme-bearing `url` matched UrlPayloadSchema
 // first and silently lost name/phone/org. Strict members make a mismatched
@@ -336,6 +344,13 @@ export const QRLinkedRouteSchema = z.object({
  */
 export const QRLinkedRouteInputSchema = QRLinkedRouteSchema.extend({
   domain: z.enum(SUPPORTED_DOMAINS).describe('Domain of the linked route'),
+  // The route path rules, and the route key limit (v1.37.2): a linked path is
+  // a route path, and the record is a backup line
+  path: RoutePathSchema.describe('Path of the linked route'),
+}).refine(link => routeKeyBytes(link.domain, link.path) <= MAX_ROUTE_KEY_BYTES, {
+  // Measured on the key as lookups build it, after normalisation
+  message: 'Route path is too long for this domain',
+  path: ['path'],
 });
 
 const QRDescriptionSchema = z
@@ -427,7 +442,7 @@ export const UpdateQRInputSchema = z.object({
   type: QRTypeSchema.optional().describe('Must match the existing type (immutable)'),
   description: QRDescriptionSchema.optional(),
   tags: QRTagsSchema.optional(),
-  // Transport-loose (a review fix): the strict QRPayloadSchema union is
+  // Transport-loose: the strict QRPayloadSchema union is
   // FIRST-MATCH-WINS with key-stripping — a vcard payload whose website is a
   // scheme-bearing `url` matched UrlPayloadSchema first, lost name/phone/etc,
   // and then failed the handler's per-type revalidation, making such vcards

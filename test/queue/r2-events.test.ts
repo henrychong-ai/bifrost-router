@@ -2,8 +2,7 @@
  * Unit tests for the R2 event-notification audit consumer (v1.28.0).
  *
  * Layer 1 of the external R2 operations audit capture
- * (see README.md "External R2 operations audit capture"), hardened per a
- * review synthesis. Exercises:
+ * (see README.md "External R2 operations audit capture"). Exercises:
  *  - flag gate (R2_EVENT_AUDIT !== 'on' → ackAll, no rows)
  *  - external events recorded as source='r2_event' with the unattributed actor
  *  - event-level idempotency (redelivered fingerprint → no duplicate row, and

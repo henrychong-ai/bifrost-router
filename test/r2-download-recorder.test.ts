@@ -16,7 +16,7 @@ import {
  * End-to-end proof of the R2 serve path against a REAL R2 binding.
  *
  * Every other suite mocks `bucket.get`, which is exactly how the pre-release
- * `ETag: object.etag` bug survived review: the mocks quoted `etag` and
+ * `ETag: object.etag` bug went unnoticed: the mocks quoted `etag` and
  * `httpEtag` identically, so an invalid unquoted entity-tag looked correct and
  * the 500-on-revalidation it caused was invisible. Miniflare's R2 returns the
  * real shapes — raw `etag`, quoted `httpEtag`, genuine `R2Range` values — so

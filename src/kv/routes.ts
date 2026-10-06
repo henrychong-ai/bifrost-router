@@ -1,3 +1,10 @@
+import {
+  MAX_CACHE_CONTROL_LENGTH,
+  MAX_HOST_HEADER_LENGTH,
+  MAX_ROUTE_RECORD_BYTES,
+  MAX_ROUTE_TARGET_LENGTH,
+} from '@bifrost/shared';
+import { HTTPException } from 'hono/http-exception';
 import type { KVRouteConfig, RoutesMetadata, SupportedDomain } from '../types';
 import { SUPPORTED_DOMAINS } from '../types';
 import {
@@ -11,11 +18,126 @@ import { normalizePath } from './lookup';
 import {
   type CreateRouteInput,
   domainPrefix,
+  fitsKvKey,
   parseRouteKey,
   QR_KV_NAMESPACE,
   routeKey,
   SCHEMA_VERSION,
 } from './schema';
+
+/** The fixed refusals of a route write that would store too much (v1.37.2). */
+export const ROUTE_WRITE_REFUSALS = {
+  keyTooLong: 'Route path is too long for this domain',
+  recordTooLarge: 'Route record is too large',
+  target: `Target must be at most ${MAX_ROUTE_TARGET_LENGTH} characters`,
+  hostHeader: `Host header must be at most ${MAX_HOST_HEADER_LENGTH} characters`,
+  cacheControl: `Cache-Control must be at most ${MAX_CACHE_CONTROL_LENGTH} characters`,
+} as const;
+
+/**
+ * A route write refused before any KV write: a 400 whose JSON body,
+ * `{ success: false, error }`, carries one fixed {@link ROUTE_WRITE_REFUSALS}
+ * message, which the dashboard shows as it is (v1.37.2). A seed refusal also
+ * names the offending input path, as `path`.
+ */
+export class RouteWriteRefusedError extends HTTPException {
+  constructor(
+    readonly refusal: (typeof ROUTE_WRITE_REFUSALS)[keyof typeof ROUTE_WRITE_REFUSALS],
+    readonly path?: string,
+  ) {
+    super(400, {
+      message: refusal,
+      res: Response.json(
+        { success: false, error: refusal, ...(path === undefined ? {} : { path }) },
+        { status: 400 },
+      ),
+    });
+    this.name = 'RouteWriteRefusedError';
+  }
+}
+
+const utf8 = new TextEncoder();
+
+/**
+ * Refuse a route key over KV's 512-byte key limit (v1.37.2): the path field
+ * itself has no cap, so a long path, or a long domain, would otherwise reach
+ * KV and fail there as a 500.
+ */
+export function assertRouteKeyFits(key: string): void {
+  if (!fitsKvKey(key)) {
+    throw new RouteWriteRefusedError(ROUTE_WRITE_REFUSALS.keyTooLong);
+  }
+}
+
+/**
+ * The serialised form of the EXACT record about to be stored at `key`, after
+ * its key and its whole size are checked (v1.37.2): the guarantee every route
+ * writer runs immediately before its `kv.put`, on the record as stored (merged,
+ * path normalised, timestamps set), and the string it returns is what is
+ * written, so what was measured is what is stored. Throws
+ * {@link RouteWriteRefusedError} (a fixed 400) before anything is written.
+ */
+export function serializeStoredRoute(
+  key: string,
+  record: KVRouteConfig,
+  { checkSize = true }: { checkSize?: boolean } = {},
+): string {
+  assertRouteKeyFits(key);
+  const serialized = JSON.stringify(record);
+  if (checkSize && utf8.encode(serialized).byteLength > MAX_ROUTE_RECORD_BYTES) {
+    throw new RouteWriteRefusedError(ROUTE_WRITE_REFUSALS.recordTooLarge);
+  }
+  return serialized;
+}
+
+/**
+ * Refuse a field being WRITTEN over its cap (v1.37.2). Only the fields a write
+ * sets are checked: a create sets every field, an update only those in its
+ * patch, so a legacy record whose stored target is over the cap can still be
+ * toggled or have another field edited.
+ */
+export function assertWrittenFieldsFit(fields: {
+  target?: string | undefined;
+  hostHeader?: string | undefined;
+  cacheControl?: string | undefined;
+}): void {
+  if ((fields.target?.length ?? 0) > MAX_ROUTE_TARGET_LENGTH) {
+    throw new RouteWriteRefusedError(ROUTE_WRITE_REFUSALS.target);
+  }
+  if ((fields.hostHeader?.length ?? 0) > MAX_HOST_HEADER_LENGTH) {
+    throw new RouteWriteRefusedError(ROUTE_WRITE_REFUSALS.hostHeader);
+  }
+  if ((fields.cacheControl?.length ?? 0) > MAX_CACHE_CONTROL_LENGTH) {
+    throw new RouteWriteRefusedError(ROUTE_WRITE_REFUSALS.cacheControl);
+  }
+}
+
+/**
+ * serializeStoredRoute plus the field caps on every field, for the writers
+ * that set a whole record (create, seed). Update checks only its patch
+ * fields; migrate, transfer and normalize-case move a record unedited, so
+ * they check only its key and size.
+ */
+export function serializeCheckedRoute(key: string, record: KVRouteConfig): string {
+  assertWrittenFieldsFit(record);
+  return serializeStoredRoute(key, record);
+}
+
+/** A new route record as createRoute stores it. */
+function buildNewRoute(
+  input: CreateRouteInput,
+  normalizedPath: string,
+  now: number,
+): KVRouteConfig {
+  return {
+    ...input,
+    path: normalizedPath,
+    preserveQuery: input.preserveQuery ?? true,
+    enabled: input.enabled ?? true,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
 
 /**
  * Get a single route by domain and path
@@ -40,6 +162,8 @@ export async function getRoute(
   path: string,
 ): Promise<KVRouteConfig | null> {
   const key = routeKey(domain, normalizePath(path));
+  // KV refuses a key over its limit even on read; no route is stored there
+  if (!fitsKvKey(key)) return null;
   try {
     return await kv.get<KVRouteConfig>(key, 'json');
   } catch (error) {
@@ -69,6 +193,7 @@ export async function getRouteByNormalizedPath(
   normalizedPath: string,
 ): Promise<KVRouteConfig | null> {
   const key = routeKey(domain, normalizedPath);
+  if (!fitsKvKey(key)) return null;
   try {
     return await kv.get<KVRouteConfig>(key, 'json');
   } catch (error) {
@@ -87,6 +212,7 @@ export async function getRouteSafe(
 ): Promise<KVResult<KVRouteConfig | null>> {
   // Same normalisation contract as getRoute().
   const key = routeKey(domain, normalizePath(path));
+  if (!fitsKvKey(key)) return { success: true, data: null };
   return withKVErrorHandling(
     () => kv.get<KVRouteConfig>(key, 'json'),
     cause => new KVReadError(key, cause),
@@ -202,21 +328,13 @@ export async function createRoute(
   domain: string,
   input: CreateRouteInput,
 ): Promise<KVRouteConfig> {
-  const now = Date.now();
   const normalizedPath = normalizePath(input.path);
   const key = routeKey(domain, normalizedPath);
-
-  const route: KVRouteConfig = {
-    ...input,
-    path: normalizedPath,
-    preserveQuery: input.preserveQuery ?? true,
-    enabled: input.enabled ?? true,
-    createdAt: now,
-    updatedAt: now,
-  };
+  const route = buildNewRoute(input, normalizedPath, Date.now());
+  const serialized = serializeCheckedRoute(key, route);
 
   try {
-    await kv.put(key, JSON.stringify(route));
+    await kv.put(key, serialized);
     return route;
   } catch (error) {
     throw new KVWriteError(key, error instanceof Error ? error : new Error(String(error)));
@@ -257,9 +375,18 @@ export async function updateRoute(
     createdAt: existing.createdAt,
     updatedAt: Date.now(),
   };
+  // The patch's own fields against their caps; the merged record as it will
+  // be stored against the key and size limits, checked as it is written
+  assertWrittenFieldsFit(updates);
+  // A patch that only enables or disables the route skips the size check, so
+  // an oversized legacy route can always be switched off (v1.37.2)
+  const onlyEnabled = Object.entries(updates).every(
+    ([field, value]) => field === 'enabled' || field === 'path' || value === undefined,
+  );
+  const serialized = serializeStoredRoute(key, updated, { checkSize: !onlyEnabled });
 
   try {
-    await kv.put(key, JSON.stringify(updated));
+    await kv.put(key, serialized);
     return updated;
   } catch (error) {
     throw new KVWriteError(key, error instanceof Error ? error : new Error(String(error)));
@@ -298,18 +425,50 @@ export async function seedRoutes(
   // changed rather than what it submitted.
   const createdPaths: string[] = [];
 
+  // Every record is built and checked before anything is written, so one
+  // that is too large refuses the whole batch with nothing stored, naming its
+  // path (v1.37.2). Entries that normalise to a key already queued in this
+  // batch are skipped, the first winning, exactly like an existing key.
+  const now = Date.now();
+  const queued = new Set<string>();
+  const built: Array<{ inputPath: string; key: string; serialized: string }> = [];
   for (const route of routes) {
-    // getRoute() normalises, so this existence check resolves exactly the key
-    // createRoute() is about to write — an alias of a stored path is SKIPPED
-    // rather than silently overwriting the record it aliases.
-    const existing = await getRoute(kv, domain, route.path);
-    if (existing) {
+    const normalizedPath = normalizePath(route.path);
+    const key = routeKey(domain, normalizedPath);
+    let serialized: string;
+    try {
+      serialized = serializeCheckedRoute(key, buildNewRoute(route, normalizedPath, now));
+    } catch (error) {
+      if (error instanceof RouteWriteRefusedError) {
+        throw new RouteWriteRefusedError(error.refusal, route.path);
+      }
+      throw error;
+    }
+    if (queued.has(key)) {
       skipped++;
       continue;
     }
-    await createRoute(kv, domain, route);
+    queued.add(key);
+    built.push({ inputPath: route.path, key, serialized });
+  }
+
+  // getRoute() normalises, so each existence check resolves exactly the key
+  // about to be written — an alias of a stored path is SKIPPED rather than
+  // silently overwriting the record it aliases. The reads are independent.
+  const existing = await Promise.all(built.map(entry => getRoute(kv, domain, entry.inputPath)));
+
+  for (const [index, { inputPath, key, serialized }] of built.entries()) {
+    if (existing[index]) {
+      skipped++;
+      continue;
+    }
+    try {
+      await kv.put(key, serialized);
+    } catch (error) {
+      throw new KVWriteError(key, error instanceof Error ? error : new Error(String(error)));
+    }
     created++;
-    createdPaths.push(route.path);
+    createdPaths.push(inputPath);
   }
 
   return { created, skipped, createdPaths };
@@ -370,10 +529,11 @@ export async function migrateRoute(
     createdAt: existing.createdAt, // Preserve original
     updatedAt: Date.now(),
   };
+  const serialized = serializeStoredRoute(newKey, migratedRoute);
 
   try {
     // Write to new key first
-    await kv.put(newKey, JSON.stringify(migratedRoute));
+    await kv.put(newKey, serialized);
     // Delete old key
     await kv.delete(oldKey);
     return migratedRoute;
@@ -428,9 +588,10 @@ export async function transferRoute(
     createdAt: existing.createdAt,
     updatedAt: Date.now(),
   };
+  const serialized = serializeStoredRoute(newKey, transferredRoute);
 
   try {
-    await kv.put(newKey, JSON.stringify(transferredRoute));
+    await kv.put(newKey, serialized);
     await kv.delete(oldKey);
     return transferredRoute;
   } catch (error) {

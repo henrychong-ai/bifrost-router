@@ -7,7 +7,12 @@
 
 // Single source for the wording — the Zod tool schemas describe the same flag,
 // and a drifted description is a drifted instruction to an agent.
-import { ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION } from './schemas.js';
+import {
+  ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION,
+  MAX_CACHE_CONTROL_LENGTH,
+  MAX_HOST_HEADER_LENGTH,
+  MAX_ROUTE_TARGET_LENGTH,
+} from './schemas.js';
 import { ALL_R2_BUCKETS, R2_BUCKETS, SUPPORTED_DOMAINS, SUPPORTED_DOMAINS_LIST } from './types.js';
 
 /**
@@ -23,6 +28,8 @@ export interface JsonSchemaProperty {
   maximum?: number;
   /** Shortest accepted string (v1.37.1: the QR `linkedRoute` path). */
   minLength?: number;
+  /** Longest accepted string (v1.37.2: the route write limits). */
+  maxLength?: number;
   /** ECMA-262 regular expression the string must match (v1.37.1). */
   pattern?: string;
   /** Nested object fields (the QR tools' `linkedRoute`). */
@@ -94,8 +101,9 @@ const linkedRouteProperty = (description: string): JsonSchemaProperty => ({
     domain: domainProperty(
       `Domain of the linked route: the QR code's own domain. One of: ${SUPPORTED_DOMAINS_LIST}.`,
     ),
-    // The same constraints as QRLinkedRouteInputSchema's path (v1.37.1):
-    // shared/src/tools.test.ts checks they accept and refuse alike.
+    // Looser than the server: the catalogue states only the shape (v1.37.1),
+    // while QRLinkedRouteInputSchema also applies the route path rules and the
+    // route key limit (shared/src/tools.test.ts checks both)
     path: {
       type: 'string',
       description: 'Path of the linked route, starting with /',
@@ -177,6 +185,7 @@ export const toolDefinitions: ToolDefinition[] = [
         },
         target: {
           type: 'string',
+          maxLength: MAX_ROUTE_TARGET_LENGTH,
           description: 'Target URL (for redirect/proxy) or R2 object key (for r2)',
         },
         statusCode: {
@@ -192,10 +201,12 @@ export const toolDefinitions: ToolDefinition[] = [
         },
         cacheControl: {
           type: 'string',
+          maxLength: MAX_CACHE_CONTROL_LENGTH,
           description: 'Cache-Control header (e.g., "max-age=3600")',
         },
         hostHeader: {
           type: 'string',
+          maxLength: MAX_HOST_HEADER_LENGTH,
           description:
             'Override Host header for proxy requests (e.g., "example.com" when proxying to cdn.webflow.com)',
         },
@@ -230,6 +241,7 @@ export const toolDefinitions: ToolDefinition[] = [
         },
         target: {
           type: 'string',
+          maxLength: MAX_ROUTE_TARGET_LENGTH,
           description: 'New target URL or R2 key',
         },
         statusCode: {
@@ -243,10 +255,12 @@ export const toolDefinitions: ToolDefinition[] = [
         },
         cacheControl: {
           type: 'string',
+          maxLength: MAX_CACHE_CONTROL_LENGTH,
           description: 'New Cache-Control header',
         },
         hostHeader: {
           type: 'string',
+          maxLength: MAX_HOST_HEADER_LENGTH,
           description: 'New Host header override for proxy routes',
         },
         bucket: {

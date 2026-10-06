@@ -2,7 +2,7 @@
 
 Guidance for AI coding agents (Claude Code, Codex and others) working with this repository. This is the canonical instruction file; `CLAUDE.md` only imports it (`@AGENTS.md`), so edit this file.
 
-**Version:** 1.37.1 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.37.2 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Public repository — sanitisation (MANDATORY)
 
@@ -212,7 +212,8 @@ A drift-detection test (`test/supported-domains-consistency.test.ts`) asserts th
 interface KVRouteConfig {
   path: string;            // "/github", "/blog/*"
   type: RouteType;         // "redirect" | "proxy" | "r2"
-  target: string;          // Target URL or R2 key
+  target: string;          // Target URL or R2 key; at most 8,192 characters on write (v1.37.2)
+  // hostHeader ≤ 253 and cacheControl ≤ 256 characters, the whole record ≤ 64 KiB (see Route write limits)
   statusCode?: number;     // 301, 302, 307, 308
   preserveQuery?: boolean; // Default: true
   preservePath?: boolean;  // Default: false
@@ -242,7 +243,7 @@ interface KVRouteConfig {
 | `POST /api/routes/transfer` | Transfer route between domains |
 | `POST /api/routes/normalize-case` | One-time migration: convert all route paths to lowercase |
 | `GET /api/routes/by-target` | Find routes serving an R2 object |
-| `GET /api/metadata/og?url=` | Open Graph preview of a URL: SSRF-checked on every hop, 1 MB body cap, at most 5 redirects (the cap is checked before the `Location` is read) with a 5 s timeout each; every unread body is cancelled, and a cancel that rejects never replaces the result |
+| `GET /api/metadata/og?url=` | Open Graph preview of a URL: every hop passes the shared outbound host policy (`src/utils/host-policy.ts`), 1 MB body cap, at most 5 redirects (the cap is checked before the `Location` is read) with a 5 s timeout each; every unread body is cancelled, and a cancel that rejects never replaces the result. `og:image` and `og:url` must be http(s) on a host the policy allows. Meta tags and the title are parsed in one linear pass that reads every tag with HTML's attribute tokenizer states (a quote opens a value only after `=`; tag names end only at ASCII whitespace, `/` or `>`); a tag over 16 KiB is skipped whole to its real end. Comments are skipped as HTML ends them (`<!-->` and `<!--->` at once, otherwise at the first `-->` or `--!>`, or at the end of input), `script` (with its escaped states), `style`, `xmp`, `iframe`, `noembed`, `noframes` and `noscript` are raw text and `title` and `textarea` RCDATA, so no meta tag inside them or inside another tag's attribute is read. A `<title>` that is never closed gives no title, and an end tag at the very end of the input (no `>` or delimiter after the name) is text, as in HTML. A hop on a supported domain or the admin host is resolved in process, never fetched (see [Own-domain link previews](#own-domain-link-previews-v1372)) |
 | `GET /api/changelog` | The engineering changelog as Markdown (authenticated) |
 | `GET /api/analytics/*` | Analytics endpoints |
 | `GET /api/storage/buckets` | List R2 buckets |
@@ -297,6 +298,201 @@ must opt into that schedule explicitly.
 ## Credential redaction
 
 The route guard, stored destination copies, and legacy analytics share the bounded name-based policy in `src/utils/credential-redaction.ts`. See [the credential policy](docs/credential-redaction.md). The unified template stream still stores no query string or referrer. Server-side acknowledgements remain request-only; disabled and R2 targets keep their exemptions. Existing stored routes require a separate read-only inventory.
+
+## Outbound host policy (v1.37.2)
+
+`src/utils/host-policy.ts` (`hostRefusal`, `isBlockedHost`) is the ONE decision
+on which hosts the Worker may fetch for a caller-supplied URL. The link-preview
+fetcher (`validateUrlForSSRF`, every hop, plus `og:image` and `og:url`) and the
+proxy target check (`validateProxyTarget` / `isPrivateIP`, so every proxy
+request) both use it; never add a second list.
+
+- **Names:** one trailing dot stripped; any other empty label refused; a last
+  label that is all digits or `0x…` but not a canonical dotted quad refused (the
+  WHATWG "ends in a number" rule); `localhost`, `*.localhost`, `*.internal`,
+  `*.local` and a few exact internal names (metadata, kubernetes) refused.
+  Hostnames are NOT resolved: a public name whose DNS answer is private passes.
+- **IPv4:** a numeric CIDR block list of every non-public range (this network,
+  private, CGNAT, loopback, link-local, protocol assignments, documentation,
+  6to4 relay, benchmarking, multicast, reserved, broadcast).
+- **IPv6:** an ALLOW-list: global unicast `2000::/3` only, minus Teredo
+  `2001::/32`, documentation `2001:db8::/32` and `3fff::/20`, benchmarking
+  `2001:2::/48`, ORCHID `2001:10::/28` and `2001:20::/28`, and 6to4
+  `2002::/16`. IPv4-mapped, -compatible and NAT64 forms are refused, so no
+  embedded IPv4 address is ever decoded.
+
+⚠️ **Proxy routes:** a stored proxy target the policy refuses (an IPv6
+address outside the allow-list, `100.64.0.0/10`, a documentation range, a
+`.local`/`.internal` name, …) now answers 502 `validation_error` where the
+older, narrower list let it through.
+
+**Known limitation: proxy redirects.** The proxy handler follows upstream
+redirects with the runtime's `fetch`, so a redirect hop is not checked against
+this policy, and `wrangler.toml` sets
+`retain_authorization_on_cross_origin_redirect`, so visitor request headers,
+`Authorization` included, can reach a redirect target on another origin.
+Preview hops are checked one by one and send no visitor headers.
+
+**Browser-facing preview fields.** `og:image` and `og:url` are loaded by the
+operator's browser, not the Worker, so besides the policy they refuse a
+single-label name (resolved through the browser's search domain) and the
+private-network suffixes `.ts.net`, `.lan`, `.home.arpa`, `.corp`, `.home`,
+`.intranet`, `.private` and `.localdomain` (one trailing dot ignored). Hostnames
+are not resolved, so a public wildcard-DNS name that answers with a private
+address (`*.nip.io`, `*.sslip.io`, `localtest.me`) is not caught.
+
+## Own-domain link previews (v1.37.2)
+
+A Worker cannot fetch a host it serves through the public edge: the
+subrequest never reaches the Worker, so a preview of a link on a supported
+domain failed (typically 502 or 522). `parseOpenGraph` takes an `ownHost`
+resolver (`src/utils/og-own-host.ts`, `ownHostResolver(env)`), and the preview
+endpoint passes it: a hop whose host is in `SUPPORTED_DOMAINS` or is
+`ADMIN_API_DOMAIN` (so a development deployment previews its own links) is
+answered in process from the same KV routes and service bindings the router
+uses, as the router would answer a visitor. Host matching follows the router
+and `denySensitivePaths`: the FQDN spelling (one trailing dot) counts as an own
+host, so it is never fetched, but it is resolved with its dot, as the router
+sees it (its routes are looked up under that spelling, and it is not the admin
+host); a non-default port is not an own host and is fetched. The parser reads the answer exactly like a fetched response, so
+the host policy, the 5-hop cap, the 5 s per-hop timeout (raced, so a KV read
+cannot outlast it) and the 1 MB body cap apply to every hop.
+
+⚠️ **Worker-level behaviour only.** Cloudflare edge rules (WAF, redirect and
+transform rules), Access policies and zone-level redirects in front of the
+Worker are not applied, so a preview can describe a page a visitor would be
+stopped from reaching or sent elsewhere from.
+
+| What the URL hits | Preview |
+|---|---|
+| Redirect route | a 3xx to the destination `redirectDestination` gives the handler; followed under the cap, in process again on an own host. A non-web destination (`tel:`, `mailto:`) gives the minimal result |
+| Proxy route | the upstream (`proxyDestination`) fetched by the parser as proxied hops: each upstream redirect is followed only after `validateProxyTarget`, under the same cap and timeouts; reported under the public URL, never the upstream's own `og:url`, and no error names the upstream (an `og:image` the page itself gives may still be an absolute upstream URL; a refused hop, a hop on one of our own hosts, or passing the redirect cap gives the minimal result; a failed fetch `HTTP 502`). A `hostHeader` override or a refused target gives the minimal result; a path that would leave the target's base path `HTTP 404`, as the handler answers |
+| No route, or a disabled one (matchRoute skips it) | the service binding's response if the host has one (`safeServiceFetch`; a failed binding `HTTP 503`), else `HTTP 404` |
+| R2 route, a path `src/index.ts` answers itself (`/health`, `GET /.well-known/security.txt`, `/api`, `/api/*`), a refused source path, the admin host's traversal query, a URL with userinfo | the minimal result |
+
+The Worker-answered paths are case-sensitive, as Hono matches them: `/API`,
+`/Health` and every other `/.well-known/*` path reach the routes.
+`test/utils/og-own-host-parity.test.ts` pins `src/index.ts`'s registrations
+and checks the resolver against the running Worker on each probe path; a new
+top-level route or global middleware fails it until the resolver's lists are
+updated. The router's path is derived from the URL without building a `Request`
+(a Request constructor can refuse escapes the URL parser accepts), and any
+unexpected failure inside the resolver is logged as fixed text and answered as
+a bare `HTTP 502`, so no error message reaches the preview response. Nothing records analytics: a preview is not a visit. Other hosts are
+fetched as before.
+
+## Wildcard remainders (v1.37.2)
+
+A wildcard route's remainder comes from ONE helper, `rawWildcardRemainder`
+(`src/kv/lookup.ts`), used by the redirect's `preservePath`, the proxy and the
+own-host preview. It walks the RAW request path (`URL.pathname`, still
+percent-encoded) segment by segment against the matched route's base: each raw
+base segment is decoded once and must equal the base segment as the lookup
+normalised it (case-insensitive; empty segments skipped, as `normalizePath`
+collapses them). A raw base segment that decodes to `/` or `\`
+(`/docs%2Fv1/page` against `/docs/v1/*`, which the lookup matches because it
+decodes `%2F`), or a malformed escape in one, aligns with nothing: 404, nothing
+fetched. The rest of the raw path is the remainder. Slicing the raw path by the
+length of the normalised base, as the redirect did, cut into the remainder when
+the two differed (`//blog/post` gave `…/xg/post`, `/%62log/post` gave
+`/xog/post`).
+
+**The proxy validates the decoded segment and forwards the raw one.**
+`proxyDestination` (`src/handlers/proxy.ts`) splits the remainder on `/` and
+checks each segment with `segmentAccepted`; an accepted remainder is forwarded
+byte for byte as the visitor sent it, so `;jsessionid`, `+` against `%2B`,
+`%40` and `[ ] |` reach the upstream unchanged. Every upstream acts on the
+decoded text (or on raw bytes that matter only when the decoded text does), so
+the decoded text is what is judged: the text as decoded and every variant
+an upstream may derive from it by NFKC normalisation, by dropping ignorable
+code points (U+1806, which StringPrep maps to nothing, counts as one) and by
+stripping combining marks (NFD, then remove `\p{M}`), in any order
+(`textVariants`), since an escape split by an ignorable code point or a mark
+(`%\u200B2e`, `%\u03012e`) only appears once it is dropped. A
+segment is refused (404, nothing fetched) when:
+
+- it does not decode (a bare `%`, `%u`, invalid or overlong UTF-8, Latin-1
+  bytes);
+- any variant holds a `/` or `\`, fullwidth forms included, or a division
+  slash, fraction slash, big solidus or set minus (U+2215, U+2044, U+29F8,
+  U+2216);
+- any variant holds a C0 control, DEL or a C1 control (U+0085 NEL among
+  them);
+- any variant still holds `%hh` or `%u`, so a second decode would change it;
+- any variant's core, before any `;`, `?`, `#` or `:` (an NTFS stream suffix
+  such as `..::$INDEX_ALLOCATION` is dropped by Windows upstreams), is empty or only dots,
+  spaces, `+`, Unicode White_Space, combining marks or ignorable code points
+  (`..`, `..;x`, `...`, `;x`, `%20`, `..%C2%85`, `..%CC%81`, `..%E2%80%8B`,
+  `‥`).
+
+Whole-path rules: a remainder never starts with an empty segment (`/docs//x` is
+404; on a root target it would give `//x`, which some upstreams read as another
+host), while empty segments further in still forward (`/docs/a//b`); the URL
+pathname setter must leave the validated path unchanged; the result must not
+start with `//` and must stay under the target's path. The query string passes
+through unchanged.
+
+Legitimate inputs that now 404: a bare `%` (`100%.pdf`), a literal `%` before
+two hex characters (`50%25de.pdf`), Latin-1 bytes (`caf%E9`), an encoded `/`
+(`@scope%2fpkg`), a parameter-only segment (`;jsessionid=X`), a segment of
+only dots, spaces, `+`, Unicode whitespace (U+0085 NEL, U+00A0, U+2028),
+combining marks or ignorable code points (`..%CC%81`, `..%E2%80%8B`), a C1
+control character, an escape split by an ignorable code point
+(`%25%E2%80%8B2e`), a segment starting with `:` or a dot name followed by
+`:` (`..:`), a division-slash look-alike (`a%E2%88%95b`), and a leading empty
+segment. Accepted residuals: best-fit code-page mappings outside NFKC (for
+example `¥` or `₩` read as `\` by a CP932 or CP949 IIS upstream), and upstreams that decode the whole request target before splitting
+it into path segments. `test/handlers/remainder-oracle.test.ts` models sixteen
+upstream behaviours (decoding, path parameters, `+` as space, NFKC, Win32
+trimming, Unicode White_Space trimming, combining-mark stripping, StringPrep
+mapping to nothing, NUL
+truncation, WHATWG reparsing, ignorable code points, `\` as `/`,
+dot resolution) and checks that no forwarded path, under any composition of
+them, leaves the target's path: known vectors, a seeded fuzz, a parity table
+of legitimate paths, and the documented refusals.
+
+## Route write limits (v1.37.2)
+
+A route record is one line of the nightly backup (refused over 1 MiB) and its
+key, `{domain}:{path}`, is a KV key (KV refuses one over 512 bytes, on read as
+well as on write). The limits live in `shared/src/schemas.ts` and are
+re-exported for the Worker and the MCP catalogue. The server enforces them;
+the dashboard does not validate them itself (its route schema is used for
+types) and shows the server's 400 message:
+
+| Limit | Value | Where |
+|---|---|---|
+| `target` | 8,192 characters | `RouteTargetSchema`, OpenAPI `maxLength`, MCP catalogue `maxLength` |
+| `hostHeader` | 253 characters | `RouteHostHeaderSchema`, same places |
+| `cacheControl` | 256 characters | `RouteCacheControlSchema`, same places |
+| Whole stored record | 64 KiB of UTF-8 (`MAX_ROUTE_RECORD_BYTES`) | every writer: create, update, seed, migrate, transfer, normalize-case |
+| Route key | 512 UTF-8 bytes (`MAX_ROUTE_KEY_BYTES`) | every writer, as above |
+
+The guarantee lives in the KV writers themselves: `serializeStoredRoute`
+(`src/kv/routes.ts`) checks the key and the size of the EXACT record about to be
+stored, after the merge, the path normalisation and the timestamps, immediately
+before its `kv.put`, and its output is what is written, so the measured record
+is the stored one. Field caps apply to the fields being WRITTEN
+(`assertWrittenFieldsFit`): create and seed check every field
+(`serializeCheckedRoute`), update only the fields in its patch (and a patch
+that only sets `enabled` skips the size check, so an oversized legacy route can
+always be disabled), and migrate,
+transfer and normalize-case move a record unedited, so they check its key and
+size only (normalize-case lists each refused record in `errors` and still
+answers 200). A handler may
+refuse earlier, but never instead. A route update answers 404 for a missing
+route before it looks at the patch. A seed batch is built and checked whole
+before anything is written (a refusal names the offending `path`), and entries
+that normalise to a key already queued in the batch are skipped, the first
+winning. The response schema `RouteSchema` (shared) is tolerant: it carries
+none of these caps, so stored routes over one still read back. A refusal is a 400
+`{ success: false, error }` with a fixed message the dashboard shows as it is:
+`Route path is too long for this domain`, `Route record is too large`, or the
+field's own cap. A stored record already over a field cap is served as it
+is and can still be toggled or have other fields edited; only a record that
+the new `updatedAt` would take past 64 KiB cannot be updated. The path field itself has no cap; only its key is bounded. Route
+lookups (`getRoute`, `matchRoute`) never ask KV for a key over the limit, so a
+very long request path is a 404 (or a shorter wildcard's match), not a 500.
 
 ## Route paths must round-trip (v1.36.0)
 
@@ -410,6 +606,8 @@ If the domain is missing from this list, the binding was never created.
 | `src/types.ts` | Domain list, route types |
 | `src/utils/path-validation.ts` | R2 key validation (strict reject) |
 | `src/utils/safe-service-fetch.ts` | Defensive wrapper around service-binding `fetch` calls |
+| `src/utils/host-policy.ts` | Outbound host policy shared by link previews and proxy targets |
+| `src/utils/og-own-host.ts` | In-process link previews of own-domain URLs |
 | `openapi/bifrost-api.yaml` | API Shield schema |
 | `scripts/upload-api-shield.mjs` | Auto-upload schema to API Shield (called by CI/CD) |
 
@@ -548,8 +746,10 @@ In-dashboard guide at `/guide` (lazy-loaded, 11 sections + first-visit welcome d
 - `backupKV` verifies the gzip in memory, with the same scan the health check runs, before anything reaches R2, then writes it once to `daily/{date}/kv-routes.ndjson.gz` with its SHA-256 (R2 refuses a body that arrives corrupted) and `customMetadata` `{date, type: 'kv-routes', routeCount}`. There is no temporary key. The archive's `routeCount` is the source of truth for its own record count; `manifest.json` is written after it (`buildManifest` stays private to `src/backup/manifest.ts`).
 - **A run that fails before the archive write writes nothing.** `backupKV` reads values as text and parses them itself: a value that is not JSON stops the run with `KV record is not valid JSON` (`BACKUP_ERRORS.kvRecordNotJson`, no cause, quoting nothing) and logs where it is, as the listing prefix and the record's index in that listing, never the key or value; a stored JSON `null` is skipped. It counts the serialised NDJSON while it reads KV and stops as soon as it passes the cap (`Backup exceeds the size limit (MAX_BACKUP_BYTES)`), before any join or gzip and without reading the rest; it also stops on a duplicate key and on a KV listing page that is truncated but has no cursor or repeats one (`BackupListingError`, message `Backup listing cursor invalid`; callers match the class, never the text). If verification fails or R2 refuses the put, no object is written and the job reports the error: the previous backup (the previous day's, or an earlier run's the same day) stays byte-identical, and the health check turns warning, then critical, as that backup ages past `warningAgeHours` and `criticalAgeHours`.
 - **A run whose manifest write fails has already written its archive**, which it verified first; the run still fails. A re-run verifies its own archive, overwrites both objects (archive, then manifest), and so is safe. Until then: on a same-day re-run the earlier manifest stays, no longer matches the archive's `routeCount`, and health warns `Backup manifest is out of date with its archive` (two overlapping runs can leave the same state); on the day's first run there is no manifest and health reports critical.
-- Verification streams the archive through the runtime's `DecompressionStream` (which rejects a truncated stream, a bad CRC-32, and any byte after the one gzip member `backupKV` writes: junk or a second member, however the stream is chunked; `test/backup/integrity.test.ts` pins all three), pumping it by hand so any early exit cancels the source, in slices of at most `INFLATE_SLICE_BYTES` (4 KiB), each written only once the previous slice's output has been read (workerd inflates a written chunk in full before any read, so this holds a decompression bomb to about 4 MiB of output before the inflated cap stops it; "drained" is inferred from workerd settling a read of queued output before a 0 ms timer, measured at the deployed compatibility date and pinned by the bomb test's write count, and if that ordering changed the bound would degrade towards the archive's full expansion; the line buffer can additionally hold up to the inflated cap; if the inflated stream ends with archive bytes unwritten, the scan fails as a content error rather than waiting); decodes strict UTF-8; and requires every line to be a `{key, value}` record with a non-null value, no repeated key, and exactly the archive's `routeCount` records (the manifest's `kv.totalRoutes` when that metadata is missing or malformed). It holds one line and the key set, never the records. Each check fails with its own fixed message (`BACKUP_ERRORS` in `src/backup/integrity.ts`): missing or empty archive, size limit (inflated, or compressed), record count mismatch and duplicate key; decoder, inflater and JSON errors share `Backup content verification failed`. No message names a key or payload. R2 failing to deliver the archive (a rejected GET, or a body stream that fails mid-read) is not a content fault: it throws `BackupReadError` (`Backup archive could not be read`, the R2 error as its `cause`). Only a read that fails before verification cancels the source counts: cancelling a native stream rejects the read the pump is waiting on, and that rejection must not turn a size, count or content failure into a read failure. Every failure is critical in health, which reports the fixed message.
-- **Cap: 16 MiB**, compressed and inflated, enforced while streaming (`MAX_BACKUP_BYTES`). It is derived from the write schemas, not from any one deployment: a QR record is bounded by `shared/src/qr.ts` (the logo, at most `QR_LOGO_MAX_BYTES` decoded, dominates; one record stays under 140 KiB), so 50 logo QR codes plus 10,000 routes at 600 bytes fit. Route targets have no length limit, so a very large route set can reach the cap; the backup then stops while reading KV with `Backup exceeds the size limit (MAX_BACKUP_BYTES)` and writes nothing, and that message means `MAX_BACKUP_BYTES` is the constant to raise. The byte cap and the KV operation budget are separate limits: KV allows 1,000 operations per invocation, and `backupKV` reads values in bulk (`KV_BULK_GET_MAX_KEYS`, 100 keys per read, one operation each) after one list call per prefix (18 with nine domains) and per further 1,000 keys. That is about 11 operations per 1,000 records, so the budget holds about 89,000 records; the 16 MiB cap binds first for any record over about 190 bytes (about 28,000 routes at 600 bytes). One read per key, as before, failed above about 1,000 records. The health response reports `lastBackup.archive` (`records`, `inflatedBytes`) and warns past half the cap.
+- Verification inflates the archive with pako, a JS inflater pinned to an exact version (`pako` 3.0.2 in `package.json`), chunk by chunk as the body arrives, so any early exit cancels the source. It rejects a truncated stream, a bad CRC-32, and any byte after the one gzip member `backupKV` writes (junk or a second member, however the stream is chunked: a chunk arriving after the member has ended is refused, and a tail inside the member's last chunk shows as fewer compressed bytes consumed, pako's `total_in`, than arrived; if a pako upgrade stops exposing that count, verification fails with `Backup verification cannot count compressed bytes (pako internals changed)`); `test/backup/integrity.test.ts` pins all three. The compressed bytes, the inflated bytes and each record line are capped while streaming. The inflated cap is enforced inside pako's output callback, which runs for every 16 KiB of output and throws mid-chunk, so a decompression bomb stops within one output chunk of the cap however its input is chunked; each chunk is pushed with a sync flush, so its records are checked before the next read. Lines are split by searching only newly inflated output, and one record line is capped at `MAX_RECORD_LINE_BYTES` (1 MiB of UTF-8; a longer line is a content failure), so an archive with no newline is neither rescanned nor held whole. It decodes strict UTF-8 and requires every line to be a `{key, value}` record with a non-null value, no repeated key, and exactly the archive's `routeCount` records (the manifest's `kv.totalRoutes` when that metadata is missing or malformed). It holds one line and the key set, never the records. Each check fails with its own fixed message (`BACKUP_ERRORS` in `src/backup/integrity.ts`): missing or empty archive, size limit (inflated, or compressed), record count mismatch, duplicate key and the inflater count above; decoder, inflater, JSON, trailing-data and line-length errors share `Backup content verification failed`. No message names a key or payload. R2 failing to deliver the archive (a rejected GET, or a body stream that fails mid-read) is not a content fault: it throws `BackupReadError` (`Backup archive could not be read`, the R2 error as its `cause`). Verification cancels the source only after its last read, so its own cancel can never be mistaken for a read failure. Every failure is critical in health, which reports the fixed message.
+- **Record lines:** a line that crosses inflater output chunks is held in one contiguous buffer (`RecordLineBuffer`) that grows geometrically to `MAX_RECORD_LINE_BYTES`, so finely fragmented input costs a dozen reallocations, never one retained piece per chunk. pako costs more CPU than the runtime's native inflater, so a very large archive may pass the CPU limit of the free Workers plan on a health call.
+- **Oversized records fail before the write.** `backupKV` refuses a record whose serialised line passes `MAX_RECORD_LINE_BYTES` with `Backup record exceeds the line limit (MAX_RECORD_LINE_BYTES)` (`BACKUP_ERRORS.recordTooLarge`), before any gzip, logged by prefix and listing index, never the key. Every API write is checked as stored far below the line limit (see [Route write limits](#route-write-limits-v1372); a QR record is capped at 192 KiB by `putQR`, `MAX_QR_RECORD_BYTES`, and its `linkedRoute.path` follows the route path rules and the 512-byte key limit), so only a record written before those caps or straight to KV can hit it.
+- **Cap: 16 MiB**, compressed and inflated, enforced while streaming (`MAX_BACKUP_BYTES`). It is derived from the write schemas, not from any one deployment: a QR record is bounded by `shared/src/qr.ts` (the logo, at most `QR_LOGO_MAX_BYTES` decoded, dominates; one record stays under 140 KiB), so 50 logo QR codes plus 10,000 routes at 600 bytes fit. Each route record is capped at 64 KiB on write, but the number of routes is not, so a very large route set can reach the cap; the backup then stops while reading KV with `Backup exceeds the size limit (MAX_BACKUP_BYTES)` and writes nothing, and that message means `MAX_BACKUP_BYTES` is the constant to raise. The byte cap and the KV operation budget are separate limits: KV allows 1,000 operations per invocation, and `backupKV` reads values in bulk (`KV_BULK_GET_MAX_KEYS`, 100 keys per read, one operation each) after one list call per prefix (18 with nine domains) and per further 1,000 keys. That is about 11 operations per 1,000 records, so the budget holds about 89,000 records; the 16 MiB cap binds first for any record over about 190 bytes (about 28,000 routes at 600 bytes). One read per key, as before, failed above about 1,000 records. The health response reports `lastBackup.archive` (`records`, `inflatedBytes`) and warns past half the cap.
 - Falsy JSON values (`false`, `0`, `""`) are backed up; only a key that vanished between list and get, or holds a JSON `null`, is skipped.
 - The manifest must be version 2.0.0 (`BACKUP_MANIFEST_VERSION`), name its own date, and point at that date's archive (`backupArchiveKey`; both in `src/backup/constants.ts`). The health check lists every page of `daily/` (a page without `delimitedPrefixes` adds none), treats an empty file as missing, and re-verifies the latest archive count-only on every call; its route-count check uses the verified count. A repeated or missing listing cursor (`BackupListingError`) is reported as a critical issue, and so is each R2 failure, with its own fixed message (`HEALTH_R2_ERRORS` in `src/backup/health.ts`): a failed list call `Backup listing failed`, a failed HEAD of the expected files `Backup files could not be checked`, a failed manifest GET or body read `Backup manifest could not be read` (a missing, non-JSON or invalid manifest stays `Backup manifest is missing or invalid`), and a failed archive read `Backup archive could not be read` (the message of `BackupReadError`, its one source). Each R2 error is logged, never returned. Only the R2 calls are wrapped, so a programming error still throws. The endpoint answers 200 whatever R2 or the archive does; 503 `Backup bucket not configured` when `BACKUP_BUCKET` is unbound; a programming error answers 500.
 - Restore is KV-only: `test/backup/recovery.test.ts` rehearses a full restore of routes and QR codes into an empty namespace and exercises them through the Worker, reading the archive with the test helper `test/backup/archive-records.ts` (the Worker never builds the record array). R2 object content is not in the backup and is recovered separately.

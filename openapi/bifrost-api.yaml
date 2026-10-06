@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Bifrost Admin API
   description: Edge router management API for route configuration and analytics
-  version: 1.37.1
+  version: 1.37.2
   contact:
     name: Bifrost Maintainers
     url: https://example.com
@@ -1350,6 +1350,7 @@ components:
         target:
           type: string
           minLength: 1
+          maxLength: 8192
         statusCode:
           type: integer
           enum: [301, 302, 307, 308]
@@ -1361,8 +1362,10 @@ components:
           default: false
         cacheControl:
           type: string
+          maxLength: 256
         hostHeader:
           type: string
+          maxLength: 253
           description: Override Host header for proxy requests
         forceDownload:
           type: boolean
@@ -1384,6 +1387,7 @@ components:
           enum: [redirect, proxy, r2]
         target:
           type: string
+          maxLength: 8192
         statusCode:
           type: integer
           enum: [301, 302, 307, 308]
@@ -1393,8 +1397,10 @@ components:
           type: boolean
         cacheControl:
           type: string
+          maxLength: 256
         hostHeader:
           type: string
+          maxLength: 253
           description: Override Host header for proxy requests
         forceDownload:
           type: boolean

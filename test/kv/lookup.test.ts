@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   getWildcardCandidates,
-  getWildcardRemainder,
   matchRoute,
   normalizePath,
+  rawWildcardRemainder,
 } from '../../src/kv/lookup';
 import { routeKey } from '../../src/kv/schema';
 import type { KVRouteConfig } from '../../src/types';
@@ -101,19 +101,21 @@ describe('getWildcardCandidates', () => {
   });
 });
 
-describe('getWildcardRemainder', () => {
-  it('extracts remainder after wildcard', () => {
-    expect(getWildcardRemainder('/blog/my-post', '/blog/*')).toBe('/my-post');
-    expect(getWildcardRemainder('/api/v1/users', '/api/*')).toBe('/v1/users');
+describe('rawWildcardRemainder', () => {
+  it('extracts the raw remainder after the wildcard base', () => {
+    expect(rawWildcardRemainder('/blog/my-post', '/blog/*')).toBe('/my-post');
+    expect(rawWildcardRemainder('/api/v1/users', '/api/*')).toBe('/v1/users');
   });
 
-  it('returns / for exact wildcard match', () => {
-    expect(getWildcardRemainder('/blog', '/blog/*')).toBe('/');
+  it('returns / when nothing follows the base', () => {
+    expect(rawWildcardRemainder('/blog/', '/blog/*')).toBe('/');
+    expect(rawWildcardRemainder('/blog', '/blog/*')).toBe('/');
   });
 
-  it('returns empty string for non-wildcard routes', () => {
-    expect(getWildcardRemainder('/blog', '/blog')).toBe('');
-    expect(getWildcardRemainder('/api/v1', '/api/v1')).toBe('');
+  it('returns null for a path that does not reach the base, or a non-wildcard route', () => {
+    expect(rawWildcardRemainder('/', '/blog/*')).toBeNull();
+    expect(rawWildcardRemainder('/blog', '/blog')).toBeNull();
+    expect(rawWildcardRemainder('/api/v1', '/api/v1')).toBeNull();
   });
 });
 

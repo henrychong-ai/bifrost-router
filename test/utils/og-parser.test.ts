@@ -40,6 +40,19 @@ async function previewOf(image: string, url: string) {
   return parseOpenGraph('https://example.com/a/page');
 }
 
+/** The preview of a page whose HTML is `html`. */
+async function previewOfHtml(html: string) {
+  vi.mocked(fetch).mockResolvedValue(new Response(html, { headers: HTML }));
+  return parseOpenGraph('https://example.com/page');
+}
+
+/** `html`'s preview, and how long parsing it took. */
+async function timed(html: string) {
+  const started = performance.now();
+  const preview = await previewOfHtml(html);
+  return { preview, elapsed: performance.now() - started };
+}
+
 /** A response body that records whether it was cancelled. */
 function trackedBody(): { body: ReadableStream; cancelled: () => boolean } {
   let cancelled = false;
@@ -156,6 +169,67 @@ describe('parseOpenGraph', () => {
       expect(preview.url).toBe('https://example.com/p');
     });
 
+    // v1.37.2: the shared host policy applies to both, as to every hop
+    it.each([
+      'http://127.0.0.1/card.png',
+      'http://169.254.169.254/latest',
+      'http://[::1]/card.png',
+      'http://localhost/card.png',
+      'http://printer.local/card.png',
+      'http://2130706433/card.png',
+      'http://[fd12:3456::1]/card.png',
+    ])('drops %s, a host the outbound policy refuses', async blocked => {
+      const preview = await previewOf(blocked, blocked);
+      expect(preview.image).toBeNull();
+      expect(preview.url).toBe('https://example.com/a/page');
+    });
+
+    it('drops a value that is not a URL', async () => {
+      const preview = await previewOf('https://[bad', 'http://exa mple.com:99999/');
+      expect(preview.image).toBeNull();
+      expect(preview.url).toBe('https://example.com/a/page');
+    });
+
+    // v1.37.2: the operator's browser loads these, so names it may resolve
+    // privately are dropped too
+    it.each([
+      'http://intranet/card.png',
+      'http://intranet./card.png',
+      'https://nas.lan/card.png',
+      'https://router.home.arpa/card.png',
+      'https://home.arpa/card.png',
+      'https://build.corp/card.png',
+      'https://box.your-tailnet.ts.net/card.png',
+      'https://nas.home/card.png',
+      'https://nas.home./card.png',
+      'https://wiki.intranet/card.png',
+      'https://wiki.intranet./card.png',
+      'https://srv.private/card.png',
+      'https://srv.private./card.png',
+      'https://box.localdomain/card.png',
+      'https://box.localdomain./card.png',
+      'https://router.home.arpa./card.png',
+    ])('drops %s, a name the browser may resolve privately', async blocked => {
+      const preview = await previewOf(blocked, blocked);
+      expect(preview.image).toBeNull();
+      expect(preview.url).toBe('https://example.com/a/page');
+    });
+
+    it('keeps names that merely contain a private suffix', async () => {
+      const preview = await previewOf(
+        'https://lan.example.net/c.png',
+        'https://corp.example.org/p',
+      );
+      expect(preview.image).toBe('https://lan.example.net/c.png');
+      expect(preview.url).toBe('https://corp.example.org/p');
+    });
+
+    it('keeps public IPv4 and IPv6 hosts', async () => {
+      const preview = await previewOf('http://8.8.8.8/c.png', 'https://[2606:4700:4700::1111]/p');
+      expect(preview.image).toBe('http://8.8.8.8/c.png');
+      expect(preview.url).toBe('https://[2606:4700:4700::1111]/p');
+    });
+
     it('decodes entities before checking the scheme', async () => {
       const preview = await previewOf(
         '&#106;avascript:alert(1)',
@@ -243,6 +317,29 @@ describe('parseOpenGraph', () => {
         ).rejects.toBeInstanceOf(TooManyRedirectsError);
       }
       expect(fetchedUrls()).toEqual(['https://a.example/', 'https://a.example/']);
+    });
+
+    // v1.37.2: every hop goes through the shared host policy
+    it.each([
+      'http://[::ffff:127.0.0.1]/',
+      'http://2130706433/',
+      'http://100.64.0.1/',
+      'http://db.internal/',
+      'http://[64:ff9b::a9fe:a9fe]/',
+    ])('refuses a redirect hop to %s before fetching it', async location => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        new Response(null, { status: 302, headers: { location } }),
+      );
+      await expect(parseOpenGraph('https://a.example/')).rejects.toThrow(SSRFBlockedError);
+      expect(fetchedUrls()).toEqual(['https://a.example/']);
+    });
+
+    it('reports an unparseable Location as an error, fetching nothing more', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        new Response(null, { status: 302, headers: { location: 'http://[bad' } }),
+      );
+      await expect(parseOpenGraph('https://a.example/')).rejects.toThrow(TypeError);
+      expect(fetchedUrls()).toEqual(['https://a.example/']);
     });
 
     it.each([
@@ -418,6 +515,316 @@ describe('parseOpenGraph', () => {
     });
   });
 
+  // v1.37.2: meta tags and the title are read in one linear pass. The old
+  // regular expressions backtracked: about 52 KB of unclosed meta tags took
+  // tens of seconds.
+  describe('meta and title parsing', () => {
+    it.each([
+      ['unclosed meta tags', "<meta property='og:title' content='"],
+      ['unclosed meta tags, double quotes', '<meta property="og:title" content="'],
+      ['meta tags without a closing quote', '<meta property=og:title content='],
+      ['open title tags', '<title'],
+      ['title tags with no text', '<title>'],
+      ['meta openers alone', '<meta '],
+    ])('parses 1 MB of %s in well under a second', async (_label, unit) => {
+      const html = unit.repeat(Math.floor(1_000_000 / unit.length));
+      for (const page of [html, `${html}>`, `${html}<title>Kept</title>`]) {
+        const { elapsed } = await timed(page);
+        expect(elapsed).toBeLessThan(1000);
+      }
+      // Still finds a real tag after the adversarial run (an open <title>
+      // element is RCDATA, so it is closed first)
+      const closer = unit === '<title>' ? '</title>' : '';
+      const { preview, elapsed } = await timed(
+        `${html.slice(0, 500_000)}>${closer}<meta property="og:description" content="Found">`,
+      );
+      expect(elapsed).toBeLessThan(1000);
+      expect(preview.description).toBe('Found');
+    });
+
+    it('reads content before or after property, in either quote style', async () => {
+      const preview = await previewOfHtml(
+        `<meta content='Desc' property='og:description'><meta content="T" property="og:title">`,
+      );
+      expect(preview).toMatchObject({ title: 'T', description: 'Desc' });
+    });
+
+    it('prefers property over name, whatever the order, and the first tag of each', async () => {
+      const preview = await previewOfHtml(
+        '<meta name="og:title" content="By name"><meta property="og:title" content="First">' +
+          '<meta property="og:title" content="Second">',
+      );
+      expect(preview.title).toBe('First');
+      expect((await previewOfHtml('<meta name="description" content="Named">')).description).toBe(
+        'Named',
+      );
+    });
+
+    it('matches tag, attribute names and keys case-insensitively', async () => {
+      const preview = await previewOfHtml(
+        '<META PROPERTY="OG:Title" CONTENT="Upper"><Meta Name="Application-Name" Content="App">',
+      );
+      expect(preview).toMatchObject({ title: 'Upper', siteName: 'App' });
+    });
+
+    it('reads unquoted values, spaces around =, self-closing tags and > inside quotes', async () => {
+      const preview = await previewOfHtml(
+        '<meta property = og:title content = Bare/><meta\nproperty="og:description"\n' +
+          'content="a > b" />',
+      );
+      expect(preview).toMatchObject({ title: 'Bare/', description: 'a > b' });
+    });
+
+    it('keeps an apostrophe inside a double-quoted value', async () => {
+      const preview = await previewOfHtml(`<meta property="og:title" content="It's here">`);
+      expect(preview.title).toBe("It's here");
+    });
+
+    it('skips an empty content and uses the next tag', async () => {
+      const preview = await previewOfHtml(
+        '<meta property="og:title" content=""><meta property="og:title" content="Next">',
+      );
+      expect(preview.title).toBe('Next');
+    });
+
+    it('takes the first of a repeated attribute, as HTML does', async () => {
+      const preview = await previewOfHtml('<meta property="og:title" content="One" content="Two">');
+      expect(preview.title).toBe('One');
+    });
+
+    it('skips a tag longer than 16 KiB and reads the next one', async () => {
+      const long = `<meta property="og:title" data-x="${'x'.repeat(16 * 1024)}" content="Long">`;
+      expect((await previewOfHtml(long)).title).toBeNull();
+      const preview = await previewOfHtml(`${long}<meta property="og:title" content="Short">`);
+      expect(preview.title).toBe('Short');
+      // Just under the cap is still read
+      const fits = `<meta property="og:title" content="Fits" data-x="${'x'.repeat(16 * 1024 - 60)}">`;
+      expect(fits.length).toBeLessThanOrEqual(16 * 1024);
+      expect((await previewOfHtml(fits)).title).toBe('Fits');
+    });
+
+    it('reads a 3,000-character og:description', async () => {
+      const description = 'd'.repeat(3000);
+      const preview = await previewOfHtml(
+        `<meta property="og:description" content="${description}">`,
+      );
+      expect(preview.description).toBe(description);
+    });
+
+    it('does not read <metadata> or other tags as meta', async () => {
+      const preview = await previewOfHtml(
+        '<metadata property="og:title" content="No"><link property="og:title" content="No">',
+      );
+      expect(preview.title).toBeNull();
+    });
+
+    // An oversized tag is skipped to its REAL end, quote-aware. A scan
+    // restarted at the size limit landed inside the quoted value and read the
+    // markup written there as tags.
+    it('reads nothing from inside an oversized quoted value', async () => {
+      const page =
+        `<meta content="${'a'.repeat(17 * 1024)} ` +
+        '<meta property=og:title content=Injected> ' +
+        '<meta property=og:image content=https://evil.example.net/x.png> ' +
+        '<title>Injected title</title>">' +
+        '<title>Real</title><meta property="og:description" content="After">';
+      const preview = await previewOfHtml(page);
+      expect(preview.title).toBe('Real');
+      expect(preview.image).toBeNull();
+      expect(preview.description).toBe('After');
+    });
+
+    // A quote opens a value only directly after `=`. In an attribute name or
+    // an unquoted value it is an ordinary character, so an oversized tag that
+    // overflows there is skipped to the next `>`, never to a later quote.
+    it.each([
+      [
+        'an unquoted value',
+        `<meta a=${'X'.repeat(17 * 1024)}"> <meta name=x content="  > ` +
+          '<meta property=og:image content=https://evil.example.net/u.png> ' +
+          '<meta property=og:title content=Injected>  ">',
+      ],
+      [
+        'an unquoted value ending in a quote character',
+        `<meta name=x data=${'A'.repeat(17 * 1024)}'q content=zz> <meta name=d content='> ` +
+          '<meta property=og:title content=Injected> ' +
+          "<meta property=og:image content=https://evil.example.net/u.png> '>",
+      ],
+    ])(
+      'reads nothing injected after an oversized tag that overflows inside %s',
+      async (_label, page) => {
+        const preview = await previewOfHtml(`${page}<title>Real</title>`);
+        expect(preview.title).toBe('Real');
+        expect(preview.image).toBeNull();
+      },
+    );
+
+    it('ends a tag name only at ASCII whitespace, / or >', async () => {
+      for (const separator of ['\u00a0', '\u2028', '\u3000']) {
+        const preview = await previewOfHtml(
+          `<meta${separator}property="og:title" content="Spoof"><title${separator}x>Spoof title</title>`,
+        );
+        expect(preview.title).toBeNull();
+      }
+      expect((await previewOfHtml('<meta\fproperty="og:title" content="Real">')).title).toBe(
+        'Real',
+      );
+    });
+
+    it('treats an unclosed quote as running to the end of the page, as HTML does', async () => {
+      const preview = await previewOfHtml(
+        `<meta property="og:title" content="never closed ${'y'.repeat(3000)}` +
+          ' <meta property=og:description content=Inside>',
+      );
+      expect(preview).toMatchObject({ title: null, description: null });
+    });
+
+    it('skips an oversized title tag whole, quote-aware', async () => {
+      const preview = await previewOfHtml(
+        `<title data-x="${'t'.repeat(17 * 1024)} >Injected</title> ">Hidden</title>` +
+          '<title>Real</title>',
+      );
+      expect(preview.title).toBe('Real');
+    });
+
+    // Every tag is read with the attribute tokenizer, so markup written
+    // inside another tag's attribute value, a comment or raw text is not read
+    it('keeps the real metadata when another tag quotes markup in an attribute', async () => {
+      const preview = await previewOfHtml(
+        '<link rel="x" title="Example <title> tag">' +
+          '<meta name="description" content="Real description">' +
+          '<meta property="og:image" content="https://example.com/image.png">' +
+          '<title>Real title</title>',
+      );
+      expect(preview).toMatchObject({
+        title: 'Real title',
+        description: 'Real description',
+        image: 'https://example.com/image.png',
+      });
+    });
+
+    it.each([
+      ['a comment', '<!-- ', ' -->'],
+      ['an unclosed comment', '<!-- ', ''],
+      ['a script string', '<script>var s = "', '";</script>'],
+      ['a style block', '<style>/* ', ' */</style>'],
+      ['an xmp element', '<xmp>', '</xmp>'],
+      ['an iframe', '<iframe>', '</iframe>'],
+      ['a noembed element', '<noembed>', '</noembed>'],
+      ['a noframes element', '<noframes>', '</noframes>'],
+      ['a noscript element', '<noscript>', '</noscript>'],
+      ['a textarea', '<textarea>', '</textarea>'],
+      ['a title', '<title>T', '</title>'],
+      ['a CDATA-like declaration', '<![CDATA[ ', ' ]]>'],
+      ['a processing instruction', '<?php ', ' ?>'],
+    ])('does not read a meta tag inside %s', async (_label, before, after) => {
+      const preview = await previewOfHtml(
+        `${before}<meta property="og:description" content="Forged">${after}`,
+      );
+      expect(preview.description).toBeNull();
+    });
+
+    it('still reads a meta tag after each of those, once closed', async () => {
+      for (const [before, after] of [
+        ['<!-- x ', ' -->'],
+        ['<script>if (a < b) {}', '</SCRIPT >'],
+        ['<style>p{}', '</style>'],
+        ['<textarea>x', '</textarea>'],
+        ['<noscript>x', '</noscript>'],
+      ]) {
+        const preview = await previewOfHtml(
+          `${before}${after}<meta property="og:description" content="Real">`,
+        );
+        expect(preview.description).toBe('Real');
+      }
+    });
+
+    it.each([
+      ['an empty comment', '<!-->'],
+      ['an empty comment with a dash', '<!--->'],
+      ['a comment closed by --!>', '<!-- c --!>'],
+      ['a comment closed by -->', '<!-- c -->'],
+    ])('reads the tag after %s', async (_label, comment) => {
+      const preview = await previewOfHtml(`${comment}<meta property=og:title content=Real>`);
+      expect(preview.title).toBe('Real');
+    });
+
+    it.each([
+      [
+        '<!--> closes the escape at once',
+        '<script><!--><script></script><meta property=og:title content=Real>',
+      ],
+      [
+        '<!---> closes the escape at once',
+        '<script><!---><script></script><meta property=og:title content=Real>',
+      ],
+      [
+        '--> after dashes',
+        '<script><!-- a --- --><script></script><meta property=og:title content=Real>',
+      ],
+      [
+        'a double-escaped </script> returns to escaped',
+        '<script><!--<script>x</script></script><meta property=og:title content=Real>',
+      ],
+      [
+        '--> in the double-escaped state returns to script data',
+        '<script><!--<script>--></script><meta property=og:title content=Real>',
+      ],
+      [
+        'an end tag needs a delimiter',
+        '<script></scriptx></script><meta property=og:title content=Real>',
+      ],
+    ])('script data states: %s', async (_label, page) => {
+      expect((await previewOfHtml(page)).title).toBe('Real');
+    });
+
+    it('treats an end tag at the very end of the input as text, as HTML does', async () => {
+      // `</title` with nothing after it is not an end tag: the title is never
+      // closed, so there is no title
+      expect((await previewOfHtml('<title>Real</title')).title).toBeNull();
+      expect((await previewOfHtml('<title>Real</title>')).title).toBe('Real');
+    });
+
+    it("follows the script element's escaped states", async () => {
+      const forged =
+        '<script><!--<script></script><meta property=og:title content=Forged>--></script>' +
+        '<meta property=og:title content=Real>';
+      expect((await previewOfHtml(forged)).title).toBe('Real');
+      // `</script` in the escaped state ends the element
+      expect(
+        (await previewOfHtml('<script><!-- x </script><meta property=og:title content=After>'))
+          .title,
+      ).toBe('After');
+      // `<!-->` closes at once
+      expect(
+        (
+          await previewOfHtml(
+            '<script><!--><script></script><meta property=og:title content=After>',
+          )
+        ).title,
+      ).toBe('After');
+    });
+
+    it('does not read a meta tag written in an end tag', async () => {
+      const preview = await previewOfHtml(
+        '</div title="<meta property=og:description content=Forged>"><p>x</p>',
+      );
+      expect(preview.description).toBeNull();
+    });
+
+    it('reads the first title with text', async () => {
+      expect((await previewOfHtml('<title></title><title lang="en">  Real  </title>')).title).toBe(
+        'Real',
+      );
+      expect((await previewOfHtml('<TITLE>Upper</TITLE>')).title).toBe('Upper');
+      // Title text is RCDATA: markup inside it is text, as browsers show it
+      expect((await previewOfHtml('<title>Open <b>bold</b></title>')).title).toBe(
+        'Open <b>bold</b>',
+      );
+      expect((await previewOfHtml('<title>No close')).title).toBeNull();
+    });
+  });
+
   describe('GET /api/metadata/og', () => {
     const testEnv = { ...env, ADMIN_API_DOMAIN: 'example.com' };
 
@@ -435,7 +842,9 @@ describe('parseOpenGraph', () => {
       vi.mocked(fetch).mockResolvedValueOnce(
         new Response('<meta property="og:title" content="Hello">', { headers: HTML }),
       );
-      const response = await og('https://example.com/page');
+      // A host this Worker does not serve: own-domain links resolve in process
+      // (test/utils/og-own-host.test.ts)
+      const response = await og('https://page.example.org/page');
       expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({ success: true, data: { title: 'Hello' } });
     });

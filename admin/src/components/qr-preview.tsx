@@ -35,7 +35,7 @@ export function QrPreview({ content, design, displaySize = 192, className }: QrP
       src={dataUri ?? BLANK_IMAGE}
       width={displaySize}
       height={displaySize}
-      // Neutral alt (codex F6): the encoded content can carry Wi-Fi credentials —
+      // Neutral alt: the encoded content can carry Wi-Fi credentials —
       // keep them out of the DOM/accessibility tree.
       alt={dataUri ? 'QR code preview' : 'QR preview unavailable'}
       className={className}

@@ -1,4 +1,10 @@
-import { RoutePathSchema, RouteTargetSchema } from '@bifrost/shared';
+import {
+  MAX_ROUTE_KEY_BYTES,
+  RouteCacheControlSchema,
+  RouteHostHeaderSchema,
+  RoutePathSchema,
+  RouteTargetSchema,
+} from '@bifrost/shared';
 import { z } from 'zod';
 import { R2_BUCKETS } from '../types';
 
@@ -21,6 +27,20 @@ import { R2_BUCKETS } from '../types';
  */
 export function routeKey(domain: string, path: string): string {
   return `${domain}:${path}`;
+}
+
+const utf8 = new TextEncoder();
+
+/**
+ * Whether `key` is within KV's 512-byte key limit (v1.37.2). KV refuses a
+ * longer key on read as well as on write, so a lookup must not ask for one: no
+ * route can be stored there. A key of at most 170 UTF-16 units always fits (a
+ * unit is at most three UTF-8 bytes), so the common case encodes nothing.
+ */
+export function fitsKvKey(key: string): boolean {
+  return (
+    key.length * 3 <= MAX_ROUTE_KEY_BYTES || utf8.encode(key).byteLength <= MAX_ROUTE_KEY_BYTES
+  );
 }
 
 /**
@@ -70,9 +90,9 @@ export const RouteConfigSchema = z.object({
 
   preservePath: z.boolean().optional().default(false).describe('Preserve path for wildcard routes'),
 
-  cacheControl: z.string().optional().describe('Cache-Control header value'),
+  cacheControl: RouteCacheControlSchema.optional().describe('Cache-Control header value'),
 
-  hostHeader: z.string().optional().describe('Override Host header for proxy requests'),
+  hostHeader: RouteHostHeaderSchema.optional().describe('Override Host header for proxy requests'),
 
   forceDownload: z
     .boolean()

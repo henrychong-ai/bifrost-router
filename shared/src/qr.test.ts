@@ -25,6 +25,7 @@ import {
   VcardPayloadSchema,
   WifiPayloadSchema,
 } from './qr.js';
+import { routeKeyBytes } from './schemas.js';
 
 /** Build a base64 data URI whose decoded size is exactly `bytes`. */
 function logoDataUri(bytes: number, mime = 'image/png'): string {
@@ -822,5 +823,37 @@ describe('linked route domain: enumerated on input, tolerant when stored', () =>
     };
     expect(QRLinkedRouteSchema.safeParse(stored.linkedRoute).success).toBe(true);
     expect(QRCodeSchema.safeParse(stored).success).toBe(true);
+  });
+});
+
+// v1.37.2: a linked route path is measured as the route key lookups build,
+// after the same normalisation (decoded, collapsed, lower-cased)
+function link(path: string): boolean {
+  return QRLinkedRouteInputSchema.safeParse({ domain: 'example.com', path }).success;
+}
+
+describe('QRLinkedRouteInputSchema key limit', () => {
+  it('accepts an encoded alias whose normalised key fits, however long it is raw', () => {
+    const path = `/${'%61'.repeat(170)}`;
+    expect(path.length).toBe(511);
+    expect(routeKeyBytes('example.com', path)).toBe(183);
+    expect(link(path)).toBe(true);
+    // Upper-case and doubled slashes normalise away too
+    expect(link(`//${'A'.repeat(495)}`)).toBe(true);
+  });
+
+  it('refuses a path whose key grows past 512 bytes once lower-cased', () => {
+    // 'İ' is two UTF-8 bytes; lower-cased it becomes three
+    const path = `/${'İ'.repeat(249)}`;
+    expect(new TextEncoder().encode(`example.com:${path}`).byteLength).toBeLessThanOrEqual(512);
+    expect(routeKeyBytes('example.com', path)).toBeGreaterThan(512);
+    expect(link(path)).toBe(false);
+  });
+
+  it('accepts exactly 512 bytes and refuses 513', () => {
+    const fits = `/${'a'.repeat(512 - 'example.com:/'.length)}`;
+    expect(routeKeyBytes('example.com', fits)).toBe(512);
+    expect(link(fits)).toBe(true);
+    expect(link(`${fits}b`)).toBe(false);
   });
 });

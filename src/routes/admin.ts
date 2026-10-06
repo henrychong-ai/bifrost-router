@@ -8,6 +8,7 @@ import { recordAuditLog } from '../db/analytics';
 import { CHANGELOG_MARKDOWN } from '../generated/changelog-text';
 import { normalizePath } from '../kv/lookup';
 import {
+  assertRouteKeyFits,
   createRoute,
   deleteRoute,
   findRoutesByR2Target,
@@ -17,6 +18,7 @@ import {
   getRoute,
   migrateRoute,
   seedRoutes,
+  serializeStoredRoute,
   transferRoute,
   updateRoute,
 } from '../kv/routes';
@@ -32,6 +34,7 @@ import type { AppEnv, KVRouteConfig } from '../types';
 import { isValidDomain, SUPPORTED_DOMAINS } from '../types';
 import { purgeRouteUrl } from '../utils/cache';
 import { validateApiKey } from '../utils/crypto';
+import { ownHostResolver } from '../utils/og-own-host';
 import { parseOpenGraph, ResponseTooLargeError, SSRFBlockedError } from '../utils/og-parser';
 import { findCredentialParams } from '../utils/unified-traffic';
 import { analyticsRoutes } from './analytics';
@@ -556,6 +559,14 @@ adminRoutes.put('/routes', async c => {
   }
 
   const domain = domainResult.domain;
+
+  // A missing route is a 404 before anything about the patch is judged
+  // (v1.37.2), so the answer does not depend on what was sent
+  const beforeRoute = await getRoute(c.env.ROUTES, domain, path);
+  if (!beforeRoute) {
+    throw new HTTPException(404, { message: `Route not found: ${path}` });
+  }
+
   const body: unknown = await c.req.json().catch(() => {
     throw new HTTPException(400, { message: 'Invalid JSON body' });
   });
@@ -577,9 +588,6 @@ adminRoutes.put('/routes', async c => {
   }
   // The schema accepted an object, so its fields can be read for the audit row.
   const fields = body as Record<string, unknown>;
-
-  // Get current route state before update
-  const beforeRoute = await getRoute(c.env.ROUTES, domain, path);
 
   // Credential-shaped target guard — on the EFFECTIVE post-update route, so a
   // patch that leaves a credential target in place, or a re-enable of a stored
@@ -1028,7 +1036,9 @@ adminRoutes.get('/metadata/og', async c => {
   }
 
   try {
-    const ogData = await parseOpenGraph(url);
+    // A link on one of this Worker's own domains cannot be fetched through
+    // the public edge, so those hops are resolved in process (v1.37.2)
+    const ogData = await parseOpenGraph(url, { ownHost: ownHostResolver(c.env) });
     return c.json({
       success: true,
       data: ogData,
@@ -1235,6 +1245,8 @@ adminRoutes.post('/routes/normalize-case', async c => {
       const oldKey = routeKey(route.domain, route.path);
       const newKey = routeKey(route.domain, lowerPath);
 
+      // A lower-cased path can be longer in UTF-8 (v1.37.2)
+      assertRouteKeyFits(newKey);
       const existingLower = await c.env.ROUTES.get(newKey);
       if (existingLower) {
         errors.push(`${oldKey} → ${newKey}: lowercase route already exists, skipping`);
@@ -1244,7 +1256,8 @@ adminRoutes.post('/routes/normalize-case', async c => {
       // Strip the domain field (added by getAllRoutesAllDomains) — it's not part of the stored value
       const { domain: _domain, ...routeWithoutDomain } = route;
       const migratedRoute = { ...routeWithoutDomain, path: lowerPath, updatedAt: Date.now() };
-      await c.env.ROUTES.put(newKey, JSON.stringify(migratedRoute));
+      // The exact record, checked immediately before it is written (v1.37.2)
+      await c.env.ROUTES.put(newKey, serializeStoredRoute(newKey, migratedRoute));
       await c.env.ROUTES.delete(oldKey);
       migrated++;
     } catch (error) {

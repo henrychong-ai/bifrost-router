@@ -670,20 +670,26 @@ describe('backup integrity health boundaries', () => {
     const bucket = createMockBucket({
       delimitedPrefixes: ['daily/20260123/'],
       manifest: createTestManifest({
-        kv: { domains: [], totalRoutes: 1, file: 'daily/20260123/kv-routes.ndjson.gz' },
+        kv: { domains: [], totalRoutes: 9, file: 'daily/20260123/kv-routes.ndjson.gz' },
       }),
       files: createCompleteFilesMap('20260123'),
     });
-    // One record padded past 8 MiB inflated; it gzips to a few KB
+    // Nine records padded just past 8 MiB inflated, each under the 1 MiB line
+    // cap (MAX_RECORD_LINE_BYTES); they gzip to a few KB
     const big = await gzipCompress(
-      JSON.stringify({ key: 'big', value: 'a'.repeat(MAX_BACKUP_BYTES / 2 + 1024) }),
+      Array.from({ length: 9 }, (_, i) =>
+        JSON.stringify({
+          key: `big${i}`,
+          value: 'a'.repeat(Math.ceil(MAX_BACKUP_BYTES / 18) + 200),
+        }),
+      ).join('\n'),
     );
     vi.mocked(bucket.get).mockImplementation(async key =>
       key.endsWith('manifest.json')
         ? ({
             json: async () =>
               createTestManifest({
-                kv: { domains: [], totalRoutes: 1, file: 'daily/20260123/kv-routes.ndjson.gz' },
+                kv: { domains: [], totalRoutes: 9, file: 'daily/20260123/kv-routes.ndjson.gz' },
               }),
           } as R2ObjectBody)
         : ({ size: big.byteLength, body: new Response(big).body } as R2ObjectBody),

@@ -1,22 +1,23 @@
 import type { Context } from 'hono';
-import { getWildcardRemainder } from '../kv/lookup';
+import { rawWildcardRemainder } from '../kv/lookup';
 import type { AppEnv, KVRouteConfig } from '../types';
 
 /**
- * Handle redirect routes
- *
- * Features:
- * - Configurable status codes (301, 302, 307, 308)
- * - Path preservation for wildcard routes (optional, default: false)
- * - Query parameter preservation (optional, default: true)
+ * The URL a redirect route sends a visitor of `incomingUrl` to: the target,
+ * with the raw wildcard remainder appended when `preservePath` is set and the
+ * incoming query merged in unless `preserveQuery` is false (a parameter the
+ * target already has wins). Null when the request path cannot be aligned with
+ * the route's base (the caller answers 404). Shared by the handler and the
+ * in-process link preview (v1.37.2), so both send a visitor to the same place.
+ * Throws when the stored target is not a URL.
  */
-export function handleRedirect(c: Context<AppEnv>, route: KVRouteConfig): Response {
+export function redirectDestination(route: KVRouteConfig, incomingUrl: URL): URL | null {
   const targetUrlObj = new URL(route.target);
-  const incomingUrl = new URL(c.req.url);
 
   // 1. Preserve path for wildcard routes (if enabled)
   if (route.preservePath && route.path.endsWith('/*')) {
-    const remainder = getWildcardRemainder(incomingUrl.pathname, route.path);
+    const remainder = rawWildcardRemainder(incomingUrl.pathname, route.path);
+    if (remainder === null) return null;
 
     // Append remainder to target, avoiding double slashes
     const basePath = targetUrlObj.pathname.replace(/\/$/, '');
@@ -35,5 +36,19 @@ export function handleRedirect(c: Context<AppEnv>, route: KVRouteConfig): Respon
     });
   }
 
-  return c.redirect(targetUrlObj.toString(), route.statusCode || 302);
+  return targetUrlObj;
+}
+
+/**
+ * Handle redirect routes
+ *
+ * Features:
+ * - Configurable status codes (301, 302, 307, 308)
+ * - Path preservation for wildcard routes (optional, default: false)
+ * - Query parameter preservation (optional, default: true)
+ */
+export function handleRedirect(c: Context<AppEnv>, route: KVRouteConfig): Response {
+  const destination = redirectDestination(route, new URL(c.req.url));
+  if (!destination) return c.json({ error: 'Not Found', path: c.req.path }, 404);
+  return c.redirect(destination.toString(), route.statusCode || 302);
 }

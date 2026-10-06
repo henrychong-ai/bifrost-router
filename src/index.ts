@@ -16,7 +16,8 @@ import {
   type UnifiedTrafficEventType,
 } from './db/analytics';
 import { CACHE_STATUS_HEADER, handleProxy, handleR2, handleRedirect } from './handlers';
-import { matchRoute } from './kv/lookup';
+import { proxyDestination } from './handlers/proxy';
+import { matchRoute, rawWildcardRemainder } from './kv/lookup';
 import { privacySafeRequestLogger } from './middleware/request-logger';
 import { denySensitivePaths } from './middleware/sensitive-paths';
 import { handleR2EventBatch, type R2EventMessage } from './queue/r2-events';
@@ -38,6 +39,7 @@ import {
   privacySafeUnifiedAnalyticsPath,
   unifiedTrafficOutcome,
 } from './utils/unified-traffic';
+import { validateProxyTarget } from './utils/url-validation';
 
 /**
  * Cloudflare request cf properties we use for analytics
@@ -381,6 +383,14 @@ app.all('*', async c => {
     );
   }
 
+  // A path the route's own handler would refuse (a preservePath or proxy
+  // remainder that cannot be aligned or is refused) is a plain 404 here,
+  // before any click or proxy analytics is recorded (v1.37.2)
+  if (refusesRequestPath(route, url)) {
+    c.set('unifiedEventType', 'not_found');
+    return c.json({ error: 'Not Found', path }, 404);
+  }
+
   c.set('unifiedEventType', route.type);
 
   // Log matched route
@@ -468,6 +478,27 @@ app.all('*', async c => {
   // Return response immediately (analytics runs in background)
   return response;
 });
+
+/**
+ * Whether the matched route's handler would refuse this request's path with
+ * 404: a redirect whose `preservePath` remainder cannot be aligned with the
+ * route's base, or a proxy whose remainder cannot be aligned or is refused
+ * segment by segment. A proxy target that fails validation is left to the
+ * handler, which answers 502.
+ */
+function refusesRequestPath(route: KVRouteConfig, url: URL): boolean {
+  if (route.type === 'redirect') {
+    return (
+      route.preservePath === true &&
+      route.path.endsWith('/*') &&
+      rawWildcardRemainder(url.pathname, route.path) === null
+    );
+  }
+  if (route.type === 'proxy') {
+    return validateProxyTarget(route.target).valid && proxyDestination(route, url) === null;
+  }
+  return false;
+}
 
 /**
  * Route handler dispatcher

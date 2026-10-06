@@ -244,4 +244,124 @@ describe('handleProxy', () => {
       expect(captured).not.toContain('..');
     });
   });
+
+  // v1.37.2: the wildcard remainder came from the router's DECODED path, so
+  // `%5c` became `\`, which the URL parser reads as `/`, and `..%5c..%5cadmin`
+  // climbed out of the target's base path. The remainder is now taken from
+  // the raw path and refused (404) when it could leave the base.
+  describe('wildcard remainder confinement', () => {
+    const docsRoute: KVRouteConfig = {
+      path: '/docs/*',
+      type: 'proxy',
+      target: 'https://upstream.example.net/base',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    /** The proxy's answer to `requestPath`, and the upstream URLs it fetched. */
+    async function proxied(requestPath: string, route: KVRouteConfig = docsRoute) {
+      const app = new Hono<AppEnv>();
+      app.all('*', c => handleProxy(c, route));
+      const upstream: string[] = [];
+      const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+        upstream.push(
+          typeof input === 'string' ? input : input instanceof Request ? input.url : String(input),
+        );
+        return new Response('ok', { status: 200 });
+      });
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const response = await app.fetch(new Request(`http://localhost${requestPath}`), env);
+        return { status: response.status, upstream };
+      } finally {
+        spy.mockRestore();
+        warn.mockRestore();
+      }
+    }
+
+    // Each raw segment is decoded once; an encoded separator, a dot
+    // segment (with `;…` parameters stripped), a residual %2e/%2f/%5c, a
+    // control character or a malformed escape is refused
+    it.each([
+      '/docs/..%5c..%5cadmin',
+      '/docs/..%5C..%5Cadmin',
+      '/docs/a%5cb',
+      '/docs/%2e%2e%5cadmin',
+      '/docs/..;x/admin',
+      '/docs/..%3Bx/admin',
+      '/docs/.;x/admin',
+      '/docs/%2e%2e%3bx/admin',
+      '/docs/%252e%252e/admin',
+      '/docs/%252e%252e%252fadmin',
+      '/docs/..%252fadmin',
+      '/docs/%255c..%255cadmin',
+      '/docs/a/..%2f..%2fadmin',
+      '/docs/a%2fb',
+      '/docs/..%00',
+      '/docs/a%0Ab',
+      '/docs/%7F',
+      '/docs/100%zz',
+      // Residual escapes an upstream that decodes twice would act on
+      '/docs/..%253b/admin',
+      '/docs/%25c0%25ae%25c0%25ae/admin',
+      '/docs/%25u002e%25u002e/admin',
+      '/docs/%25252e%25252e/admin',
+      '/docs/a%25e0%2580%25ae',
+      '/docs/a%25C1%259C',
+    ])('answers 404 for %s, fetching nothing', async requestPath => {
+      expect(await proxied(requestPath)).toEqual({ status: 404, upstream: [] });
+    });
+
+    // The visitor's raw segment is forwarded byte for byte once its decoded
+    // text is accepted (the full property is in remainder-oracle.test.ts)
+    it.each([
+      ['/docs/guide/getting-started/a%20b.html?x=1', '/base/guide/getting-started/a%20b.html?x=1'],
+      ['/docs/100%25.pdf', '/base/100%25.pdf'],
+      ['/docs/50%25off', '/base/50%25off'],
+      ['/docs/%C3%A9t%C3%A9', '/base/%C3%A9t%C3%A9'],
+      ['/docs/caf%c3%a9', '/base/caf%c3%a9'],
+      ['/docs/a;b', '/base/a;b'],
+      ['/docs/pkg@1.2.3/index.js', '/base/pkg@1.2.3/index.js'],
+      ['/docs/v1/x:run', '/base/v1/x:run'],
+      ['/docs/a+b', '/base/a+b'],
+      ['/docs/k=v&x=y', '/base/k=v&x=y'],
+      ['/docs/a,b', '/base/a,b'],
+      ['/docs/%61bc', '/base/%61bc'],
+      ['/docs/a/', '/base/a/'],
+      ['/docs/a?q=%2e%2e/x', '/base/a?q=%2e%2e/x'],
+    ])('forwards %s as %s', async (requestPath, upstreamPath) => {
+      expect(await proxied(requestPath)).toEqual({
+        status: 200,
+        upstream: [`https://upstream.example.net${upstreamPath}`],
+      });
+    });
+
+    // A remainder never starts with an empty segment: on a root target the
+    // upstream path would start with `//`, which some upstreams read as
+    // another host. Empty segments further in still forward.
+    it('refuses a leading empty segment, keeping other empty segments', async () => {
+      const rootRoute: KVRouteConfig = { ...docsRoute, target: 'https://upstream.example.net' };
+      expect(await proxied('/docs//evil.example/x', rootRoute)).toEqual({
+        status: 404,
+        upstream: [],
+      });
+      expect((await proxied('/docs/a//b', rootRoute)).upstream).toEqual([
+        'https://upstream.example.net/a//b',
+      ]);
+      expect((await proxied('/docs/a//b')).upstream).toEqual([
+        'https://upstream.example.net/base/a//b',
+      ]);
+      expect(await proxied('/docs//b')).toEqual({ status: 404, upstream: [] });
+    });
+
+    it('matches the base case-insensitively, as the route lookup does', async () => {
+      expect((await proxied('/Docs/Guide')).upstream).toEqual([
+        'https://upstream.example.net/base/Guide',
+      ]);
+      // A raw dot segment never arrives: the URL parser resolves it first
+      expect((await proxied('/docs/a/../b')).upstream).toEqual([
+        'https://upstream.example.net/base/b',
+      ]);
+    });
+  });
 });

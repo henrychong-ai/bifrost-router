@@ -13,7 +13,7 @@ import { ViewsPage } from './views';
  *
  * Filter state lives in a React context that the URL never fed, so a link
  * carrying `?domain=…&days=…&country=…&search=…` used to render whatever
- * filters happened to be in memory. That defect survived review because the
+ * filters happened to be in memory. That defect went unnoticed because the
  * only coverage asserted the href STRING. These tests assert the other end:
  * the page is rendered at the deep-link URL and the parameters must reach the
  * data-fetching hook.

@@ -14,7 +14,9 @@ import { clearAllRoutes } from '../helpers';
  * Two properties are pinned here:
  *
  * 1. A body that is malformed, of the wrong type, or missing a required field
- *    is answered 400 BEFORE any KV, R2 or D1 call. The rejected requests run
+ *    is answered 400 BEFORE any KV, R2 or D1 call. Update is the one exception
+ *    (v1.37.2): it reads the route first, so a missing route is a 404 whatever
+ *    the body, and a refused body then writes nothing. The rejected requests run
  *    against bindings that record — and throw on — every call, so a handler
  *    that reached storage fails the test twice over.
  * 2. Everything the handlers accepted before is still accepted: a `null`
@@ -44,6 +46,33 @@ function recordingBinding(calls: string[], name: string): unknown {
         calls.push(call);
         throw new Error(`unexpected storage call: ${call}`);
       },
+    },
+  );
+}
+
+/** The stored route update reads before it judges the body. */
+const STORED_ROUTE = {
+  path: '/validation',
+  type: 'redirect',
+  target: 'https://example.com/',
+  enabled: true,
+  createdAt: 1,
+  updatedAt: 1,
+};
+
+/** A recorder whose `get` answers the stored route, recording only the other calls. */
+function storedRouteBinding(calls: string[]): unknown {
+  return new Proxy(
+    {},
+    {
+      get: (_target, property) =>
+        property === 'get'
+          ? async () => STORED_ROUTE
+          : () => {
+              const call = `ROUTES.${String(property)}`;
+              calls.push(call);
+              throw new Error(`unexpected storage call: ${call}`);
+            },
     },
   );
 }
@@ -178,10 +207,21 @@ describe('request-body validation (storage and route write endpoints)', () => {
     const calls: string[] = [];
     const { method, path } = ENDPOINTS[name];
 
-    const response = await send(recordingEnv(calls), method, path, body);
+    const bindings = recordingEnv(calls);
+    // Update reads the route first; only that read is allowed
+    if (name === 'update') bindings.ROUTES = storedRouteBinding(calls) as KVNamespace;
+    const response = await send(bindings, method, path, body);
 
     expect(response.status).toBe(400);
     expect(calls).toEqual([]);
+  });
+
+  it('update: a missing route is a 404 whatever the body (v1.37.2)', async () => {
+    for (const body of [MALFORMED, JSON.stringify({ enabled: 'yes' }), 'null', '{}']) {
+      const response = await send(realEnv, 'PUT', ENDPOINTS.update.path, body);
+      expect(response.status).toBe(404);
+    }
+    expect(await getRoute(env.ROUTES, ADMIN_HOST, '/validation')).toBeNull();
   });
 
   it('control: the recording bindings do see a well-formed request on every endpoint', async () => {

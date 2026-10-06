@@ -9,9 +9,12 @@
  */
 
 import { env } from 'cloudflare:test';
+import { MAX_QR_RECORD_BYTES, MAX_ROUTE_RECORD_BYTES, type QRCode } from '@bifrost/shared';
 import { Hono } from 'hono';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { MAX_RECORD_LINE_BYTES } from '../../src/backup/integrity';
 import { backupKV } from '../../src/backup/kv';
+import { putQR } from '../../src/kv/qr';
 import { createRoute, getAllRoutesAllDomains } from '../../src/kv/routes';
 import { adminRoutes } from '../../src/routes/admin';
 import type { AppEnv } from '../../src/types';
@@ -233,6 +236,65 @@ describe('QR API (v1.30.0 port seams)', () => {
     expect(body).toMatch(/Invalid option: expected one of "example\.com"/);
     expect(body).not.toMatch(/must match the QR domain/);
     expect((await fetchSettled(authedJson('GET', `${BASE}/test-bad-link`))).status).toBe(404);
+  });
+
+  // v1.37.2: a QR record is one line of the nightly backup, so a linked path
+  // follows the route path rules and the route key limit
+  it('rejects a 2 MiB linkedRoute.path on create and update, writing nothing', async () => {
+    const huge = `/${'a'.repeat(2 * 1024 * 1024)}`;
+    const created = await fetchSettled(
+      authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
+        type: 'url',
+        id: 'test-huge-link',
+        payload: { url: 'https://example.com' },
+        linkedRoute: { domain: DOMAIN, path: huge },
+      }),
+    );
+    expect(created.status).toBe(400);
+    expect(await created.text()).toMatch(/Route path is too long for this domain/);
+    expect(
+      (await fetchSettled(authedJson('GET', `${BASE}/test-huge-link?domain=${DOMAIN}`))).status,
+    ).toBe(404);
+
+    await fetchSettled(
+      authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
+        type: 'url',
+        id: 'test-link-update',
+        payload: { url: 'https://example.com' },
+      }),
+    );
+    const updated = await fetchSettled(
+      authedJson('PUT', `${BASE}/test-link-update?domain=${DOMAIN}`, {
+        linkedRoute: { domain: DOMAIN, path: huge },
+      }),
+    );
+    expect(updated.status).toBe(400);
+    const stored = await env.ROUTES.get(`qr:${DOMAIN}:test-link-update`, 'json');
+    expect(stored).not.toHaveProperty('linkedRoute');
+  });
+
+  it('refuses a QR record over the record cap at the KV writer, writing nothing', async () => {
+    const now = Date.now();
+    const record = {
+      id: 'test-oversized',
+      domain: DOMAIN,
+      type: 'url',
+      payload: { url: 'https://example.com' },
+      description: 'x'.repeat(MAX_QR_RECORD_BYTES),
+      tags: [],
+      design: {},
+      createdBy: 'test',
+      createdAt: now,
+      updatedAt: now,
+    } as unknown as QRCode;
+    await expect(putQR(env.ROUTES, record)).rejects.toMatchObject({ status: 400 });
+    expect(await env.ROUTES.get(`qr:${DOMAIN}:test-oversized`)).toBeNull();
+  });
+
+  it('keeps every record cap at most a quarter of the backup line limit', () => {
+    for (const cap of [MAX_QR_RECORD_BYTES, MAX_ROUTE_RECORD_BYTES]) {
+      expect(cap).toBeLessThanOrEqual(MAX_RECORD_LINE_BYTES / 4);
+    }
   });
 
   it('rejects changing the type on update (immutable), and treats explicit "" as clear-description', async () => {

@@ -7,25 +7,26 @@
  * the source of truth for its own count; the health check re-verifies the
  * latest archive against it.
  *
- * Verification inflates the gzip with the runtime's DecompressionStream, which
- * checks the gzip trailer (CRC-32 and length), fails a truncated stream, and
- * fails on any byte after the end of the gzip member (junk, or a second member,
- * wherever the chunks split), so an archive is exactly the one member backupKV
- * wrote (test/backup/integrity.test.ts pins all three).
- * The compressed bytes and the inflated bytes are both capped, and the
- * inflated cap is enforced while streaming. workerd inflates each written
- * chunk in full before any of it is read, so the archive is written to the
- * inflater in slices of at most INFLATE_SLICE_BYTES, and only once the reader
- * has drained the previous slice's output: a high-ratio archive (a
- * decompression bomb) holds at most one slice's output, about 4 MiB, before
- * the inflated cap stops it. That bound rests on workerd settling a read of
- * already-queued output before a 0 ms timer (measured at the deployed
- * compatibility date; the bomb test's write count pins it): if that ordering
- * changed, the bound would degrade towards the archive's full expansion.
- * Separately, the line buffer can hold up to the inflated cap when the
- * archive has no newline.
+ * Verification inflates the gzip with pako, a JS inflater pinned to an exact
+ * version, chunk by chunk as the body arrives. It checks the gzip trailer
+ * (CRC-32 and length) and fails a truncated stream, and the scanner refuses
+ * any byte after the one gzip member backupKV writes (junk, or a second
+ * member, wherever the chunks split), so an archive is exactly that member
+ * (test/backup/integrity.test.ts pins all three). The compressed bytes, the
+ * inflated bytes and each record line are capped while streaming. The
+ * inflated cap is enforced in the inflater's own output callback, which pako
+ * calls for every 16 KiB of output and which throws mid-chunk, so a
+ * high-ratio archive (a decompression bomb) stops within one output chunk of
+ * the cap, however its input was chunked. Lines are split by searching only
+ * the newly inflated output, a line that crosses output chunks is held in
+ * one contiguous buffer, and a line longer than MAX_RECORD_LINE_BYTES fails,
+ * so neither a newline-free archive nor finely fragmented input costs
+ * quadratic time or unbounded memory. pako costs more CPU than the runtime's
+ * native inflater, so a very large archive may pass the CPU limit of the
+ * free Workers plan on a health call.
  */
 
+import { Inflate, Z_SYNC_FLUSH } from 'pako';
 import { z } from 'zod';
 import {
   BACKUP_LISTING_CURSOR_INVALID,
@@ -66,11 +67,26 @@ export const BACKUP_ERRORS = {
   duplicateKey: 'Backup contains a duplicate key',
   content: 'Backup content verification failed',
   /**
+   * The pinned pako no longer exposes the compressed-byte count the
+   * trailing-data check reads (an upgrade changed its internals), so the
+   * archive cannot be shown to be exactly one gzip member.
+   */
+  inflaterUnsupported: 'Backup verification cannot count compressed bytes (pako internals changed)',
+  /**
    * A value backupKV read from KV does not parse as JSON (v1.37.1). The parse
    * error would quote the stored value, so only this text is reported, thrown
    * or logged, and the parse error is not kept as a cause.
    */
   kvRecordNotJson: 'KV record is not valid JSON',
+  /**
+   * A record backupKV read serialises to a line longer than
+   * MAX_RECORD_LINE_BYTES (v1.37.2), which verification would refuse. Raised
+   * before any gzip, naming no key; the log locates it by prefix and listing
+   * index. Every API write is now checked as stored far below the line limit
+   * (a route record at 64 KiB, a QR record at 192 KiB, both v1.37.2), so this
+   * means a record written before those caps or straight to KV.
+   */
+  recordTooLarge: 'Backup record exceeds the line limit (MAX_RECORD_LINE_BYTES)',
 } as const;
 
 /** A backup check failure with one of the fixed {@link BACKUP_ERRORS} messages. */
@@ -150,8 +166,8 @@ export interface StoredArchiveScan extends ArchiveScan {
  * description, the tags and the design, one record stays under 140 KiB, so 50
  * logo QR codes take about 7 MiB. A route record is typically a few hundred
  * bytes: 10,000 routes at 600 bytes add about 5.7 MiB, and both together still
- * fit. Route targets carry no length limit, so an unusually large route set
- * can reach the cap. backupKV then stops while it is still reading KV, as soon
+ * fit. Each route record is capped at 64 KiB on write (v1.37.2), but the
+ * number of routes is not, so an unusually large route set can reach the cap. backupKV then stops while it is still reading KV, as soon
  * as the serialised records pass the cap, and fails with
  * `Backup exceeds the size limit (MAX_BACKUP_BYTES)` (BACKUP_ERRORS.sizeLimit),
  * writing nothing for the day (earlier days stay intact). That message is the
@@ -176,12 +192,60 @@ export interface StoredArchiveScan extends ArchiveScan {
 export const MAX_BACKUP_BYTES = 16 * 1024 * 1024;
 
 /**
- * Largest piece of compressed archive handed to the inflater in one write.
- * workerd inflates a written chunk in full before any of it is read, and
- * deflate can expand about 1,032 times, so 4 KiB bounds one write's output to
- * about 4 MiB however hostile the archive.
+ * Longest single record line, in UTF-8 bytes, the scanner accepts: 1 MiB. A
+ * record is one line, and the largest a write schema allows (a QR code with
+ * its logo) stays under 140 KiB, so a longer line is not a record backupKV
+ * wrote. In an archive it fails as BACKUP_ERRORS.content, and it bounds the
+ * line buffer: without it, an archive with no newline would be held whole, up
+ * to the inflated cap. backupKV refuses such a record before writing, with
+ * BACKUP_ERRORS.recordTooLarge. Every API write is bounded far below it (a
+ * route record at 64 KiB as stored, v1.37.2), so only a record written before
+ * those caps or straight to KV can reach it.
  */
-export const INFLATE_SLICE_BYTES = 4 * 1024;
+export const MAX_RECORD_LINE_BYTES = 1024 * 1024;
+
+/** Output chunk size of the inflater: the most it inflates past a cap. */
+const INFLATE_CHUNK_BYTES = 16 * 1024;
+
+/**
+ * The bytes of the record line being read, in ONE contiguous buffer that
+ * grows geometrically up to MAX_RECORD_LINE_BYTES, whatever the chunking of
+ * the inflated output: a line delivered a byte at a time costs at most a
+ * dozen growth steps, never one retained piece per chunk. The buffer is kept
+ * between lines, so it holds at most MAX_RECORD_LINE_BYTES. Exported for
+ * tests.
+ */
+export class RecordLineBuffer {
+  private bytes = new Uint8Array(1024);
+  private used = 0;
+  /** How many times the buffer has been reallocated. */
+  growths = 0;
+
+  /** Add `chunk` to the line; a line past MAX_RECORD_LINE_BYTES is a content failure. */
+  append(chunk: Uint8Array): void {
+    const needed = this.used + chunk.byteLength;
+    if (needed > MAX_RECORD_LINE_BYTES) throw new BackupIntegrityError(BACKUP_ERRORS.content);
+    if (needed > this.bytes.byteLength) this.grow(needed);
+    this.bytes.set(chunk, this.used);
+    this.used = needed;
+  }
+
+  /** The line's bytes, valid until the next append; the line starts again empty. */
+  take(): Uint8Array {
+    const line = this.bytes.subarray(0, this.used);
+    this.used = 0;
+    return line;
+  }
+
+  private grow(needed: number): void {
+    let size = this.bytes.byteLength * 2;
+    while (size < needed) size *= 2;
+    const grown = new Uint8Array(Math.min(size, MAX_RECORD_LINE_BYTES));
+    grown.set(this.bytes.subarray(0, this.used));
+    this.bytes = grown;
+    this.growths += 1;
+  }
+}
 
 /**
  * Validate a stored manifest for `date`. It must name that date and that
@@ -201,12 +265,29 @@ export function parseBackupManifest(value: unknown, date: string): BackupManifes
 }
 
 /**
+ * Compressed bytes the inflater consumed for the current gzip member. pako
+ * keeps its zlib stream private, and its `total_in` restarts at 0 when it
+ * moves on to another member. pako is pinned to an exact version in
+ * package.json for this read; if an upgrade drops or renames the field,
+ * verification fails with BACKUP_ERRORS.inflaterUnsupported instead of
+ * passing unchecked. Exported for tests.
+ */
+export function inflatedInputBytes(inflator: Inflate): number {
+  const total = (inflator as unknown as { strm?: { total_in?: unknown } }).strm?.total_in;
+  if (typeof total !== 'number' || !Number.isFinite(total)) {
+    throw new BackupIntegrityError(BACKUP_ERRORS.inflaterUnsupported);
+  }
+  return total;
+}
+
+/**
  * Check a gzip NDJSON stream of `size` compressed bytes: every line is a
  * `{key, value}` record with a non-null value, no key repeats, and the count
  * equals `expectedCount`. Only the current line and the key set are held.
  *
  * Fails with a {@link BackupIntegrityError}; its message names no key or
- * payload.
+ * payload. A failure to read the body itself is a {@link BackupReadError}, a
+ * storage fault rather than a content one. Any early exit cancels the body.
  */
 async function scanArchiveStream(
   body: ReadableStream<Uint8Array>,
@@ -238,164 +319,109 @@ async function scanArchiveStream(
     if (keys.size > expectedCount) throw new BackupIntegrityError(BACKUP_ERRORS.countMismatch);
   };
 
-  // The archive is pumped into the inflater by hand rather than piped, so an
-  // early exit can cancel the source itself: a pipe would leave cancelling
-  // the source to the runtime.
-  const source = body.getReader();
-  const inflater = new DecompressionStream('gzip');
-  const writer = inflater.writable.getWriter();
-  const reader = inflater.readable.getReader();
-  // A failure to read the archive body itself (R2 failing mid-stream), kept
-  // apart from a fault in the bytes it delivered (v1.37.1)
-  let readFailure: BackupReadError | undefined;
-  // Set before verification cancels the source. Cancelling a native stream
-  // rejects a read the pump is waiting on ("Stream was cancelled."); that is
-  // our own stop, not R2 failing, so it must not turn an integrity failure
-  // into a read failure. A read that fails before any cancel still counts.
-  let cancelling = false;
-
-  // Paced input (v1.37.1). workerd's DecompressionStream inflates each
-  // written chunk in full before any of it is read, and resolves the write at
-  // once, so a free-running pump could hand it a whole high-ratio archive (a
-  // few KiB of gzip can hold GiB of zeros) before the inflated cap below ever
-  // runs. The pump therefore writes at most INFLATE_SLICE_BYTES at a time, and
-  // only when the reader has drained the inflater and asks for more: at most
-  // one slice's output (about 4 MiB at deflate's maximum ratio) is held.
-  // "Drained" is inferred from timing: workerd settles a read of output that
-  // is already queued before a 0 ms timer fires (measured at the deployed
-  // compatibility date), so a read still pending after one means the queue
-  // is empty. The bomb test's write count pins that ordering; if it ever
-  // changed, the bound would degrade towards the archive's full expansion.
-  let pumpDone = false;
-  // The inflated stream has ended. A pump still holding input then stops
-  // instead of waiting for a request that will never come.
-  let readerDone = false;
-  // The inflater ended with archive bytes still unwritten: trailing data
-  let unwrittenInput = false;
-  // The reader's request for a slice, resolved once one is written
-  let sliceRequest: (() => void) | undefined;
-  // The pump, waiting for a request
-  let pumpWaiting: (() => void) | undefined;
-  const requestInput = (): Promise<void> =>
-    pumpDone
-      ? Promise.resolve()
-      : new Promise(resolve => {
-          sliceRequest = resolve;
-          pumpWaiting?.();
-          pumpWaiting = undefined;
-        });
-  const waitForRequest = (): Promise<void> =>
-    sliceRequest || cancelling || readerDone
-      ? Promise.resolve()
-      : new Promise(resolve => {
-          pumpWaiting = resolve;
-        });
-  const requestServed = (): void => {
-    const served = sliceRequest;
-    sliceRequest = undefined;
-    served?.();
-  };
-
-  const pump = (async () => {
-    try {
-      for (;;) {
-        let next: ReadableStreamReadResult<Uint8Array>;
-        try {
-          next = await source.read();
-        } catch (error) {
-          if (!cancelling) readFailure = new BackupReadError(error);
-          throw error;
-        }
-        if (next.done) break;
-        const chunk = next.value;
-        for (let offset = 0; offset < chunk.byteLength; offset += INFLATE_SLICE_BYTES) {
-          await waitForRequest();
-          if (cancelling) throw new Error('verification stopped');
-          if (readerDone) {
-            unwrittenInput = true;
-            throw new Error('inflater ended before the archive');
-          }
-          await writer.write(chunk.subarray(offset, offset + INFLATE_SLICE_BYTES));
-          requestServed();
-        }
-      }
-      await writer.close();
-    } catch (error) {
-      await writer.abort(error).catch(() => undefined);
-    } finally {
-      pumpDone = true;
-      requestServed();
-    }
-  })();
-
-  /**
-   * Read the next inflated chunk. While the inflater has nothing queued (the
-   * read is still pending after an idle turn; queued output always settles a
-   * read first), ask the pump for one more slice.
-   */
-  const readInflated = async (): Promise<ReadableStreamReadResult<Uint8Array>> => {
-    const next = reader.read();
-    const settled = next.then(
-      () => true,
-      () => true,
-    );
-    while (!(await Promise.race([settled, scheduler.wait(0).then(() => false)]))) {
-      await requestInput();
-    }
-    return next;
-  };
-
+  // No pipe: the scanner reads the body itself, so an early exit cancels the
+  // source rather than leaving that to the runtime
+  const reader = body.getReader();
+  let sourceDone = false;
   try {
-    const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
+    // Strict UTF-8. A byte-order mark is dropped only at the start of the
+    // archive, as a streaming decoder would; anywhere else it stays, and the
+    // JSON parse refuses it.
+    const firstLineDecoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
+    const lineDecoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+    let firstLine = true;
+    const decodeLine = (bytes: Uint8Array): string => {
+      const decoder = firstLine ? firstLineDecoder : lineDecoder;
+      firstLine = false;
+      return decoder.decode(bytes);
+    };
+    const inflator = new Inflate({ windowBits: 31, chunkSize: INFLATE_CHUNK_BYTES });
     let inflatedBytes = 0;
-    let pending = '';
-    try {
-      for (;;) {
-        const { done, value } = await readInflated();
-        if (done) {
-          // Wake a pump waiting for a request, so it stops rather than hang
-          readerDone = true;
-          pumpWaiting?.();
-          pumpWaiting = undefined;
-          break;
-        }
-        inflatedBytes += value.byteLength;
-        if (inflatedBytes > maxBytes) throw new BackupIntegrityError(BACKUP_ERRORS.sizeLimit);
-        pending += decoder.decode(value, { stream: true });
-        let end = pending.indexOf('\n');
-        while (end !== -1) {
-          consume(pending.slice(0, end));
-          pending = pending.slice(end + 1);
-          end = pending.indexOf('\n');
-        }
+    let compressedBytes = 0;
+    // The line that crosses output chunks, as bytes
+    const line = new RecordLineBuffer();
+    // Called by pako for each piece of output (at most INFLATE_CHUNK_BYTES),
+    // INSIDE push: a throw here stops the inflater mid-chunk, so neither cap
+    // waits for the rest of a high-ratio input chunk to inflate.
+    inflator.onData = (chunk: Uint8Array) => {
+      inflatedBytes += chunk.byteLength;
+      if (inflatedBytes > maxBytes) throw new BackupIntegrityError(BACKUP_ERRORS.sizeLimit);
+      // A newline byte never occurs inside a multi-byte UTF-8 sequence, so
+      // each newline is a character boundary. Only this chunk is searched;
+      // the open line is never rescanned.
+      const first = chunk.indexOf(0x0a);
+      if (first === -1) {
+        line.append(chunk);
+        return;
       }
-    } catch (error) {
-      // Stop: an early exit must not keep reading a large archive.
-      cancelling = true;
-      // Release a pump waiting for a request, so it stops too
-      pumpWaiting?.();
-      pumpWaiting = undefined;
-      await reader.cancel().catch(() => undefined);
-      await source.cancel().catch(() => undefined);
-      throw error;
-    } finally {
-      await pump;
+      line.append(chunk.subarray(0, first));
+      consume(decodeLine(line.take()));
+      // The whole lines inside this chunk, decoded at once (each is shorter
+      // than one output chunk, so under the line cap)
+      const last = chunk.lastIndexOf(0x0a);
+      if (last > first) {
+        const text = lineDecoder.decode(chunk.subarray(first + 1, last));
+        let start = 0;
+        let end = text.indexOf('\n');
+        while (end !== -1) {
+          consume(text.slice(start, end));
+          start = end + 1;
+          end = text.indexOf('\n', start);
+        }
+        consume(text.slice(start));
+      }
+      line.append(chunk.subarray(last + 1));
+    };
+    for (;;) {
+      let next: ReadableStreamReadResult<Uint8Array>;
+      try {
+        next = await reader.read();
+      } catch (error) {
+        // R2 failing to deliver the archive (v1.37.1); the reader is not
+        // cancelled until the finally below, so this is never our own stop
+        throw new BackupReadError(error);
+      }
+      if (next.done) {
+        sourceDone = true;
+        break;
+      }
+      const chunk = next.value;
+      if (chunk.byteLength === 0) continue;
+      compressedBytes += chunk.byteLength;
+      if (compressedBytes > maxBytes) {
+        throw new BackupIntegrityError(BACKUP_ERRORS.compressedSizeLimit);
+      }
+      // backupKV writes exactly one gzip member: once it has ended, any
+      // further byte (junk or a second member) is refused, wherever the chunk
+      // boundaries fall
+      if (inflator.ended && !inflator.err) throw new BackupIntegrityError(BACKUP_ERRORS.content);
+      // A sync flush hands every byte this chunk inflates to onData now,
+      // rather than holding up to 16 KiB until more input arrives, so the
+      // records in a chunk are checked before the next read is awaited
+      inflator.push(chunk, Z_SYNC_FLUSH);
+      // A corrupt stream: read no further
+      if (inflator.ended && inflator.err) break;
     }
-    if (unwrittenInput) {
-      // Bytes the inflater never took: trailing data, not one gzip member
-      await source.cancel().catch(() => undefined);
+    inflator.push(new Uint8Array(0), true);
+    if (inflator.err || !inflator.ended) throw new BackupIntegrityError(BACKUP_ERRORS.content);
+    // Within one chunk pako inflates a following gzip member as a
+    // continuation (restarting its input count) and leaves other trailing
+    // bytes unread; either way the member consumed fewer bytes than arrived
+    if (inflatedInputBytes(inflator) !== compressedBytes) {
       throw new BackupIntegrityError(BACKUP_ERRORS.content);
     }
-    consume(pending + decoder.decode());
+    consume(decodeLine(line.take()));
     if (keys.size !== expectedCount) throw new BackupIntegrityError(BACKUP_ERRORS.countMismatch);
     return { records: keys.size, inflatedBytes };
   } catch (error) {
-    // A body that could not be read is a storage fault, whatever the inflater
-    // made of the aborted stream. Our own fixed messages pass through. Decoder
-    // and inflater errors can quote archive bytes; report none of them.
-    if (readFailure) throw readFailure;
-    if (error instanceof BackupIntegrityError) throw error;
+    // Our own fixed messages and body read failures pass through. Decoder and
+    // inflater errors can quote archive bytes; report none of them.
+    if (error instanceof BackupIntegrityError || error instanceof BackupReadError) throw error;
     throw new BackupIntegrityError(BACKUP_ERRORS.content);
+  } finally {
+    // An early exit must not keep a large archive streaming. A cancel that
+    // rejects must not replace the error being thrown (v1.37.1).
+    if (!sourceDone) await reader.cancel().catch(() => undefined);
   }
 }
 

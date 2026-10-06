@@ -1,4 +1,10 @@
-import { type QRCode, type QRListQuery, qrMatchesListFilters } from '@bifrost/shared';
+import {
+  MAX_QR_RECORD_BYTES,
+  type QRCode,
+  type QRListQuery,
+  qrMatchesListFilters,
+} from '@bifrost/shared';
+import { HTTPException } from 'hono/http-exception';
 import {
   KVDeleteError,
   KVReadError,
@@ -16,6 +22,9 @@ import { qrDomainPrefix, qrKey } from './schema';
  * type immutability, and audit logging are the route handlers' concern
  * (src/routes/qr.ts).
  */
+
+/** The fixed refusal of a QR write over {@link MAX_QR_RECORD_BYTES} (v1.37.2). */
+export const QR_RECORD_TOO_LARGE = 'QR record is too large';
 
 /**
  * Get a single QR record by domain and id. Returns null if not found.
@@ -53,8 +62,14 @@ export async function getQRSafe(
  */
 export async function putQR(kv: KVNamespace, record: QRCode): Promise<QRCode> {
   const key = qrKey(record.domain, record.id);
+  // The exact record, checked immediately before it is written (v1.37.2): a
+  // record over the cap would stop every nightly backup
+  const serialized = JSON.stringify(record);
+  if (new TextEncoder().encode(serialized).byteLength > MAX_QR_RECORD_BYTES) {
+    throw new HTTPException(400, { message: QR_RECORD_TOO_LARGE });
+  }
   try {
-    await kv.put(key, JSON.stringify(record));
+    await kv.put(key, serialized);
     return record;
   } catch (error) {
     throw new KVWriteError(key, error instanceof Error ? error : new Error(String(error)));

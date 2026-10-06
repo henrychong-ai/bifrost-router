@@ -4,40 +4,7 @@
  * Prevents SSRF attacks by validating proxy targets
  */
 
-/**
- * Private IP address ranges (RFC 1918 + loopback + link-local)
- */
-const PRIVATE_IP_RANGES = [
-  // IPv4 private ranges
-  /^10\./, // 10.0.0.0/8
-  /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // 172.16.0.0/12
-  /^192\.168\./, // 192.168.0.0/16
-  /^127\./, // 127.0.0.0/8 (loopback)
-  /^169\.254\./, // 169.254.0.0/16 (link-local)
-  /^0\./, // 0.0.0.0/8
-  // IPv6 private ranges (simplified patterns)
-  /^::1$/, // Loopback
-  /^fe80:/i, // Link-local
-  /^fc00:/i, // Unique local
-  /^fd[0-9a-f]{2}:/i, // Unique local
-];
-
-/**
- * Known internal hostnames that should be blocked
- */
-const BLOCKED_HOSTNAMES = [
-  'localhost',
-  'localhost.localdomain',
-  'ip6-localhost',
-  'ip6-loopback',
-  '0.0.0.0',
-  '[::]',
-  '[::1]',
-  // Cloud metadata endpoints (common SSRF targets)
-  '169.254.169.254', // AWS, GCP, Azure metadata
-  'metadata.google.internal', // GCP metadata
-  'metadata.google', // GCP metadata alternative
-];
+import { isBlockedHost } from './host-policy';
 
 /**
  * Allowed protocols for proxy targets
@@ -45,17 +12,15 @@ const BLOCKED_HOSTNAMES = [
 const ALLOWED_PROTOCOLS = ['http:', 'https:'];
 
 /**
- * Check if a hostname represents a private/internal IP address
+ * Check if a hostname may not be proxied to: the shared outbound host policy
+ * (src/utils/host-policy.ts, v1.37.2), the same one the link-preview fetcher
+ * uses. Covers internal names (`localhost`, `*.localhost`, `*.internal`,
+ * `*.local`, metadata names, one trailing dot ignored), every non-public IPv4
+ * range, and any IPv6 address outside global unicast (bracketed or not).
+ * Hostnames are not resolved.
  */
 export function isPrivateIP(hostname: string): boolean {
-  // Check against blocked hostnames
-  const lowerHost = hostname.toLowerCase();
-  if (BLOCKED_HOSTNAMES.includes(lowerHost)) {
-    return true;
-  }
-
-  // Check against private IP patterns
-  return PRIVATE_IP_RANGES.some(pattern => pattern.test(hostname));
+  return isBlockedHost(hostname);
 }
 
 /**

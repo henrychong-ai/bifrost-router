@@ -1,3 +1,6 @@
+import { hostRefusal, stripTrailingDot } from './host-policy';
+import { validateProxyTarget } from './url-validation';
+
 export interface OpenGraphData {
   title: string | null;
   description: string | null;
@@ -16,7 +19,46 @@ export interface OpenGraphFetchOptions {
    * on.
    */
   maxRedirects?: number;
+  /**
+   * Resolves hops on hosts this Worker serves in process (v1.37.2). Without
+   * it every hop is fetched over the network.
+   */
+  ownHost?: OwnHostResolver;
 }
+
+/**
+ * In-process resolution of a preview hop on a host this Worker serves
+ * (v1.37.2). A Worker cannot fetch a host it serves through the public edge:
+ * the subrequest does not reach the Worker, and the preview fails (typically
+ * 502 or 522). The parser asks the resolver instead. A `response` is read
+ * exactly like a fetched one: a 3xx is followed under the same hop cap, the
+ * body is read under the same size cap, and the hop has the same timeout. An
+ * `upstream` (a proxy route) is fetched by the parser as a proxied hop: it and
+ * every redirect after it pass validateProxyTarget, count against the same
+ * cap and get their own timeout, the result is reported under the public URL,
+ * and no error names the upstream (a refusal gives the minimal result, a
+ * failed fetch `HTTP 502`); an og:image the page itself gives may still be an
+ * absolute upstream URL. Every hop, own or not, passes the outbound host
+ * policy first.
+ */
+export interface OwnHostResolver {
+  /** Whether `url`'s host is served by this Worker. */
+  serves(url: URL): boolean;
+  /** What a visitor of `url` would get. `signal` aborts at the hop's timeout. */
+  resolve(url: URL, signal: AbortSignal): Promise<OwnHostAnswer>;
+}
+
+/** A resolver's answer for one own-host hop (v1.37.2). */
+export type OwnHostAnswer =
+  | { kind: 'response'; response: Response }
+  | { kind: 'upstream'; url: URL }
+  | { kind: 'minimal' };
+
+/** The request headers of every preview hop, fetched or resolved in process. */
+export const OPEN_GRAPH_REQUEST_HEADERS: Readonly<Record<string, string>> = {
+  'User-Agent': 'Bifrost/1.0 (OpenGraph Parser)',
+  Accept: 'text/html',
+};
 
 /** Redirect hops followed before giving up (v1.37.0). */
 export const MAX_REDIRECTS = 5;
@@ -36,55 +78,6 @@ const MAX_RESPONSE_SIZE = 1024 * 1024;
  * Request timeout in milliseconds
  */
 const REQUEST_TIMEOUT_MS = 5000;
-
-/**
- * Private IP ranges that should be blocked (SSRF protection)
- * Includes: loopback, private networks, link-local, cloud metadata
- */
-const PRIVATE_IP_PATTERNS = [
-  // IPv4 loopback (127.0.0.0/8)
-  /^127\./,
-  // IPv4 private class A (10.0.0.0/8)
-  /^10\./,
-  // IPv4 private class B (172.16.0.0/12)
-  /^172\.(1[6-9]|2[0-9]|3[0-1])\./,
-  // IPv4 private class C (192.168.0.0/16)
-  /^192\.168\./,
-  // IPv4 link-local (169.254.0.0/16) - includes AWS/GCP metadata
-  /^169\.254\./,
-  // IPv4 localhost variations
-  /^0\./,
-  // IPv6 loopback
-  /^::1$/,
-  /^\[::1\]$/,
-  // IPv6 private (fc00::/7)
-  /^f[cd][0-9a-f]{2}:/i,
-  // IPv6 link-local (fe80::/10)
-  /^fe[89ab][0-9a-f]:/i,
-];
-
-/**
- * Hostnames that should be blocked (SSRF protection)
- */
-const BLOCKED_HOSTNAMES = [
-  'localhost',
-  'localhost.localdomain',
-  '0.0.0.0',
-  // Common internal service names
-  'kubernetes',
-  'kubernetes.default',
-  'metadata',
-  'metadata.google.internal',
-];
-
-/**
- * Cloud metadata endpoints (commonly targeted in SSRF)
- */
-const CLOUD_METADATA_IPS = [
-  '169.254.169.254', // AWS, GCP, Azure
-  '169.254.170.2', // AWS ECS
-  '100.100.100.200', // Alibaba Cloud
-];
 
 export class SSRFBlockedError extends Error {
   constructor(message: string) {
@@ -124,59 +117,314 @@ export function validateUrlForSSRF(urlString: string): URL {
     throw new SSRFBlockedError(`Blocked scheme: ${url.protocol}`);
   }
 
-  const hostname = url.hostname.toLowerCase();
-
-  // Block explicit blocked hostnames
-  if (BLOCKED_HOSTNAMES.includes(hostname)) {
-    throw new SSRFBlockedError(`Blocked hostname: ${hostname}`);
-  }
-
-  // Block cloud metadata IPs
-  if (CLOUD_METADATA_IPS.includes(hostname)) {
-    throw new SSRFBlockedError(`Blocked cloud metadata IP: ${hostname}`);
-  }
-
-  // Block private IP patterns
-  for (const pattern of PRIVATE_IP_PATTERNS) {
-    if (pattern.test(hostname)) {
-      throw new SSRFBlockedError(`Blocked private IP: ${hostname}`);
-    }
-  }
-
-  // Block IPv6 addresses in brackets that might be private
-  if (hostname.startsWith('[') && hostname.endsWith(']')) {
-    const ipv6 = hostname.slice(1, -1);
-    for (const pattern of PRIVATE_IP_PATTERNS) {
-      if (pattern.test(ipv6)) {
-        throw new SSRFBlockedError(`Blocked private IPv6: ${ipv6}`);
-      }
-    }
-  }
+  // One shared host policy for every outbound fetch of a caller-supplied URL
+  // (src/utils/host-policy.ts, v1.37.2): names, an IPv4 block list and an
+  // IPv6 allow-list. Hostnames are not resolved.
+  const refusal = hostRefusal(url.hostname);
+  if (refusal === 'name') throw new SSRFBlockedError(`Blocked hostname: ${url.hostname}`);
+  if (refusal === 'ipv4') throw new SSRFBlockedError(`Blocked private IP: ${url.hostname}`);
+  if (refusal === 'ipv6') throw new SSRFBlockedError(`Blocked IPv6 address: ${url.hostname}`);
 
   return url;
 }
 
-function extractMetaContent(html: string, property: string): string | null {
-  const patterns = [
-    new RegExp(`<meta[^>]*property=["']${property}["'][^>]*content=["']([^"']+)["']`, 'i'),
-    new RegExp(`<meta[^>]*content=["']([^"']+)["'][^>]*property=["']${property}["']`, 'i'),
-    new RegExp(`<meta[^>]*name=["']${property}["'][^>]*content=["']([^"']+)["']`, 'i'),
-    new RegExp(`<meta[^>]*content=["']([^"']+)["'][^>]*name=["']${property}["']`, 'i'),
-  ];
+/**
+ * Longest `<meta …>` or `<title …>` tag read, `<` to `>`: 16 KiB (v1.37.2). A
+ * longer tag is skipped whole: no real Open Graph tag comes near it, and the
+ * cap bounds the attributes any one tag can contribute.
+ */
+const MAX_META_TAG_LENGTH = 16 * 1024;
 
-  for (const pattern of patterns) {
-    const match = html.match(pattern);
-    if (match?.[1]) {
-      return decodeHtmlEntities(match[1]);
-    }
-  }
-
-  return null;
+/**
+ * The first non-empty `content` for each `property` and each `name` value,
+ * lower-cased (v1.37.2).
+ */
+interface MetaContent {
+  property: Map<string, string>;
+  name: Map<string, string>;
 }
 
-function extractTitle(html: string): string | null {
-  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-  return titleMatch ? decodeHtmlEntities(titleMatch[1].trim()) : null;
+/** HTML's ASCII whitespace. */
+function isHtmlSpace(character: string | undefined): boolean {
+  return (
+    character === ' ' ||
+    character === '\t' ||
+    character === '\n' ||
+    character === '\r' ||
+    character === '\f'
+  );
+}
+
+/**
+ * One start tag (`<meta …>` or `<title …>`), read from `start` (just after
+ * its name) to its real closing `>`, and where scanning resumes. Attribute
+ * names are lower-cased and the first of a repeated name wins, as in HTML;
+ * values may be double-, single- or unquoted, and a `>` inside a quoted value
+ * does not end the tag. The tokenizer state is HTML's: a quote opens a value
+ * only directly after `=` (and optional ASCII whitespace); in an attribute
+ * name or an unquoted value it is an ordinary character, and `>` ends the
+ * tag. A tag that does not close before `limit` gives no attributes, but is
+ * still read in the same state machine to its real end (v1.37.2): a scan
+ * restarted at the limit, or one that treated every quote as opening a value,
+ * could read text inside a value as tags. An unclosed quote runs to the end of
+ * the page, as in HTML. Each character is read once and scanning resumes
+ * after the tag, so the cost is linear.
+ */
+function readTag(
+  html: string,
+  start: number,
+  limit: number,
+): { attributes: Map<string, string> | null; next: number } {
+  const attributes = new Map<string, string>();
+  const end = html.length;
+  let at = start;
+  while (at < end) {
+    const character = html[at];
+    if (character === '>') return { attributes: at < limit ? attributes : null, next: at + 1 };
+    if (isHtmlSpace(character) || character === '/') {
+      at += 1;
+      continue;
+    }
+    // The first character always belongs to the name (an `=` here too, as
+    // in HTML), so every pass advances
+    const nameStart = at;
+    at += 1;
+    while (at < end && !isHtmlSpace(html[at]) && !'/>='.includes(html[at] ?? '')) at += 1;
+    const name = html.slice(nameStart, at).toLowerCase();
+    while (at < end && isHtmlSpace(html[at])) at += 1;
+    let value = '';
+    if (at < end && html[at] === '=') {
+      at += 1;
+      while (at < end && isHtmlSpace(html[at])) at += 1;
+      const quote = html[at];
+      if (quote === '"' || quote === "'") {
+        // The quote's real close, whether or not it is inside the limit: an
+        // oversized tag is still skipped whole, and scanning resumes after it
+        const from = at + 1;
+        const close = html.indexOf(quote, from);
+        if (close === -1) return { attributes: null, next: end };
+        value = html.slice(from, close);
+        at = close + 1;
+      } else {
+        const valueStart = at;
+        while (at < end && !isHtmlSpace(html[at]) && html[at] !== '>') at += 1;
+        value = html.slice(valueStart, at);
+      }
+    }
+    // Attributes past the limit are not kept: the tag is only being skipped
+    if (at <= limit && !attributes.has(name)) attributes.set(name, value);
+  }
+  return { attributes: null, next: end };
+}
+
+/** Where a tag name ends: ASCII whitespace, `/` or `>` (not NBSP or another Unicode space). */
+const TAG_NAME_END = /[\t\n\f\r />]/;
+
+/** Elements whose content is raw text: no tags inside, up to the matching end tag. */
+const RAW_TEXT_ELEMENTS: ReadonlySet<string> = new Set([
+  'script',
+  'style',
+  'xmp',
+  'iframe',
+  'noembed',
+  'noframes',
+  'noscript',
+]);
+
+/** Elements whose content is escapable raw text (RCDATA): no tags inside. */
+const RCDATA_ELEMENTS: ReadonlySet<string> = new Set(['title', 'textarea']);
+
+function isAsciiLetter(character: string | undefined): boolean {
+  return character !== undefined && /^[A-Za-z]$/.test(character);
+}
+
+/**
+ * Where scanning resumes after the comment that starts at `open` (`<!--`), as
+ * HTML ends one: `<!-->` and `<!--->` close at once; otherwise the first
+ * `-->` or `--!>` closes it; an unterminated comment runs to the end.
+ */
+function commentEnd(html: string, open: number): number {
+  if (html.startsWith('<!-->', open)) return open + 5;
+  if (html.startsWith('<!--->', open)) return open + 6;
+  const close = /--!?>/g;
+  close.lastIndex = open + 4;
+  const match = close.exec(html);
+  return match ? match.index + match[0].length : html.length;
+}
+
+const endTagPatterns = new Map<string, RegExp>();
+
+/**
+ * Where the end tag `</name` starts (any case, followed by ASCII whitespace,
+ * `/` or `>`), or -1. A `</name` at the very end of the input is text, as in
+ * HTML, so the element runs to the end.
+ */
+function findEndTag(html: string, name: string, from: number): number {
+  let pattern = endTagPatterns.get(name);
+  if (!pattern) {
+    pattern = new RegExp(`</${name}(?=[\\t\\n\\f\\r />])`, 'gi');
+    endTagPatterns.set(name, pattern);
+  }
+  pattern.lastIndex = from;
+  return pattern.exec(html)?.index ?? -1;
+}
+
+/** Whether `name` (lower case) starts at `at`, followed by a tag-name delimiter. */
+function tagNameAt(html: string, at: number, name: string): boolean {
+  return (
+    html.slice(at, at + name.length).toLowerCase() === name &&
+    TAG_NAME_END.test(html[at + name.length] ?? '')
+  );
+}
+
+/**
+ * Where a `<script>` element's content ends (the `<` of its `</script`), or
+ * -1: the WHATWG script data states, one character at a time. In plain script
+ * data, `<!--` enters the escaped dash-dash state. In the escaped states a `-`
+ * advances escaped → dash → dash-dash, `>` from dash-dash returns to plain
+ * script data (so `<!-->` and `<!--->` close at once), and `<script` starts
+ * the double-escaped states, which mirror the escaped ones: their `</script`
+ * returns to escaped, and `>` from their dash-dash returns to plain script
+ * data. Only `</script` in plain script data or an escaped state ends the
+ * element. Linear: every character is visited once.
+ */
+function findScriptEnd(html: string, from: number): number {
+  type State =
+    | 'data'
+    | 'escaped'
+    | 'escapedDash'
+    | 'escapedDashDash'
+    | 'double'
+    | 'doubleDash'
+    | 'doubleDashDash';
+  let state: State = 'data';
+  let at = from;
+  while (at < html.length) {
+    const character = html[at];
+    if (state === 'data') {
+      if (character === '<') {
+        if (html[at + 1] === '/' && tagNameAt(html, at + 2, 'script')) return at;
+        if (html.startsWith('<!--', at)) {
+          state = 'escapedDashDash';
+          at += 4;
+          continue;
+        }
+      }
+      at += 1;
+      continue;
+    }
+    const escaped: boolean =
+      state === 'escaped' || state === 'escapedDash' || state === 'escapedDashDash';
+    if (character === '<') {
+      if (escaped) {
+        if (html[at + 1] === '/' && tagNameAt(html, at + 2, 'script')) return at;
+        if (tagNameAt(html, at + 1, 'script')) {
+          state = 'double';
+          at += 1 + 'script'.length;
+          continue;
+        }
+        state = 'escaped';
+      } else {
+        if (html[at + 1] === '/' && tagNameAt(html, at + 2, 'script')) {
+          state = 'escaped';
+          at += 2 + 'script'.length;
+          continue;
+        }
+        state = 'double';
+      }
+    } else if (character === '-') {
+      if (state === 'escaped') state = 'escapedDash';
+      else if (state === 'escapedDash') state = 'escapedDashDash';
+      else if (state === 'double') state = 'doubleDash';
+      else if (state === 'doubleDash') state = 'doubleDashDash';
+    } else if (character === '>' && (state === 'escapedDashDash' || state === 'doubleDashDash')) {
+      state = 'data';
+    } else {
+      state = escaped ? 'escaped' : 'double';
+    }
+    at += 1;
+  }
+  return -1;
+}
+
+/**
+ * Every `<meta>` tag's `property`/`name` and `content`, and the text of the
+ * first `<title>` with any, in ONE linear pass over the whole document
+ * (v1.37.2). The regular expressions this replaces backtracked: about 52 KB of
+ * unclosed `<meta property='og:title' content='` took tens of seconds.
+ *
+ * Every tag is read, not only `meta` and `title`, so text inside another tag's
+ * attribute value is never taken for markup. A `<` followed by an ASCII letter
+ * starts a start tag, read by readTag in HTML's attribute tokenizer states (an
+ * oversized one skipped whole); an end tag is read the same way; a comment
+ * (`<!--` to `-->`) and `<!…>` or `<?…>` are skipped. The content of `script`
+ * (with its escaped states), `style`, `xmp`, `iframe`, `noembed`, `noframes`
+ * and `noscript` is raw text, and that of `title` and `textarea` RCDATA: no
+ * tag inside any of them is read. A tag name ends only at ASCII whitespace,
+ * `/` or `>`. The title is the text of the first `<title>` element that has
+ * some, up to `</title`, trimmed; a `<title>` never closed gives no title. Each character is visited a bounded number
+ * of times, so the cost is linear.
+ */
+function scanTags(html: string): MetaContent & { title: string | null } {
+  const found: MetaContent & { title: string | null } = {
+    property: new Map(),
+    name: new Map(),
+    title: null,
+  };
+  const end = html.length;
+  let at = 0;
+  while (at < end) {
+    const open = html.indexOf('<', at);
+    if (open === -1) break;
+    const next = html[open + 1];
+    if (html.startsWith('<!--', open)) {
+      at = commentEnd(html, open);
+      continue;
+    }
+    if (next === '!' || next === '?' || (next === '/' && !isAsciiLetter(html[open + 2]))) {
+      const close = html.indexOf('>', open + 2);
+      at = close === -1 ? end : close + 1;
+      continue;
+    }
+    const isEndTag = next === '/';
+    const nameStart = open + (isEndTag ? 2 : 1);
+    if (!isAsciiLetter(html[nameStart])) {
+      at = open + 1;
+      continue;
+    }
+    let nameEnd = nameStart + 1;
+    while (nameEnd < end && !TAG_NAME_END.test(html[nameEnd] ?? '')) nameEnd += 1;
+    const tag = readTag(html, nameEnd, Math.min(end, open + MAX_META_TAG_LENGTH));
+    at = tag.next;
+    if (isEndTag) continue;
+    const name = html.slice(nameStart, nameEnd).toLowerCase();
+
+    if (RAW_TEXT_ELEMENTS.has(name) || RCDATA_ELEMENTS.has(name)) {
+      const close = name === 'script' ? findScriptEnd(html, at) : findEndTag(html, name, at);
+      if (name === 'title' && found.title === null && tag.attributes && close > at) {
+        found.title = decodeHtmlEntities(html.slice(at, close).trim());
+      }
+      at = close === -1 ? end : close;
+      continue;
+    }
+    if (name !== 'meta' || !tag.attributes) continue;
+    const content = tag.attributes.get('content');
+    if (!content) continue;
+    for (const kind of ['property', 'name'] as const) {
+      const key = tag.attributes.get(kind)?.toLowerCase();
+      if (key !== undefined && !found[kind].has(key)) found[kind].set(key, content);
+    }
+  }
+  return found;
+}
+
+/**
+ * The content of the first tag whose `property` is `key`, else of the first
+ * whose `name` is `key` (both case-insensitive), entity-decoded.
+ */
+function metaContent(meta: MetaContent, key: string): string | null {
+  const content = meta.property.get(key) ?? meta.name.get(key);
+  return content === undefined ? null : decodeHtmlEntities(content);
 }
 
 const NAMED_ENTITIES: Record<string, string> = {
@@ -218,10 +466,46 @@ function decodeHtmlEntities(text: string): string {
 }
 
 /**
+ * Name suffixes refused in `og:image` and `og:url` on top of the host policy
+ * (v1.37.2): private-network names the operator's browser may resolve, though
+ * the Worker never would (a tailnet, a home or office LAN, and the RFC 6762
+ * Appendix G names). Hostnames are not resolved, so a public wildcard-DNS name
+ * that answers with a private address (`*.nip.io`, `*.sslip.io`,
+ * `localtest.me`) is not caught.
+ */
+const PRIVATE_BROWSER_SUFFIXES = [
+  '.ts.net',
+  '.lan',
+  '.home.arpa',
+  '.corp',
+  '.home',
+  '.intranet',
+  '.private',
+  '.localdomain',
+] as const;
+
+/**
+ * Whether the operator's browser, rather than the Worker, may load `hostname`:
+ * it passes the host policy, and it is neither a single-label name (`intranet`,
+ * which a browser resolves through the local search domain) nor a name under a
+ * private-network suffix. IP literals are left to the host policy.
+ */
+function isBrowserSafeHost(hostname: string): boolean {
+  if (hostRefusal(hostname) !== null) return false;
+  if (hostname.startsWith('[')) return true;
+  const host = stripTrailingDot(hostname.toLowerCase());
+  if (!host.includes('.')) return false;
+  return !PRIVATE_BROWSER_SUFFIXES.some(suffix => host.endsWith(suffix) || `.${host}` === suffix);
+}
+
+/**
  * `value` resolved against `base`, or null unless the result is http(s)
- * (v1.37.0). `og:image` and `og:url` come from the fetched page, and the
- * dashboard renders the image as an `<img src>`, so a `javascript:`, `data:`,
- * `blob:` or other scheme is dropped rather than passed through.
+ * (v1.37.0) on a host the browser may safely load (v1.37.2). `og:image` and
+ * `og:url` come from the fetched page, and the dashboard renders the image as
+ * an `<img src>` and the URL as a link, so a `javascript:`, `data:`, `blob:`
+ * or other scheme is dropped rather than passed through, and so is an
+ * internal or private address: the browser would otherwise request it from
+ * inside the operator's network.
  */
 function resolveHttpUrl(base: string, value: string | null): string | null {
   if (!value) return null;
@@ -231,7 +515,8 @@ function resolveHttpUrl(base: string, value: string | null): string | null {
   } catch {
     return null;
   }
-  return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  return isBrowserSafeHost(url.hostname) ? url.href : null;
 }
 
 /**
@@ -239,7 +524,7 @@ function resolveHttpUrl(base: string, value: string | null): string | null {
  * that has already errored) must never replace the error or result the caller
  * is about to return (v1.37.1), so its rejection is dropped.
  */
-async function releaseBody(response: Response): Promise<void> {
+export async function releaseBody(response: Response): Promise<void> {
   await response.body?.cancel().catch(() => undefined);
 }
 
@@ -328,28 +613,103 @@ export function parseOpenGraph(
   return fetchOpenGraph(url, options, 0);
 }
 
-/** One hop of {@link parseOpenGraph}; `hop` is the redirects already followed. */
+/**
+ * `resolving`, or the abort reason once `signal` aborts (the hop's timeout),
+ * whichever comes first: an in-process step that does not watch the signal
+ * (a KV read) still cannot outlast the hop. A response that arrives after
+ * the timeout is released.
+ */
+async function resolveWithin(
+  resolving: Promise<OwnHostAnswer>,
+  signal: AbortSignal,
+): Promise<OwnHostAnswer> {
+  const onAbort = { listener: (): void => undefined };
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort.listener = () => reject(signal.reason);
+  });
+  if (signal.aborted) onAbort.listener();
+  else signal.addEventListener('abort', onAbort.listener, { once: true });
+  try {
+    return await Promise.race([resolving, aborted]);
+  } catch (error) {
+    if (signal.aborted) {
+      // Released when it arrives; its own failure no longer matters
+      void resolving.then(
+        late => (late.kind === 'response' ? releaseBody(late.response) : undefined),
+        () => undefined,
+      );
+    }
+    throw error;
+  } finally {
+    signal.removeEventListener('abort', onAbort.listener);
+  }
+}
+
+/** Whether `error` is the abort of a hop's timeout. */
+function isAbort(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
+}
+
+/**
+ * One hop of {@link parseOpenGraph}; `hop` is the redirects already followed.
+ * `proxiedFor` is set on a proxy route's upstream hops (v1.37.2): the public
+ * URL they are reported under, which also stands in for them in every error.
+ */
 async function fetchOpenGraph(
   url: string,
   options: OpenGraphFetchOptions,
   hop: number,
+  proxiedFor?: string,
 ): Promise<OpenGraphData> {
-  // Validate URL for SSRF before making any request
-  const validatedUrl = validateUrlForSSRF(url);
+  // What a visitor sees: the public URL for an upstream hop
+  const reportUrl = proxiedFor ?? url;
+
+  // Validate before any request. An upstream hop is checked as a proxy
+  // target, and a refusal describes nothing rather than name the upstream.
+  let validatedUrl: URL;
+  if (proxiedFor === undefined) {
+    validatedUrl = validateUrlForSSRF(url);
+  } else {
+    const check = validateProxyTarget(url);
+    if (!check.valid || !check.url) return minimalOpenGraph(reportUrl);
+    validatedUrl = check.url;
+    // An upstream on one of our own hosts fails for a visitor too (the
+    // proxy's own fetch cannot reach this Worker), so nothing is described
+    if (options.ownHost?.serves(validatedUrl)) return minimalOpenGraph(reportUrl);
+  }
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
-    const response = await fetch(validatedUrl.href, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Bifrost/1.0 (OpenGraph Parser)',
-        Accept: 'text/html',
-      },
-      // Don't follow redirects automatically - we need to validate each redirect target
-      redirect: 'manual',
-    });
+    let response: Response;
+    if (proxiedFor === undefined && options.ownHost?.serves(validatedUrl)) {
+      const answer = await resolveWithin(
+        options.ownHost.resolve(validatedUrl, controller.signal),
+        controller.signal,
+      );
+      if (answer.kind === 'minimal') return minimalOpenGraph(url);
+      // The same hop, served by the upstream: fetched as a proxied hop
+      if (answer.kind === 'upstream') return fetchOpenGraph(answer.url.href, options, hop, url);
+      response = answer.response;
+    } else {
+      try {
+        response = await fetch(validatedUrl.href, {
+          signal: controller.signal,
+          headers: OPEN_GRAPH_REQUEST_HEADERS,
+          // Don't follow redirects automatically - we need to validate each redirect target
+          redirect: 'manual',
+        });
+      } catch (error) {
+        // A network error can name the upstream, which a visitor never sees,
+        // so it is not kept as a cause either
+        if (proxiedFor !== undefined && !isAbort(error)) {
+          // eslint-disable-next-line preserve-caught-error -- the cause can name the upstream
+          throw new Error('HTTP 502');
+        }
+        throw error;
+      }
+    }
 
     // Handle redirects manually to prevent SSRF via redirect. The body is
     // released first on every path that will not read it, so no early return
@@ -364,13 +724,24 @@ async function fetchOpenGraph(
       // ends as TooManyRedirects.
       const cap = options.maxRedirects ?? MAX_REDIRECTS;
       if (hop >= cap) {
+        // A proxy upstream's redirects are its own business: past the cap
+        // there is simply nothing to describe
+        if (proxiedFor !== undefined) return minimalOpenGraph(reportUrl);
         throw new TooManyRedirectsError(`Too many redirects (max ${cap})`);
       }
       const redirectUrl = response.headers.get('location');
       if (!redirectUrl) throw new Error(`HTTP ${response.status}`);
       // Resolve relative redirect URLs. The recursive call validates the
       // target for SSRF on entry, before it fetches anything.
-      return fetchOpenGraph(new URL(redirectUrl, validatedUrl.href).href, options, hop + 1);
+      let next: string;
+      try {
+        next = new URL(redirectUrl, validatedUrl.href).href;
+      } catch (error) {
+        // An unparseable upstream Location would be quoted by the error
+        if (proxiedFor !== undefined) return minimalOpenGraph(reportUrl);
+        throw error;
+      }
+      return fetchOpenGraph(next, options, hop + 1, proxiedFor);
     }
 
     if (!response.ok) {
@@ -381,36 +752,35 @@ async function fetchOpenGraph(
     const contentType = response.headers.get('content-type') ?? '';
     if (!contentType.includes('text/html')) {
       await releaseBody(response);
-      return minimalOpenGraph(url);
+      return minimalOpenGraph(reportUrl);
     }
 
     // Read response with size limit
     const html = await readResponseWithSizeLimit(response, MAX_RESPONSE_SIZE);
 
+    const meta = scanTags(html);
     const ogTitle =
-      extractMetaContent(html, 'og:title') ??
-      extractMetaContent(html, 'twitter:title') ??
-      extractTitle(html);
+      metaContent(meta, 'og:title') ?? metaContent(meta, 'twitter:title') ?? meta.title;
 
     const ogDescription =
-      extractMetaContent(html, 'og:description') ??
-      extractMetaContent(html, 'twitter:description') ??
-      extractMetaContent(html, 'description');
+      metaContent(meta, 'og:description') ??
+      metaContent(meta, 'twitter:description') ??
+      metaContent(meta, 'description');
 
-    const ogImage =
-      extractMetaContent(html, 'og:image') ?? extractMetaContent(html, 'twitter:image');
+    const ogImage = metaContent(meta, 'og:image') ?? metaContent(meta, 'twitter:image');
 
-    const ogSiteName =
-      extractMetaContent(html, 'og:site_name') ?? extractMetaContent(html, 'application-name');
+    const ogSiteName = metaContent(meta, 'og:site_name') ?? metaContent(meta, 'application-name');
 
-    const ogUrl = extractMetaContent(html, 'og:url');
+    const ogUrl = metaContent(meta, 'og:url');
 
     return {
       title: ogTitle,
       description: ogDescription,
-      image: resolveHttpUrl(url, ogImage),
+      image: resolveHttpUrl(reportUrl, ogImage),
       siteName: ogSiteName,
-      url: resolveHttpUrl(url, ogUrl) ?? url,
+      // A proxied page is reported under its public URL only: an og:url on
+      // the upstream would name it (v1.37.2)
+      url: proxiedFor === undefined ? (resolveHttpUrl(url, ogUrl) ?? url) : proxiedFor,
     };
   } finally {
     clearTimeout(timeoutId);

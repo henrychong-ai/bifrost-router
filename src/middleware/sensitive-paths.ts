@@ -57,6 +57,16 @@ const DENIED_PREFIXES: readonly string[] = [
 ];
 
 /**
+ * Whether `path` (the router's path) is a build-system or source-tree path the
+ * Worker always answers 404, compared case-insensitively. Exported for the
+ * in-process link preview (v1.37.2), which must not describe a route there.
+ */
+export function isSensitivePath(path: string): boolean {
+  const lower = path.toLowerCase();
+  return DENIED_EXACT_PATHS.has(lower) || DENIED_PREFIXES.some(prefix => lower.startsWith(prefix));
+}
+
+/**
  * Returns 404 for paths that should never resolve to a Worker handler.
  *
  * Mounted before the KV-lookup catch-all in `src/index.ts`. The admin API
@@ -86,7 +96,7 @@ const QUERY_TRAVERSAL_TOKENS: readonly string[] = [
   '%2e%2e\\',
 ];
 
-function queryHasTraversal(rawSearch: string): boolean {
+export function queryHasTraversal(rawSearch: string): boolean {
   let current = rawSearch.toLowerCase();
   // Check the raw query, then up to two further URL-decode passes, so single-,
   // double-, and triple-encoded traversal (`%2e%2e%2f`, `%252e%252e%252f`, …) are
@@ -112,18 +122,9 @@ function queryHasTraversal(rawSearch: string): boolean {
 
 export function denySensitivePaths() {
   return async function denySensitivePathsMiddleware(c: Context<AppEnv>, next: Next) {
-    const path = c.req.path.toLowerCase();
-
-    if (DENIED_EXACT_PATHS.has(path)) {
+    if (isSensitivePath(c.req.path)) {
       c.set('unifiedEventType', 'sensitive_denied');
       return c.json({ error: 'Not Found', path: c.req.path }, 404);
-    }
-
-    for (const prefix of DENIED_PREFIXES) {
-      if (path.startsWith(prefix)) {
-        c.set('unifiedEventType', 'sensitive_denied');
-        return c.json({ error: 'Not Found', path: c.req.path }, 404);
-      }
     }
 
     // Query-string path-traversal guard — the query-string analog of the path

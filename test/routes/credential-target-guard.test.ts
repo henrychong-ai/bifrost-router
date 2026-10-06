@@ -132,6 +132,17 @@ describe('route target credential guard', () => {
       expect(data.error).toBe('Validation failed');
     });
 
+    it('refuses a target over 8,192 characters at the schema (v1.37.2)', async () => {
+      const target = `https://app.example/${'a'.repeat(8192)}`;
+      const response = await call(
+        '/api/routes?domain=links.example.com',
+        'POST',
+        redirectRoute({ target }),
+      );
+      expect(response.status).toBe(400);
+      expect((await response.json<{ error: string }>()).error).toBe('Validation failed');
+    });
+
     it('refuses a path that cannot round-trip through normalisation', async () => {
       for (const path of ['/p%3Fx', '/p%253Fx']) {
         const response = await call(

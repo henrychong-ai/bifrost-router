@@ -258,7 +258,7 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
   }
 
   // Live preview content — invalid mid-typing states just blank the preview.
-  // A route-linked QR encodes its short URL (a review fix): the edit
+  // A route-linked QR encodes its short URL: the edit
   // preview must agree with the list-row preview and the Worker render.
   const preview = useMemo(() => {
     try {
@@ -319,7 +319,7 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
         : {}),
       payload: payloadFromState(s),
       design: designFromState(s),
-      // Always submit description — an explicit '' clears it server-side (codex F7).
+      // Always submit description — an explicit '' clears it server-side.
       description: s.description.trim(),
       tags: s.tags
         .split(',')
