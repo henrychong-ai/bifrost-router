@@ -6,7 +6,7 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
-## Unreleased — Validated boundary reads; proxy redirects checked hop by hop; fixed preview errors
+## v1.38.0 (2026-10-07) — Validated boundary reads; proxy redirects checked hop by hop; forgiving search; QR codes linked to routes
 
 **Why:** a type argument on a KV read or an `as` cast on parsed JSON only told
 the compiler what a stored or remote value held; nothing checked it, and the
@@ -15,7 +15,11 @@ exact route fell through to a broader wildcard. The proxy let the runtime
 follow upstream redirects, so a redirect hop was not checked against the
 outbound host policy and the visitor's request headers, `Authorization`
 included, went on to a redirect target on another origin. The link-preview
-endpoint returned an error's own text. No D1 migration.
+endpoint returned an error's own text. Search matched only the exact text
+typed, so `summer sale` missed `/summer-sale`. Editing a route or QR code
+re-sent every field, so one saved under older limits could not be edited at
+all, and a QR code deleted and re-created could stay hidden or come back in a
+stale list. No D1 migration.
 
 **Proxy routes:** check any proxy route whose upstream redirects to another
 origin and expects the visitor's `Authorization` or `Cookie` there: those
@@ -70,6 +74,96 @@ headers are no longer sent on such a hop.
   DOCTYPE state; the scanner already did this, and new tests and the parse5
   differential (DOCTYPE fixtures, 900,000 generated cases) pin it, with no
   divergence beyond the documented unclosed `<title>`.
+
+### Search
+
+- **Search ignores case and separators and takes words in any order.**
+  `summer sale`, `summer-sale`, `Summer_Sale`, `summersale` and `sale summer`
+  all find `/summer-sale`; the words must all appear in the same field. Other
+  text matches as typed (no accent folding, no percent-decoding), and
+  everything the previous search found is still found. One matcher in
+  `shared` (`search.ts`) serves the route list (`GET /api/routes`, the Routes
+  page, Cmd+K, "View all", MCP `list_routes`), the QR list (the API, MCP
+  `list_qrs` and the dashboard's QR store), the QR editor's route picker and
+  the Cmd+K commands (`create route` finds Create New Route).
+- **Route search covers path, target, type, status code, bucket and host
+  header, and now the domain as typed** (only as typed, so a short path such
+  as `/tv` does not list every route on a `.tv` domain).
+- **Results are ordered by relevance:** a path equal to the query (ignoring
+  separators), then paths starting with it, other path matches, then matches
+  in other fields, newest first on ties. Route lists without a search are
+  newest first, on every page. Cmd+K shows the first 15 of that order and
+  searches once the trimmed text has two characters.
+- **Bounded cost:** word matching reads the first 1,024 characters of a field;
+  a query is cut to 200 characters, and a cut query or one over 12 words
+  matches as typed only. The `search` parameter of the route and QR lists and
+  the MCP list tools takes at most 2,048 characters (OpenAPI `maxLength`); a
+  longer one answers 400 (the route list used to ignore it and list every
+  route). The dashboard cuts a longer paste to 2,048 characters first.
+
+### QR codes
+
+- **Link a code to a route from the editor.** Switch on **Link to a route**,
+  then pick an existing route on the code's domain, or name a new one with its
+  target: the editor creates it as a 302 redirect that keeps query parameters,
+  then saves the code encoding the short link. If the code cannot be saved,
+  the route is kept, reported with a View route action, and the next save
+  reuses it instead of creating it again; a linked code's Reference is
+  generated up front when empty, so a retry cannot create a second code. The
+  editor notes another code already linked to the route, and the credential
+  confirmation applies to the new route's target.
+- **Edits send only what changed.** The QR edit dialog compares the form with
+  what it showed when it opened and sends only the changed fields, checked
+  against today's limits; an unchanged save makes no request ("No changes to
+  save"). The Worker applies today's limits only to the fields an update
+  sets, so a code saved under older limits (a longer description, more tags)
+  can now have its design, link or any other field changed; setting an
+  over-limit value is still refused. The updated record keeps only the fields
+  a code defines, nested ones included (the payload keys of its type, the
+  design keys), so an unknown stored field is dropped, from the audit
+  snapshot too.
+- **The dashboard reads QR answers with the Worker's tolerant read shape**
+  (`parseStoredQR`, now in `shared`), so codes saved under older limits list,
+  render and open instead of failing the dashboard's stricter check.
+- **QR lists show the latest known version on every read.** The dashboard
+  keeps the newest version of each code it has seen (from its own changes and
+  every list) and applies it whenever a page is shown, not only when one is
+  fetched, so a cached page shows an edit at once and hides a code that no
+  longer matches its filters. Replaces the store that only added codes created
+  in the session.
+- **Deletions are timed by the server's clock.** Every `/api/qr` answer
+  carries `X-Server-Time` (milliseconds; exposed to the dashboard's origin
+  together with `Date`). The dashboard accepts it only as a plausible whole
+  number within the `Date` header's second (±1 s), else uses the end of that
+  second, and hides rows of a deleted code up to that time plus one second.
+  A later version (the code re-created elsewhere) shows again; a code this
+  session re-creates or updates shows at once. A missing code answers a JSON
+  404 `{ success: false, error: 'QR_NOT_FOUND', message }`; only that answer
+  counts as a deletion. An edit or delete of a code deleted elsewhere closes
+  the dialog with "already deleted".
+
+### Route dialog
+
+- **Edits send only what changed.** An untouched field (a target saved before
+  today's 8,192-character limit) is no longer re-sent and refused, and an
+  unchanged save makes no request. A field the stored route lacks counts as the
+  router's default (a missing bucket is `files`); Force Download stays unset
+  for a route saved without it ("decided by the file type") until it is
+  switched; clearing a stored Cache-Control or Host header now clears it.
+- **UTM tracking.** Redirect and proxy routes get a **UTM tracking** section:
+  source, medium, campaign, term and content, each with a short explanation.
+  Values are lowercased as you type and capitals already in the target are
+  converted; kebab-case is recommended. An edited tag replaces every
+  occurrence of its key, a cleared one removes them, and the rest of the target
+  is kept byte for byte. **Final target** shows what is saved, and the link
+  preview and duplicate-target check use it. Dashboard only: the API and MCP
+  keep the case they are sent.
+- **Link-naming advice.** r2 links (and a new route named in the QR editor)
+  show advice when the name carries a file extension, repeats the file's name,
+  or holds a date or a version word (`final`, `draft`, `v2`); it never blocks
+  a save. MCP `create_route` describes the same convention.
+- **The dashboard shows the server's message for coded refusals**
+  (`ROUTE_RECORD_INVALID`, `QR_NOT_FOUND`) instead of the code.
 
 ### Validated boundary reads
 
