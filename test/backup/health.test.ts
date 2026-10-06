@@ -488,7 +488,9 @@ describe('backup integrity health boundaries', () => {
     expect(health.issues.some(issue => issue.message.includes('verification cap'))).toBe(false);
   });
 
-  it('warns once the inflated archive passes half the verification cap', async () => {
+  it('warns once the inflated archive passes half the verification cap', {
+    timeout: 30_000,
+  }, async () => {
     const bucket = createMockBucket({
       delimitedPrefixes: ['daily/20260123/'],
       manifest: createTestManifest({

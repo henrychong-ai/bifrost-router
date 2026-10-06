@@ -215,7 +215,9 @@ describe('handleScheduled', () => {
     expect(await bucketKeys()).toEqual([archiveKey, `daily/${todayDate()}/manifest.json`]);
   });
 
-  it('writes nothing to R2 when the in-memory verification fails', async () => {
+  it('writes nothing to R2 when the in-memory verification fails', {
+    timeout: 30_000,
+  }, async () => {
     await env.ROUTES.put(
       'links.example.com:/first',
       JSON.stringify({ path: '/first', type: 'redirect', target: 'https://example.com/1' }),

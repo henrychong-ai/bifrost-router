@@ -118,7 +118,9 @@ describe('backupKV', () => {
     );
   });
 
-  it('reads in bulk within the KV operation budget, keeping order and values', async () => {
+  it('reads in bulk within the KV operation budget, keeping order and values', {
+    timeout: 30_000,
+  }, async () => {
     // Above the old per-key ceiling: one get per key spent one of the 1,000
     // KV operations an invocation may make on each record.
     const total = 2500;

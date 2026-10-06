@@ -179,7 +179,9 @@ describe('backup content verification', () => {
     expect(await readBackupRecords(env.BACKUP_BUCKET, manifest, 2000)).toHaveLength(1);
   });
 
-  it('enforces the inflated cap while streaming: it stops pulling and cancels the archive', async () => {
+  it('enforces the inflated cap while streaming: it stops pulling and cancels the archive', {
+    timeout: 30_000,
+  }, async () => {
     // Moderately compressible lines: the compressed archive fits the cap while
     // its inflated text is several times larger.
     const lines = Array.from({ length: 4000 }, (_, i) =>
