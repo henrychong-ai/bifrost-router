@@ -28,6 +28,15 @@ vi.mock('@/hooks', () => ({
   useUpdateQr: () => ({ mutate: vi.fn<() => void>(), isPending: false }),
   useDeleteQr: () => ({ mutate: vi.fn<() => void>(), isPending: false }),
   useDebounce: <T,>(value: T) => value,
+  // The linked-route picker (v1.38.0); these forms never link a route
+  useRoutes: () => ({
+    data: { routes: [] },
+    isPending: false,
+    isFetching: false,
+    error: null,
+    refetch: vi.fn<() => void>(),
+  }),
+  useCreateRoute: () => ({ mutateAsync: vi.fn<() => Promise<void>>(), isPending: false }),
 }));
 vi.mock('sonner', () => ({
   toast: {

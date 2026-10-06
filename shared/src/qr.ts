@@ -15,6 +15,12 @@
 
 import { z } from 'zod';
 import { MAX_ROUTE_KEY_BYTES, RoutePathSchema, routeKeyBytes } from './schemas.js';
+import {
+  matchesSearchFields,
+  QR_SEARCH_DESCRIPTION,
+  qrSearchFields,
+  SEARCH_PARAM_MAX_LENGTH,
+} from './search.js';
 import { SUPPORTED_DOMAINS, SUPPORTED_DOMAINS_LIST } from './types.js';
 
 // ---------------------------------------------------------------------------
@@ -36,6 +42,23 @@ export const QR_ID_REGEX = /^[a-z0-9][a-z0-9-]{2,31}$/;
 
 /** Max length of the human-readable description. */
 export const QR_DESCRIPTION_MAX_LENGTH = 100;
+
+/**
+ * Response header on every `/api/qr` answer (v1.38.0): the Worker's clock in
+ * Unix milliseconds when it answered, after any KV write. The dashboard
+ * stamps a deletion with it (validated against the `Date` header, see
+ * `admin/src/lib/server-time.ts`), so a deletion is timed by the same clock
+ * as every record's `updatedAt`.
+ */
+export const QR_SERVER_TIME_HEADER = 'X-Server-Time';
+
+/**
+ * The `error` of a 404 for a QR code that does not exist (v1.38.0):
+ * `{ success: false, error: 'QR_NOT_FOUND', message }`. Only this answer
+ * tells the dashboard a code is gone; any other 404 (a proxy, a wrong base
+ * URL) is not a deletion.
+ */
+export const QR_NOT_FOUND_ERROR = 'QR_NOT_FOUND';
 
 /** Longest id {@link normalizeQrId} will emit — the QR_ID_REGEX ceiling. */
 const QR_ID_MAX_LENGTH = 32;
@@ -400,6 +423,160 @@ export const QRCodeSchema = z
   });
 export type QRCode = z.infer<typeof QRCodeSchema>;
 
+// ---------------------------------------------------------------------------
+// Stored records: the tolerant read shape (Worker and dashboard)
+// ---------------------------------------------------------------------------
+
+const QR_TYPE_SET: ReadonlySet<unknown> = new Set(QR_TYPES);
+
+/** The payload keys each type defines, from its write schema. */
+const QR_PAYLOAD_KEYS: Readonly<Record<QRType, readonly string[]>> = {
+  url: Object.keys(UrlPayloadSchema.shape),
+  text: Object.keys(TextPayloadSchema.shape),
+  wifi: Object.keys(WifiPayloadSchema.shape),
+  vcard: Object.keys(VcardPayloadSchema.shape),
+};
+
+/** The design keys the renderer reads, from the design schema. */
+const QR_DESIGN_KEYS: readonly string[] = Object.keys(QRDesignSchema.shape);
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+const isText = (value: unknown): value is string => typeof value === 'string';
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+/** Absent (undefined or null) or passing `test`. */
+const absentOr = (value: unknown, test: (item: unknown) => boolean) =>
+  value === undefined || value === null || test(value);
+
+/** The payload fields each type's readers need: required ones present, every field typed. */
+const PAYLOAD_SHAPES: Readonly<Record<QRType, (payload: Record<string, unknown>) => boolean>> = {
+  url: payload => isText(payload['url']),
+  text: payload => isText(payload['text']),
+  wifi: payload =>
+    isText(payload['ssid']) &&
+    ['auth', 'password', 'eapMethod', 'phase2', 'identity', 'anonymousIdentity'].every(field =>
+      absentOr(payload[field], isText),
+    ) &&
+    absentOr(payload['hidden'], item => typeof item === 'boolean'),
+  vcard: payload =>
+    isText(payload['name']) &&
+    ['phone', 'email', 'org', 'title', 'url'].every(field => absentOr(payload[field], isText)),
+};
+
+/** The design fields the renderer reads, each of its declared type when present. */
+function isDesignShape(design: Record<string, unknown>): boolean {
+  return (
+    ['fg', 'bg', 'errorCorrection', 'logoDataUri'].every(field =>
+      absentOr(design[field], isText),
+    ) &&
+    ['size', 'margin', 'logoAspectRatio'].every(field => absentOr(design[field], isFiniteNumber))
+  );
+}
+
+/** A stored link: `{domain, path}` with a non-empty domain and a path starting `/`. */
+function isLinkShape(link: unknown): boolean {
+  return (
+    isPlainObject(link) &&
+    isText(link['domain']) &&
+    link['domain'] !== '' &&
+    isText(link['path']) &&
+    link['path'].startsWith('/')
+  );
+}
+
+/** The keys of `source` named in `keys` whose value is neither null nor undefined. */
+function pick(source: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of keys) {
+    const value = source[key];
+    if (value !== null && value !== undefined) out[key] = value;
+  }
+  return out;
+}
+
+/**
+ * A stored QR record validated and normalised into the shape every reader
+ * expects, or null when it is not one (v1.38.0). The ONE read shape, used by
+ * the Worker on every KV read (`src/kv/qr.ts`) and by the dashboard on every
+ * QR response ({@link StoredQRCodeSchema}).
+ *
+ * A structural check, not `QRCodeSchema`: the schema applies today's write
+ * limits, which would refuse records written under earlier ones (a longer
+ * description, more tags); those stay readable here, and the limits apply
+ * only to the fields a write sets. It checks every field a reader consumes,
+ * nested ones included: string `id` and `domain`, a known `type`, numeric
+ * `createdAt`/`updatedAt`, the payload fields of that type, the design fields
+ * the renderer reads, the linked route's `domain` and `path`, and the
+ * optional `description`, `tags` and `createdBy`.
+ *
+ * Normalised: only the fields a record defines are kept (an unknown
+ * top-level field, a payload key the type does not define and an unknown
+ * design key are dropped, so an update never writes them back); a missing or
+ * null `design` or design field takes its default; a Wi-Fi payload without
+ * `auth` reads as the write default `WPA`; null optional fields are dropped.
+ * Nothing is written back by reading.
+ */
+export function parseStoredQR(value: unknown): QRCode | null {
+  if (!isPlainObject(value)) return null;
+  const { payload, design, linkedRoute, type } = value;
+  if (
+    !isText(value['id']) ||
+    !isText(value['domain']) ||
+    !QR_TYPE_SET.has(type) ||
+    !isFiniteNumber(value['createdAt']) ||
+    !isFiniteNumber(value['updatedAt']) ||
+    !isPlainObject(payload) ||
+    !PAYLOAD_SHAPES[type as QRType](payload) ||
+    !absentOr(design, item => isPlainObject(item) && isDesignShape(item)) ||
+    !absentOr(linkedRoute, isLinkShape) ||
+    !absentOr(value['description'], isText) ||
+    !absentOr(value['createdBy'], isText) ||
+    !absentOr(value['tags'], item => Array.isArray(item) && item.every(isText))
+  ) {
+    return null;
+  }
+  const recordType = type as QRType;
+  const normalisedPayload = pick(payload, QR_PAYLOAD_KEYS[recordType]);
+  if (recordType === 'wifi' && !isText(normalisedPayload['auth'])) {
+    normalisedPayload['auth'] = 'WPA';
+  }
+  const out: Record<string, unknown> = {
+    id: value['id'],
+    domain: value['domain'],
+    type: recordType,
+    ...pick(value, ['description', 'tags']),
+    payload: normalisedPayload,
+    // Missing or null design fields take their defaults
+    design: {
+      ...QRDesignSchema.parse({}),
+      ...(isPlainObject(design) ? pick(design, QR_DESIGN_KEYS) : {}),
+    },
+    ...(isPlainObject(linkedRoute)
+      ? { linkedRoute: { domain: linkedRoute['domain'], path: linkedRoute['path'] } }
+      : {}),
+    createdAt: value['createdAt'],
+    updatedAt: value['updatedAt'],
+    ...pick(value, ['createdBy']),
+  };
+  // Every field a reader consumes was checked above
+  return out as unknown as QRCode;
+}
+
+/**
+ * {@link parseStoredQR} as a schema, for response validation in the
+ * dashboard: a record written under earlier limits passes, as it does on the
+ * Worker; anything that is not a QR record fails with one fixed message.
+ */
+export const StoredQRCodeSchema = z.unknown().transform((value, ctx): QRCode => {
+  const record = parseStoredQR(value);
+  if (record === null) {
+    ctx.addIssue({ code: 'custom', message: 'Not a QR code record' });
+    return z.NEVER;
+  }
+  return record;
+});
+
 const createQrCommonFields = {
   id: z
     .string()
@@ -471,17 +648,18 @@ export const QRListQuerySchema = z.object({
   domain: z.string().optional().describe('Filter by domain'),
   type: QRTypeSchema.optional().describe('Filter by QR type'),
   tag: z.string().optional().describe('Filter by tag (exact match)'),
-  search: z.string().optional().describe('Filter by description substring (case-insensitive)'),
+  search: z.string().max(SEARCH_PARAM_MAX_LENGTH).optional().describe(QR_SEARCH_DESCRIPTION),
   offset: z.coerce.number().min(0).default(0).describe('Pagination offset'),
   limit: z.coerce.number().min(1).max(1000).optional().describe('Results per page'),
 });
 export type QRListQuery = z.infer<typeof QRListQuerySchema>;
 
 /**
- * The QR list filters: `type` exact, `tag` exact membership, and `search` as a
- * case-insensitive substring of the description or the id. One predicate for
- * the Worker's listQRs and the dashboard's create reconciliation, so a code
- * the server would list is the code the dashboard shows.
+ * The QR list filters: `type` exact, `tag` exact membership, and `search` with
+ * the shared matcher (`search.ts`: case and separators ignored, words in any
+ * order) over the description and the id. One predicate for the Worker's
+ * listQRs and the dashboard's QR store, so a code the server would list is
+ * the code the dashboard shows.
  */
 export function qrMatchesListFilters(
   qr: { id: string; type: string; tags?: string[] | undefined; description?: string | undefined },
@@ -489,12 +667,7 @@ export function qrMatchesListFilters(
 ): boolean {
   if (query.type && qr.type !== query.type) return false;
   if (query.tag && !(qr.tags ?? []).includes(query.tag)) return false;
-  const search = query.search?.toLowerCase();
-  if (search) {
-    const haystack = [qr.description ?? '', qr.id].map(field => field.toLowerCase());
-    if (!haystack.some(field => field.includes(search))) return false;
-  }
-  return true;
+  return matchesSearchFields(qrSearchFields(qr), query.search);
 }
 
 // Inferred payload types
@@ -608,7 +781,7 @@ export const ListQrsInputSchema = z.object({
   domain: mcpDomainField,
   type: QRTypeSchema.optional().describe('Filter by QR type'),
   tag: z.string().optional().describe('Filter by exact tag'),
-  search: z.string().optional().describe('Case-insensitive substring over description and id'),
+  search: z.string().max(SEARCH_PARAM_MAX_LENGTH).optional().describe(QR_SEARCH_DESCRIPTION),
   limit: z.number().int().min(1).max(1000).optional().describe('Page size'),
   offset: z.number().int().min(0).optional().describe('Page offset'),
 });

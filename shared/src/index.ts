@@ -71,6 +71,14 @@ export {
   TriageFeedbackSchema,
   uuidv7,
 } from './feedback.js';
+// Link-naming advice (v1.38.0) — advisory warnings for link paths in the
+// route and QR dialogs; never blocks a write.
+export {
+  LINK_NAMING_HINT,
+  type LinkNamingIssue,
+  type LinkNamingIssueCode,
+  linkNamingIssues,
+} from './link-naming.js';
 // MIME detection
 export { EXTENSION_MIME_MAP, getContentTypeFromKey } from './mime.js';
 // QR codes (v1.30.0) — the QR contract shared
@@ -98,11 +106,14 @@ export {
   MAX_QR_RECORD_BYTES,
   normalizeQrId,
   normalizeQrIdInput,
+  parseStoredQR,
   QR_DESCRIPTION_MAX_LENGTH,
   QR_ID_REGEX,
   QR_LOGO_MAX_BYTES,
   QR_MAX_TAGS,
+  QR_NOT_FOUND_ERROR,
   QR_PAYLOAD_SCHEMAS,
+  QR_SERVER_TIME_HEADER,
   QR_TAG_MAX_LENGTH,
   QR_TYPES,
   type QRCode,
@@ -122,6 +133,7 @@ export {
   type QRVcardPayload,
   type QRWifiPayload,
   qrMatchesListFilters,
+  StoredQRCodeSchema,
   serializePayload,
   TextPayloadSchema,
   type UpdateQRInput,
@@ -240,6 +252,29 @@ export {
   type UpdateRouteToolInput,
   UpdateRouteToolInputSchema,
 } from './schemas.js';
+// Search matcher (v1.38.0) — case- and separator-insensitive word matching
+// plus the as-typed check, for route search and relevance order, QR list
+// search (Worker + dashboard store), the QR route picker, and Cmd+K.
+export {
+  capSearchParam,
+  LIST_QRS_TOOL_DESCRIPTION,
+  LIST_ROUTES_TOOL_DESCRIPTION,
+  matchesRouteSearch,
+  matchesSearchFields,
+  type ParsedSearchQuery,
+  parseSearchQuery,
+  QR_SEARCH_DESCRIPTION,
+  qrSearchFields,
+  ROUTE_SEARCH_DESCRIPTION,
+  SEARCH_FIELD_MAX_LENGTH,
+  SEARCH_PARAM_MAX_LENGTH,
+  SEARCH_QUERY_MAX_LENGTH,
+  SEARCH_QUERY_MAX_WORDS,
+  type SearchableRoute,
+  scoreRouteMatch,
+  searchAndRankRoutes,
+  tokeniseSearchText,
+} from './search.js';
 export type {
   JsonSchemaObject,
   JsonSchemaProperty,

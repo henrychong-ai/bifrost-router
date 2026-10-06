@@ -28,13 +28,16 @@ import {
   generateQrId,
   MAX_QR_PAYLOAD_LENGTH,
   QR_ID_REGEX,
+  QR_NOT_FOUND_ERROR,
   QR_PAYLOAD_SCHEMAS,
+  QR_SERVER_TIME_HEADER,
   type QRCode,
   QRCodeSchema,
   type QRDesign,
   QRDesignSchema,
   QRTypeSchema,
   renderQrSvg,
+  SEARCH_PARAM_MAX_LENGTH,
   serializePayload,
   UpdateQRInputSchema,
 } from '@bifrost/shared';
@@ -43,7 +46,7 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import { type AuditAction, recordAuditLog } from '../db/analytics';
-import { deleteQR, getQR, getQRState, listQRs, putQR } from '../kv/qr';
+import { deleteQR, getQR, getQRState, listQRs, parseStoredQR, putQR } from '../kv/qr';
 import { getRoute } from '../kv/routes';
 import type { AppEnv } from '../types';
 import {
@@ -53,6 +56,32 @@ import {
 } from './request-context';
 
 export const qrRoutes = new Hono<AppEnv>();
+
+/**
+ * Every QR answer, success or error, carries the Worker's clock in Unix
+ * milliseconds (v1.38.0, `X-Server-Time`), read after the handler ran, so it
+ * is at or after any KV write the request made. The dashboard times a
+ * deletion (or a `QR_NOT_FOUND`) with it, on the same clock as every
+ * record's `updatedAt`, instead of the one-second `Date` header. The CORS
+ * middleware exposes it, and `Date`, to the dashboard's origin.
+ */
+qrRoutes.use('*', async (c, next) => {
+  await next();
+  c.header(QR_SERVER_TIME_HEADER, String(Date.now()));
+});
+
+/**
+ * The 404 for a QR code that does not exist (v1.38.0): a fixed JSON body
+ * `{ success: false, error: 'QR_NOT_FOUND', message }`, so the dashboard can
+ * tell the server's own "not found" (the code is gone) from any other 404.
+ */
+function qrNotFound(id: string): HTTPException {
+  const message = `QR code not found: ${id}`;
+  return new HTTPException(404, {
+    message,
+    res: Response.json({ success: false, error: QR_NOT_FOUND_ERROR, message }, { status: 404 }),
+  });
+}
 
 // =============================================================================
 // Shared handler plumbing
@@ -83,7 +112,7 @@ function requireDomain(c: Context<AppEnv>): string {
 async function requireQR(c: Context<AppEnv>, domain: string, id: string): Promise<QRCode> {
   const record = await getQR(c.env.ROUTES, domain, id);
   if (!record) {
-    throw new HTTPException(404, { message: `QR code not found: ${id}` });
+    throw qrNotFound(id);
   }
   return record;
 }
@@ -279,7 +308,8 @@ qrRoutes.get('/:id/image', async c => {
 const ListQuerySchema = z.object({
   type: QRTypeSchema.optional(),
   tag: z.string().optional(),
-  search: z.string().optional(),
+  // A sanity bound (v1.38.0); matching itself reads the first 200 units
+  search: z.string().max(SEARCH_PARAM_MAX_LENGTH).optional(),
   limit: z.coerce.number().int().min(1).max(1000).optional(),
   offset: z.coerce.number().int().min(0).default(0),
 });
@@ -433,20 +463,34 @@ qrRoutes.put('/:id', async c => {
     }
   }
 
-  const updated = QRCodeSchema.parse({
-    ...existing,
-    // Explicit '' clears the description; undefined
-    // preserves it.
+  // Today's field limits apply to the fields in the patch only (v1.38.0, as
+  // for routes): the request schema checked description, tags, design and
+  // linkedRoute, and the payload was checked above. A field left out is kept
+  // as stored, so a record written under older limits (a longer description,
+  // more tags) stays editable; QRCodeSchema would re-apply today's limits to
+  // every field. The merged record is built from the fields a record defines
+  // and passed through the read shape (`parseStoredQR`), which keeps only the
+  // payload keys of the record's type and the known design keys, so an
+  // unknown field, top-level or nested, is dropped rather than written back;
+  // putQR then checks the record's size.
+  const merged: Record<string, unknown> = {
+    id: existing.id,
+    domain: existing.domain,
+    type: existing.type,
+    // Explicit '' clears the description; undefined preserves it.
     description:
       input.description !== undefined ? input.description || undefined : existing.description,
     tags: input.tags !== undefined ? input.tags : existing.tags,
     payload,
     design: input.design !== undefined ? QRDesignSchema.parse(input.design) : existing.design,
-    ...(linkedRoute ? { linkedRoute } : {}),
+    linkedRoute,
+    createdAt: existing.createdAt,
     updatedAt: Date.now(),
-  });
-  if (!linkedRoute) {
-    delete (updated as { linkedRoute?: unknown }).linkedRoute;
+    createdBy: existing.createdBy,
+  };
+  const updated = parseStoredQR(merged);
+  if (!updated) {
+    throw new HTTPException(400, { message: 'QR code update does not form a valid record' });
   }
 
   await putQR(c.env.ROUTES, updated);
@@ -463,7 +507,7 @@ qrRoutes.delete('/:id', async c => {
   const id = c.req.param('id');
   const state = await getQRState(c.env.ROUTES, domain, id);
   if (state.status === 'missing') {
-    throw new HTTPException(404, { message: `QR code not found: ${id}` });
+    throw qrNotFound(id);
   }
 
   // An unreadable record is deleted too: that is how it is recovered

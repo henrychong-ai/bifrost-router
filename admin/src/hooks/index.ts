@@ -42,6 +42,7 @@ export { useLinkPreview } from './use-link-preview';
 // QR code hooks (v1.30.0)
 export { qrKeys, useCreateQr, useDeleteQr, useQrCodes, useUpdateQr } from './use-qr-codes';
 export {
+  MIN_ROUTE_SEARCH_LENGTH,
   routeKeys,
   useCreateRoute,
   useDeleteRoute,

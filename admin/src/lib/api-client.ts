@@ -1,3 +1,4 @@
+import { capSearchParam, StoredQRCodeSchema } from '@bifrost/shared';
 import { z } from 'zod';
 import { env } from '@/env';
 import { ApiError } from './api-error';
@@ -24,7 +25,6 @@ import {
   type ProxyStats,
   ProxyStatsResponseSchema,
   type QRCode,
-  QRCodeSchema,
   type Route,
   RouteResponseSchema,
   RoutesListResponseSchema,
@@ -35,6 +35,7 @@ import {
   type UpdateRouteInput,
   ViewsListResponseSchema,
 } from './schemas';
+import { serverTimeOf } from './server-time';
 
 // =============================================================================
 // API Client Configuration
@@ -47,22 +48,37 @@ const API_KEY = env.ADMIN_API_KEY;
 // Base Fetch Functions
 // =============================================================================
 
+/** An upper-case machine code such as `QR_NOT_FOUND` or `ROUTE_RECORD_INVALID`. */
+const ERROR_CODE = /^[A-Z][A-Z0-9_]+$/;
+
 /**
- * A failed response's error body. `error` is kept only when it is a string; a
- * body that is not JSON reads as `{ error: 'Unknown error' }`.
+ * A failed response's error body. `error` and `message` are kept only when
+ * they are strings; a body that is not JSON reads as `{ error: 'Unknown error' }`.
+ * When `error` is a machine code and `message` text (v1.38.0: QR_NOT_FOUND,
+ * ROUTE_RECORD_INVALID), the message is shown and the code kept beside it.
  */
-async function readErrorBody(response: Response): Promise<{ error?: string; details?: unknown }> {
+async function readErrorBody(
+  response: Response,
+): Promise<{ error?: string; code?: string; details?: unknown }> {
   const body: unknown = await response.json().catch(() => ({ error: 'Unknown error' }));
   if (typeof body !== 'object' || body === null) return {};
-  const { error, details } = body as { error?: unknown; details?: unknown };
+  const { error, message, details } = body as {
+    error?: unknown;
+    message?: unknown;
+    details?: unknown;
+  };
+  if (typeof error === 'string' && ERROR_CODE.test(error) && typeof message === 'string') {
+    return { error: message, code: error, details };
+  }
   return { error: typeof error === 'string' ? error : undefined, details };
 }
 
-async function fetchApi<T>(
+/** A response as JSON and its headers, or the ApiError a failed one carries. */
+async function fetchApiResponse<T>(
   path: string,
   schema: z.ZodSchema<T>,
   options: RequestInit = {},
-): Promise<T> {
+): Promise<{ data: T; headers: Headers }> {
   const url = new URL(path, API_BASE);
 
   const headers = new Headers({ 'X-Admin-Key': API_KEY, 'Content-Type': 'application/json' });
@@ -73,11 +89,22 @@ async function fetchApi<T>(
 
   if (!response.ok) {
     const error = await readErrorBody(response);
-    throw new ApiError(response.status, error.error || `HTTP ${response.status}`, error.details);
+    throw new ApiError(response.status, error.error || `HTTP ${response.status}`, error.details, {
+      code: error.code,
+      serverTime: serverTimeOf(response.headers),
+    });
   }
 
   const data: unknown = await response.json();
-  return schema.parse(data);
+  return { data: schema.parse(data), headers: response.headers };
+}
+
+async function fetchApi<T>(
+  path: string,
+  schema: z.ZodSchema<T>,
+  options: RequestInit = {},
+): Promise<T> {
+  return (await fetchApiResponse(path, schema, options)).data;
 }
 
 function buildQueryString(params: Record<string, string | number | boolean | undefined>): string {
@@ -109,7 +136,9 @@ export const routesApi = {
   }> {
     const query = buildQueryString({
       domain,
-      search: options?.search,
+      // Cut to the API's 2,048-unit bound (v1.38.0), so a long paste still
+      // returns results instead of a 400
+      search: options?.search === undefined ? undefined : capSearchParam(options.search),
       limit: options?.limit,
       offset: options?.offset,
     });
@@ -1054,18 +1083,20 @@ export const feedbackApi = {
 // QR codes API (v1.30.0)
 // =============================================================================
 // Response schemas live here (not lib/schemas.ts) because they are thin
-// envelope wrappers around the shared QRCodeSchema — the record shape itself
-// stays single-sourced in @bifrost/shared.
-
-const QRItemResponseSchema = z.object({
+// envelope wrappers around the shared record shape, single-sourced in
+// @bifrost/shared. QR responses are checked with the TOLERANT stored shape the Worker reads
+// records with (`StoredQRCodeSchema`, v1.38.0), not the write schema: a code
+// saved under earlier limits (a longer description, more tags) lists, renders
+// and opens. Today's limits stay on what a write sends.
+export const QRItemResponseSchema = z.object({
   success: z.boolean(),
-  data: QRCodeSchema.optional(),
+  data: StoredQRCodeSchema.optional(),
   error: z.string().optional(),
 });
 
-const QRListResponseSchema = z.object({
+export const QRListResponseSchema = z.object({
   success: z.boolean(),
-  data: z.array(QRCodeSchema).optional(),
+  data: z.array(StoredQRCodeSchema).optional(),
   error: z.string().optional(),
   meta: z
     .object({
@@ -1097,10 +1128,11 @@ export interface QRListMeta {
 
 export const qrApi = {
   async list(params: QrQueryParams = {}): Promise<{ items: QRCode[]; meta: QRListMeta }> {
-    const response = await fetchApi(
-      `/api/qr${buildQueryString({ ...params })}`,
-      QRListResponseSchema,
-    );
+    const query = {
+      ...params,
+      search: params.search === undefined ? undefined : capSearchParam(params.search),
+    };
+    const response = await fetchApi(`/api/qr${buildQueryString(query)}`, QRListResponseSchema);
     if (!response.success || !response.data || !response.meta) {
       throw new ApiError(500, response.error || 'Failed to fetch QR codes');
     }
@@ -1148,12 +1180,17 @@ export const qrApi = {
     return response.data;
   },
 
-  async delete(id: string, domain: string): Promise<void> {
-    await fetchApi(
+  /**
+   * Delete a code. Resolves with the server's clock on the answer
+   * (`serverTimeOf`, v1.38.0), which times the dashboard's tombstone.
+   */
+  async delete(id: string, domain: string): Promise<{ serverTime?: number | undefined }> {
+    const { headers } = await fetchApiResponse(
       `/api/qr/${encodeURIComponent(id)}${buildQueryString({ domain })}`,
       z.object({ success: z.boolean() }),
       { method: 'DELETE' },
     );
+    return { serverTime: serverTimeOf(headers) };
   },
 };
 

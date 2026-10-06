@@ -7,6 +7,7 @@ import {
   MAX_QR_PAYLOAD_LENGTH,
   normalizeQrId,
   normalizeQrIdInput,
+  parseStoredQR,
   QR_ID_REGEX,
   QR_LOGO_MAX_BYTES,
   QR_TYPES,
@@ -17,6 +18,7 @@ import {
   QRListQuerySchema,
   QRTypeSchema,
   qrMatchesListFilters,
+  StoredQRCodeSchema,
   serializePayload,
   TextPayloadSchema,
   UpdateQRInputSchema,
@@ -765,6 +767,84 @@ describe('qrMatchesListFilters', () => {
     expect(qrMatchesListFilters(qr, { search: 'spring-l' })).toBe(true);
     expect(qrMatchesListFilters(qr, { search: 'print' })).toBe(false);
     expect(qrMatchesListFilters({ id: 'abc', type: 'url' }, { search: 'b' })).toBe(true);
+  });
+
+  it('ignores separators and word order with the shared matcher (v1.38.0)', () => {
+    expect(qrMatchesListFilters(qr, { search: 'launch spring' })).toBe(true);
+    expect(qrMatchesListFilters(qr, { search: 'Spring_Launch' })).toBe(true);
+    expect(qrMatchesListFilters(qr, { search: 'cover brochure' })).toBe(true);
+    // Words never combine across the description and the id
+    expect(qrMatchesListFilters(qr, { search: 'spring cover' })).toBe(false);
+  });
+});
+
+describe('parseStoredQR and StoredQRCodeSchema (v1.38.0)', () => {
+  const stored = {
+    id: 'legacy-code',
+    domain: 'example.com',
+    type: 'wifi',
+    payload: { ssid: 'Office', password: 'pw', legacySecret: 'junk' },
+    design: { fg: '#112233', size: null, junk: 'x' },
+    description: 'd'.repeat(120),
+    tags: Array.from({ length: 12 }, (_, i) => `t${i}`),
+    linkedRoute: null,
+    legacySecret: 'junk',
+    createdAt: 1,
+    updatedAt: 2,
+    createdBy: 'test',
+  };
+
+  it('accepts a record over today’s write limits, which QRCodeSchema refuses', () => {
+    expect(
+      QRCodeSchema.safeParse({ ...stored, payload: { ssid: 'Office', password: 'pw' } }).success,
+    ).toBe(false);
+    expect(parseStoredQR(stored)?.description).toHaveLength(120);
+    expect(StoredQRCodeSchema.parse(stored).tags).toHaveLength(12);
+  });
+
+  it('keeps only the fields a record defines, and fills defaults', () => {
+    expect(parseStoredQR(stored)).toEqual({
+      id: 'legacy-code',
+      domain: 'example.com',
+      type: 'wifi',
+      payload: { ssid: 'Office', password: 'pw', auth: 'WPA' },
+      design: { ...QRDesignSchema.parse({}), fg: '#112233' },
+      description: 'd'.repeat(120),
+      tags: stored.tags,
+      createdAt: 1,
+      updatedAt: 2,
+      createdBy: 'test',
+    });
+  });
+
+  it('accepts every record the write schema produces, unchanged', () => {
+    const record = QRCodeSchema.parse({
+      id: 'card',
+      domain: 'example.com',
+      type: 'vcard',
+      payload: { name: 'A', phone: '1', email: 'a@example.com', org: 'O', title: 'T', url: 'u' },
+      design: QRDesignSchema.parse({ logoAspectRatio: 2 }),
+      linkedRoute: undefined,
+      tags: ['a'],
+      createdAt: 1,
+      updatedAt: 1,
+      createdBy: 'x',
+    });
+    expect(parseStoredQR(JSON.parse(JSON.stringify(record)))).toEqual(record);
+  });
+
+  it('refuses a value that is not a QR record with one fixed message', () => {
+    for (const bad of [
+      null,
+      [],
+      { ...stored, type: 'pdf' },
+      { ...stored, payload: { password: 'pw' } },
+    ]) {
+      expect(parseStoredQR(bad)).toBeNull();
+      const result = StoredQRCodeSchema.safeParse(bad);
+      expect(result.success).toBe(false);
+      expect(result.error?.issues[0]?.message).toBe('Not a QR code record');
+    }
   });
 });
 

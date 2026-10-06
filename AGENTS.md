@@ -234,7 +234,7 @@ interface KVRouteConfig {
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/routes` | List routes (`?domain=&search=&limit=&offset=`) |
+| `GET /api/routes` | List routes, newest first (`?domain=&search=&limit=&offset=`; a search is ranked by relevance, see [Search](#search-v1380)) |
 | `GET /api/routes?path=` | Get single route |
 | `POST /api/routes` | Create route |
 | `PUT /api/routes?path=` | Update route |
@@ -555,12 +555,17 @@ argument on the read or an `as` cast only tells the compiler.
   limiter's `ratelimit:` entries (client IP addresses) are skipped before they
   are read or logged. The backup lists only the per-domain route and QR
   prefixes, so it never reads them either.
-- **QR records** (`parseStoredQR` in `src/kv/qr.ts`): a structural check of
+- **QR records** (`parseStoredQR`, in `shared/src/qr.ts` since v1.38.0 so the
+  dashboard checks QR responses with the same tolerant shape,
+  `StoredQRCodeSchema`; `src/kv/qr.ts` re-exports it): a structural check of
   every field a reader consumes, nested ones included (the payload fields of
   the record's type, the design fields the renderer reads, `linkedRoute` as
   `{domain, path}` with a path starting `/`), then normalised (a missing or
   null design or design field takes its default, a Wi-Fi payload without
-  `auth` reads as `WPA`, null optional fields are dropped). Not
+  `auth` reads as `WPA`, null optional fields are dropped, and only the
+  fields a record defines are kept: the payload keys of its type and the
+  design keys come from the write schemas, so an unknown field, top-level or
+  nested, is dropped and an update never writes it back). Not
   `QRCodeSchema`, whose write limits would refuse older records. An invalid
   record is not found (`GET`, `PUT`, image and listings), can be deleted (its
   audit row names the id only), and a create with its id answers 409.
@@ -655,6 +660,67 @@ same entry; `test/kv/schema.test.ts` ("fills in nothing for a field the update
 does not name") fails until it has one. The shared `UpdateRouteInputSchema` and
 the dashboard's `UpdateRouteSchema` declare no defaults.
 
+**The dashboard's edit dialog sends a patch (v1.38.0).** `routeEditPatch`
+(`admin/src/lib/route-patch.ts`) sends only the fields whose value differs
+from the route as loaded, so an untouched field written under older limits
+(an over-cap target) is never re-sent and refused, and an unchanged save makes
+no request ("No changes to save"). A field the stored route lacks compares as
+the router's default (`ABSENT_MEANS`: `enabled` true, `statusCode` 302,
+`preserveQuery` true, `preservePath` false, `bucket` `'files'`, the R2
+handler's `route.bucket ?? 'files'`). `forceDownload` is not defaulted: absent
+means "decide by content type", so the form keeps it unset and sends it only
+when the switch is changed. Clearing a stored Cache-Control or Host header
+sends `''`, which the handlers read as unset.
+
+## Search (v1.38.0)
+
+ONE matcher, `shared/src/search.ts`, behind route search (`GET /api/routes`:
+the Routes page, Cmd+K, "View all", MCP `list_routes`), QR list search
+(`listQRs` and the dashboard's QR store, through `qrMatchesListFilters`), the
+QR editor's route picker and the Cmd+K command filter. Words are the
+lowercased runs between ASCII separators; a field matches as typed
+(case-insensitive substring, so every older match still matches), as joined
+words (`summersale` finds `/summer-sale`) or with every query word in the SAME
+field in any order. No Unicode normalisation and no percent-decoding. Route
+fields: path, target, type, status code, bucket, host header; the domain
+matches as typed only. Matches are ranked: path equal to the query without
+separators, path prefix, other path match, other field; newest `createdAt`
+first on ties. Lists without a search are newest first. Cost bounds: word
+matching reads the first 1,024 characters of a field; a query is cut to 200
+units (after a 400-unit window before trimming, to keep final-sigma casing) and
+a cut query or one over 12 words matches as typed only. The `search`
+parameter is capped at 2,048 characters (`SEARCH_PARAM_MAX_LENGTH`) on the
+route and QR lists, the MCP list tools and in the OpenAPI schema; the route
+list answers 400 for a longer one (its other query parameters still fall back
+to defaults), and the dashboard cuts a long paste to the cap before sending.
+Cmd+K searches once the trimmed text has two characters and shows the first
+15 in the server's order.
+
+## Route UTM tracking (v1.38.0, dashboard only)
+
+The route dialog's **UTM tracking** section (redirect and proxy) edits
+`utm_source`, `utm_medium`, `utm_campaign`, `utm_term` and `utm_content` of
+the target (`admin/src/lib/utm.ts`). Values are lowercased as typed and
+trimmed; a target value with capitals is converted and saved lowercased. An
+edited key replaces every occurrence, a cleared one removes them all, and
+untouched bytes of the target (other parameters, duplicates, encodings, the
+fragment) are kept exactly; an unedited lowercase target is returned
+unchanged. The section shows the final target, which is what is saved; a
+target that is not an absolute URL cannot be saved (an untouched stored one
+in an edit is not re-sent, so it does not block other edits). The API, KV,
+MCP and OpenAPI contracts are unchanged: routes created elsewhere keep the
+case they are sent with.
+
+## Link-naming advice (v1.38.0)
+
+`linkNamingIssues` (`shared/src/link-naming.ts`) flags a file extension, a
+link that repeats its file's name, dates (`20260923`, `2026-09-23`, a bare
+20xx year, a month with a year) and version words (`final`, `draft`, `copy`,
+`v2`) in a link path. The route dialog shows it for r2 links (a redirect or
+proxy names a destination); the QR editor for a new route's path. Advice only:
+it never blocks a save, and the server never calls it. MCP `create_route`'s
+description carries the same convention.
+
 ## Changelog delivery (v1.36.0)
 
 `CHANGELOG.md` must **never** be imported into the dashboard bundle — the built
@@ -726,6 +792,9 @@ If the domain is missing from this list, the binding was never created.
 | `src/utils/boundary.ts` | Boundary reader: KV, stored and response JSON read as unknown and validated |
 | `src/kv/stored-route.ts` | Stored route guard; invalid records fail closed |
 | `scripts/check-boundary-reads.mjs` | Boundary-read gate |
+| `shared/src/search.ts` | The one search matcher and ranking (routes, QR codes, Cmd+K) |
+| `admin/src/lib/qr-pending.ts` | Dashboard QR store: latest known versions and server-timed tombstones |
+| `admin/src/lib/route-patch.ts` | Route edit dialog patch (only changed fields) |
 | `openapi/bifrost-api.yaml` | API Shield schema |
 | `scripts/upload-api-shield.mjs` | Auto-upload schema to API Shield (called by CI/CD) |
 
@@ -841,7 +910,9 @@ Contributors/ports must preserve all four rows — do not ship an uncommented co
 
 Unified QR resource with optional route linking. Feature files: `shared/src/qr.ts` (contract) + `qr-render.ts` (SVG renderer) + `qr-brand-presets.ts` (ships NEUTRAL — self-hosters add presets; a drift-guard test forces every SUPPORTED_DOMAIN to be branded or deliberately neutral), `src/kv/qr.ts` (KV under `qr:{domain}:{id}` in the ROUTES namespace — full scans skip the prefix), `src/routes/qr.ts` (CRUD + `/from-route` + `/:id/image`, authed-only serving, `private, no-store` — Wi-Fi payloads can carry credentials), `admin/src/pages/qr-codes.tsx` + `lib/qr-form-state.ts` + `lib/qr-brand-logo.ts`, `mcp/src/tools/qr.ts` (6 tools). Audit actions `qr_create`/`qr_update`/`qr_delete` (Wi-Fi credentials redacted in audit projections). The record `id` is surfaced as "Reference", normalised by `normalizeQrId()`, prefilled from the type's payload field only (never the description); type is immutable post-create.
 
-**List after create:** KV listing is eventually consistent, so a list fetched right after a create can miss the new code. Codes created in this session go into a pending store (`admin/src/lib/qr-pending.ts`, keyed by domain and id) and are merged into the first page of every list for their domain whose filters match, by the Worker's own predicate (`qrMatchesListFilters` in `shared/src/qr.ts`, also used by `src/kv/qr.ts`). Page 1 grows by the pending codes instead of dropping server rows, so no server row is pushed off every page; `total`, `offset`, `limit` and `hasMore` stay the server's and only `count` follows the merged items (the pagination labels derive from `total`, so adding the pending codes to it would announce a page the server does not have). An entry is dropped once the server lists it, when the code is deleted, or after 5 minutes. The merge happens inside the list query's fetch, so cached lists are never patched and marked fresh. "Save as QR Code" on the Routes page uses the route's own domain (else the filtered one, never a guessed default) and opens the QR page on that domain via navigation state, which the QR page reads once and clears.
+**QR store (v1.38.0).** KV listing is eventually consistent, so the dashboard keeps the latest known version of each code (`admin/src/lib/qr-pending.ts`) and applies it when a list page is READ: the list query caches the raw server page and projects it in `select`, which re-runs whenever the store changes (`useSyncExternalStore`), so a cached or re-mounted page shows the latest versions without a refetch and no cached page is ever patched. Per code the store keeps the highest `updatedAt` seen from create and update answers and every listed row, never moving backwards; a stale row shows the known version when it still matches the list's filters (`qrMatchesListFilters`, the Worker's own predicate) and is hidden when not. A code created in this session that page 1 lacks is added as one extra row (unless it sorts onto a later page); `total`, `offset`, `limit` and `hasMore` stay the server's. Deletions are versioned tombstones: a delete, or the server's own `QR_NOT_FOUND` (a 404 `{ success: false, error: 'QR_NOT_FOUND', message }`; any other 404 is not a deletion), hides every row of the code up to the deletion time, on the SERVER's clock: `X-Server-Time` (milliseconds, on every `/api/qr` answer, exposed by CORS with `Date`), accepted only as a plain safe integer in a plausible range inside the `Date` header's second ±1 s, else the end of the `Date` second (`admin/src/lib/server-time.ts`), plus `TOMBSTONE_SKEW_MARGIN_MS` (1 s), raised to the last version the store knew. A later row (a code re-created elsewhere) beats it; this session's own successful create or update of the id supersedes the tombstone at once, whatever the clocks. Entries last 90 seconds from their last change. The dashboard has no sign-out, so there is no session-end clearing. An edit or delete answering `QR_NOT_FOUND` closes the dialog with "already deleted". "Save as QR Code" on the Routes page uses the route's own domain (else the filtered one, never a guessed default) and opens the QR page on that domain via navigation state, which the QR page reads once and clears.
+
+**QR editor (v1.38.0).** A url code can be linked to a route on its own domain: an existing route picked with the shared matcher, or a new 302 redirect (query kept) that the editor creates first and then links with the route's canonical path; the form switches to that existing route before saving the code, so a retry never creates the route twice, and a failed code save reports the kept route. A linked code gets a client-generated id when the Reference is empty, so a retry hits the same id. The credential-target confirmation applies to the new route. An edit sends only the changed fields (`qrEditPatch` in `admin/src/lib/qr-form-state.ts`, comparing the form's own derivation before and after), checked client-side with `UpdateQRInputSchema` (and the type's payload schema when the payload changed); a cleared link sends `linkedRoute: null`. The Worker applies today's limits to the fields an update sets only and builds the stored record from the known fields through `parseStoredQR`, so a code saved under older limits stays editable and unknown fields are dropped (not in the audit `after` snapshot either).
 
 **Stored records are validated on read** (v1.38.0, see [Validate at the boundary](#validate-at-the-boundary-v1380)): an unreadable record is not found, stays deletable, and is never overwritten by a create.
 

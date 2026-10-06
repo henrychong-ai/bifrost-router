@@ -14,8 +14,14 @@ export function PowerToolsSection() {
       <p>
         The <strong>command palette</strong> is the universal entry point: jump to any page, trigger
         actions like Create New Route, and — most usefully —{' '}
-        <strong>search every route across all your domains</strong> by path, target, or type, from
-        anywhere in the app.
+        <strong>search every route across all your domains</strong> by path, target, type, status
+        code, domain, bucket or host header, from anywhere in the app.
+      </p>
+      <p>
+        Search ignores letter case and separators (spaces, hyphens, underscores, dots and slashes),
+        accepts words in any order, and lists the closest path matches first, so “summer sale” finds
+        /summer-sale; other text, such as accents and the domain, matches as typed. The Routes page,
+        the QR code list and the QR editor's route picker search the same way.
       </p>
       <div className="space-y-2">
         <p className="font-medium text-blue-950">Keyboard shortcuts:</p>

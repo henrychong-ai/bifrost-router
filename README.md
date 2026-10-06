@@ -39,9 +39,12 @@ A lightweight, high-performance edge router and URL shortener built on Cloudflar
 - **Case-Insensitive Paths** — Visitors can use any case in the URL (`/LinkedIn`, `/LINKEDIN`, `/linkedin` all match the same route)
 - **KV-Powered** — Route changes propagate globally in seconds
 - **Admin API** — Full CRUD operations with API key authentication, search, and pagination
+- **Forgiving Search** (v1.38.0) — route and QR search ignores case and separators (`summer sale`, `Summer_Sale` and `summersale` all find `/summer-sale`), takes words in any order, and lists the closest path matches first; the same matcher drives the API, the dashboard, Cmd+K and the MCP list tools
 - **Admin Dashboard** — React SPA with Command Palette (Cmd+K), filters, analytics, R2 Storage browser with file preview (images, PDFs) and standalone target links
 - **MCP Server** — AI-powered route and R2 storage management via Claude Code/Desktop (29 tools)
-- **QR Codes** (v1.30.0) — unified QR resource (URL / text / Wi-Fi / vCard) with optional route linking (re-point, never reprint), a preset registry for your own branding, live preview, SVG + PNG export, and authed-only image serving
+- **QR Codes** (v1.30.0) — unified QR resource (URL / text / Wi-Fi / vCard) with optional route linking (re-point, never reprint), a preset registry for your own branding, live preview, SVG + PNG export, and authed-only image serving. Since v1.38.0 the editor links a code to an existing route or creates a new 302 redirect for it, and an edit sends only the fields you changed
+- **UTM Tracking** (v1.38.0) — the route dialog edits the five UTM tags of a redirect or proxy target, lowercased, with a live final-target preview (dashboard only: the API and MCP see an ordinary target URL)
+- **Link-Naming Advice** (v1.38.0) — the route and QR dialogs flag file extensions, dates and version words in a link's name, as advice that never blocks a save
 - **User Guide** (v1.30.0) — in-dashboard guide (11 task-first sections) with a first-visit welcome dialog, contextual ? help links, an MCP integration tab, and dated changelog
 - **Operational Analytics** — domain-aware full URLs, redirect/proxy/service-page leaders, recent activity, period comparisons, and actionable traffic signals; Cloudflare Health Checks are excluded by default
 - **Wildcard Patterns** — Support for path patterns like `/blog/*`
@@ -460,7 +463,7 @@ domain for writes.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/routes` | List routes (`?search=`, `?type=`, `?enabled=`, `?limit=`, `?offset=`, `?domain=`) |
+| `GET` | `/api/routes` | List routes, newest first (`?search=` ranked by relevance, at most 2,048 characters; `?type=`, `?enabled=`, `?limit=`, `?offset=`, `?domain=`) |
 | `GET` | `/api/routes?path=` | Get single route |
 | `POST` | `/api/routes` | Create route |
 | `PUT` | `/api/routes?path=` | Update route |

@@ -52,7 +52,18 @@ export function QrCodesSection() {
         <strong>linked to a route</strong>, so the printed code encodes the short URL (e.g.{' '}
         <FactChip>links.example.com/menu</FactChip>) rather than the destination. When the
         destination changes, you just re-point the route — every poster, namecard, and slide printed
-        with that QR keeps working. Re-point, never reprint.
+        with that QR keeps working. Re-point, never reprint. In the editor, switch on{' '}
+        <strong>Link to a route</strong>, then pick an <strong>Existing route</strong> on the code's
+        domain (the search ignores case and separators) or name a <strong>New route</strong> with
+        its target: Bifrost creates it as a 302 redirect first, then saves the code. If the code
+        cannot be saved, the route is kept and the next save reuses it. The editor notes when
+        another code already links the same route, and flags dates and version words in a new
+        route's name.
+      </p>
+      <p>
+        <strong>Editing.</strong> Saving an edit sends only the fields you changed, so a code saved
+        under older limits can still be edited; with nothing changed, nothing is sent. A code
+        deleted elsewhere while you edit it closes the dialog with a note.
       </p>
       <p>
         <strong>SVG or PNG?</strong> Both downloads scan identically — pick by where the QR is

@@ -13,6 +13,13 @@ import {
   MAX_HOST_HEADER_LENGTH,
   MAX_ROUTE_TARGET_LENGTH,
 } from './schemas.js';
+import {
+  LIST_QRS_TOOL_DESCRIPTION,
+  LIST_ROUTES_TOOL_DESCRIPTION,
+  QR_SEARCH_DESCRIPTION,
+  ROUTE_SEARCH_DESCRIPTION,
+  SEARCH_PARAM_MAX_LENGTH,
+} from './search.js';
 import { ALL_R2_BUCKETS, R2_BUCKETS, SUPPORTED_DOMAINS, SUPPORTED_DOMAINS_LIST } from './types.js';
 
 /**
@@ -136,16 +143,15 @@ export const toolDefinitions: ToolDefinition[] = [
   // ===========================================================================
   {
     name: 'list_routes',
-    description:
-      'List all routes configured for a domain. Supports full-text search across path, target, type, status code, bucket, and host header. Returns route paths, types, targets, and enabled status.',
+    description: LIST_ROUTES_TOOL_DESCRIPTION,
     inputSchema: {
       type: 'object',
       properties: {
         domain: routeDomainProperty,
         search: {
           type: 'string',
-          description:
-            'Search term to filter routes. Matches against path, target URL, type, status code, bucket, and host header (case-insensitive).',
+          description: ROUTE_SEARCH_DESCRIPTION,
+          maxLength: SEARCH_PARAM_MAX_LENGTH,
         },
       },
       required: ['domain'],
@@ -169,7 +175,7 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: 'create_route',
     description:
-      'Create a new route. Supports redirect (URL), proxy (fetch content), and r2 (serve from bucket) types.',
+      'Create a new route. Supports redirect (URL), proxy (fetch content), and r2 (serve from bucket) types. For r2 links, name the path after the document, not the file: no file extension, date or version (e.g. /brochures/company-overview-en).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -764,8 +770,7 @@ export const toolDefinitions: ToolDefinition[] = [
   // ===========================================================================
   {
     name: 'list_qrs',
-    description:
-      'List QR codes for a domain. Filter by type (url/text/vcard/wifi), exact tag, or a description/id substring; recency-sorted with offset/limit pagination.',
+    description: LIST_QRS_TOOL_DESCRIPTION,
     inputSchema: {
       type: 'object',
       properties: {
@@ -778,7 +783,8 @@ export const toolDefinitions: ToolDefinition[] = [
         tag: { type: 'string', description: 'Filter by exact tag' },
         search: {
           type: 'string',
-          description: 'Case-insensitive substring over description and id',
+          description: QR_SEARCH_DESCRIPTION,
+          maxLength: SEARCH_PARAM_MAX_LENGTH,
         },
         limit: { type: 'number', description: 'Page size (1-1000)' },
         offset: { type: 'number', description: 'Page offset' },

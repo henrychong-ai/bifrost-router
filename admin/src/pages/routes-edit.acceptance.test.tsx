@@ -1,0 +1,217 @@
+// @vitest-environment happy-dom
+
+/**
+ * The route dialog end to end, with only the data hooks mocked (v1.38.0):
+ * edits send only what changed, UTM tags are edited in lowercase into the
+ * target, and r2 links get naming advice.
+ */
+
+import { MAX_ROUTE_TARGET_LENGTH } from '@bifrost/shared';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { MemoryRouter } from 'react-router';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Route } from '@/lib/schemas';
+
+const state = vi.hoisted(() => ({
+  update: vi.fn<(variables: Record<string, unknown>) => Promise<unknown>>(),
+  create: vi.fn<(variables: Record<string, unknown>) => Promise<unknown>>(),
+}));
+const toasts = vi.hoisted(() => ({
+  success: vi.fn<(message: string) => void>(),
+  error: vi.fn<(message: string) => void>(),
+}));
+
+vi.mock('@/hooks', () => ({
+  routeKeys: { list: (...args: unknown[]) => ['routes', ...args] },
+  useRoutes: () => ({
+    data: { routes: [], total: 0, offset: 0, hasMore: false },
+    isLoading: false,
+  }),
+  useCreateRoute: () => ({ mutateAsync: state.create, isPending: false }),
+  useUpdateRoute: () => ({ mutateAsync: state.update, isPending: false }),
+  useDeleteRoute: () => ({ mutateAsync: vi.fn<() => Promise<void>>(), isPending: false }),
+  useToggleRoute: () => ({ mutateAsync: vi.fn<() => Promise<void>>(), isPending: false }),
+  useMigrateRoute: () => ({ mutateAsync: vi.fn<() => Promise<void>>(), isPending: false }),
+  useTransferRoute: () => ({ mutateAsync: vi.fn<() => Promise<void>>(), isPending: false }),
+  useCreateQr: () => ({ mutateAsync: vi.fn<() => Promise<void>>(), isPending: false }),
+  useQrCodes: () => ({ data: undefined }),
+  useDebounce: <T,>(value: T) => value,
+  usePrefetchAllDomainRoutes: () => undefined,
+}));
+vi.mock('@/context', () => ({
+  SUPPORTED_DOMAINS: ['example.com'],
+  useRoutesFilters: () => ({ filters: { domain: 'example.com' }, setFilters: vi.fn<() => void>() }),
+}));
+vi.mock('@/components/link-preview', () => ({ LinkPreview: () => null }));
+vi.mock('sonner', () => ({ toast: toasts }));
+
+import { RoutesPage } from './routes';
+
+const DOMAIN = 'example.com';
+const base = { domain: DOMAIN, createdAt: 1, updatedAt: 1 } as const;
+
+let root: Root | undefined;
+let container: HTMLDivElement | undefined;
+
+function input(id: string): HTMLInputElement {
+  const element = document.getElementById(id);
+  if (!(element instanceof HTMLInputElement)) throw new Error(`no input #${id}`);
+  return element;
+}
+
+function button(text: string): HTMLButtonElement {
+  const found = [...document.body.querySelectorAll('button')].find(
+    item => item.textContent?.trim() === text,
+  );
+  if (!found) throw new Error(`no button ${text}`);
+  return found;
+}
+
+async function typeInto(element: HTMLInputElement, value: string) {
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  await act(async () => {
+    setValue?.call(element, value);
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
+/** The Routes page with the edit dialog open on `route` (navigation hand-off). */
+async function editing(route: Route) {
+  (
+    globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+  container = document.createElement('div');
+  document.body.append(container);
+  root = createRoot(container);
+  await act(async () => {
+    root?.render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={[{ pathname: '/routes', state: { editRoute: route } }]}>
+          <RoutesPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  });
+}
+
+async function save() {
+  await act(async () => button('Update').click());
+}
+
+const sentData = () => state.update.mock.calls[0]?.[0]?.['data'];
+
+beforeEach(() => {
+  state.update.mockReset().mockResolvedValue({});
+  state.create.mockReset().mockResolvedValue({});
+  toasts.success.mockReset();
+  toasts.error.mockReset();
+});
+
+afterEach(async () => {
+  await act(async () => root?.unmount());
+  container?.remove();
+  root = undefined;
+  container = undefined;
+});
+
+describe('editing a route sends only what changed', () => {
+  const legacy: Route = {
+    ...base,
+    path: '/legacy',
+    type: 'redirect',
+    // Saved before today's target limit
+    target: `https://example.com/?q=${'x'.repeat(MAX_ROUTE_TARGET_LENGTH)}`,
+    statusCode: 302,
+  };
+
+  it('makes no request for an unchanged save', async () => {
+    await editing(legacy);
+    await save();
+    expect(state.update).not.toHaveBeenCalled();
+    expect(toasts.success).toHaveBeenCalledWith('No changes to save');
+  });
+
+  it('never re-sends an untouched over-limit target', async () => {
+    await editing(legacy);
+    await typeInto(input('cacheControl'), 'max-age=60');
+    await save();
+    expect(sentData()).toEqual({ cacheControl: 'max-age=60' });
+  });
+
+  it('sends an empty Cache-Control or Host header to clear a stored one', async () => {
+    await editing({
+      ...base,
+      path: '/docs',
+      type: 'proxy',
+      target: 'https://origin.example.com/',
+      cacheControl: 'max-age=60',
+      hostHeader: 'origin.example.com',
+    });
+    await typeInto(input('cacheControl'), '');
+    await typeInto(input('hostHeader'), '');
+    await save();
+    expect(sentData()).toEqual({ cacheControl: '', hostHeader: '' });
+  });
+
+  it('keeps an r2 route stored without forceDownload or bucket unset on an unchanged save', async () => {
+    await editing({ ...base, path: '/brochure', type: 'r2', target: 'docs/brochure.pdf' });
+    expect(document.body.textContent).toContain('not set: decided by the file type');
+    await save();
+    expect(state.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('UTM tracking in the route dialog', () => {
+  const tagged: Route = {
+    ...base,
+    path: '/promo',
+    type: 'redirect',
+    target: 'https://example.net/landing?utm_source=News&ref=a#top',
+    statusCode: 302,
+  };
+
+  it('shows the target’s tags in lowercase and saves edits into the target', async () => {
+    await editing(tagged);
+    expect(input('utm_source').value).toBe('news');
+    expect(document.body.textContent).toContain('Converted to lowercase from the target');
+    await typeInto(input('utm_campaign'), 'Spring-Launch');
+    expect(input('utm_campaign').value).toBe('spring-launch');
+    expect(document.getElementById('utm-preview')?.textContent).toBe(
+      'https://example.net/landing?ref=a&utm_source=news&utm_campaign=spring-launch#top',
+    );
+    await save();
+    expect(sentData()).toEqual({
+      target: 'https://example.net/landing?ref=a&utm_source=news&utm_campaign=spring-launch#top',
+    });
+  });
+
+  it('refuses to save a target that is not an absolute URL', async () => {
+    await editing(tagged);
+    await typeInto(input('target'), 'not a url');
+    expect(document.body.textContent).toContain('Enter a valid absolute target URL before saving');
+    expect(button('Update').disabled).toBe(true);
+  });
+});
+
+describe('link-naming advice', () => {
+  it('flags a dated, file-shaped r2 link without blocking the save', async () => {
+    await editing({ ...base, path: '/brochure-final', type: 'r2', target: 'docs/brochure.pdf' });
+    await typeInto(input('path'), '/20260923-brochure.pdf');
+    const advice = document.body.querySelector('[aria-label="Link naming suggestions"]');
+    expect(advice?.textContent).toContain('Remove the file extension (.pdf)');
+    expect(advice?.textContent).toContain('Remove the date (20260923)');
+    expect(button('Update').disabled).toBe(false);
+  });
+
+  it('gives no advice for a redirect', async () => {
+    await editing({
+      ...base,
+      path: '/promo-2026',
+      type: 'redirect',
+      target: 'https://example.net/',
+    });
+    expect(document.body.querySelector('[aria-label="Link naming suggestions"]')).toBeNull();
+  });
+});

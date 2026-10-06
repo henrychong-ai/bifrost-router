@@ -12,7 +12,7 @@
  */
 
 import type { QRCode, QRType } from '@bifrost/shared';
-import { normalizeQrId, WifiAuthSchema } from '@bifrost/shared';
+import { isSupportedDomain, normalizeQrId, WifiAuthSchema } from '@bifrost/shared';
 
 /**
  * Derived from the canonical schema rather than hand-duplicated:
@@ -56,6 +56,15 @@ export interface QrFormState {
   description: string;
   tags: string;
   url: string;
+  /**
+   * Linked route (v1.38.0, url codes only): `static` encodes the URL itself;
+   * `existing` links a route picked on the code's domain; `new` creates a
+   * 302 redirect at `newRoutePath` to `newRouteTarget` and links it.
+   */
+  linkMode: 'static' | 'existing' | 'new';
+  linkedRoute: QRCode['linkedRoute'] | null;
+  newRoutePath: string;
+  newRouteTarget: string;
   text: string;
   ssid: string;
   auth: WifiAuthOption;
@@ -91,6 +100,10 @@ export function stateFromQr(qr?: QRCode): QrFormState {
     description: qr?.description ?? '',
     tags: (qr?.tags ?? []).join(', '),
     url: typeof p['url'] === 'string' ? p['url'] : '',
+    linkMode: qr?.linkedRoute ? 'existing' : 'static',
+    linkedRoute: qr?.linkedRoute ?? null,
+    newRoutePath: '',
+    newRouteTarget: '',
     text: typeof p['text'] === 'string' ? p['text'] : '',
     ssid: typeof p['ssid'] === 'string' ? p['ssid'] : '',
     // Validated, not cast: every sibling field type-guards, and an
@@ -120,6 +133,95 @@ export function stateFromQr(qr?: QRCode): QrFormState {
     logoDataUri: qr?.design.logoDataUri ?? '',
     logoAspectRatio: qr?.design.logoAspectRatio ?? null,
   };
+}
+
+/**
+ * A new short-link path as typed into the QR editor: trimmed, lowercased,
+ * spaces and underscores to hyphens, empty segments dropped. Other characters
+ * stay, for the route path rules to judge.
+ */
+export function normalizeQrRoutePath(path: string): string {
+  const normalised = path
+    .trim()
+    .toLowerCase()
+    .split('/')
+    .filter(Boolean)
+    .map(part => part.replace(/[ _]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, ''))
+    .filter(Boolean)
+    .join('/');
+  return normalised ? `/${normalised}` : '';
+}
+
+/**
+ * The link the form would save, bound to `domain`: a selection made on
+ * another domain never follows a domain change. Undefined for a code that is
+ * not linked (or not a url code).
+ */
+export function linkedRouteFromState(s: QrFormState, domain: string): QRCode['linkedRoute'] {
+  if (s.type !== 'url' || s.linkMode === 'static' || !isSupportedDomain(domain)) return undefined;
+  if (s.linkMode === 'existing') {
+    return s.linkedRoute?.domain === domain ? s.linkedRoute : undefined;
+  }
+  const path = normalizeQrRoutePath(s.newRoutePath);
+  return path ? { domain, path } : undefined;
+}
+
+/** The short URL a linked code encodes. */
+export function linkedRouteUrl(link: NonNullable<QRCode['linkedRoute']>): string {
+  return `https://${link.domain}${link.path}`;
+}
+
+/** The payload the form saves: a linked code encodes its short URL. */
+export function submittedPayload(s: QrFormState, domain: string): Record<string, unknown> {
+  const link = linkedRouteFromState(s, domain);
+  return link ? { url: linkedRouteUrl(link) } : payloadFromState(s);
+}
+
+/** The tags the form saves: comma-separated, trimmed, empty ones dropped. */
+export function tagsFromState(s: QrFormState): string[] {
+  return s.tags
+    .split(',')
+    .map(tag => tag.trim())
+    .filter(Boolean);
+}
+
+const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * The update the QR edit dialog sends (v1.38.0): only the fields whose value,
+ * as the form would save it, differs from what the form showed when it
+ * opened. Both sides go through the same derivation, so a stored record the
+ * form represents differently (an older record, an extra field) never counts
+ * as a change, and a field the user did not touch is never sent: the Worker
+ * applies today's limits only to the fields it is sent, so a code saved under
+ * earlier limits stays editable. An unchanged form gives `{}`.
+ *
+ * `linkedRoute` is sent when the link changed: the new link, or `null` when a
+ * url code is no longer linked.
+ */
+export function qrEditPatch(
+  initial: QRCode,
+  s: QrFormState,
+  domain: string,
+): Record<string, unknown> {
+  const before = stateFromQr(initial);
+  const patch: Record<string, unknown> = {};
+  const payload = submittedPayload(s, domain);
+  if (!sameJson(payload, submittedPayload(before, domain))) patch['payload'] = payload;
+  const design = designFromState(s);
+  if (!sameJson(design, designFromState(before))) patch['design'] = design;
+  const description = s.description.trim();
+  if (description !== before.description.trim()) patch['description'] = description;
+  const tags = tagsFromState(s);
+  if (!sameJson(tags, tagsFromState(before))) patch['tags'] = tags;
+  if (s.type === 'url') {
+    const link = linkedRouteFromState(s, domain) ?? null;
+    // The stored link as it is, so clearing a link the form cannot show as
+    // selected (one on another domain) is still sent
+    const was = initial.linkedRoute ?? null;
+    if (link?.domain !== was?.domain || link?.path !== was?.path) patch['linkedRoute'] = link;
+  }
+  return patch;
 }
 
 /** Hostname of a URL, `www.` stripped — '' when unparseable (mid-typing). */

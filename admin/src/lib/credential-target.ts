@@ -15,7 +15,14 @@ export const ROUTE_TARGET_CREDENTIAL_CODE = 'ROUTE_TARGET_CREDENTIAL';
  */
 export function credentialTargetParametersFromError(error: unknown): string[] | null {
   if (!(error instanceof ApiError)) return null;
-  if (error.message !== ROUTE_TARGET_CREDENTIAL_CODE) return null;
+  // The code travels in `code` when the answer carried a message beside it
+  // (v1.38.0), else as the message itself
+  if (
+    error.code !== ROUTE_TARGET_CREDENTIAL_CODE &&
+    error.message !== ROUTE_TARGET_CREDENTIAL_CODE
+  ) {
+    return null;
+  }
   const details = error.details as { parameters?: unknown } | undefined;
   const parameters = details?.parameters;
   if (!Array.isArray(parameters)) return null;

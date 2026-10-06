@@ -389,3 +389,11 @@ describe('QR linkedRoute', () => {
     expect(JSON.stringify(tool)).toContain(JSON.stringify([...SUPPORTED_DOMAINS]));
   });
 });
+
+describe('search parameters (v1.38.0)', () => {
+  it.each(['list_routes', 'list_qrs'])('%s bounds search at 2,048 characters', name => {
+    const search = getToolDefinition(name)?.inputSchema.properties['search'];
+    expect(search?.maxLength).toBe(2048);
+    expect(search?.description).toContain('separators');
+  });
+});

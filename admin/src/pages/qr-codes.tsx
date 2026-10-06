@@ -7,12 +7,15 @@
  */
 
 import {
+  CreateQRInputSchema,
   deriveBrandForDomain,
+  generateQrId,
   NEUTRAL_QR_DESIGN,
   normalizeQrId,
   normalizeQrIdInput,
   QR_BRAND_PRESETS,
   QR_LOGO_MAX_BYTES,
+  QR_PAYLOAD_SCHEMAS,
   type QRCode,
   QRDesignSchema,
   type QRType,
@@ -20,15 +23,18 @@ import {
   qrContrastRatio,
   renderQrSvg,
   serializePayload,
+  UpdateQRInputSchema,
 } from '@bifrost/shared';
 import { Download, Pencil, Plus, QrCode as QrCodeIcon, Trash2 } from 'lucide-react';
 import { type Dispatch, type SetStateAction, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { ContextualHelp } from '@/components/contextual-help';
+import { CredentialTargetDialog } from '@/components/credential-target-dialog';
 import { FieldHint } from '@/components/field-hint';
 import { PaginationControls } from '@/components/pagination-controls';
 import { QrPreview } from '@/components/qr-preview';
+import { QrRouteFields } from '@/components/qr-route-fields';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -69,21 +75,37 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { SUPPORTED_DOMAINS } from '@/context';
-import { useCreateQr, useDebounce, useDeleteQr, useQrCodes, useUpdateQr } from '@/hooks';
+import {
+  useCreateQr,
+  useCreateRoute,
+  useDebounce,
+  useDeleteQr,
+  useQrCodes,
+  useRoutes,
+  useUpdateQr,
+} from '@/hooks';
 import type { QrQueryParams } from '@/lib/api-client';
+import { isQrNotFoundError } from '@/lib/api-error';
 import { getPersistedPageSize, persistPageSize } from '@/lib/constants';
+import { credentialTargetParametersFromError } from '@/lib/credential-target';
 import { useClearNavigationState } from '@/lib/navigation-state';
 import { computeLogoAspectRatio, fetchBrandLogo } from '@/lib/qr-brand-logo';
 import {
   designFromState,
+  linkedRouteFromState,
+  linkedRouteUrl,
   payloadFromState,
   type QrFormState,
+  qrEditPatch,
   stateFromQr,
+  submittedPayload,
   suggestQrId,
   TUNNELED_EAP_METHODS,
+  tagsFromState,
   WIFI_AUTH_TRIGGER_LABELS,
 } from '@/lib/qr-form-state';
 import { initialQrPageDomain, qrPageNavDomain } from '@/lib/qr-page-domain';
+import { type CreateRouteInput, CreateRouteSchema, type Route } from '@/lib/schemas';
 import { downloadPng, downloadSvg } from '@/lib/svg-to-png';
 
 // =============================================================================
@@ -183,7 +205,17 @@ interface QrFormProps {
   domain: string;
   initial?: QRCode;
   submitting: boolean;
-  onSubmit: (input: Record<string, unknown>) => void;
+  /**
+   * Save the code. A create receives the full input; an edit only the fields
+   * that changed (`qrEditPatch`, v1.38.0), `{}` when nothing did.
+   */
+  onSubmit: (input: Record<string, unknown>) => Promise<void>;
+}
+
+/** A save in progress: the code's input, and the route to create first, if any. */
+interface QrSubmission {
+  input: Record<string, unknown>;
+  route?: CreateRouteInput | undefined;
 }
 
 function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
@@ -199,6 +231,51 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
     return startPreset === undefined ? base : { ...base, ...presetDesignPatch(startPreset) };
   });
   const set = (patch: Partial<QrFormState>) => setS(prev => ({ ...prev, ...patch }));
+  const navigate = useNavigate();
+
+  // Linked routes (v1.38.0): the domain's routes and url codes load only
+  // while the code is linked, for the picker and the duplicate-link note
+  const createRoute = useCreateRoute();
+  const dynamic = s.type === 'url' && s.linkMode !== 'static';
+  const routeQuery = useRoutes(domain, undefined, { enabled: dynamic });
+  const qrQuery = useQrCodes({ domain, type: 'url', limit: 1000 }, { enabled: dynamic });
+  const routes = routeQuery.error ? [] : (routeQuery.data?.routes ?? []);
+  const link = linkedRouteFromState(s, domain);
+  // The link as it would be saved differs from the stored one: only then is
+  // the selection checked against the domain's routes (an untouched link is
+  // never sent, so a route deleted since never blocks another edit)
+  const linkChanged =
+    mode === 'create' ||
+    link?.domain !== initial?.linkedRoute?.domain ||
+    link?.path !== initial?.linkedRoute?.path;
+  const [createdRoute, setCreatedRoute] = useState<Route>();
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const [credentialConfirm, setCredentialConfirm] = useState<{
+    parameters: string[];
+    submission: QrSubmission;
+  } | null>(null);
+  const routeSelected =
+    !!link &&
+    (createdRoute?.path === link.path ||
+      routes.some(route => (!route.domain || route.domain === domain) && route.path === link.path));
+  const linkUsable =
+    !dynamic || (!!link && (!linkChanged || s.linkMode !== 'existing' || routeSelected));
+  const duplicate = link
+    ? qrQuery.data?.items.find(
+        qr =>
+          qr.id !== initial?.id &&
+          qr.linkedRoute?.domain === domain &&
+          qr.linkedRoute.path === link.path,
+      )
+    : undefined;
 
   // Guard against stale async logo fetches: only the latest preset application
   // may write its logo into the form. The token is ALSO bumped on every
@@ -258,19 +335,22 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
   }
 
   // Live preview content — invalid mid-typing states just blank the preview.
-  // A route-linked QR encodes its short URL: the edit
-  // preview must agree with the list-row preview and the Worker render.
+  // A route-linked QR encodes its short URL: the preview must agree with the
+  // list-row preview and the Worker render.
   const preview = useMemo(() => {
     try {
       const design = QRDesignSchema.parse(designFromState(s));
-      const content = initial?.linkedRoute
-        ? `https://${initial.linkedRoute.domain}${initial.linkedRoute.path}`
+      const selected = linkedRouteFromState(s, domain);
+      const content = dynamic
+        ? selected
+          ? linkedRouteUrl(selected)
+          : ''
         : serializePayload(s.type, payloadFromState(s) as never);
       return content ? { content, design } : null;
     } catch {
       return null;
     }
-  }, [s, initial]);
+  }, [s, domain, dynamic]);
 
   const contrast = useMemo(() => qrContrastRatio(s.fg, s.bg), [s.fg, s.bg]);
 
@@ -310,28 +390,145 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
     reader.readAsDataURL(file);
   };
 
+  /** Open the Routes page on a route this form created. */
+  const viewRoute = (route: Route) => {
+    void navigate('/routes', { state: { editRoute: route } });
+  };
+
+  const reportRetainedRoute = (route: Route) => {
+    toast.error(
+      `Route ${linkedRouteUrl({ domain, path: route.path })} was created, but the QR save could not be confirmed. The route is kept; retry the QR save or view the route.`,
+      { action: { label: 'View route', onClick: () => viewRoute(route) } },
+    );
+  };
+
+  /**
+   * Create the route first when the code links a new one, then save the code
+   * with the route's canonical path. The form switches to that existing route
+   * BEFORE the code is saved, so a retry never creates the route twice.
+   */
+  const save = async (submission: QrSubmission, acknowledgeCredentialTarget?: boolean) => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    const submittedLink = submission.input['linkedRoute'] as QRCode['linkedRoute'] | null;
+    let retained =
+      !submission.route && createdRoute && createdRoute.path === submittedLink?.path
+        ? createdRoute
+        : undefined;
+    try {
+      let input = submission.input;
+      if (submission.route) {
+        const route = await createRoute.mutateAsync({
+          data: submission.route,
+          domain,
+          acknowledgeCredentialTarget,
+        });
+        retained = { ...route, domain };
+        if (!mounted.current) {
+          reportRetainedRoute(retained);
+          return;
+        }
+        setCreatedRoute(retained);
+        const linked = { domain, path: route.path };
+        set({ linkMode: 'existing', linkedRoute: linked, newRoutePath: '', newRouteTarget: '' });
+        input = { ...input, payload: { url: linkedRouteUrl(linked) }, linkedRoute: linked };
+      }
+      setCredentialConfirm(null);
+      await onSubmit(input);
+    } catch (error) {
+      const parameters = credentialTargetParametersFromError(error);
+      if (submission.route && !retained && parameters && !acknowledgeCredentialTarget) {
+        setCredentialConfirm({ parameters, submission });
+      } else {
+        setCredentialConfirm(null);
+        if (retained) reportRetainedRoute(retained);
+        else toast.error(error instanceof Error ? error.message : 'Save failed');
+      }
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
+
   const submit = () => {
-    const input: Record<string, unknown> = {
-      ...(mode === 'create'
-        ? // Full normalisation at submit — the typing-friendly input normaliser
-          // permits a trailing hyphen that QR_ID_REGEX would reject server-side.
-          { type: s.type, ...(normalizeQrId(s.id) ? { id: normalizeQrId(s.id) } : {}) }
-        : {}),
-      payload: payloadFromState(s),
-      design: designFromState(s),
-      // Always submit description — an explicit '' clears it server-side.
-      description: s.description.trim(),
-      tags: s.tags
-        .split(',')
-        .map(t => t.trim())
-        .filter(Boolean),
-    };
-    onSubmit(input);
+    if (submitting || savingRef.current || credentialConfirm || logoPending > 0) return;
+    if (!linkUsable) {
+      toast.error('Select an available route on this domain.');
+      return;
+    }
+    let input: Record<string, unknown>;
+    if (mode === 'create') {
+      // Full normalisation at submit — the typing-friendly input normaliser
+      // permits a trailing hyphen that QR_ID_REGEX would reject server-side.
+      let id = normalizeQrId(s.id);
+      // A linked code keeps one reference across uncertain answers: a retry
+      // hits the same id (409 if it was saved), never a second generated code
+      if (dynamic && !id) {
+        id = generateQrId();
+        set({ id, idTouched: true });
+      }
+      input = {
+        type: s.type,
+        ...(id ? { id } : {}),
+        payload: submittedPayload(s, domain),
+        ...(dynamic ? { linkedRoute: link } : {}),
+        design: designFromState(s),
+        // An explicit '' is the same as no description on create
+        description: s.description.trim(),
+        tags: tagsFromState(s),
+      };
+      // Checked BEFORE a route is created, so an invalid code never leaves a
+      // route behind
+      const valid = CreateQRInputSchema.safeParse(input);
+      if (!valid.success) {
+        toast.error(valid.error.issues[0]?.message ?? 'The QR code is not valid');
+        return;
+      }
+    } else {
+      // Only the fields that changed (v1.38.0), and only those are checked: a
+      // code saved under earlier limits stays editable
+      input = initial ? qrEditPatch(initial, s, domain) : {};
+      const issues = [
+        ...(UpdateQRInputSchema.safeParse(input).error?.issues ?? []),
+        ...(input['payload'] === undefined
+          ? []
+          : (QR_PAYLOAD_SCHEMAS[s.type].safeParse(input['payload']).error?.issues ?? [])),
+      ];
+      if (issues.length > 0) {
+        toast.error(issues[0]?.message ?? 'The QR code is not valid');
+        return;
+      }
+    }
+    let route: CreateRouteInput | undefined;
+    if (dynamic && s.linkMode === 'new' && link && input['linkedRoute'] !== undefined) {
+      route = {
+        path: link.path,
+        type: 'redirect',
+        target: s.newRouteTarget.trim(),
+        statusCode: 302,
+        preserveQuery: true,
+      };
+      let webTarget = false;
+      try {
+        webTarget = ['http:', 'https:'].includes(new URL(route.target).protocol);
+      } catch {
+        // An incomplete target
+      }
+      if (!CreateRouteSchema.safeParse(route).success || !webTarget) {
+        toast.error('Enter a valid route path and an HTTP or HTTPS target.');
+        return;
+      }
+    }
+    void save({ input, route });
   };
 
   return (
     <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
-      <div className="space-y-3">
+      <fieldset
+        disabled={saving || submitting || !!credentialConfirm}
+        className="min-w-0 space-y-3"
+      >
         {mode === 'create' && (
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
@@ -369,15 +566,44 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
         )}
 
         {s.type === 'url' && (
-          <div className="space-y-1">
-            <Label htmlFor="qr-url">URL / URI</Label>
-            <Input
-              id="qr-url"
-              placeholder="https://… or mailto:, tel:, wa.me…"
-              value={s.url}
-              onChange={e => set({ url: e.target.value })}
+          <>
+            <div className="space-y-1">
+              <FieldHint
+                htmlFor="qr-url"
+                label="URL / URI"
+                hint="Encodes this exact address permanently in the printed code. For a code you can re-point later, link it to a route below — the code then encodes the short link."
+              />
+              <Input
+                id="qr-url"
+                placeholder="https://… or mailto:, tel:, wa.me…"
+                value={dynamic ? (link ? linkedRouteUrl(link) : '') : s.url}
+                readOnly={dynamic}
+                onChange={e => set({ url: e.target.value })}
+              />
+            </div>
+            <QrRouteFields
+              state={s}
+              domain={domain}
+              set={set}
+              routes={routes.filter(route => !route.domain || route.domain === domain)}
+              loading={routeQuery.isPending}
+              failed={!!routeQuery.error}
+              duplicate={duplicate}
+              retry={() => {
+                void routeQuery.refetch();
+              }}
             />
-          </div>
+            {dynamic &&
+              s.linkMode === 'existing' &&
+              linkChanged &&
+              !routeSelected &&
+              link &&
+              !routeQuery.isFetching && (
+                <p className="text-sm text-destructive">
+                  This route is unavailable. Select another route or clear the link.
+                </p>
+              )}
+          </>
         )}
         {s.type === 'text' && (
           <div className="space-y-1">
@@ -637,7 +863,7 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
             </p>
           )}
         </div>
-      </div>
+      </fieldset>
 
       <div className="flex flex-col items-center gap-2">
         <Label>Preview</Label>
@@ -648,9 +874,30 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
             Fill in the fields
           </div>
         )}
+        {createdRoute && (
+          <output className="block max-w-48 text-xs break-all">
+            Route created: {linkedRouteUrl({ domain, path: createdRoute.path })}
+            <Button
+              type="button"
+              variant="link"
+              disabled={saving}
+              onClick={() => viewRoute(createdRoute)}
+            >
+              View route
+            </Button>
+          </output>
+        )}
         <Button
           onClick={submit}
-          disabled={submitting || writeLocked || !preview || logoPending > 0}
+          disabled={
+            submitting ||
+            saving ||
+            writeLocked ||
+            !!credentialConfirm ||
+            !preview ||
+            logoPending > 0 ||
+            !linkUsable
+          }
         >
           {logoPending > 0
             ? 'Preparing logo…'
@@ -659,6 +906,15 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
               : 'Save changes'}
         </Button>
       </div>
+      <CredentialTargetDialog
+        parameters={credentialConfirm?.parameters ?? null}
+        verb="Create route"
+        pending={saving}
+        onConfirm={() => {
+          if (credentialConfirm) void save(credentialConfirm.submission, true);
+        }}
+        onCancel={() => setCredentialConfirm(null)}
+      />
     </div>
   );
 }
@@ -710,31 +966,35 @@ export function QrCodesPage() {
   const [editQr, setEditQr] = useState<QRCode | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<QRCode | null>(null);
 
-  const onCreate = (input: Record<string, unknown>) => {
-    createQr.mutate(
-      { input, domain },
-      {
-        onSuccess: qr => {
-          toast.success(`QR code created: ${qr.id}`);
-          setCreateOpen(false);
-        },
-        onError: e => toast.error(e instanceof Error ? e.message : 'Create failed'),
-      },
-    );
+  const onCreate = async (input: Record<string, unknown>) => {
+    const qr = await createQr.mutateAsync({ input, domain });
+    toast.success(`QR code created: ${qr.id}`);
+    setCreateOpen(false);
   };
 
-  const onUpdate = (input: Record<string, unknown>) => {
+  const onUpdate = async (input: Record<string, unknown>) => {
     if (!editQr) return;
-    updateQr.mutate(
-      { id: editQr.id, input, domain: editQr.domain },
-      {
-        onSuccess: qr => {
-          toast.success(`QR code updated: ${qr.id}`);
-          setEditQr(null);
-        },
-        onError: e => toast.error(e instanceof Error ? e.message : 'Update failed'),
-      },
-    );
+    // Nothing changed: no request, no audit row, no new updatedAt (v1.38.0)
+    if (Object.keys(input).length === 0) {
+      toast.success('No changes to save');
+      setEditQr(null);
+      return;
+    }
+    let qr: QRCode;
+    try {
+      qr = await updateQr.mutateAsync({ id: editQr.id, input, domain: editQr.domain });
+    } catch (e) {
+      // Deleted elsewhere while the dialog was open: nothing left to edit, as
+      // on delete. The hook has already hidden it in every listing.
+      if (isQrNotFoundError(e)) {
+        toast.info(`QR code ${editQr.id} was already deleted`);
+        setEditQr(null);
+        return;
+      }
+      throw e;
+    }
+    toast.success(`QR code updated: ${qr.id}`);
+    setEditQr(null);
   };
 
   const onDelete = () => {
@@ -746,7 +1006,15 @@ export function QrCodesPage() {
           toast.success(`QR code deleted: ${deleteTarget.id}`);
           setDeleteTarget(null);
         },
-        onError: e => toast.error(e instanceof Error ? e.message : 'Delete failed'),
+        onError: e => {
+          // Deleted elsewhere first: the outcome the user asked for, not a failure
+          if (isQrNotFoundError(e)) {
+            toast.info(`QR code ${deleteTarget.id} was already deleted`);
+            setDeleteTarget(null);
+            return;
+          }
+          toast.error(e instanceof Error ? e.message : 'Delete failed');
+        },
       },
     );
   };

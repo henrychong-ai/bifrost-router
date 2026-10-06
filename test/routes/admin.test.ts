@@ -24,6 +24,40 @@ function createExecutionContext(): { ctx: ExecutionContext; settled: () => Promi
   };
 }
 
+/** List routes through the API (v1.38.0 search tests). */
+const SEARCH_API_KEY = 'test-api-key-12345'; // gitleaks:allow — test placeholder
+const searchEnv = { ...env, ADMIN_API_DOMAIN: 'example.com' };
+const listSearch = async (app: Hono<AppEnv>, query: string) => {
+  const response = await app.fetch(
+    new Request(`http://example.com/api/routes${query}`, {
+      headers: { 'X-Admin-Key': SEARCH_API_KEY },
+    }),
+    searchEnv,
+  );
+  expect(response.status).toBe(200);
+  const data = (await response.json()) as {
+    data: { routes: Array<{ path: string }>; meta: { total: number } };
+  };
+  return data.data.routes.map(route => route.path);
+};
+const createSearchRoute = async (
+  app: Hono<AppEnv>,
+  path: string,
+  target = 'https://example.net/',
+) => {
+  const response = await app.fetch(
+    new Request('http://example.com/api/routes?domain=example.com', {
+      method: 'POST',
+      headers: { 'X-Admin-Key': SEARCH_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, type: 'redirect', target }),
+    }),
+    searchEnv,
+  );
+  expect(response.status).toBe(201);
+  // Distinct createdAt values, so "newest first" is decidable
+  await new Promise(resolve => setTimeout(resolve, 2));
+};
+
 describe('admin routes', () => {
   // vitest-pool-workers 0.13+ isolates storage per test FILE (the <=0.12
   // per-test rollback is gone). This file's tests each seed their own routes
@@ -1477,7 +1511,7 @@ describe('admin routes', () => {
       await seedSearchRoutes(app, testEnv);
 
       const response = await app.fetch(
-        new Request('http://example.com/api/routes?search=example.com&limit=1', {
+        new Request('http://example.com/api/routes?search=.example.com&limit=1', {
           headers: { 'X-Admin-Key': validApiKey },
         }),
         testEnv,
@@ -1485,7 +1519,8 @@ describe('admin routes', () => {
 
       expect(response.status).toBe(200);
       const data = await response.json();
-      // blog and docs both have example.com in target
+      // blog and docs both have .example.com in target (the leading dot keeps
+      // the domain, matched as typed since v1.38.0, out of it)
       expect(data.data.meta.total).toBe(2);
       expect(data.data.routes.length).toBe(1);
       expect(data.data.meta.hasMore).toBe(true);
@@ -1527,6 +1562,51 @@ describe('admin routes', () => {
       const data = await response.json();
       // /blog and /docs are proxy type
       expect(data.data.routes.length).toBe(2);
+    });
+  });
+
+  describe('GET /routes search matching and order (v1.38.0)', () => {
+    it('ignores case and separators, accepts words in any order, ranks path matches first', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+      await createSearchRoute(app, '/visit-summer-sale');
+      await createSearchRoute(app, '/other', 'https://example.net/summer-sale');
+      await createSearchRoute(app, '/summer-sale-old');
+      await createSearchRoute(app, '/summer-sale');
+      await createSearchRoute(app, '/unrelated');
+      for (const query of ['summer sale', 'Summer_Sale', 'summersale', 'sale summer']) {
+        expect(
+          await listSearch(app, `?domain=example.com&search=${encodeURIComponent(query)}`),
+        ).toEqual(['/summer-sale', '/summer-sale-old', '/visit-summer-sale', '/other']);
+      }
+    });
+
+    it('lists newest first without a search, and pages follow that order', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+      await createSearchRoute(app, '/first');
+      await createSearchRoute(app, '/second');
+      await createSearchRoute(app, '/third');
+      expect(await listSearch(app, '?domain=example.com')).toEqual(['/third', '/second', '/first']);
+      expect(await listSearch(app, '?domain=example.com&limit=1&offset=1')).toEqual(['/second']);
+    });
+
+    it('matches the domain only as typed', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+      await createSearchRoute(app, '/a');
+      expect(await listSearch(app, '?search=example.com')).toEqual(['/a']);
+      expect(await listSearch(app, `?search=${encodeURIComponent('example com')}`)).toEqual([]);
+    });
+
+    it('refuses a search over 2,048 characters instead of listing everything', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+      await createSearchRoute(app, '/a');
+      const response = await app.fetch(
+        new Request(`http://example.com/api/routes?search=${'x'.repeat(2049)}`, {
+          headers: { 'X-Admin-Key': validApiKey },
+        }),
+        testEnv,
+      );
+      expect(response.status).toBe(400);
+      expect(await listSearch(app, `?search=${'x'.repeat(2048)}`)).toEqual([]);
     });
   });
 

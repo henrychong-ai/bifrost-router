@@ -33,6 +33,20 @@ describe('credentialTargetParametersFromError', () => {
     expect(credentialTargetParametersFromError(refusal({ parameters: 'token' }))).toBeNull();
   });
 
+  test('reads the code from `code` when the refusal carried a message beside it', () => {
+    const withMessage = new ApiError(
+      400,
+      'Target carries a credential parameter',
+      {
+        parameters: ['token'],
+      },
+      { code: ROUTE_TARGET_CREDENTIAL_CODE },
+    );
+    expect(credentialTargetParametersFromError(withMessage)).toEqual(['token']);
+    const otherCode = new ApiError(400, 'x', { parameters: ['token'] }, { code: 'OTHER' });
+    expect(credentialTargetParametersFromError(otherCode)).toBeNull();
+  });
+
   test('keeps only the string entries', () => {
     expect(
       credentialTargetParametersFromError(refusal({ parameters: ['token', 42, null] })),

@@ -1,6 +1,13 @@
-import { getContentTypeFromKey, QRDesignSchema, renderQrSvg } from '@bifrost/shared';
+import {
+  getContentTypeFromKey,
+  LINK_NAMING_HINT,
+  linkNamingIssues,
+  QRDesignSchema,
+  renderQrSvg,
+} from '@bifrost/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import {
+  ChevronDown,
   Copy,
   ExternalLink,
   HardDrive,
@@ -19,6 +26,8 @@ import { useCallback, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { CredentialTargetDialog } from '@/components/credential-target-dialog';
+import { FieldHint, InfoHint } from '@/components/field-hint';
+import { LinkNamingWarnings } from '@/components/link-naming-warnings';
 import { LinkPreview } from '@/components/link-preview';
 import { PaginationControls } from '@/components/pagination-controls';
 import { QrPreview } from '@/components/qr-preview';
@@ -88,11 +97,30 @@ import { getPersistedPageSize, getR2ObjectUrl, persistPageSize } from '@/lib/con
 import { credentialTargetParametersFromError } from '@/lib/credential-target';
 import { navEditRoute, useClearNavigationState } from '@/lib/navigation-state';
 import type { QrPageNavState } from '@/lib/qr-page-domain';
+import { routeEditPatch } from '@/lib/route-patch';
 import { requireWriteDomain } from '@/lib/route-write-domain';
 import type { CreateRouteInput, R2BucketName, Route, UpdateRouteInput } from '@/lib/schemas';
 import { R2_BUCKETS } from '@/lib/schemas';
 import { downloadPng, downloadSvg } from '@/lib/svg-to-png';
 import { copyToClipboard } from '@/lib/utils';
+import {
+  applyUtm,
+  parseUtm,
+  UTM_FIELD_HELP,
+  UTM_KEYS,
+  type UtmKey,
+  type UtmValues,
+  uppercaseUtmKeys,
+} from '@/lib/utm';
+
+/**
+ * A text field as an update sends it: clearing a stored Cache-Control or Host
+ * header sends '' (v1.38.0), so the clear takes effect; with nothing stored,
+ * an empty field sends nothing.
+ */
+function clearedField(value: string, stored: string | undefined): string | undefined {
+  return value || (stored ? '' : undefined);
+}
 
 function RouteTypeBadge({ type }: { type: Route['type'] }) {
   const styles: Record<Route['type'], string> = {
@@ -145,16 +173,52 @@ function RouteForm(props: RouteFormProps) {
     preservePath: route?.preservePath ?? false,
     cacheControl: route?.cacheControl || '',
     hostHeader: route?.hostHeader || '',
-    forceDownload: route?.forceDownload ?? false,
+    // Unset stays unset (v1.38.0): an absent forceDownload means "decide by
+    // the file's type", which false does not, so it is never sent unasked
+    forceDownload: route?.forceDownload,
+    // The stored bucket, else the router's default bucket
     bucket: route?.bucket || 'files',
     enabled: route?.enabled ?? true,
     domain: 'example.com' as SupportedDomain, // Default to example.com
   });
 
+  // UTM tracking (v1.38.0, redirect and proxy targets; dashboard only).
+  // Overrides survive target edits; untouched values always derive from the
+  // current URL.
+  const [utmEdits, setUtmEdits] = useState<UtmValues>({});
+  const parsedUtm = useMemo(() => parseUtm(formData.target), [formData.target]);
+  // Target keys with capitals: applyUtm saves them lowercased, like an edit.
+  const convertedUtmKeys = useMemo(() => uppercaseUtmKeys(formData.target), [formData.target]);
+  const finalTarget = useMemo(() => {
+    if (formData.type === 'r2') return formData.target;
+    if (parsedUtm) return applyUtm(formData.target, utmEdits);
+    // An untouched stored target that is not a URL is never sent by an edit
+    // (routeEditPatch), so it does not block editing other fields
+    return mode === 'edit' && formData.target === route.target ? formData.target : null;
+  }, [formData.type, formData.target, parsedUtm, utmEdits, mode, route]);
+  // Keys that will carry a value in the saved target (edited or kept from it).
+  const activeUtmKeys = UTM_KEYS.filter(key => (utmEdits[key] ?? parsedUtm?.[key] ?? '').trim());
+  const utmFieldStatus = (key: UtmKey) => {
+    const edit = utmEdits[key];
+    if (edit !== undefined) {
+      return edit.trim()
+        ? 'Edited: replaces every occurrence of this key in the target.'
+        : 'Cleared: removes every occurrence of this key from the target.';
+    }
+    return convertedUtmKeys.includes(key)
+      ? 'Converted to lowercase from the target: replaces every occurrence of this key.'
+      : 'From the target: left byte-identical unless you edit this field.';
+  };
+
+  // Advisory link naming (v1.38.0), r2 links only: a redirect or proxy names
+  // a destination, while an r2 link stands in for a document whose file changes
+  const namingIssues =
+    formData.type === 'r2' && formData.path ? linkNamingIssues(formData.path, formData.target) : [];
+
   // Duplicate target detection across all accessible domains
   const duplicateTargets = useMemo(() => {
-    if (!formData.target || !allDomainRoutes) return [];
-    const targetLower = formData.target.toLowerCase();
+    if (!finalTarget || !allDomainRoutes) return [];
+    const targetLower = finalTarget.toLowerCase();
     const matches: { domain: string; path: string }[] = [];
     for (const [domain, domainRoutes] of allDomainRoutes) {
       for (const r of domainRoutes) {
@@ -165,7 +229,7 @@ function RouteForm(props: RouteFormProps) {
       }
     }
     return matches;
-  }, [formData.target, allDomainRoutes, mode, route]);
+  }, [finalTarget, allDomainRoutes, mode, route]);
 
   // R2 file preview
   const r2PreviewUrl =
@@ -179,14 +243,18 @@ function RouteForm(props: RouteFormProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (finalTarget === null) return;
     const baseData = {
       type: formData.type,
-      target: formData.target,
+      target: finalTarget,
       statusCode: formData.type === 'redirect' ? formData.statusCode : undefined,
       preserveQuery: formData.preserveQuery,
       preservePath: formData.preservePath,
-      cacheControl: formData.cacheControl || undefined,
-      hostHeader: formData.type === 'proxy' ? formData.hostHeader || undefined : undefined,
+      cacheControl: clearedField(formData.cacheControl, route?.cacheControl),
+      hostHeader:
+        formData.type === 'proxy'
+          ? clearedField(formData.hostHeader, route?.hostHeader)
+          : undefined,
       forceDownload: formData.type === 'r2' ? formData.forceDownload : undefined,
       bucket: formData.type === 'r2' ? formData.bucket : undefined,
       enabled: formData.enabled,
@@ -196,7 +264,13 @@ function RouteForm(props: RouteFormProps) {
       onSubmit({ ...baseData, path: formData.path }, formData.domain);
     } else {
       const pathChanged = formData.path !== route.path;
-      onSubmit(baseData, pathChanged, pathChanged ? formData.path : undefined);
+      // Only the fields that changed (v1.38.0): an untouched field written
+      // under older limits (an over-cap target) is never re-sent and refused
+      onSubmit(
+        routeEditPatch(route, baseData),
+        pathChanged,
+        pathChanged ? formData.path : undefined,
+      );
     }
   };
 
@@ -204,7 +278,7 @@ function RouteForm(props: RouteFormProps) {
     <form onSubmit={handleSubmit} className="space-y-4">
       {/* Route Preview */}
       {(formData.type === 'redirect' || formData.type === 'proxy') && (
-        <LinkPreview url={formData.target} enabled={formData.target.length > 0} />
+        <LinkPreview url={finalTarget ?? ''} enabled={!!finalTarget} />
       )}
       {isR2Image && r2PreviewUrl && (
         <div className="overflow-hidden rounded-lg border border-charcoal-100 bg-muted/30">
@@ -380,11 +454,15 @@ function RouteForm(props: RouteFormProps) {
             Must start with / — lowercased automatically; use hyphens not spaces (kebab-case)
           </p>
         )}
+        {formData.type === 'r2' && (
+          <p className="text-tiny text-muted-foreground font-inter">{LINK_NAMING_HINT}</p>
+        )}
         {mode === 'edit' && formData.path !== route.path && (
           <p className="text-tiny text-amber-600 font-inter">
             Changing the path will migrate this route
           </p>
         )}
+        <LinkNamingWarnings issues={namingIssues} />
       </div>
 
       <div className="space-y-2">
@@ -442,8 +520,21 @@ function RouteForm(props: RouteFormProps) {
           onChange={e => setFormData({ ...formData, target: e.target.value })}
           placeholder={formData.type === 'r2' ? 'bio.pdf' : 'https://example.com'}
           required
+          aria-invalid={formData.type !== 'r2' && !!formData.target && finalTarget === null}
+          aria-describedby={formData.type !== 'r2' ? 'target-utm-help' : undefined}
           className="font-mono"
         />
+        {formData.type !== 'r2' && (
+          <p id="target-utm-help" className="text-xs text-muted-foreground">
+            Changing the target refreshes untouched UTM fields. Edited fields keep overriding the
+            new target until you choose “Reset to target URL's values”.
+          </p>
+        )}
+        {formData.type !== 'r2' && !!formData.target && finalTarget === null && (
+          <p role="alert" className="text-sm text-destructive">
+            Enter a valid absolute target URL before saving. Your UTM edits are kept.
+          </p>
+        )}
         {duplicateTargets.length > 0 && (
           <div className="flex items-start gap-2 rounded-sm bg-blue-50 px-3 py-2">
             <Info className="mt-0.5 size-3.5 shrink-0 text-blue-600" />
@@ -467,6 +558,91 @@ function RouteForm(props: RouteFormProps) {
           </div>
         )}
       </div>
+
+      {formData.type !== 'r2' && (
+        <details className="group rounded-lg border border-charcoal-200">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg p-3 [&::-webkit-details-marker]:hidden">
+            <div className="space-y-0.5">
+              <span className="font-inter text-sm leading-none font-medium text-charcoal-700">
+                UTM tracking
+              </span>
+              <p className="font-inter text-tiny text-muted-foreground">
+                {activeUtmKeys.length > 0
+                  ? `${activeUtmKeys.length} campaign ${activeUtmKeys.length === 1 ? 'tag' : 'tags'} set: ${activeUtmKeys
+                      .map(key => UTM_FIELD_HELP[key].label.toLowerCase())
+                      .join(', ')}`
+                  : 'Optional campaign tags for analytics (source, medium, campaign)'}
+              </p>
+            </div>
+            <ChevronDown
+              aria-hidden="true"
+              className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
+            />
+          </summary>
+          <div className="space-y-3 border-t border-charcoal-200 p-3">
+            <p className="font-inter text-tiny text-muted-foreground">
+              UTM values are saved in lowercase so reports group consistently: typing is lowercased
+              automatically, and capitals already in the target are converted. Always use
+              kebab-case, lowercase words joined with hyphens, never underscores or spaces:{' '}
+              <code className="rounded-sm bg-muted px-1 font-mono whitespace-nowrap">
+                spring-launch-2026
+              </code>
+              , not{' '}
+              <code className="rounded-sm bg-muted px-1 font-mono whitespace-nowrap">
+                spring_launch_2026
+              </code>{' '}
+              or{' '}
+              <code className="rounded-sm bg-muted px-1 font-mono whitespace-nowrap">
+                Spring Launch
+              </code>
+              .
+            </p>
+            <p className="font-inter text-tiny text-muted-foreground">
+              Values are trimmed. Only the final target below is saved. Parameters in the target win
+              over the same names on the incoming short link. Other incoming parameters are
+              forwarded only when Preserve Query String is on (the default).
+            </p>
+            {UTM_KEYS.map(key => (
+              <div key={key} className="space-y-1">
+                <FieldHint
+                  htmlFor={key}
+                  label={`${UTM_FIELD_HELP[key].label} (${key})`}
+                  hint={UTM_FIELD_HELP[key].hint}
+                />
+                <Input
+                  id={key}
+                  value={utmEdits[key] ?? parsedUtm?.[key] ?? ''}
+                  onChange={e => setUtmEdits({ ...utmEdits, [key]: e.target.value.toLowerCase() })}
+                  aria-describedby={`${key}-help`}
+                  className="font-mono"
+                />
+                <p id={`${key}-help`} className="text-xs text-muted-foreground">
+                  {utmFieldStatus(key)}
+                </p>
+              </div>
+            ))}
+            <div className="flex items-center gap-1.5">
+              <Button type="button" variant="outline" onClick={() => setUtmEdits({})}>
+                Reset to target URL's values
+              </Button>
+              <InfoHint
+                label="Reset to target URL's values"
+                hint="Clears your edits in the five fields above and shows the UTM tags already in the Target URL again. The saved target then keeps the URL's own tags (in lowercase)."
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="utm-preview">Final target</Label>
+              <output
+                id="utm-preview"
+                className="block font-mono text-xs break-all"
+                aria-live="polite"
+              >
+                {finalTarget ?? 'Enter a valid absolute target URL to preview.'}
+              </output>
+            </div>
+          </div>
+        </details>
+      )}
 
       {formData.type === 'redirect' && (
         <>
@@ -570,11 +746,12 @@ function RouteForm(props: RouteFormProps) {
               </Label>
               <p className="text-tiny text-muted-foreground font-inter">
                 Force browser to download file instead of displaying inline
+                {formData.forceDownload === undefined && ' (not set: decided by the file type)'}
               </p>
             </div>
             <Switch
               id="forceDownload"
-              checked={formData.forceDownload}
+              checked={formData.forceDownload ?? false}
               onCheckedChange={checked => setFormData({ ...formData, forceDownload: checked })}
             />
           </div>
@@ -637,7 +814,7 @@ function RouteForm(props: RouteFormProps) {
         </Button>
         <Button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || finalTarget === null}
           className="font-inter bg-blue-950 hover:bg-blue-900"
         >
           {isSubmitting ? 'Saving...' : route ? 'Update' : 'Create'}
@@ -777,11 +954,11 @@ export function RoutesPage() {
       result = result.filter(route => (route.enabled !== false) === filters.enabled);
     }
 
-    // Sort by createdAt descending (newest first)
-    result.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    // The server orders a search by relevance (v1.38.0); otherwise newest first
+    if (!debouncedSearch) result.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
     return result;
-  }, [routes, filters.type, filters.enabled]);
+  }, [routes, filters.type, filters.enabled, debouncedSearch]);
 
   // Check if any filters are active
   const hasActiveFilters = !!(
@@ -835,6 +1012,13 @@ export function RoutesPage() {
     acknowledgeCredentialTarget?: boolean,
   ) => {
     if (!editRoute) return;
+
+    // Nothing changed: no request, no audit row, no new updatedAt (v1.38.0)
+    if (!pathChanged && Object.keys(updates).length === 0) {
+      toast.success('No changes to save');
+      setEditRoute(null);
+      return;
+    }
 
     if (pathChanged && newPath) {
       // Show confirmation dialog instead of immediately updating
@@ -1062,9 +1246,28 @@ export function RoutesPage() {
 
         {/* Search Input */}
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="routes-filter-search" className="text-small font-inter text-charcoal-600">
-            Search
-          </label>
+          <div className="flex items-center gap-1">
+            <label
+              htmlFor="routes-filter-search"
+              className="text-small font-inter text-charcoal-600"
+            >
+              Search
+            </label>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Info
+                  className="h-3.5 w-3.5 text-muted-foreground cursor-help"
+                  aria-label="About route search"
+                />
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-xs">
+                Searches path, target, type, status code, bucket and host header. Words can be in
+                any order; case and separators (spaces, hyphens, underscores, dots, slashes) are
+                ignored. The domain is matched as typed (case-insensitive). Closest path matches
+                come first.
+              </TooltipContent>
+            </Tooltip>
+          </div>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-charcoal-400" />
             <Input

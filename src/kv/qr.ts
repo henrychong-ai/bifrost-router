@@ -1,17 +1,13 @@
 import {
   MAX_QR_RECORD_BYTES,
-  QR_TYPES,
+  parseStoredQR as parseSharedStoredQR,
   type QRCode,
-  QRDesignSchema,
   type QRListQuery,
   qrMatchesListFilters,
 } from '@bifrost/shared';
 import { HTTPException } from 'hono/http-exception';
 import {
   type BoundaryRead,
-  isOptional,
-  isRecord,
-  isString,
   logInvalidBoundary,
   readKvJson,
   type Validator,
@@ -37,112 +33,16 @@ import { qrDomainPrefix, qrKey } from './schema';
 /** The fixed refusal of a QR write over {@link MAX_QR_RECORD_BYTES} (v1.37.2). */
 export const QR_RECORD_TOO_LARGE = 'QR record is too large';
 
-const QR_TYPE_SET: ReadonlySet<unknown> = new Set(QR_TYPES);
-
-const isOptionalString = (value: unknown) => isOptional(value, isString);
-const isNumber = (value: unknown) => typeof value === 'number' && Number.isFinite(value);
-
 /**
- * The payload fields each type's readers use (the serializer and the
- * renderer), with their types: a field a reader needs is required, the rest
- * optional. Structural, not the write schema, so records written under
- * earlier limits stay readable.
+ * A stored QR record validated and normalised, or null (v1.38.0). The one
+ * read shape lives in `@bifrost/shared` (`parseStoredQR`), so the Worker and
+ * the dashboard accept exactly the same records: a structural check of every
+ * field a reader consumes, tolerant of records written under earlier limits,
+ * keeping only the fields a record defines. Re-exported here for the Worker's
+ * callers. `test/kv/qr-boundary.test.ts` checks that every record the write
+ * schema produces passes.
  */
-const PAYLOAD_SHAPES: Readonly<Record<string, (payload: Record<string, unknown>) => boolean>> = {
-  url: payload => isString(payload['url']),
-  text: payload => isString(payload['text']),
-  wifi: payload =>
-    isString(payload['ssid']) &&
-    ['auth', 'password', 'eapMethod', 'phase2', 'identity', 'anonymousIdentity'].every(field =>
-      isOptionalString(payload[field]),
-    ) &&
-    isOptional(payload['hidden'], item => typeof item === 'boolean'),
-  vcard: payload =>
-    isString(payload['name']) &&
-    ['phone', 'email', 'org', 'title', 'url'].every(field => isOptionalString(payload[field])),
-};
-
-/** The design fields the renderer reads, each of its declared type when present. */
-function isDesignShape(design: Record<string, unknown>): boolean {
-  return (
-    ['fg', 'bg', 'errorCorrection', 'logoDataUri'].every(field =>
-      isOptionalString(design[field]),
-    ) && ['size', 'margin', 'logoAspectRatio'].every(field => isOptional(design[field], isNumber))
-  );
-}
-
-/** A stored link: `{domain, path}` with a non-empty domain and a path starting `/`. */
-function isLinkShape(link: unknown): boolean {
-  return (
-    isRecord(link) &&
-    isString(link['domain']) &&
-    link['domain'] !== '' &&
-    isString(link['path']) &&
-    link['path'].startsWith('/')
-  );
-}
-
-/** The default design, computed once. */
-const DEFAULT_QR_DESIGN: Readonly<Record<string, unknown>> = QRDesignSchema.parse({});
-
-/**
- * A stored QR record validated and normalised into the shape every reader
- * expects, or null when it is not one (v1.38.0). A structural check, not
- * `QRCodeSchema`: the schema applies today's write limits, which would refuse
- * records written under earlier ones. It checks every field a reader
- * consumes, nested ones included: string `id` and `domain`, a known `type`,
- * numeric `createdAt`/`updatedAt`, the payload fields of that type, the
- * design fields the renderer reads, the linked route's `domain` and `path`,
- * and the optional `description`, `tags` and `createdBy`. Supported legacy
- * forms are normalised: a missing or null `design` becomes the default
- * design (missing or null design fields take their defaults), a Wi-Fi payload
- * without `auth` reads as the write default `WPA`, a linked route keeps only
- * `domain` and `path`, and null optional fields are dropped. The result is
- * returned only after all of that; nothing is written back.
- * `test/kv/qr-boundary.test.ts` checks that every record the write schema
- * produces passes.
- */
-export function parseStoredQR(value: unknown): QRCode | null {
-  if (!isRecord(value)) return null;
-  const { payload, design, linkedRoute } = value;
-  if (
-    !isString(value['id']) ||
-    !isString(value['domain']) ||
-    !QR_TYPE_SET.has(value['type']) ||
-    !isNumber(value['createdAt']) ||
-    !isNumber(value['updatedAt']) ||
-    !isRecord(payload) ||
-    !(PAYLOAD_SHAPES[String(value['type'])]?.(payload) ?? false) ||
-    !isOptional(design, item => isRecord(item) && isDesignShape(item)) ||
-    !isOptional(linkedRoute, isLinkShape) ||
-    !isOptionalString(value['description']) ||
-    !isOptionalString(value['createdBy']) ||
-    !isOptional(value['tags'], item => Array.isArray(item) && item.every(isString))
-  ) {
-    return null;
-  }
-  const out: Record<string, unknown> = { ...value };
-  for (const field of ['description', 'tags', 'createdBy', 'linkedRoute']) {
-    if (out[field] === null) delete out[field];
-  }
-  if (isRecord(linkedRoute)) {
-    out['linkedRoute'] = { domain: linkedRoute['domain'], path: linkedRoute['path'] };
-  }
-  // Missing or null design fields take their defaults (a null spread over a
-  // default would replace it)
-  const normalisedDesign: Record<string, unknown> = { ...DEFAULT_QR_DESIGN };
-  if (isRecord(design)) {
-    for (const [field, fieldValue] of Object.entries(design)) {
-      if (fieldValue !== null && fieldValue !== undefined) normalisedDesign[field] = fieldValue;
-    }
-  }
-  out['design'] = normalisedDesign;
-  if (value['type'] === 'wifi' && !isString(payload['auth'])) {
-    out['payload'] = { ...payload, auth: 'WPA' };
-  }
-  // Every field a reader consumes was checked above
-  return out as unknown as QRCode;
-}
+export const parseStoredQR = parseSharedStoredQR;
 
 /** Whether `value` is a stored QR record (parseStoredQR accepts it). */
 export function isStoredQR(value: unknown): boolean {
@@ -277,8 +177,10 @@ export interface QRListResult {
  * getAllRoutes). QR volumes are small (tens per domain), so fetch-then-filter
  * is fine — the same trade-off the routes listing makes.
  *
- * Filters: `type` exact; `tag` exact membership; `search` case-insensitive
- * substring over description AND id. Sorted by updatedAt descending for a stable,
+ * Filters: `type` exact; `tag` exact membership; `search` the shared matcher
+ * (case and separators ignored, words in any order, v1.38.0) over description
+ * AND id — `qrMatchesListFilters`, the predicate the dashboard's QR store
+ * applies too. Sorted by updatedAt descending for a stable,
  * recency-first listing. When `limit` is undefined, returns ALL filtered items
  * (offset still applies) — mirroring the routes listing's
  * paginate-only-when-limit-provided semantics.

@@ -32,11 +32,18 @@ interface UseRoutesOptions {
  * Fetch all routes for a domain with optional search and pagination
  * @param domain - Optional domain to filter routes
  * @param options - Optional search, limit, and offset parameters
+ * @param queryOptions - `enabled` gates the fetch (the QR editor's route picker
+ *   loads the domain's routes only while a code is linked)
  */
-export function useRoutes(domain?: string, options?: UseRoutesOptions) {
+export function useRoutes(
+  domain?: string,
+  options?: UseRoutesOptions,
+  queryOptions?: { enabled?: boolean },
+) {
   return useQuery({
     queryKey: routeKeys.list(domain, options?.search, options?.limit, options?.offset),
     queryFn: () => api.routes.list(domain, options),
+    enabled: queryOptions?.enabled ?? true,
   });
 }
 
@@ -58,15 +65,20 @@ export function usePrefetchAllDomainRoutes(domains: readonly string[], currentDo
   }, [domains, currentDomain, queryClient]);
 }
 
+/** Fewest trimmed characters before a cross-domain route search is sent. */
+export const MIN_ROUTE_SEARCH_LENGTH = 2;
+
 /**
- * Search routes across all domains for command palette
- * @param query - Search term (min 2 characters to trigger)
+ * Search routes across all domains for the command palette. The server
+ * returns matches ordered by relevance (path matches first), newest first on
+ * ties (v1.38.0).
+ * @param query - Search term (MIN_ROUTE_SEARCH_LENGTH characters after trimming to trigger)
  */
 export function useSearchRoutes(query: string) {
   return useQuery({
     queryKey: routeKeys.search(query),
     queryFn: () => api.routes.list(undefined, { search: query }),
-    enabled: query.length >= 2,
+    enabled: query.trim().length >= MIN_ROUTE_SEARCH_LENGTH,
     staleTime: 5 * 60 * 1000,
   });
 }

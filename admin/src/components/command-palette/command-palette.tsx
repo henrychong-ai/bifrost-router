@@ -1,3 +1,4 @@
+import { matchesSearchFields, parseSearchQuery } from '@bifrost/shared';
 import { Command } from 'cmdk';
 import {
   ArrowUpRight,
@@ -21,7 +22,7 @@ import { useNavigate } from 'react-router';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Kbd } from '@/components/ui/kbd';
 import { useRoutesFilters } from '@/context';
-import { useDebounce, useSearchRoutes } from '@/hooks';
+import { MIN_ROUTE_SEARCH_LENGTH, useDebounce, useSearchRoutes } from '@/hooks';
 import { useCommandPalette } from '@/hooks/use-command-palette';
 import { getModifierKey, useKeyboardShortcut } from '@/hooks/use-keyboard-shortcuts';
 import type { Route as RouteData } from '@/lib/schemas';
@@ -80,10 +81,17 @@ export function CommandPalette() {
   const navigate = useNavigate();
   const { setFilters: setRoutesFilters } = useRoutesFilters();
 
-  // Route search state
+  // Route search state (v1.38.0): the query fires once the TRIMMED text
+  // reaches MIN_ROUTE_SEARCH_LENGTH, and the server ranks the matches (path
+  // matches first, newest first on ties), so the first 15 are the most relevant
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
-  const { data: searchResults, isLoading: isSearching } = useSearchRoutes(debouncedSearch);
+  const routeQuery = debouncedSearch.trim();
+  const showRouteResults = routeQuery.length >= MIN_ROUTE_SEARCH_LENGTH;
+  const { data: searchResults, isLoading: isSearching } = useSearchRoutes(routeQuery);
+  const searchedRoutes = searchResults?.routes ?? [];
+  // Parsed once per keystroke, not once per command
+  const commandQuery = useMemo(() => parseSearchQuery(search), [search]);
 
   const resetAndClose = useCallback(() => {
     setSearch('');
@@ -256,11 +264,12 @@ export function CommandPalette() {
     <Dialog open={isOpen} onOpenChange={open => !open && resetAndClose()}>
       <DialogContent className="max-w-lg overflow-hidden p-0">
         <Command
-          filter={(value, term) => {
+          filter={(value, term, keywords) => {
             // Route search results: always show (already server-filtered)
             if (value.startsWith('route:')) return 1;
-            // Static commands: substring matching
-            return value.toLowerCase().includes(term.toLowerCase()) ? 1 : 0;
+            // Static commands: the shared matcher over id and label (v1.38.0)
+            const parsed = term === search ? commandQuery : parseSearchQuery(term);
+            return matchesSearchFields([value, ...(keywords ?? [])], parsed) ? 1 : 0;
           }}
           className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-4 [&_[cmdk-item]_svg]:w-4"
         >
@@ -302,33 +311,30 @@ export function CommandPalette() {
               </Command.Group>
             )}
 
-            {debouncedSearch.length >= 2 && isSearching && (
+            {showRouteResults && isSearching && (
               <div className="flex items-center justify-center py-6">
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 <span className="ml-2 text-sm text-muted-foreground">Searching routes...</span>
               </div>
             )}
 
-            {debouncedSearch.length >= 2 && searchResults && searchResults.routes.length > 0 && (
-              <Command.Group
-                heading={`Routes (${searchResults.routes.length})`}
-                className="px-1 py-1.5"
-              >
-                {searchResults.routes.slice(0, 15).map(route => (
+            {showRouteResults && searchedRoutes.length > 0 && (
+              <Command.Group heading={`Routes (${searchedRoutes.length})`} className="px-1 py-1.5">
+                {searchedRoutes.slice(0, 15).map(route => (
                   <RouteSearchItem
                     key={`${route.domain ?? ''}:${route.path}`}
                     route={route}
                     onSelect={handleRouteSelect}
                   />
                 ))}
-                {searchResults.routes.length > 15 && (
+                {searchedRoutes.length > 15 && (
                   <Command.Item
                     value="route:view-all"
-                    onSelect={() => handleViewAllResults(debouncedSearch)}
+                    onSelect={() => handleViewAllResults(routeQuery)}
                     className="relative flex cursor-pointer select-none items-center rounded-md px-2 py-2 text-sm italic text-muted-foreground outline-none aria-selected:bg-accent aria-selected:text-accent-foreground"
                   >
                     <Search className="mr-2 h-4 w-4" />
-                    <span>View all {searchResults.routes.length} results on Routes page</span>
+                    <span>View all {searchedRoutes.length} results on Routes page</span>
                   </Command.Item>
                 )}
               </Command.Group>
@@ -369,6 +375,7 @@ function CommandItem({
   return (
     <Command.Item
       value={command.id}
+      keywords={[command.label]}
       onSelect={() => onSelect(command.id)}
       className="relative flex cursor-pointer select-none items-center rounded-md px-2 py-2 text-sm outline-none aria-selected:bg-accent aria-selected:text-accent-foreground"
     >

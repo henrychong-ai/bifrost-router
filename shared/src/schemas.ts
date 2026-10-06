@@ -7,6 +7,7 @@
 
 import { z } from 'zod';
 import { CommentSchema } from './comment.js';
+import { ROUTE_SEARCH_DESCRIPTION, SEARCH_PARAM_MAX_LENGTH } from './search.js';
 import { ALL_R2_BUCKETS, R2_BUCKETS, SUPPORTED_DOMAINS, SUPPORTED_DOMAINS_LIST } from './types.js';
 
 // =============================================================================
@@ -401,12 +402,7 @@ export const ListRoutesInputSchema = z.object({
   domain: RequiredDomainSchema.describe(
     `Target domain whose routes are listed (e.g., 'links.example.com'). Required — one of: ${SUPPORTED_DOMAINS_LIST}.`,
   ),
-  search: z
-    .string()
-    .optional()
-    .describe(
-      'Search term to filter routes. Matches against path, target URL, type, status code, bucket, and host header (case-insensitive).',
-    ),
+  search: z.string().max(SEARCH_PARAM_MAX_LENGTH).optional().describe(ROUTE_SEARCH_DESCRIPTION),
 });
 
 /**
@@ -536,7 +532,8 @@ export const GetSlugStatsInputSchema = z.object({
 export const RoutesListQuerySchema = z.object({
   limit: z.coerce.number().min(1).max(1000).optional(),
   offset: z.coerce.number().min(0).default(0),
-  search: z.string().optional(),
+  // A sanity bound (v1.38.0); matching itself reads the first 200 units (search.ts)
+  search: z.string().max(SEARCH_PARAM_MAX_LENGTH).optional(),
   type: z.enum(['redirect', 'proxy', 'r2']).optional(),
   enabled: z.enum(['true', 'false']).optional(),
 });

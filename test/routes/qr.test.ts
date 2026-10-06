@@ -435,4 +435,159 @@ describe('QR API (v1.30.0 port seams)', () => {
     expect(text).toContain(`"${DOMAIN}:/backup-probe"`);
     expect(text).toContain(`"qr:${DOMAIN}:test-backup"`);
   });
+
+  // ---------------------------------------------------------------------------
+  // v1.38.0: server time, QR_NOT_FOUND, patch-only limits, unknown fields
+  // ---------------------------------------------------------------------------
+
+  it('stamps every QR answer with X-Server-Time, success and error alike', async () => {
+    const before = Date.now();
+    const created = await fetchSettled(
+      authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
+        type: 'text',
+        id: 'test-clock',
+        payload: { text: 'tick' },
+      }),
+    );
+    expect(created.status).toBe(201);
+    const stamp = Number(created.headers.get('X-Server-Time'));
+    const record = ((await created.json()) as { data: QRCode }).data;
+    expect(Number.isSafeInteger(stamp)).toBe(true);
+    // Read after the write: at or after the record's own clock
+    expect(stamp).toBeGreaterThanOrEqual(record.updatedAt);
+    expect(stamp).toBeGreaterThanOrEqual(before);
+    for (const [method, url] of [
+      ['GET', `${BASE}?domain=${DOMAIN}`],
+      ['GET', `${BASE}/test-clock?domain=${DOMAIN}`],
+      ['DELETE', `${BASE}/test-clock?domain=${DOMAIN}`],
+      ['GET', `${BASE}/test-clock?domain=${DOMAIN}`],
+    ] as const) {
+      const response = await fetchSettled(authedJson(method, url));
+      expect(response.headers.get('X-Server-Time'), `${method} ${url}`).toMatch(/^\d+$/);
+    }
+  });
+
+  it('answers a missing code with a JSON QR_NOT_FOUND on read, update and delete', async () => {
+    for (const [method, body] of [
+      ['GET', undefined],
+      ['PUT', { description: 'x' }],
+      ['DELETE', undefined],
+    ] as const) {
+      const response = await fetchSettled(
+        authedJson(method, `${BASE}/test-never-made?domain=${DOMAIN}`, body),
+      );
+      expect(response.status).toBe(404);
+      expect(response.headers.get('X-Server-Time')).toMatch(/^\d+$/);
+      expect(await response.json()).toEqual({
+        success: false,
+        error: 'QR_NOT_FOUND',
+        message: 'QR code not found: test-never-made',
+      });
+    }
+  });
+
+  it('exposes X-Server-Time and Date to the dashboard origin', async () => {
+    const response = await fetchSettled(
+      new Request(`${BASE}/test-never-made?domain=${DOMAIN}`, {
+        headers: { 'X-Admin-Key': VALID_KEY, Origin: 'http://localhost:3001' },
+      }),
+    );
+    const exposed = response.headers.get('Access-Control-Expose-Headers') ?? '';
+    expect(exposed).toContain('X-Server-Time');
+    expect(exposed).toContain('Date');
+  });
+
+  it("applies today's limits to the fields an update sets, never to the ones it keeps", async () => {
+    const now = Date.now();
+    const legacy = {
+      id: 'test-legacy-caps',
+      domain: DOMAIN,
+      type: 'url',
+      payload: { url: 'https://example.com/legacy' },
+      description: 'd'.repeat(120),
+      tags: Array.from({ length: 12 }, (_, i) => `tag-${i}`),
+      design: {},
+      createdBy: 'test',
+      createdAt: now,
+      updatedAt: now,
+    };
+    await env.ROUTES.put(`qr:${DOMAIN}:test-legacy-caps`, JSON.stringify(legacy));
+
+    const listed = await fetchSettled(authedJson('GET', `${BASE}?domain=${DOMAIN}&search=legacy`));
+    const page = (await listed.json()) as { data: QRCode[] };
+    expect(page.data.map(qr => qr.id)).toContain('test-legacy-caps');
+
+    const designOnly = await fetchSettled(
+      authedJson('PUT', `${BASE}/test-legacy-caps?domain=${DOMAIN}`, {
+        design: { fg: '#112233' },
+      }),
+    );
+    expect(designOnly.status).toBe(200);
+    const updated = ((await designOnly.json()) as { data: QRCode }).data;
+    expect(updated.design.fg).toBe('#112233');
+    expect(updated.description).toBe(legacy.description);
+    expect(updated.tags).toEqual(legacy.tags);
+
+    const overCap = await fetchSettled(
+      authedJson('PUT', `${BASE}/test-legacy-caps?domain=${DOMAIN}`, {
+        description: 'e'.repeat(101),
+      }),
+    );
+    expect(overCap.status).toBe(400);
+  });
+
+  it('drops unknown fields, top-level and nested, on update and from the audit snapshot', async () => {
+    const now = Date.now();
+    await env.ROUTES.put(
+      `qr:${DOMAIN}:test-junk`,
+      JSON.stringify({
+        id: 'test-junk',
+        domain: DOMAIN,
+        type: 'wifi',
+        payload: { ssid: 'Office', auth: 'WPA', password: 'pw', legacySecret: 'junk-payload' },
+        design: { fg: '#000000', junkDesign: 'junk-design' },
+        legacySecret: 'junk-top',
+        createdBy: 'test',
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+    const response = await fetchSettled(
+      authedJson('PUT', `${BASE}/test-junk?domain=${DOMAIN}`, { description: 'Office network' }),
+    );
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(text).not.toContain('junk-');
+    const stored = (await env.ROUTES.get(`qr:${DOMAIN}:test-junk`)) ?? '';
+    expect(stored).toContain('Office network');
+    expect(stored).not.toContain('junk-');
+    expect(stored).not.toContain('legacySecret');
+    const audit = await env.DB.prepare(
+      `SELECT details FROM audit_logs WHERE action = 'qr_update' AND path = '/qr/test-junk' ORDER BY id DESC LIMIT 1`,
+    ).first<{ details: string }>();
+    expect(audit?.details).toContain('Office network');
+    expect(audit?.details).not.toContain('junk-');
+  });
+
+  it('list search ignores case and separators and takes words in any order', async () => {
+    await fetchSettled(
+      authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
+        type: 'text',
+        id: 'summer-sale-flyer',
+        payload: { text: 'flyer' },
+        description: 'Front desk flyer',
+      }),
+    );
+    for (const query of ['sale summer', 'Summer_Sale', 'summersale', 'desk front']) {
+      const response = await fetchSettled(
+        authedJson('GET', `${BASE}?domain=${DOMAIN}&search=${encodeURIComponent(query)}`),
+      );
+      const body = (await response.json()) as { data: QRCode[] };
+      expect(body.data.map(qr => `${query}:${qr.id}`)).toContain(`${query}:summer-sale-flyer`);
+    }
+    const tooLong = await fetchSettled(
+      authedJson('GET', `${BASE}?domain=${DOMAIN}&search=${'x'.repeat(2049)}`),
+    );
+    expect(tooLong.status).toBe(400);
+  });
 });

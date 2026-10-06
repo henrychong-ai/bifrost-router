@@ -931,8 +931,12 @@ paths:
         - name: search
           in: query
           required: false
+          description: >-
+            Search over the description and the id, ignoring case and
+            separators, words in any order within one field.
           schema:
             type: string
+            maxLength: 2048
         - name: limit
           in: query
           required: false
@@ -1010,7 +1014,7 @@ paths:
         '200':
           description: The QR code record
         '404':
-          description: QR code not found
+          $ref: '#/components/responses/QrNotFound'
     put:
       summary: Update a QR code (type is immutable)
       tags: [QR Codes]
@@ -1027,7 +1031,7 @@ paths:
         '200':
           description: QR code updated
         '404':
-          description: QR code not found
+          $ref: '#/components/responses/QrNotFound'
     delete:
       summary: Delete a QR code (hard delete; the audit log preserves the record)
       tags: [QR Codes]
@@ -1038,7 +1042,7 @@ paths:
         '200':
           description: QR code deleted
         '404':
-          description: QR code not found
+          $ref: '#/components/responses/QrNotFound'
 
   /api/qr/{id}/image:
     get:
@@ -1055,7 +1059,7 @@ paths:
               schema:
                 type: string
         '404':
-          description: QR code not found
+          $ref: '#/components/responses/QrNotFound'
 
 
 components:
@@ -1064,6 +1068,39 @@ components:
       type: apiKey
       in: header
       name: X-Admin-Key
+
+  headers:
+    ServerTime:
+      description: >-
+        The Worker's clock in Unix milliseconds when it answered, after any
+        write (every /api/qr answer, success or error). Exposed to
+        cross-origin callers with Date, which the dashboard checks it against.
+      schema:
+        type: string
+        pattern: '^[0-9]+$'
+
+  responses:
+    QrNotFound:
+      description: >-
+        The QR code does not exist: `{ success: false, error: QR_NOT_FOUND,
+        message }`.
+      headers:
+        X-Server-Time:
+          $ref: '#/components/headers/ServerTime'
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, error, message]
+            properties:
+              success:
+                type: boolean
+                enum: [false]
+              error:
+                type: string
+                enum: [QR_NOT_FOUND]
+              message:
+                type: string
 
   parameters:
     QrIdPath:
@@ -1256,9 +1293,16 @@ components:
     SearchQuery:
       name: search
       in: query
-      description: Full-text search across route fields
+      description: >-
+        Search over path, target, type, status code, bucket and host header,
+        ignoring case and separators (spaces, hyphens, underscores, dots,
+        slashes), words in any order within one field; the domain matches as
+        typed. Matches are ordered by relevance (path matches first), newest
+        first on ties. Matching reads the first 200 characters; a longer value
+        than 2,048 characters answers 400.
       schema:
         type: string
+        maxLength: 2048
 
     BucketPath:
       name: bucket

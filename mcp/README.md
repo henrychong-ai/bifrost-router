@@ -118,7 +118,7 @@ Only `get_analytics_summary`, `get_clicks` and `get_views` take an optional
 
 | Tool | Description |
 |------|-------------|
-| `list_routes` | List all routes for a domain |
+| `list_routes` | List all routes for a domain (search ignores case and separators, words in any order; ranked by relevance) |
 | `get_route` | Get details for a specific route |
 | `create_route` | Create a new route (redirect, proxy, or r2) |
 | `update_route` | Update an existing route |
@@ -176,7 +176,7 @@ with an error and the route is left untouched.
 
 | Tool | Description |
 |------|-------------|
-| `list_qrs` | List QR codes for a domain (filter by type/tag/search, paginated) |
+| `list_qrs` | List QR codes for a domain (filter by type/tag/search, paginated; search ignores case and separators) |
 | `get_qr` | Get a QR code record (payload, design, linked route) |
 | `create_qr` | Create a QR code (url/text/vcard/wifi; url may link a route for dynamic-QR semantics) |
 | `update_qr` | Update description/tags/payload/design/route link (type is immutable) |

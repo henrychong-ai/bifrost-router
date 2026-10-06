@@ -1,4 +1,10 @@
-import { RoutePathSchema, RoutesListQuerySchema, redactSensitive } from '@bifrost/shared';
+import {
+  RoutePathSchema,
+  RoutesListQuerySchema,
+  redactSensitive,
+  SEARCH_PARAM_MAX_LENGTH,
+  searchAndRankRoutes,
+} from '@bifrost/shared';
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
@@ -336,11 +342,18 @@ adminRoutes.get('/routes', async c => {
 
   const domain = domainResult.domain;
 
-  // Parse search/pagination query params
+  // Parse search/pagination query params. An over-long search is refused
+  // outright (v1.38.0): the fallback below would otherwise list every route
+  const rawSearch = c.req.query('search');
+  if (rawSearch !== undefined && rawSearch.length > SEARCH_PARAM_MAX_LENGTH) {
+    throw new HTTPException(400, {
+      message: `search must be at most ${SEARCH_PARAM_MAX_LENGTH} characters`,
+    });
+  }
   const queryParams = RoutesListQuerySchema.safeParse({
     limit: c.req.query('limit'),
     offset: c.req.query('offset'),
-    search: c.req.query('search'),
+    search: rawSearch,
     type: c.req.query('type'),
     enabled: c.req.query('enabled'),
   });
@@ -373,24 +386,13 @@ adminRoutes.get('/routes', async c => {
     updatedAt = Date.now();
   }
 
-  // Apply filters
-  let filteredRoutes = allRoutes;
-
-  // Search filter: case-insensitive substring match across multiple fields
-  if (search) {
-    const searchLower = search.toLowerCase();
-    filteredRoutes = filteredRoutes.filter(r => {
-      const fields = [
-        r.path ?? '',
-        r.target ?? '',
-        r.type ?? '',
-        String(r.statusCode ?? ''),
-        r.bucket ?? '',
-        r.hostHeader ?? '',
-      ];
-      return fields.some(f => f.toLowerCase().includes(searchLower));
-    });
-  }
+  // Newest first (v1.38.0), so pages follow the order the dashboard shows. A
+  // search keeps only its matches, ordered by relevance (exact path, path
+  // prefix, other path matches, other fields; the domain as typed only),
+  // newest first on ties: the shared matcher (`@bifrost/shared` search.ts)
+  // the dashboard, Cmd+K and MCP `list_routes` all read through this list.
+  allRoutes.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  let filteredRoutes = search ? searchAndRankRoutes(allRoutes, search) : allRoutes;
 
   // Type filter
   if (typeFilter) {
