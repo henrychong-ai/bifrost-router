@@ -374,7 +374,8 @@ A GitHub Actions template is provided at `.github/workflows/ci-cd.yml.example`.
 The active CI pipeline (`.github/workflows/ci.yml`) runs secret and public-sanitisation
 scans, lint/format/type checks, tests with locked coverage floors, the dashboard
 build, analytics/routing/dormant-path performance gates, and production plus
-development Wrangler dry-runs on every PR and push. It does not deploy.
+development Wrangler dry-runs on branch pushes and PRs to main; version-tag
+pushes (v1.2.3) are skipped, and other tags still run it. It does not deploy.
 
 ### Optional: External R2 operations audit capture (v1.28.0)
 

@@ -93,7 +93,7 @@ pnpm run deploy
 | Trigger | Actions |
 |---------|---------|
 | Push to any branch / PR | Gitleaks → Public sanitisation → Lint → Format → Typecheck → Tests + coverage → Runtime types → Dashboard build → performance gates → production/development Wrangler dry-runs |
-| Version tag (`v*`) | No run: the tag points at a commit its branch push already verified, and no deployment is enabled by default |
+| Version tag (`v1.2.3`) | No run, and no deployment is enabled by default. The run for the tag's branch tests the same commit: trust the tag only once that run has finished green, and re-run it if it failed or was cancelled. Other tags still run CI |
 | Manual dispatch | Same CI checks |
 
 The secret-scanning action pins Gitleaks 8.30.1 to match the global
@@ -105,10 +105,13 @@ lint-staged, reading the same `.gitleaks.toml` allowlists as CI. With no local
 `gitleaks` binary the hook warns and continues, so CI stays the enforcing gate
 (`brew install gitleaks`; keep it at the CI-pinned version).
 
-The workflow runs each test once. Root, `shared`, `admin` and `mcp` run only
+The workflow runs each test once. Root, `shared`, `admin`, and `mcp` run only
 under coverage (`test:coverage:all`); `slackbot` has no coverage run, so it
-keeps a plain `pnpm -C slackbot test` step. A new workspace package with tests
-needs one or the other, or CI never runs them.
+keeps a plain `pnpm -C slackbot test` step, after the coverage step. A new
+workspace package with tests needs one or the other;
+`scripts/check-ci-test-coverage.test.mjs` (part of `test:gates`) fails until it
+has one. Runs on `main` are never cancelled by a later push, because a release
+commit gets no other CI run; runs on other branches are.
 
 The only active workflow is `.github/workflows/ci.yml`, which is CI-only. The
 repository includes `.github/workflows/ci-cd.yml.example` as an opt-in template;
@@ -737,7 +740,9 @@ If switching to Workers Static Assets in future, add a KV-route-precedence check
 8. Run `pnpm run changelog:generate` (the Worker serves the generated module; `pnpm run check` fails while it is stale)
 9. Commit, tag (`git tag v1.x.x`), and push the branch and that one tag by name (`git push origin main v1.x.x`) — never `--tags`, which pushes every stale local tag
 
-Release tags do not run CI (`tags-ignore: ['v*']`): the tagged commit was
-verified when its branch was pushed. This template does not
+Version tags do not run CI (`tags-ignore: ['v[0-9]*']`); other tags do. The
+run for the tag's branch, started by the same push, tests the tagged commit:
+trust the release only once that run has finished green, and re-run it if it
+failed or was cancelled. This template does not
 automatically deploy from tags; deploy manually with `pnpm run deploy` or enable
 and configure the reviewed CI/CD example for your own infrastructure.
