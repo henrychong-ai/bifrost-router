@@ -18,6 +18,36 @@ somebody. `pnpm run public:check` flags them, in the percent-encoded form too;
 `localhost` is exempt. (The gate scans its own rule file too, so describe the
 bad shape rather than writing one out.)
 
+**What `pnpm run public:check` blocks, and how.** Generic rules need no
+identifier: a home-directory path, with or without a trailing separator (a
+macOS `Users` directory with a capital U, anywhere in a path; a Windows drive's
+`Users` directory with either slash, where the profile name may contain spaces; a
+Linux `home` or `var/home` directory other than the `node` and `runner`
+container users; a lower-case `users` route segment is not flagged), any
+`ts.net` MagicDNS host (a `your-` placeholder tailnet is allowed), any email
+address outside the RFC 2606 example domains and GitHub's no-reply domain (git
+remotes, `@2x` asset names and version pins are not addresses), a
+non-placeholder 1Password reference, a numbered `vps-` host and a single-label
+`https://` host. Each line is checked as written, with escapes blanked, with
+escapes decoded, and with only character-code and punctuation escapes decoded
+(so a Windows backslash still separates), so an escape can neither eat the
+first letter of a name nor hide a delimiter inside one. Findings name the file, line and rule, never the
+matched text, because CI logs are public too.
+
+The specific private names a generic rule cannot describe (tailnet names, a
+private repository and directory name, personal site domains, private company
+hosts) are matched by salted SHA-256 digest. This is forward-only
+concealment, not secrecy: the earlier plain-text list is still in this
+repository's public history (from 2026-08-12), and the salt is public, so
+anyone can guess a candidate value and confirm it by hashing it. A name is
+matched as a whole token or as whole dot- and hyphen-separated parts of one; a
+glued form, with extra letters fused straight onto the name, is intentionally
+not matched. To add an identifier, it must consist only of `[a-z0-9.-]` once
+lower-cased; compute its digest locally with the one-line `node -e` command in
+the scanner's header and commit only the digest, never the plain value, in
+code, tests, comments or commit messages. The scanner and its test are scanned
+like any other file; the test assembles its synthetic bad values at runtime.
+
 **No `plans/` directory:** do not create a `plans/` dir or commit planning / design / strategy docs in this repo — planning artefacts are kept out of this public template. (Reference docs that ship with the product belong in `docs/`; the existing `mcp/PLAN.md` is a sanitised package design note, not a planning dir.)
 
 ## Project Overview
