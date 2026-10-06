@@ -17,10 +17,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Never cancel or replace a main run: with version tags skipped, it is the only
+# CI a release commit gets. A group keeps only one pending run, so each main run
+# gets its own group; other refs share one group per ref and cancel older runs.
 concurrency:
-  group: ci-${{ github.ref }}
-  # Never cancel a main run: with version tags skipped, it is the only CI a
-  # release commit gets.
+  group: ci-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:

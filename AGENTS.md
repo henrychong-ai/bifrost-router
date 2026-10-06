@@ -110,8 +110,12 @@ under coverage (`test:coverage:all`); `slackbot` has no coverage run, so it
 keeps a plain `pnpm -C slackbot test` step, after the coverage step. A new
 workspace package with tests needs one or the other;
 `scripts/check-ci-test-coverage.test.mjs` (part of `test:gates`) fails until it
-has one. Runs on `main` are never cancelled by a later push, because a release
-commit gets no other CI run; runs on other branches are.
+has one, and it credits only an unconditional step whose command is exactly
+`pnpm run test:coverage:all` or `pnpm -C <dir> test`; `-r` and `--filter` test
+commands are refused. Each run on `main` has its own concurrency group, so a
+later push neither cancels it nor replaces it while pending, because a release
+commit gets no other CI run; a newer push to any other branch cancels that
+branch's older run.
 
 The only active workflow is `.github/workflows/ci.yml`, which is CI-only. The
 repository includes `.github/workflows/ci-cd.yml.example` as an opt-in template;
