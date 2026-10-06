@@ -457,7 +457,8 @@ export const backupApi = {
       throw new ApiError(response.status, error.error || `HTTP ${response.status}`);
     }
 
-    return (await response.json()) as BackupHealthResponse;
+    const data: unknown = await response.json();
+    return BackupHealthResponseSchema.parse(data);
   },
 };
 
@@ -465,50 +466,57 @@ export const backupApi = {
 // Backup Health Types (matching backend schemas)
 // =============================================================================
 
-export interface BackupFileStatus {
-  key: string;
-  size: number;
-  exists: boolean;
-}
+export const BackupFileStatusSchema = z.object({
+  key: z.string(),
+  size: z.number(),
+  exists: z.boolean(),
+});
+export type BackupFileStatus = z.infer<typeof BackupFileStatusSchema>;
 
-export interface ManifestSummary {
-  version: string;
-  kv: {
-    totalRoutes: number;
-    domains: string[];
-  };
-}
+export const ManifestSummarySchema = z.object({
+  version: z.string(),
+  kv: z.object({ totalRoutes: z.number(), domains: z.array(z.string()) }),
+});
+export type ManifestSummary = z.infer<typeof ManifestSummarySchema>;
 
-export interface LastBackupInfo {
-  date: string;
-  timestamp: string;
-  ageHours: number;
-  manifest: ManifestSummary | null;
-  files: BackupFileStatus[];
+export const LastBackupInfoSchema = z.object({
+  date: z.string(),
+  timestamp: z.string(),
+  ageHours: z.number(),
+  manifest: ManifestSummarySchema.nullable(),
+  files: z.array(BackupFileStatusSchema),
   /** The latest archive as verified; null when it was not or could not be. */
-  archive?: { records: number; inflatedBytes: number } | null;
-}
+  archive: z.object({ records: z.number(), inflatedBytes: z.number() }).nullable().optional(),
+});
+export type LastBackupInfo = z.infer<typeof LastBackupInfoSchema>;
 
-export interface HealthIssue {
-  severity: 'warning' | 'critical';
-  message: string;
-}
+export const HealthIssueSchema = z.object({
+  severity: z.enum(['warning', 'critical']),
+  message: z.string(),
+});
+export type HealthIssue = z.infer<typeof HealthIssueSchema>;
 
-export interface HealthChecks {
-  backupExists: boolean;
-  backupAge: 'ok' | 'warning' | 'critical';
-  manifestValid: boolean;
-  filesComplete: boolean;
-  routeCountOk: boolean;
-}
+export const HealthChecksSchema = z.object({
+  backupExists: z.boolean(),
+  backupAge: z.enum(['ok', 'warning', 'critical']),
+  manifestValid: z.boolean(),
+  filesComplete: z.boolean(),
+  routeCountOk: z.boolean(),
+});
+export type HealthChecks = z.infer<typeof HealthChecksSchema>;
 
-export interface BackupHealthResponse {
-  status: 'healthy' | 'warning' | 'critical';
-  timestamp: string;
-  lastBackup: LastBackupInfo | null;
-  issues: HealthIssue[];
-  checks: HealthChecks;
-}
+/**
+ * The backup health answer (matching the Worker's `src/backup/health-schemas.ts`),
+ * read as unknown and validated (v1.38.0).
+ */
+export const BackupHealthResponseSchema = z.object({
+  status: z.enum(['healthy', 'warning', 'critical']),
+  timestamp: z.string(),
+  lastBackup: LastBackupInfoSchema.nullable(),
+  issues: z.array(HealthIssueSchema),
+  checks: HealthChecksSchema,
+});
+export type BackupHealthResponse = z.infer<typeof BackupHealthResponseSchema>;
 
 // =============================================================================
 // Metadata API

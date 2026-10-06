@@ -1,6 +1,7 @@
 import { normalizeRoutePath } from '@bifrost/shared';
 import type { KVRouteConfig } from '../types';
-import { fitsKvKey, routeKey } from './schema';
+import { routeKey } from './schema';
+import { readRouteState } from './stored-route';
 
 /**
  * Normalize a path for consistent lookup
@@ -35,7 +36,18 @@ export function getWildcardCandidates(path: string): string[] {
 }
 
 /**
- * Match a request path to a route in KV
+ * The outcome of a route lookup (v1.38.0): a route to serve, no route
+ * (`missing`: the caller may fall back to a service binding), or `invalid`:
+ * a stored record on the way that cannot be read, which the caller answers
+ * with a 404 and nothing else, never a broader wildcard and never a fallback.
+ */
+export type RouteLookup =
+  | { status: 'ok'; route: KVRouteConfig }
+  | { status: 'missing' }
+  | { status: 'invalid' };
+
+/**
+ * Look up the route a request path is served by
  *
  * @param kv - The unified KV namespace
  * @param domain - The domain to look up routes for
@@ -46,22 +58,23 @@ export function getWildcardCandidates(path: string): string[] {
  * 2. Longest wildcard prefix match
  * 3. Root wildcard (/*) if exists
  *
- * Returns null if no match found
+ * A disabled route is skipped. Each record is read as text and validated
+ * (readRouteState; a key over KV's 512-byte limit reads as absent, since no
+ * route can be stored there). An invalid record met on the way STOPS the
+ * lookup as `invalid` rather than falling through to a broader wildcard.
  */
-export async function matchRoute(
+export async function lookupRoute(
   kv: KVNamespace,
   domain: string,
   requestPath: string,
-): Promise<KVRouteConfig | null> {
+): Promise<RouteLookup> {
   const path = normalizePath(requestPath);
 
   // 1. Try exact match first
-  // KV refuses a key over its 512-byte limit even on read (a 500 for any
-  // visitor with a long enough path); no route can be stored under one
-  const exactKey = routeKey(domain, path);
-  const exact = fitsKvKey(exactKey) ? await kv.get<KVRouteConfig>(exactKey, 'json') : null;
-  if (exact && exact.enabled !== false) {
-    return exact;
+  const exact = await readRouteState(kv, routeKey(domain, path));
+  if (exact.status === 'invalid') return { status: 'invalid' };
+  if (exact.status === 'ok' && exact.value.enabled !== false) {
+    return { status: 'ok', route: exact.value };
   }
 
   // 2. Try wildcard matches (longest prefix wins)
@@ -72,20 +85,34 @@ export async function matchRoute(
   // A deep root-wildcard hit or miss therefore pays one wildcard KV round trip
   // instead of one round trip per path segment.
   const wildcardRoutes = await Promise.all(
-    wildcardCandidates.map(wildcardPath => {
-      const key = routeKey(domain, wildcardPath);
-      return fitsKvKey(key) ? kv.get<KVRouteConfig>(key, 'json') : null;
-    }),
+    wildcardCandidates.map(wildcardPath => readRouteState(kv, routeKey(domain, wildcardPath))),
   );
 
   for (const wildcard of wildcardRoutes) {
-    if (wildcard && wildcard.enabled !== false) {
-      return wildcard;
+    // An invalid wildcard stops too, never yielding to a broader one
+    if (wildcard.status === 'invalid') return { status: 'invalid' };
+    if (wildcard.status === 'ok' && wildcard.value.enabled !== false) {
+      return { status: 'ok', route: wildcard.value };
     }
   }
 
   // No match found
-  return null;
+  return { status: 'missing' };
+}
+
+/**
+ * The route a request path is served by, or null when there is none or an
+ * invalid record stops the lookup (see {@link lookupRoute}, which tells the
+ * two apart: the router answers an invalid record with a 404 and never falls
+ * back to a service binding).
+ */
+export async function matchRoute(
+  kv: KVNamespace,
+  domain: string,
+  requestPath: string,
+): Promise<KVRouteConfig | null> {
+  const lookup = await lookupRoute(kv, domain, requestPath);
+  return lookup.status === 'ok' ? lookup.route : null;
 }
 
 /**

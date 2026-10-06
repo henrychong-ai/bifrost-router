@@ -27,6 +27,7 @@
 import {
   type AuditAction,
   FEEDBACK_CAPTURE_BUNDLE_MAX_BYTES,
+  FEEDBACK_CONTEXT_MAX_BYTES,
   FEEDBACK_DESCRIPTION_MAX_LENGTH,
   FEEDBACK_FIELD_MAX_LENGTH,
   FEEDBACK_MAX_SCREENSHOTS,
@@ -38,7 +39,9 @@ import {
   FEEDBACK_SUBMITTER_FIELD_MAX_LENGTH,
   FEEDBACK_TITLE_MAX_LENGTH,
   type FeedbackCaptureBundle,
+  FeedbackCaptureBundleSchema,
   type FeedbackContext,
+  FeedbackContextSchema,
   type FeedbackItem,
   FeedbackPriorityInputSchema,
   FeedbackStatusSchema,
@@ -63,11 +66,11 @@ import {
   triageFeedback,
 } from '../db/feedback';
 import type { AppEnv } from '../types';
+import { guard, isRecord, logInvalidBoundary, readStoredJson } from '../utils/boundary';
 
 export const feedbackRoutes = new Hono<AppEnv>();
 
 const ALLOWED_SCREENSHOT_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
-const MAX_CONTEXT_BYTES = 16 * 1024; // generous cap on the Tier-1 context blob
 
 function byteLength(s: string): number {
   return new TextEncoder().encode(s).length;
@@ -133,7 +136,7 @@ feedbackRoutes.post('/', async c => {
   const MAX_BODY_BYTES =
     FEEDBACK_MAX_SCREENSHOTS * FEEDBACK_SCREENSHOT_MAX_BYTES +
     FEEDBACK_CAPTURE_BUNDLE_MAX_BYTES +
-    MAX_CONTEXT_BYTES +
+    FEEDBACK_CONTEXT_MAX_BYTES +
     64 * 1024;
   const contentLength = Number(c.req.header('content-length') ?? '0');
   if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
@@ -207,24 +210,30 @@ feedbackRoutes.post('/', async c => {
   // --- Context (client-supplied Tier-1 metadata; guard non-object; redact
   //     url/referrer which can carry tokens; server stamps known fields) ---
   const contextRaw = field(body['context']);
-  if (contextRaw && byteLength(contextRaw) > MAX_CONTEXT_BYTES) {
+  if (contextRaw && byteLength(contextRaw) > FEEDBACK_CONTEXT_MAX_BYTES) {
     throw new HTTPException(413, { message: 'context metadata too large' });
   }
-  let parsedContext: unknown = null;
+  // Validated at write time (v1.38.0): a context that is not JSON or not the
+  // FeedbackContext shape is a fixed 400, never stored half-read. Server-known
+  // fields (timestamp, appVersion, rayId) are stamped over the client's.
+  let clientContext: Record<string, unknown> = { url: '' };
   if (contextRaw) {
-    try {
-      parsedContext = JSON.parse(contextRaw);
-    } catch {
-      parsedContext = null;
+    const read = readStoredJson(contextRaw, guard(isRecord));
+    if (read.status !== 'ok') {
+      throw new HTTPException(400, { message: 'context metadata is not valid' });
     }
+    clientContext = read.value;
   }
-  const context: FeedbackContext =
-    parsedContext && typeof parsedContext === 'object' && !Array.isArray(parsedContext)
-      ? (parsedContext as FeedbackContext)
-      : { url: '', timestamp: '' };
-  if (typeof context.url === 'string') context.url = redactSensitive(context.url);
+  const checkedContext = FeedbackContextSchema.safeParse({
+    ...clientContext,
+    timestamp: new Date().toISOString(),
+  });
+  if (!checkedContext.success) {
+    throw new HTTPException(400, { message: 'context metadata is not valid' });
+  }
+  const context: FeedbackContext = checkedContext.data;
+  context.url = redactSensitive(context.url);
   if (typeof context.referrer === 'string') context.referrer = redactSensitive(context.referrer);
-  context.timestamp = new Date().toISOString();
   if (c.env.VERSION) context.appVersion = c.env.VERSION;
   const rayId = c.req.header('cf-ray');
   if (rayId) context.rayId = rayId;
@@ -236,17 +245,15 @@ feedbackRoutes.post('/', async c => {
     if (byteLength(captureRaw) > FEEDBACK_CAPTURE_BUNDLE_MAX_BYTES) {
       throw new HTTPException(413, { message: 'capture bundle exceeds the size limit' });
     }
-    try {
-      const bundle = JSON.parse(captureRaw) as FeedbackCaptureBundle;
-      safeCapture = redactCaptureBundle({
-        console: Array.isArray(bundle.console) ? bundle.console : [],
-        network: Array.isArray(bundle.network) ? bundle.network : [],
-        breadcrumbs: Array.isArray(bundle.breadcrumbs) ? bundle.breadcrumbs : [],
-      });
+    // Read as unknown and validated (v1.38.0): a bundle that is not JSON or
+    // not the capture shape is non-fatal; it is dropped, with a fixed log
+    // line, and the submission is kept.
+    const read = readStoredJson(captureRaw, FeedbackCaptureBundleSchema);
+    if (read.status === 'ok') {
+      safeCapture = redactCaptureBundle(read.value);
       context.breadcrumbCount = safeCapture.breadcrumbs.length;
-    } catch {
-      // Malformed capture JSON is non-fatal — drop it, keep the submission.
-      safeCapture = null;
+    } else {
+      logInvalidBoundary('feedback-capture');
     }
   }
 
@@ -436,7 +443,7 @@ feedbackRoutes.get('/:id/attachment/:key{.+}', async c => {
 feedbackRoutes.patch('/:id', async c => {
   const id = c.req.param('id');
 
-  const raw: unknown = await c.req.json().catch(() => null);
+  const raw: unknown = await c.req.json<unknown>().catch(() => null);
   const parsed = TriageFeedbackRequestSchema.safeParse(raw);
   if (!parsed.success) {
     throw new HTTPException(400, {

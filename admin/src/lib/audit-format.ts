@@ -85,60 +85,106 @@ interface AuditDetailFields {
   after?: unknown;
 }
 
+/** A plain object (not null, not an array). */
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+const text = (value: unknown): string | undefined =>
+  typeof value === 'string' ? value : undefined;
+const count = (value: unknown): number | undefined =>
+  typeof value === 'number' ? value : undefined;
+
+/**
+ * The detail fields of a stored audit row (v1.38.0), each kept only when it
+ * has its declared type: the row is read as unknown, never trusted.
+ */
+function readDetailFields(value: Record<string, unknown>): AuditDetailFields {
+  const resource = isPlainRecord(value['resource']) ? value['resource'] : undefined;
+  const replaced = isPlainRecord(value['replaced']) ? value['replaced'] : undefined;
+  const route = isPlainRecord(value['route']) ? value['route'] : undefined;
+  return {
+    cf_audit_id: text(value['cf_audit_id']),
+    actionType: text(value['actionType']),
+    resource: resource && { type: text(resource['type']), id: text(resource['id']) },
+    r2Action: text(value['r2Action']),
+    bucket: text(value['bucket']),
+    key: text(value['key']),
+    enabled: typeof value['enabled'] === 'boolean' ? value['enabled'] : undefined,
+    count: count(value['count']),
+    oldPath: text(value['oldPath']),
+    newPath: text(value['newPath']),
+    sourceBucket: text(value['sourceBucket']),
+    destinationBucket: text(value['destinationBucket']),
+    destinationKey: text(value['destinationKey']),
+    replaced: replaced && { size: count(replaced['size']) },
+    size: count(value['size']),
+    oldKey: text(value['oldKey']),
+    newKey: text(value['newKey']),
+    route: route && { target: text(route['target']) },
+    before: value['before'],
+    after: value['after'],
+  };
+}
+
 export function parseDetails(details: string | null): string {
   if (!details) return '-';
   try {
-    const parsed = JSON.parse(details) as AuditDetailFields;
+    // Read as unknown (v1.38.0): anything but an object keeps its raw text
+    const value: unknown = JSON.parse(details);
+    if (!isPlainRecord(value)) return details.slice(0, 50);
+    const parsed = readDetailFields(value);
+    const has = (field: string) => field in value;
     // CF audit-log poller entries: show the control-plane action type.
-    if ('cf_audit_id' in parsed) {
+    if (has('cf_audit_id')) {
       const resource = parsed.resource?.type
         ? ` on ${parsed.resource.type}${parsed.resource.id ? `/${parsed.resource.id}` : ''}`
         : '';
       return `${parsed.actionType || 'config change'}${resource}`;
     }
     // R2 event consumer entries: show raw R2 action + object.
-    if ('r2Action' in parsed) {
+    if (has('r2Action')) {
       return `${parsed.r2Action}: ${parsed.bucket}/${parsed.key}`;
     }
     // For toggle actions, show enabled status
-    if ('enabled' in parsed) {
+    if (has('enabled')) {
       return parsed.enabled ? 'Enabled' : 'Disabled';
     }
     // For seed actions, show count
-    if ('count' in parsed) {
+    if (has('count')) {
       return `${parsed.count} routes`;
     }
     // For migrate actions, show old -> new path
-    if ('oldPath' in parsed && 'newPath' in parsed) {
+    if (has('oldPath') && has('newPath')) {
       return `${parsed.oldPath} -> ${parsed.newPath}`;
     }
     // For R2 move actions, show source -> destination
-    if ('sourceBucket' in parsed && 'destinationBucket' in parsed) {
+    if (has('sourceBucket') && has('destinationBucket')) {
       const destKey = parsed.destinationKey || parsed.key;
       return `${parsed.sourceBucket}/${parsed.key} → ${parsed.destinationBucket}/${destKey}`;
     }
     // For R2 replace, show old and new size
-    if ('replaced' in parsed && parsed.replaced) {
+    if (has('replaced') && parsed.replaced) {
       const oldSize = parsed.replaced.size;
       const newSize = parsed.size;
       return `${parsed.bucket}/${parsed.key} (${oldSize} → ${newSize} bytes)`;
     }
     // For R2 rename, show old -> new key
-    if ('bucket' in parsed && 'oldKey' in parsed && 'newKey' in parsed) {
+    if (has('bucket') && has('oldKey') && has('newKey')) {
       return `${parsed.oldKey} -> ${parsed.newKey}`;
     }
     // For R2 actions, show bucket/key info
-    if ('bucket' in parsed && 'key' in parsed) {
+    if (has('bucket') && has('key')) {
       return `${parsed.bucket}/${parsed.key}`;
     }
     // For other actions, show a summary
-    if ('route' in parsed) {
+    if (has('route')) {
       return parsed.route?.target ? `Target: ${parsed.route.target}` : 'Route data';
     }
-    if ('before' in parsed && 'after' in parsed) {
+    if (has('before') && has('after')) {
       return 'Modified route';
     }
-    return JSON.stringify(parsed).slice(0, 50);
+    return JSON.stringify(value).slice(0, 50);
   } catch {
     return details.slice(0, 50);
   }

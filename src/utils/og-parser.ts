@@ -79,10 +79,27 @@ const MAX_RESPONSE_SIZE = 1024 * 1024;
  */
 const REQUEST_TIMEOUT_MS = 5000;
 
+/** Why a link-preview URL was refused (v1.38.0), for the fixed answer of each class. */
+export type SSRFRefusal = 'format' | 'scheme' | 'name' | 'ipv4' | 'ipv6';
+
 export class SSRFBlockedError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly reason: SSRFRefusal,
+  ) {
     super(message);
     this.name = 'SSRFBlockedError';
+  }
+}
+
+/**
+ * The upstream (or the in-process answer for an own host) answered a status
+ * that has nothing to describe (v1.38.0). The message is `HTTP <status>`.
+ */
+export class UpstreamStatusError extends Error {
+  constructor(readonly status: number) {
+    super(`HTTP ${status}`);
+    this.name = 'UpstreamStatusError';
   }
 }
 
@@ -109,21 +126,27 @@ export function validateUrlForSSRF(urlString: string): URL {
   try {
     url = new URL(urlString);
   } catch {
-    throw new SSRFBlockedError('Invalid URL format');
+    throw new SSRFBlockedError('Invalid URL format', 'format');
   }
 
   // Only allow http and https schemes
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new SSRFBlockedError(`Blocked scheme: ${url.protocol}`);
+    throw new SSRFBlockedError(`Blocked scheme: ${url.protocol}`, 'scheme');
   }
 
   // One shared host policy for every outbound fetch of a caller-supplied URL
   // (src/utils/host-policy.ts, v1.37.2): names, an IPv4 block list and an
   // IPv6 allow-list. Hostnames are not resolved.
   const refusal = hostRefusal(url.hostname);
-  if (refusal === 'name') throw new SSRFBlockedError(`Blocked hostname: ${url.hostname}`);
-  if (refusal === 'ipv4') throw new SSRFBlockedError(`Blocked private IP: ${url.hostname}`);
-  if (refusal === 'ipv6') throw new SSRFBlockedError(`Blocked IPv6 address: ${url.hostname}`);
+  if (refusal === 'name') {
+    throw new SSRFBlockedError(`Blocked hostname: ${url.hostname}`, 'name');
+  }
+  if (refusal === 'ipv4') {
+    throw new SSRFBlockedError(`Blocked private IP: ${url.hostname}`, 'ipv4');
+  }
+  if (refusal === 'ipv6') {
+    throw new SSRFBlockedError(`Blocked IPv6 address: ${url.hostname}`, 'ipv6');
+  }
 
   return url;
 }
@@ -705,7 +728,7 @@ async function fetchOpenGraph(
         // so it is not kept as a cause either
         if (proxiedFor !== undefined && !isAbort(error)) {
           // eslint-disable-next-line preserve-caught-error -- the cause can name the upstream
-          throw new Error('HTTP 502');
+          throw new UpstreamStatusError(502);
         }
         throw error;
       }
@@ -730,7 +753,7 @@ async function fetchOpenGraph(
         throw new TooManyRedirectsError(`Too many redirects (max ${cap})`);
       }
       const redirectUrl = response.headers.get('location');
-      if (!redirectUrl) throw new Error(`HTTP ${response.status}`);
+      if (!redirectUrl) throw new UpstreamStatusError(response.status);
       // Resolve relative redirect URLs. The recursive call validates the
       // target for SSRF on entry, before it fetches anything.
       let next: string;
@@ -746,7 +769,7 @@ async function fetchOpenGraph(
 
     if (!response.ok) {
       await releaseBody(response);
-      throw new Error(`HTTP ${response.status}`);
+      throw new UpstreamStatusError(response.status);
     }
 
     const contentType = response.headers.get('content-type') ?? '';
@@ -785,4 +808,50 @@ async function fetchOpenGraph(
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+/** The fixed text for each SSRF refusal class (v1.38.0). */
+const SSRF_REFUSAL_DETAILS: Readonly<Record<SSRFRefusal, string>> = {
+  format: 'Invalid URL format',
+  scheme: 'Blocked scheme',
+  name: 'Blocked hostname',
+  ipv4: 'Blocked private IP address',
+  ipv6: 'Blocked IPv6 address',
+};
+
+/** A failed preview as `GET /api/metadata/og` answers it. */
+export interface OpenGraphFailure {
+  status: 403 | 413 | 502;
+  error: string;
+  details: string;
+}
+
+/** A preview that could not be fetched: 502 with fixed `details`. */
+function failedFetch(details: string): OpenGraphFailure {
+  return { status: 502, error: 'Failed to fetch URL', details };
+}
+
+/**
+ * The answer for a preview that failed (v1.38.0): a fixed message for each
+ * failure class, never an error's own text, which can name a host or quote a
+ * network error. A refused URL is 403 with its refusal class, an oversized
+ * page 413, and everything else 502: the redirect cap, a timeout, an upstream
+ * status (`HTTP <status>`, a number only) or any other failure.
+ */
+export function describeOpenGraphFailure(error: unknown): OpenGraphFailure {
+  if (error instanceof SSRFBlockedError) {
+    return {
+      status: 403,
+      error: 'URL blocked for security reasons',
+      details: SSRF_REFUSAL_DETAILS[error.reason],
+    };
+  }
+  if (error instanceof ResponseTooLargeError) {
+    return { status: 413, error: 'Response too large', details: 'The page is over the 1 MB limit' };
+  }
+  if (error instanceof TooManyRedirectsError)
+    return failedFetch(`Too many redirects (max ${MAX_REDIRECTS})`);
+  if (error instanceof UpstreamStatusError) return failedFetch(`HTTP ${error.status}`);
+  if (isAbort(error)) return failedFetch('The page did not answer in time');
+  return failedFetch('The page could not be fetched');
 }

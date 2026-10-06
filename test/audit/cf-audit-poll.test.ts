@@ -18,7 +18,7 @@
 
 import { env } from 'cloudflare:test';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { pollCfAuditLogs } from '../../src/audit/cf-audit-poll';
+import { MAX_UNPARSED_PER_RUN, pollCfAuditLogs } from '../../src/audit/cf-audit-poll';
 import type { Bindings } from '../../src/types';
 
 const AUDIT_DDL = `
@@ -216,5 +216,157 @@ describe('pollCfAuditLogs', () => {
       await expect(pollCfAuditLogs(envWith({}))).resolves.toBeUndefined();
       expect(await allAudit()).toHaveLength(0);
     });
+  });
+});
+
+// v1.38.0: the stored cursor and the API body are validated before use, and
+// a malformed entry is recorded in a minimal shape rather than trusted or lost
+describe('pollCfAuditLogs boundary validation', () => {
+  const CF_ENTRY_WHEN = '2026-06-10T08:00:00Z';
+  beforeAll(async () => {
+    await env.DB.prepare(AUDIT_DDL).run();
+    await env.DB.prepare(CURSORS_DDL).run();
+  });
+  beforeEach(async () => {
+    await env.DB.prepare('DELETE FROM audit_logs').run();
+    await env.DB.prepare('DELETE FROM poll_cursors').run();
+    vi.unstubAllGlobals();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-06-10T12:00:00Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    ['not JSON', '{"since":"2026-'],
+    ['the wrong shape', JSON.stringify({ since: 42, boundaryIds: 'cf-entry-1' })],
+    ['an empty since', JSON.stringify({ since: '', boundaryIds: [] })],
+  ])(
+    'restarts the window from the first-run lookback when the cursor is %s',
+    async (_label, value) => {
+      await env.DB.prepare('INSERT INTO poll_cursors (name, value) VALUES (?, ?)')
+        .bind('cf-audit-poll', value)
+        .run();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const stub = stubFetch([[cfEntry()]]);
+      const before = Date.now();
+      await pollCfAuditLogs(envWith({}));
+      const url = new URL(String(stub.mock.calls[0]?.[0]));
+      const since = Date.parse(url.searchParams.get('since') ?? '');
+      expect(before - since).toBeGreaterThanOrEqual(24 * 60 * 60 * 1000 - 1000);
+      expect(before - since).toBeLessThan(24 * 60 * 60 * 1000 + 60_000);
+      expect(await allAudit()).toHaveLength(1);
+      expect(warn).toHaveBeenCalledWith(
+        JSON.stringify({
+          level: 'warn',
+          message: 'boundary-invalid-value',
+          category: 'audit-cursor',
+        }),
+      );
+      const cursor = await env.DB.prepare(
+        "SELECT value FROM poll_cursors WHERE name = 'cf-audit-poll'",
+      ).first<{ value: string }>();
+      expect((JSON.parse(cursor?.value ?? '{}') as { since?: string }).since).toBe(CF_ENTRY_WHEN);
+    },
+  );
+
+  it.each([
+    ['not JSON', 'upstream <html>'],
+    ['a result that is not an array', JSON.stringify({ success: true, result: { id: 'x' } })],
+    ['a JSON string', JSON.stringify('cf-entry-1')],
+  ])('records nothing and does not throw when the API body is %s', async (_label, body) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(body, { status: 200 })),
+    );
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(pollCfAuditLogs(envWith({}))).resolves.toBeUndefined();
+    expect(await allAudit()).toHaveLength(0);
+    expect(JSON.stringify(error.mock.calls)).toContain(
+      'CF audit_logs API returned an invalid body',
+    );
+    expect(JSON.stringify(error.mock.calls)).not.toContain('upstream <html>');
+  });
+
+  it('records a malformed entry minimally (id, time, unparsed), never its content', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const entries = [
+      cfEntry({ id: 'cf-entry-bad', resource: { type: 42, id: 'secret-bucket' } }),
+      'not an entry' as unknown as Record<string, unknown>,
+      cfEntry({ id: 'cf-entry-ok' }),
+    ];
+    stubFetch([entries]);
+    await pollCfAuditLogs(envWith({}));
+    const rows = await allAudit();
+    const details = rows.map(row => JSON.parse(row.details ?? '{}') as Record<string, unknown>);
+    const ids = details.map(detail => detail['cf_audit_id']);
+    expect(ids).toHaveLength(3);
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        'cf-entry-bad',
+        'cf-entry-ok',
+        expect.stringMatching(/^unparsed:[0-9a-f]{32}$/),
+      ]),
+    );
+    const bad = rows.find(row => (row.details ?? '').includes('"cf-entry-bad"'));
+    expect(JSON.parse(bad?.details ?? '{}')).toEqual({
+      cf_audit_id: 'cf-entry-bad',
+      unparsed: true,
+      when: CF_ENTRY_WHEN,
+    });
+    expect(bad?.path).toBe('unknown/unparsed');
+    expect(JSON.stringify(rows)).not.toContain('secret-bucket');
+    // A second run over the same entries records nothing twice
+    stubFetch([entries]);
+    await pollCfAuditLogs(envWith({}));
+    expect(await allAudit()).toHaveLength(3);
+    expect(warn).toHaveBeenCalledWith(
+      JSON.stringify({
+        level: 'warn',
+        message: 'boundary-invalid-value',
+        category: 'cf-audit-entry',
+      }),
+    );
+  });
+
+  it('records an unparsed entry only in scope, and at most the per-run cap', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const r2 = Array.from({ length: 30 }, (_, i) =>
+      cfEntry({ id: `flood-${i}`, actor: 7, resource: { type: 'r2.bucket', id: 'files' } }),
+    );
+    const dns = Array.from({ length: 10 }, (_, i) =>
+      cfEntry({ id: `dns-${i}`, actor: 7, resource: { type: 'dns_record', id: 'x' } }),
+    );
+    stubFetch([[...dns, ...r2]]);
+    await pollCfAuditLogs(envWith({}));
+    const ids = (await allAudit()).map(
+      row => (JSON.parse(row.details ?? '{}') as { cf_audit_id: string }).cf_audit_id,
+    );
+    expect(ids).toHaveLength(MAX_UNPARSED_PER_RUN);
+    expect(ids.every(id => id.startsWith('flood-'))).toBe(true);
+    expect(
+      warn.mock.calls.filter(call => String(call[0]).includes('cf-audit-unparsed-cap')),
+    ).toHaveLength(1);
+  });
+
+  it('paginates on the raw page size: a full page with one invalid entry still fetches page 2', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const page1 = [
+      'not an entry' as unknown as Record<string, unknown>,
+      ...Array.from({ length: 99 }, (_, i) =>
+        cfEntry({ id: `p1-${i}`, resource: { type: 'dns_record', id: 'x' } }),
+      ),
+    ];
+    const stub = stubFetch([page1, [cfEntry({ id: 'p2-r2' })]]);
+    await pollCfAuditLogs(envWith({}));
+    expect(stub).toHaveBeenCalledTimes(2);
+    const ids = (await allAudit()).map(
+      row => (JSON.parse(row.details ?? '{}') as { cf_audit_id: string }).cf_audit_id,
+    );
+    expect(ids).toHaveLength(2);
+    expect(ids).toEqual(expect.arrayContaining(['p2-r2', expect.stringMatching(/^unparsed:/)]));
   });
 });

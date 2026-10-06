@@ -38,6 +38,8 @@ export const FEEDBACK_MAX_SCREENSHOTS = 3;
 export const FEEDBACK_SCREENSHOT_MAX_BYTES = 5 * 1024 * 1024;
 /** Max size of the console/network/breadcrumb capture bundle JSON (256 KB). */
 export const FEEDBACK_CAPTURE_BUNDLE_MAX_BYTES = 256 * 1024;
+/** Max serialised size of the Tier-1 context part of a submission (16 KiB). */
+export const FEEDBACK_CONTEXT_MAX_BYTES = 16 * 1024;
 /** Per-user submission rate limit (submissions per minute). Handled by Cloudflare WAF. */
 export const FEEDBACK_RATE_LIMIT_PER_MINUTE = 10;
 
@@ -283,22 +285,12 @@ export interface FeedbackCaptureBundle {
   breadcrumbs: FeedbackBreadcrumb[];
 }
 
-/** Tier-1 environment metadata stored in `context_json`. */
-export interface FeedbackContext {
-  url: string;
-  route?: string;
-  tab?: string;
-  appVersion?: string;
-  timestamp: string;
-  browser?: string;
-  os?: string;
-  userAgent?: string;
-  viewport?: { width: number; height: number };
-  locale?: string;
-  referrer?: string;
-  rayId?: string;
-  breadcrumbCount?: number;
-}
+/**
+ * Tier-1 environment metadata stored in `context_json`. Single-sourced from
+ * {@link FeedbackContextSchema} (with the other Zod schemas below), so the
+ * stored shape and the consumed type cannot drift.
+ */
+export type FeedbackContext = z.infer<typeof FeedbackContextSchema>;
 
 /** Redact every string field of a capture bundle (returns a new object). */
 export function redactCaptureBundle(bundle: FeedbackCaptureBundle): FeedbackCaptureBundle {
@@ -337,6 +329,59 @@ export const FeedbackPriorityInputSchema = z.preprocess(
   value => (typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value),
   z.number().int().min(FEEDBACK_PRIORITY_MIN).max(FEEDBACK_PRIORITY_MAX),
 );
+
+/**
+ * A capture bundle as it crosses a boundary (v1.38.0): the submit body's
+ * `capture` part, and the stored attachment the dashboard reads back. Each
+ * list may be absent (read as empty); entries must have their declared
+ * shapes, else the whole bundle is rejected (the submission keeps going
+ * without it). Parsed output is a {@link FeedbackCaptureBundle}.
+ */
+export const FeedbackCaptureBundleSchema = z
+  .object({
+    console: z
+      .array(
+        z.object({
+          level: z.enum(['error', 'warn', 'log']),
+          message: z.string(),
+          ts: z.number(),
+        }),
+      )
+      .optional(),
+    network: z
+      .array(z.object({ method: z.string(), url: z.string(), status: z.number(), ts: z.number() }))
+      .optional(),
+    breadcrumbs: z
+      .array(z.object({ type: z.string(), detail: z.string(), ts: z.number() }))
+      .optional(),
+  })
+  .transform(
+    (bundle): FeedbackCaptureBundle => ({
+      console: bundle.console ?? [],
+      network: bundle.network ?? [],
+      breadcrumbs: bundle.breadcrumbs ?? [],
+    }),
+  );
+
+/** The stored screenshot keys: a string list. */
+export const FeedbackStringListSchema = z.array(z.string());
+
+/** The Tier-1 environment context stored in `context_json` (v1.38.0: its single source). */
+export const FeedbackContextSchema = z.object({
+  url: z.string(),
+  route: z.string().optional(),
+  tab: z.string().optional(),
+  appVersion: z.string().optional(),
+  timestamp: z.string(),
+  browser: z.string().optional(),
+  os: z.string().optional(),
+  userAgent: z.string().optional(),
+  viewport: z.object({ width: z.number(), height: z.number() }).optional(),
+  locale: z.string().optional(),
+  referrer: z.string().optional(),
+  rayId: z.string().optional(),
+  breadcrumbCount: z.number().optional(),
+});
 
 /** The submit payload (the non-file fields; screenshots + capture arrive as multipart parts). */
 export const CreateFeedbackSchema = z.object({

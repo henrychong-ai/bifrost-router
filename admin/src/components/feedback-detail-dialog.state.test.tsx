@@ -29,7 +29,10 @@ vi.mock('@/lib/api-client', () => ({
       attachment: vi.fn<(id: string, key: string) => Promise<Blob>>(async (_id, key) =>
         key.endsWith('.json')
           ? new Blob([
-              JSON.stringify({ console: [{ level: 'error', message: 'boom' }], network: [] }),
+              JSON.stringify({
+                console: [{ level: 'error', message: 'boom', ts: 1 }],
+                network: [],
+              }),
             ])
           : new Blob(['png'], { type: 'image/png' }),
       ),

@@ -9,11 +9,9 @@ import type { QRCode } from './qr.js';
 import type {
   AnalyticsQueryOptions,
   AnalyticsSummary,
-  ApiResponse,
   CreateRouteInput,
   LinkClick,
   PageView,
-  PaginatedApiResponse,
   PaginatedResponse,
   R2BucketsResponse,
   R2CommentUpdateResult,
@@ -26,6 +24,53 @@ import type {
   SlugStats,
   UpdateRouteInput,
 } from './types.js';
+
+/**
+ * The Admin API's response envelope as the client reads it (v1.38.0): the
+ * body is read as unknown and must be a JSON object; `success` counts only
+ * when it is `true`, and `error`, `message` and `meta` only when they have
+ * their declared types. Anything else reads as a parse failure. The `data`
+ * payload is the endpoint's own documented contract and is passed on as the
+ * caller's declared type, as before.
+ */
+interface ResponseEnvelope {
+  success: boolean;
+  data: unknown;
+  meta: Record<string, unknown> | undefined;
+  error: string | undefined;
+  message: string | undefined;
+  details: unknown;
+}
+
+/** `body` as a {@link ResponseEnvelope}, or null when it is not a JSON object. */
+function readEnvelope(body: unknown): ResponseEnvelope | null {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return null;
+  const field = (name: string): unknown => (name in body ? Reflect.get(body, name) : undefined);
+  const meta = field('meta');
+  const error = field('error');
+  const message = field('message');
+  return {
+    success: field('success') === true,
+    data: field('data'),
+    meta:
+      typeof meta === 'object' && meta !== null && !Array.isArray(meta)
+        ? Object.fromEntries(Object.entries(meta))
+        : undefined,
+    error: typeof error === 'string' ? error : undefined,
+    message: typeof message === 'string' ? message : undefined,
+    details: field('details'),
+  };
+}
+
+/** A response body read as unknown: null when it is not JSON (the parser's message is dropped). */
+async function readBody(response: Response): Promise<{ parsed: true; value: unknown } | null> {
+  try {
+    const value: unknown = await response.json();
+    return { parsed: true, value };
+  } catch {
+    return null;
+  }
+}
 
 /** Pagination meta returned by the QR list endpoint (mirrors the routes meta). */
 export interface QRListMeta {
@@ -135,11 +180,10 @@ export class EdgeRouterClient {
       ...(options.body ? { body: JSON.stringify(options.body) } : {}),
     });
 
-    // Parse response
-    let data: ApiResponse<T> | PaginatedApiResponse<T>;
-    try {
-      data = (await response.json()) as ApiResponse<T> | PaginatedApiResponse<T>;
-    } catch {
+    // Parse response, as unknown
+    const read = await readBody(response);
+    const data = read === null ? null : readEnvelope(read.value);
+    if (data === null) {
       throw new EdgeRouterError(
         `Failed to parse response: ${response.statusText}`,
         response.status,
@@ -150,23 +194,23 @@ export class EdgeRouterClient {
     if (!response.ok || !data.success) {
       // The central error envelope carries only `error`. A handler that ALSO
       // sends `message` is using `error` as a machine CODE
-      // (`ROUTE_TARGET_CREDENTIAL`), and the sentence is the part a human or an
-      // MCP caller needs — so carry both. Bodies without `message` are
-      // byte-identical to before.
-      const body = data as ApiResponse & { message?: string };
-      const code = body.error ?? `Request failed: ${response.statusText}`;
+      // (`ROUTE_TARGET_CREDENTIAL`, `ROUTE_RECORD_INVALID`), and the sentence
+      // is the part a human or an MCP caller needs — so carry both. Bodies
+      // without `message` are byte-identical to before.
+      const code = data.error ?? `Request failed: ${response.statusText}`;
       throw new EdgeRouterError(
-        typeof body.message === 'string' && body.message ? `${code}: ${body.message}` : code,
+        data.message ? `${code}: ${data.message}` : code,
         response.status,
-        body.details,
+        data.details,
       );
     }
 
-    // Return data (handle both ApiResponse and PaginatedApiResponse)
-    if ('meta' in data && data.meta) {
+    // Return data (handle both ApiResponse and PaginatedApiResponse); the
+    // payload is the endpoint's documented contract
+    if (data.meta) {
       return { items: data.data, meta: data.meta } as T;
     }
-    return (data as ApiResponse<T>).data as T;
+    return data.data as T;
   }
 
   /**
@@ -182,10 +226,9 @@ export class EdgeRouterClient {
       body: formData,
     });
 
-    let data: ApiResponse<T>;
-    try {
-      data = (await response.json()) as ApiResponse<T>;
-    } catch {
+    const read = await readBody(response);
+    const data = read === null ? null : readEnvelope(read.value);
+    if (data === null) {
       throw new EdgeRouterError(
         `Failed to parse response: ${response.statusText}`,
         response.status,
@@ -194,9 +237,9 @@ export class EdgeRouterClient {
 
     if (!response.ok || !data.success) {
       throw new EdgeRouterError(
-        (data as ApiResponse).error ?? `Request failed: ${response.statusText}`,
+        data.error ?? `Request failed: ${response.statusText}`,
         response.status,
-        (data as ApiResponse).details,
+        data.details,
       );
     }
 
@@ -229,19 +272,14 @@ export class EdgeRouterClient {
 
     if (!response.ok) {
       let errorMessage = `Request failed: ${response.statusText}`;
-      try {
-        const data = (await response.json()) as { error?: string; message?: string };
-        // Same `code: sentence` merge as request(): a handler that sends both is
-        // using `error` as a machine CODE, and the sentence is the part a human
-        // or an MCP caller needs. The markdown and SVG paths come through here.
-        if (data.error) {
-          errorMessage =
-            typeof data.message === 'string' && data.message
-              ? `${data.error}: ${data.message}`
-              : data.error;
-        }
-      } catch {
-        // Use default message
+      // Same `code: sentence` merge as request(): a handler that sends both is
+      // using `error` as a machine CODE, and the sentence is the part a human
+      // or an MCP caller needs. The markdown and SVG paths come through here.
+      // A body that is not JSON, or not an object, keeps the default.
+      const read = await readBody(response);
+      const data = read === null ? null : readEnvelope(read.value);
+      if (data?.error) {
+        errorMessage = data.message ? `${data.error}: ${data.message}` : data.error;
       }
       throw new EdgeRouterError(errorMessage, response.status);
     }

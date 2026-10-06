@@ -1,5 +1,5 @@
 /* eslint-disable */
-// Runtime types generated with workerd@1.20261001.1 2026-07-22 retain_authorization_on_cross_origin_redirect
+// Runtime types generated with workerd@1.20261001.1 2026-07-22
 // Begin runtime types
 /*! *****************************************************************************
 Copyright (c) Cloudflare. All rights reserved.

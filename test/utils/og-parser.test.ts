@@ -739,6 +739,43 @@ describe('parseOpenGraph', () => {
       }
     });
 
+    // A DOCTYPE ends at its first `>`, as HTML ends it: in every DOCTYPE
+    // tokenizer state, a quoted public or system identifier included (an
+    // abrupt end), so markup written inside a quoted identifier is read from
+    // that `>` on, exactly as parse5 reads it (v1.38.0; checked against parse5)
+    it.each([
+      ['a quoted public id holding >', '<!DOCTYPE html PUBLIC "a>b">', 'Real', null],
+      [
+        'a public id holding a forged tag',
+        '<!DOCTYPE html PUBLIC "<meta property=og:title content=Forged>">',
+        'Real',
+        null,
+      ],
+      [
+        'a single-quoted system id holding a title',
+        "<!doctype html SYSTEM '<title>Forged</title>'>",
+        'Real',
+        null,
+      ],
+      ['a system id after a public id', '<!DOCTYPE html PUBLIC "x" "y>z">', 'Real', null],
+      ['mixed case and no space before the name', '<!DoCtYpEhtml>', 'Real', null],
+      ['an empty DOCTYPE', '<!DOCTYPE>', 'Real', null],
+      ['an unquoted identifier', '<!DOCTYPE html PUBLIC x>y>', 'Real', null],
+      ['whitespace variants', '<!DOCTYPE\t\nhtml\fPUBLIC\n"a"\t"b">', 'Real', null],
+    ])('reads the tag after a DOCTYPE with %s', async (_label, doctype, title, description) => {
+      const preview = await previewOfHtml(`${doctype}<meta property=og:title content=Real>`);
+      expect(preview.title).toBe(title);
+      expect(preview.description).toBe(description);
+    });
+
+    it('reads a forged tag after the > that ends the DOCTYPE, as HTML does', async () => {
+      // The tag after the first `>` is markup to HTML too (parse5 agrees)
+      const preview = await previewOfHtml(
+        '<!DOCTYPE html PUBLIC "a><meta property=og:title content=AsHtml>">',
+      );
+      expect(preview.title).toBe('AsHtml');
+    });
+
     it.each([
       ['an empty comment', '<!-->'],
       ['an empty comment with a dash', '<!--->'],
@@ -860,6 +897,98 @@ describe('parseOpenGraph', () => {
       expect(missing.status).toBe(400);
       expect((await og('http://169.254.169.254/latest')).status).toBe(403);
       expect(fetchedUrls()).toEqual([]);
+    });
+
+    // v1.38.0: each failure class answers a fixed message, never an error's own text
+    it.each([
+      [
+        'an unparseable URL',
+        'not a url',
+        403,
+        'URL blocked for security reasons',
+        'Invalid URL format',
+      ],
+      [
+        'a blocked scheme',
+        'ftp://files.example.org/x',
+        403,
+        'URL blocked for security reasons',
+        'Blocked scheme',
+      ],
+      [
+        'a blocked name',
+        'http://printer.local/x',
+        403,
+        'URL blocked for security reasons',
+        'Blocked hostname',
+      ],
+      [
+        'a private IPv4 address',
+        'http://10.1.2.3/',
+        403,
+        'URL blocked for security reasons',
+        'Blocked private IP address',
+      ],
+      [
+        'a refused IPv6 address',
+        'http://[fd00::1]/',
+        403,
+        'URL blocked for security reasons',
+        'Blocked IPv6 address',
+      ],
+    ])('answers %s with fixed text naming no host', async (_label, url, status, error, details) => {
+      const response = await og(url);
+      expect(response.status).toBe(status);
+      expect(await response.json()).toEqual({ success: false, error, details });
+    });
+
+    it('answers a network failure with fixed text, never the error message', async () => {
+      vi.mocked(fetch).mockRejectedValueOnce(
+        new Error('connect ECONNREFUSED secret-internal-name'),
+      );
+      const response = await og('https://page.example.org/x');
+      expect(response.status).toBe(502);
+      expect(await response.json()).toEqual({
+        success: false,
+        error: 'Failed to fetch URL',
+        details: 'The page could not be fetched',
+      });
+    });
+
+    it('answers a timeout and an upstream status with fixed text', async () => {
+      const abort = new Error('The operation was aborted: secret');
+      abort.name = 'AbortError';
+      vi.mocked(fetch).mockRejectedValueOnce(abort);
+      const timedOut = await og('https://page.example.org/slow');
+      expect(timedOut.status).toBe(502);
+      expect(await timedOut.json()).toEqual({
+        success: false,
+        error: 'Failed to fetch URL',
+        details: 'The page did not answer in time',
+      });
+      vi.mocked(fetch).mockResolvedValueOnce(new Response('secret body', { status: 503 }));
+      const failed = await og('https://page.example.org/down');
+      expect(failed.status).toBe(502);
+      expect(await failed.json()).toEqual({
+        success: false,
+        error: 'Failed to fetch URL',
+        details: 'HTTP 503',
+      });
+    });
+
+    it('answers an oversized page with fixed text', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        new Response('<p>secret</p>', {
+          headers: { ...HTML, 'content-length': String(2 * 1024 * 1024) },
+        }),
+      );
+      const response = await og('https://page.example.org/huge');
+      expect(response.status).toBe(413);
+      expect(await response.json()).toEqual({
+        success: false,
+        error: 'Response too large',
+        details: 'The page is over the 1 MB limit',
+      });
     });
 
     it('answers 502 for a redirect loop instead of following it to the subrequest limit', async () => {

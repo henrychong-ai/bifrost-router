@@ -7,8 +7,9 @@
  *   1. upstream models: each is one thing a real upstream does to the path it
  *      receives (decode once, decode leniently, strip `;params`, treat `+` as
  *      space, NFKC, Win32 trailing dot and space trimming, NUL truncation,
- *      WHATWG reparsing, dropping ignorable code points, `\` as `/`,
- *      resolving dot segments);
+ *      WHATWG reparsing, dropping ignorable code points, NTFS stream names,
+ *      best-fit code-page mapping of look-alike slashes, colons and percent
+ *      signs, `\` as `/`, resolving dot segments);
  *   2. the property: for every path the proxy FORWARDS, the closure of the
  *      forwarded path under every composition of those models never leaves
  *      the target's base path, never becomes host-relative (`//x`), and never
@@ -168,6 +169,13 @@ const MODELS: Record<string, Model> = {
   trimWhiteSpace: perSegment(s => s.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, '')),
   // an upstream that drops combining marks (NFD, then remove \p{M})
   stripMarks: p => p.normalize('NFD').replace(/\p{M}/gu, ''),
+  // NTFS/IIS: `name:stream` names the file `name` (`..:` is the parent)
+  ntfsStream: perSegment(s => s.split(':', 1)[0] ?? ''),
+  // best-fit code-page conversion of look-alike slashes (the acute accent
+  // among them), colons and the Arabic percent sign
+  bestFitSlash: p => p.replace(/[\u2215\u2044\u29f8\u00b4]/gu, '/').replace(/\u2216/gu, '\\'),
+  bestFitColon: p => p.replace(/[\u2236\u0589]/gu, ':'),
+  bestFitPercent: p => p.replace(/\u066a/gu, '%'),
   backslashAsSlash: p => p.replace(/\\/g, '/'),
   // an upstream that reparses the path with the WHATWG URL parser
   whatwgReparse: p => {
@@ -318,6 +326,11 @@ const ATOMS = [
   '%C2%85',
   '%E2%80%A8',
   '%CC%81',
+  '%C2%B4',
+  '%E2%88%B6',
+  '%D6%89',
+  '%D9%AA',
+  '%EF%B9%AA',
   'a',
   'x',
   'admin',
@@ -371,7 +384,7 @@ function prng(seed: number): () => number {
  */
 const FRAGMENTED_ESCAPES: string[] = (() => {
   const out: string[] = [];
-  for (const percent of ['%25', '%EF%BC%85']) {
+  for (const percent of ['%25', '%EF%BC%85', '%EF%B9%AA', '%D9%AA']) {
     for (const gap of ['', '%E2%80%8B', '%C2%AD', '%EF%BB%BF', '%CC%81', '%CD%8F']) {
       for (const high of ['2', '5', '%EF%BC%92']) {
         for (const low of ['e', 'E', 'f', 'c', '%EF%BD%85', '%EF%BC%A5']) {
@@ -460,6 +473,15 @@ describe('proxy wildcard remainder: no upstream model leaves the base path', () 
     '/docs/..:/admin',
     '/docs/..::$INDEX_ALLOCATION/admin',
     '/docs/..%E2%88%95admin',
+    // more best-fit look-alikes: the acute accent as a slash, the ratio sign
+    // and the Armenian full stop as colons, the Arabic percent sign
+    '/docs/..%C2%B4..%C2%B4x',
+    '/docs/a%C2%B4..%C2%B4..%C2%B4admin',
+    '/docs/..%E2%88%B6%E2%88%B6$INDEX_ALLOCATION/admin',
+    '/docs/..%E2%88%B6/admin',
+    '/docs/..%D6%89/admin',
+    '/docs/%D9%AA2e%D9%AA2e/admin',
+    '/docs/..%D9%AA2f..%D9%AA2fadmin',
     // escapes split by an ignorable code point
     '/docs/%25%E2%80%8B2e%25%E2%80%8B2e/admin',
     '/docs/%252%E2%80%8Be%252%E2%80%8Be/admin',
@@ -535,6 +557,9 @@ describe('proxy wildcard remainder: legitimate paths forward unchanged', () => {
     ['/docs/%E2%9D%A4%EF%B8%8F', '/base/%E2%9D%A4%EF%B8%8F'],
     ['/docs/%F0%9F%91%A8%E2%80%8D%F0%9F%92%BB', '/base/%F0%9F%91%A8%E2%80%8D%F0%9F%92%BB'],
     ['/docs/cafe%CC%81', '/base/cafe%CC%81'],
+    // look-alike colons and percent signs elsewhere still forward
+    ['/docs/a%E2%88%B6b', '/base/a%E2%88%B6b'],
+    ['/docs/%D9%AA', '/base/%D9%AA'],
     ['/docs/x/../y', '/base/y'], // the runtime's parser resolved it before the Worker saw it
   ])('%s forwards as %s', (visitorPath, expected) => {
     expect(forwarded(route, visitorPath)).toBe(expected);
@@ -555,6 +580,10 @@ describe('proxy wildcard remainder: legitimate paths forward unchanged', () => {
     ['a division slash', '/docs/a%E2%88%95b'],
     ['a fraction slash', '/docs/a%E2%81%84b'],
     ['a set minus', '/docs/a%E2%88%96b'],
+    ['an acute accent (best-fit slash)', '/docs/caf%C2%B4e'],
+    ['a dot name before a ratio sign (best-fit colon)', '/docs/..%E2%88%B6x'],
+    ['a dot name before an Armenian full stop (best-fit colon)', '/docs/..%D6%89'],
+    ['an Arabic percent sign before two hex digits', '/docs/50%D9%AA25'],
   ])('refuses %s with no upstream fetch (documented behaviour change)', (_label, visitorPath) => {
     expect(forwarded(route, visitorPath)).toBeNull();
   });

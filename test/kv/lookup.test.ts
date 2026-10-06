@@ -128,9 +128,13 @@ const wildcardRoute = (path: string, enabled = true): KVRouteConfig => ({
   updatedAt: 0,
 });
 
+// KV values are read as text and parsed by the lookup, so the mocks store text
+const stored = (route: KVRouteConfig | undefined): string | null =>
+  route === undefined ? null : JSON.stringify(route);
+
 const createKv = (routes: ReadonlyMap<string, KVRouteConfig>): KVNamespace =>
   ({
-    get: async (key: string) => routes.get(key) ?? null,
+    get: async (key: string) => stored(routes.get(key)),
   }) as unknown as KVNamespace;
 
 describe('matchRoute wildcard lookup', () => {
@@ -144,13 +148,13 @@ describe('matchRoute wildcard lookup', () => {
       async get(key: string) {
         if (key === routeKey(domain, '/a/b/*')) {
           await scheduler.wait(5);
-          return specific;
+          return stored(specific);
         }
-        return key === routeKey(domain, '/*') ? root : null;
+        return key === routeKey(domain, '/*') ? stored(root) : null;
       },
     } as unknown as KVNamespace;
 
-    await expect(matchRoute(kv, domain, deepPath)).resolves.toBe(specific);
+    await expect(matchRoute(kv, domain, deepPath)).resolves.toEqual(specific);
   });
 
   it('falls through a disabled specific wildcard to the next enabled candidate', async () => {
@@ -163,7 +167,7 @@ describe('matchRoute wildcard lookup', () => {
       ]),
     );
 
-    await expect(matchRoute(kv, domain, deepPath)).resolves.toBe(root);
+    await expect(matchRoute(kv, domain, deepPath)).resolves.toEqual(root);
   });
 
   it('loads wildcard candidates concurrently after an exact miss', async () => {

@@ -131,6 +131,39 @@ describe('feedback API - auth + lifecycle', () => {
     expect(data.data.submitterEmail).toBe('someone@example.com');
   });
 
+  // v1.38.0: the submit body's JSON parts are read as unknown and validated
+  it.each([
+    ['not JSON', '{"url":'],
+    ['a JSON array', '["https://x.example"]'],
+    ['the wrong shape', JSON.stringify({ url: 5 })],
+  ])('refuses a context that is %s with a fixed 400', async (_label, context) => {
+    const res = await submit({ ...BASE, context });
+    expect(res.status).toBe(400);
+    expect(await res.text()).toBe('context metadata is not valid');
+  });
+
+  it('keeps a valid context, server-stamping the timestamp', async () => {
+    const res = await submit({
+      ...BASE,
+      context: JSON.stringify({ url: 'https://x.example/a', timestamp: 'client', extra: 1 }),
+    });
+    expect(res.status).toBe(201);
+    const item = ((await res.json()) as { data: { context: Record<string, unknown> } }).data;
+    expect(item.context['url']).toBe('https://x.example/a');
+    expect(item.context['timestamp']).not.toBe('client');
+    expect(item.context).not.toHaveProperty('extra');
+  });
+
+  it.each([
+    ['not JSON', '{"console":'],
+    ['entries of the wrong shape', JSON.stringify({ console: [{ level: 'error', message: 7 }] })],
+  ])('drops a capture bundle that is %s and keeps the submission', async (_label, capture) => {
+    const res = await submit({ ...BASE, capture });
+    expect(res.status).toBe(201);
+    const item = ((await res.json()) as { data: { captureKey: string | null } }).data;
+    expect(item.captureKey).toBeNull();
+  });
+
   it('submits with no submitter metadata (201, null submitter)', async () => {
     const res = await submit(BASE);
     expect(res.status).toBe(201);

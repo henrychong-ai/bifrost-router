@@ -67,7 +67,8 @@ function storedRouteBinding(calls: string[]): unknown {
     {
       get: (_target, property) =>
         property === 'get'
-          ? async () => STORED_ROUTE
+          ? // Values are read as text and parsed by the reader (v1.38.0)
+            async () => JSON.stringify(STORED_ROUTE)
           : () => {
               const call = `ROUTES.${String(property)}`;
               calls.push(call);

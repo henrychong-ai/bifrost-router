@@ -10,6 +10,57 @@ import { validateProxyTarget } from '../utils/url-validation';
 const DEFAULT_TIMEOUT_MS = 30000;
 
 /**
+ * Upstream redirects the proxy follows before giving up (v1.38.0): 20, the
+ * Fetch standard's limit the runtime applied when it followed them, so every
+ * redirect chain served before is served now. Each hop is checked against the
+ * shared outbound host policy before it is fetched.
+ */
+export const MAX_PROXY_REDIRECTS = 20;
+
+/** Statuses the proxy follows as redirects when they carry a Location (as fetch does). */
+const REDIRECT_STATUSES: ReadonlySet<number> = new Set([301, 302, 303, 307, 308]);
+
+/**
+ * The only request headers a followed redirect carries to another origin
+ * (v1.38.0), an ALLOW-list: content negotiation, the user agent, caching and
+ * conditional (`if-*`) headers and ranges. Everything else stays behind: the
+ * visitor's credentials (Authorization, Cookie, Proxy-Authorization), the
+ * route's Host override and any custom header. Before v1.38.0 the runtime
+ * followed redirects itself and, with the
+ * `retain_authorization_on_cross_origin_redirect` flag, sent every header on.
+ */
+const CROSS_ORIGIN_HEADERS: ReadonlySet<string> = new Set([
+  'accept',
+  'accept-encoding',
+  'accept-language',
+  'cache-control',
+  'range',
+  'user-agent',
+]);
+
+/**
+ * `headers` reduced to what may go to another origin (CROSS_ORIGIN_HEADERS).
+ * A followed redirect never carries a body (one that would need resending is
+ * refused, any other becomes a bodiless GET), so no body header is kept.
+ */
+function crossOriginHeaders(headers: Headers): Headers {
+  const kept = new Headers();
+  for (const [name, value] of headers) {
+    if (CROSS_ORIGIN_HEADERS.has(name) || name.startsWith('if-')) kept.append(name, value);
+  }
+  return kept;
+}
+
+/** Headers that describe a request body, dropped when a redirect turns the request into a GET. */
+const BODY_HEADERS = [
+  'content-encoding',
+  'content-language',
+  'content-length',
+  'content-location',
+  'content-type',
+];
+
+/**
  * Proxy error types for categorization
  */
 export type ProxyErrorType = 'validation_error' | 'timeout' | 'network_error' | 'upstream_error';
@@ -44,17 +95,32 @@ function createProxyErrorResponse(
 }
 
 /**
- * A path separator: ASCII, fullwidth (after NFKC), or a look-alike some
- * upstreams map to one (U+2215, U+2044, U+29F8, U+2216).
+ * A path separator: ASCII, fullwidth (after NFKC), or a look-alike a
+ * best-fit code-page conversion turns into one and no legitimate name needs
+ * (∕ U+2215, ⁄ U+2044, ⧸ U+29F8, ∖ U+2216, ´ U+00B4). `¥` and `₩` stay
+ * allowed (Japanese and Korean names): an accepted residual for a CP932 or
+ * CP949 IIS upstream.
  */
-const SEPARATOR = /[/\\\u2215\u2044\u29f8\u2216]/;
+const SEPARATOR = /[/\\\u2215\u2044\u29f8\u2216\u00b4]/;
 /** A C0 control, DEL or a C1 control (U+0085 NEL among them). */
 // eslint-disable-next-line no-control-regex -- matching them is the point
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
-/** A percent-escape a second decode would act on (`%hh` or `%u`). */
-const RESIDUAL_ESCAPE = /%(?:[0-9a-f]{2}|u)/i;
 /**
- * A segment core (before any `;`, `?` or `#`) that is empty or only dots,
+ * A percent-escape a second decode would act on (`%hh` or `%u`), also with
+ * `٪` (U+066A ARABIC PERCENT SIGN), which best-fit conversion turns into `%`
+ * (the fullwidth and small forms `％` and `﹪` are caught on the NFKC variant).
+ */
+const RESIDUAL_ESCAPE = /[%\u066a](?:[0-9a-f]{2}|u)/i;
+
+/**
+ * Where a segment's name ends: path parameters (`;`), a re-split query or
+ * fragment (`?`, `#`), or an NTFS stream name (`:`, and its best-fit
+ * look-alikes `∶` U+2236 and `։` U+0589; `..:` and `..::$INDEX_ALLOCATION`
+ * name the parent directory on Windows).
+ */
+const CORE_END = /[;?#:\u2236\u0589]/;
+/**
+ * A segment core (before any `;`, `?`, `#` or `:`, or a look-alike colon) that is empty or only dots,
  * spaces, `+`, Unicode whitespace, combining marks or ignorable code points:
  * something an upstream may trim, strip or collapse into `.` or `..`.
  */
@@ -102,8 +168,9 @@ function textVariants(decoded: string): string[] {
  * acts on the decoded text (or on raw bytes that matter only when the decoded
  * text does). Refused: a malformed escape (a bare `%`, `%u`, invalid or
  * overlong UTF-8, Latin-1 bytes); in any variant, a `/` or `\\` (fullwidth
- * included, and the division-slash look-alikes), a C0 control, DEL or C1 control, any `%hh` or `%u` (so a second
- * decode changes nothing), or a core (before `;`, `?`, `#` or `:`) that is empty
+ * included, and the best-fit look-alikes), a C0 control, DEL or C1 control, any `%hh` or `%u`,
+ * with `%` or `٪` (so a second decode changes nothing), or a core (before
+ * `;`, `?`, `#`, `:` or a look-alike colon) that is empty
  * or only dots, spaces, `+`, Unicode whitespace, combining marks or ignorable
  * code points. An empty segment is judged by its position in the path.
  */
@@ -118,7 +185,7 @@ function segmentAccepted(raw: string): boolean {
   for (const text of textVariants(decoded)) {
     if (SEPARATOR.test(text) || CONTROL.test(text) || RESIDUAL_ESCAPE.test(text)) return false;
     // `:` too: an NTFS stream suffix (`..::$INDEX_ALLOCATION`) is dropped
-    const core = text.split(/[;?#:]/, 1)[0] ?? '';
+    const core = text.split(CORE_END, 1)[0] ?? '';
     if (COLLAPSIBLE_CORE.test(core)) return false;
   }
   return true;
@@ -182,8 +249,9 @@ export function proxyDestination(route: KVRouteConfig, requestUrl: URL): URL | n
  * - Path preservation for wildcard routes
  * - Configurable cache control
  * - Method and header forwarding
- * - SSRF protection via URL validation
- * - Timeout handling (default 30s)
+ * - SSRF protection via URL validation, on the target and on every redirect
+ *   hop (at most {@link MAX_PROXY_REDIRECTS}, v1.38.0)
+ * - Timeout handling (default 30s, for the whole redirect chain)
  * - Graceful error handling for network failures
  */
 export async function handleProxy(
@@ -219,24 +287,105 @@ export async function handleProxy(
   }
   const fullTargetUrl = destination.toString();
 
-  // Create AbortController for timeout
+  // Create AbortController for timeout (the whole redirect chain shares it)
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     // Prepare headers, optionally overriding Host
-    const headers = filterProxyHeaders(c.req.raw.headers);
+    let headers = filterProxyHeaders(c.req.raw.headers);
     if (route.hostHeader) {
       headers.set('Host', route.hostHeader);
     }
 
-    // Forward the request with timeout
-    const response = await fetch(fullTargetUrl, {
-      method: c.req.method,
-      headers,
-      ...(!['GET', 'HEAD'].includes(c.req.method) && { body: c.req.raw.body }),
-      signal: controller.signal,
-    });
+    // Redirects are followed here, not by the runtime (v1.38.0), so every hop
+    // passes the shared outbound host policy before it is fetched: an allowed
+    // upstream could otherwise redirect the Worker to a private address, and
+    // the visitor's credentials no longer follow a redirect to another origin.
+    let url = fullTargetUrl;
+    let method = c.req.method;
+    let body: ReadableStream | null = ['GET', 'HEAD'].includes(method) ? null : c.req.raw.body;
+    let response: Response;
+    for (let hop = 0; ; hop++) {
+      response = await fetch(url, {
+        method,
+        headers,
+        ...(body !== null && { body }),
+        redirect: 'manual',
+        signal: controller.signal,
+      });
+      const location = response.headers.get('location');
+      if (!REDIRECT_STATUSES.has(response.status) || location === null) break;
+
+      // A redirect: its own body is never read
+      await response.body?.cancel().catch(() => undefined);
+      if (hop >= MAX_PROXY_REDIRECTS) {
+        clearTimeout(timeoutId);
+        return createProxyErrorResponse(
+          c,
+          'upstream_error',
+          `The upstream server redirected more than ${MAX_PROXY_REDIRECTS} times.`,
+          502,
+          { path: route.path, target: redactRouteTarget(route.target) },
+        );
+      }
+      let next: URL;
+      try {
+        next = new URL(location, url);
+      } catch {
+        clearTimeout(timeoutId);
+        return createProxyErrorResponse(
+          c,
+          'upstream_error',
+          'The upstream server sent an invalid redirect.',
+          502,
+          { path: route.path, target: redactRouteTarget(route.target) },
+        );
+      }
+      const hopValidation = validateProxyTarget(next.href);
+      if (!hopValidation.valid) {
+        clearTimeout(timeoutId);
+        return createProxyErrorResponse(
+          c,
+          'validation_error',
+          'The proxy target is not allowed.',
+          502,
+          {
+            path: route.path,
+            target: redactRouteTarget(route.target),
+            redirect: redactRouteTarget(next.href),
+            validationError: hopValidation.error,
+          },
+        );
+      }
+
+      // As fetch does: a 303 (except for HEAD), or a 301/302 answering a
+      // POST, becomes a GET without a body; any other redirect resends the
+      // request as it was, which a body that has already streamed cannot do.
+      const status = response.status;
+      if (
+        (status === 303 && method !== 'HEAD') ||
+        ((status === 301 || status === 302) && method === 'POST')
+      ) {
+        method = 'GET';
+        body = null;
+        for (const header of BODY_HEADERS) headers.delete(header);
+      } else if (body !== null) {
+        clearTimeout(timeoutId);
+        return createProxyErrorResponse(
+          c,
+          'network_error',
+          'Failed to connect to upstream server: the redirect needs the request body sent again.',
+          502,
+          { path: route.path, target: redactRouteTarget(route.target) },
+        );
+      }
+      // Leaving this hop's origin: only allow-listed headers go on
+      if (next.origin !== new URL(url).origin) {
+        headers = crossOriginHeaders(headers);
+      }
+      url = next.href;
+    }
 
     // Clear timeout on successful response
     clearTimeout(timeoutId);

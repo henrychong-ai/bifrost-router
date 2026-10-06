@@ -34,6 +34,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { useDeleteFeedback, useFeedbackItem, useTriageFeedback } from '@/hooks/use-feedback';
 import { api } from '@/lib/api-client';
+import { parseStoredCapture } from '@/lib/stored-json';
 
 export function FeedbackDetailDialog({
   id,
@@ -84,7 +85,8 @@ export function FeedbackDetailDialog({
       if (item.captureKey) {
         try {
           const blob = await api.feedback.attachment(item.id, item.captureKey);
-          const parsed = JSON.parse(await blob.text()) as FeedbackCaptureBundle;
+          // Read as unknown and validated (v1.38.0): not a bundle shows none
+          const parsed = parseStoredCapture(await blob.text());
           if (!cancelled) setCapture(parsed);
         } catch {
           /* ignore */

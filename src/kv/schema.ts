@@ -44,6 +44,19 @@ export function fitsKvKey(key: string): boolean {
 }
 
 /**
+ * Whether `key` is shaped like a route key, `{domain}:/{path}` with a dotted
+ * host name as the domain (v1.38.0). The namespace also holds `qr:` records
+ * and, when the optional rate limiter is used, `ratelimit:` entries (client
+ * IP addresses); a listing checks this BEFORE reading or logging a key, so
+ * none of them is ever read or logged as a route.
+ */
+export function isRouteKey(key: string): boolean {
+  const colon = key.indexOf(':');
+  if (colon <= 0 || key[colon + 1] !== '/') return false;
+  return /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(key.slice(0, colon));
+}
+
+/**
  * Parse a KV key into domain and path
  * @param key - The KV key (e.g., "example.com:/linkedin")
  * @returns [domain, path] tuple

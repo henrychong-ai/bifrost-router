@@ -3,6 +3,15 @@ import { createDb } from '../db';
 import { insertAuditLog } from '../db/analytics';
 import { auditLogs, pollCursors } from '../db/schema';
 import type { Bindings } from '../types';
+import {
+  guard,
+  isOptional,
+  isRecord,
+  isString,
+  logInvalidBoundary,
+  readResponseJson,
+  readStoredJson,
+} from '../utils/boundary';
 
 /**
  * Cloudflare account audit-log poller (v1.28.0, Layer 2 of the R2 external
@@ -49,6 +58,51 @@ interface PollCursor {
   boundaryIds: string[];
 }
 
+/** An optional object whose listed keys, when present, are strings. */
+const stringFields =
+  (...keys: string[]) =>
+  (value: unknown) =>
+    isRecord(value) && keys.every(key => isOptional(value[key], isString));
+
+/**
+ * One audit entry as the poller reads it (v1.38.0): every field it uses has
+ * its declared type when present, so a changed API shape can never reach
+ * `.toLowerCase()` or the audit row as something else. `action.result` and
+ * the value fields stay opaque; they are only serialised.
+ */
+function isCfAuditEntry(value: unknown): value is CfAuditEntry {
+  return (
+    isRecord(value) &&
+    isOptional(value['id'], isString) &&
+    isOptional(value['when'], isString) &&
+    isOptional(value['interface'], isString) &&
+    isOptional(value['action'], stringFields('type')) &&
+    isOptional(value['actor'], stringFields('id', 'email', 'type', 'ip')) &&
+    isOptional(value['resource'], stringFields('type', 'id')) &&
+    isOptional(value['metadata'], isRecord)
+  );
+}
+
+/** The audit_logs response body: `success`, and `result` as an array. */
+const auditPageBody = guard(
+  (value: unknown): value is { success?: boolean; result?: unknown[] } =>
+    isRecord(value) &&
+    isOptional(value['success'], item => typeof item === 'boolean') &&
+    isOptional(value['result'], Array.isArray),
+);
+
+/** A stored cursor: a non-empty `since`, and string `boundaryIds` if any. */
+const storedCursor = guard(
+  (value: unknown): value is PollCursor =>
+    isRecord(value) &&
+    typeof value['since'] === 'string' &&
+    value['since'] !== '' &&
+    isOptional(
+      value['boundaryIds'],
+      ids => Array.isArray(ids) && ids.every(id => typeof id === 'string'),
+    ),
+);
+
 /**
  * Is this audit entry relevant to Bifrost's R2 surface? R2 resource types
  * (r2.bucket etc.), queues (the event pipeline's infra), and Workers cron/
@@ -67,12 +121,12 @@ async function readCursor(db: ReturnType<typeof createDb>): Promise<PollCursor |
     .where(eq(pollCursors.name, CURSOR_NAME))
     .limit(1);
   if (!rows[0]) return null;
-  try {
-    const parsed = JSON.parse(rows[0].value) as PollCursor;
-    return parsed?.since ? parsed : null;
-  } catch {
-    return null;
-  }
+  // A cursor that is not valid restarts the window (the first-run lookback);
+  // the id backstop absorbs any replay (v1.38.0)
+  const read = readStoredJson(rows[0].value, storedCursor);
+  if (read.status === 'ok') return read.value;
+  logInvalidBoundary('audit-cursor');
+  return null;
 }
 
 async function writeCursor(db: ReturnType<typeof createDb>, cursor: PollCursor): Promise<void> {
@@ -89,12 +143,66 @@ async function writeCursor(db: ReturnType<typeof createDb>, cursor: PollCursor):
     });
 }
 
-/** Fetch one page of account audit logs (since → now, ascending). */
+/**
+ * A malformed audit entry, kept in a minimal shape (v1.38.0) so it is
+ * recorded instead of lost behind an advancing watermark: its own `id` when
+ * that is a string, else `unparsed:` and a SHA-256 of the entry (stable, so a
+ * re-fetched entry is recognised), and `when` when that is a string.
+ */
+interface UnparsedAuditEntry {
+  id: string;
+  when?: string | undefined;
+  /** Whether it may concern R2 or queues: true when its scope cannot be read. */
+  inScope: boolean;
+}
+
+/** At most this many unparsed rows are recorded per run; a flood is logged once. */
+export const MAX_UNPARSED_PER_RUN = 20;
+
+/** A string field of a nested object, read loosely from a malformed entry. */
+function looseString(value: unknown, field: string): string | undefined {
+  if (!isRecord(value)) return undefined;
+  const item = value[field];
+  return isString(item) ? item : undefined;
+}
+
+async function unparsedEntry(raw: unknown): Promise<UnparsedAuditEntry> {
+  const fields = isRecord(raw) ? raw : {};
+  const when = isString(fields['when']) ? fields['when'] : undefined;
+  // Scope, read loosely: undeterminable (and so recorded) when the resource
+  // type cannot be read; otherwise R2 or queue as for a parsed entry
+  const resourceType = looseString(fields['resource'], 'type');
+  const actionType = looseString(fields['action'], 'type');
+  const inScope =
+    resourceType === undefined ||
+    isR2Scoped({
+      resource: { type: resourceType },
+      ...(actionType === undefined ? {} : { action: { type: actionType } }),
+    });
+  const id = fields['id'];
+  if (isString(id) && id !== '') return { id, when, inScope };
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(JSON.stringify(raw) ?? 'undefined'),
+  );
+  const hex = [...new Uint8Array(digest)]
+    .slice(0, 16)
+    .map(byte => byte.toString(16).padStart(2, '0'))
+    .join('');
+  return { id: `unparsed:${hex}`, when, inScope };
+}
+
+/**
+ * One page of account audit logs (since → now, ascending): the validated
+ * entries, the malformed ones in their minimal shape, and how many the page
+ * held before validation, so pagination runs on what Cloudflare returned (a
+ * full page with one malformed entry still has a next page).
+ */
 async function fetchAuditPage(
   credentials: { accountId: string; token: string },
   since: string,
   page: number,
-): Promise<CfAuditEntry[]> {
+): Promise<{ entries: CfAuditEntry[]; unparsed: UnparsedAuditEntry[]; rawCount: number }> {
   const params = new URLSearchParams({
     since,
     per_page: String(PAGE_SIZE),
@@ -110,9 +218,18 @@ async function fetchAuditPage(
       `CF audit_logs API ${response.status}: ${(await response.text()).slice(0, 200)}`,
     );
   }
-  const body = (await response.json()) as { success?: boolean; result?: CfAuditEntry[] };
-  if (body.success === false) throw new Error('CF audit_logs API returned success=false');
-  return body.result ?? [];
+  const read = await readResponseJson(response, auditPageBody);
+  if (read.status !== 'ok') throw new Error('CF audit_logs API returned an invalid body');
+  if (read.value.success === false) throw new Error('CF audit_logs API returned success=false');
+  const raw = read.value.result ?? [];
+  const entries = raw.filter(isCfAuditEntry);
+  // A malformed entry is never recorded half-read; it is kept in a minimal
+  // shape and recorded as unparsed, not dropped
+  const unparsed = await Promise.all(
+    raw.filter(entry => !isCfAuditEntry(entry)).map(unparsedEntry),
+  );
+  if (unparsed.length > 0) logInvalidBoundary('cf-audit-entry');
+  return { entries, unparsed, rawCount: raw.length };
 }
 
 /**
@@ -177,6 +294,8 @@ export async function pollCfAuditLogs(env: Bindings): Promise<void> {
       : since;
 
     let recorded = 0;
+    let unparsedRecorded = 0;
+    let unparsedCapped = false;
 
     // Watermark state. Timestamps are compared NUMERICALLY (epoch ms) — the
     // cursor seed comes from toISOString() ('…00.000Z') while CF `when` values
@@ -200,8 +319,55 @@ export async function pollCfAuditLogs(env: Bindings): Promise<void> {
     };
 
     for (let page = 1; page <= MAX_PAGES_PER_RUN; page++) {
-      const entries = await fetchAuditPage(credentials, queryFrom, page);
-      if (entries.length === 0) break;
+      const { entries, unparsed, rawCount } = await fetchAuditPage(credentials, queryFrom, page);
+      if (rawCount === 0) break;
+
+      // Malformed entries in scope (R2/queue, or scope unreadable) are
+      // recorded minimally (id, time, "unparsed"), never their content, never
+      // twice, and at most MAX_UNPARSED_PER_RUN per run (a shape change floods
+      // once, with one fixed warning)
+      for (const entry of unparsed) {
+        if (boundaryIds.has(entry.id) || !entry.inScope) {
+          advanceWatermark(entry.id, entry.when);
+          continue;
+        }
+        if (unparsedRecorded >= MAX_UNPARSED_PER_RUN) {
+          if (!unparsedCapped) {
+            unparsedCapped = true;
+            console.warn(
+              JSON.stringify({
+                level: 'warn',
+                message: 'cf-audit-unparsed-cap',
+                cap: MAX_UNPARSED_PER_RUN,
+              }),
+            );
+          }
+          advanceWatermark(entry.id, entry.when);
+          continue;
+        }
+        const whenMs = entry.when ? Date.parse(entry.when) : Number.NaN;
+        const whenSecs = Math.floor((Number.isNaN(whenMs) ? Date.now() : whenMs) / 1000);
+        if (!(await alreadyRecorded(db, entry.id, whenSecs - 24 * 60 * 60))) {
+          // STRICT insert, as below
+          await insertAuditLog(env.DB, {
+            domain: 'storage',
+            action: 'cf_config_change',
+            actorLogin: 'cloudflare-unknown',
+            actorName: null,
+            path: 'unknown/unparsed',
+            ipAddress: null,
+            details: JSON.stringify({
+              cf_audit_id: entry.id,
+              unparsed: true,
+              ...(Number.isNaN(whenMs) ? {} : { when: entry.when }),
+            }),
+            source: 'cf_audit',
+          });
+          recorded++;
+          unparsedRecorded++;
+        }
+        advanceWatermark(entry.id, entry.when);
+      }
 
       for (const entry of entries) {
         const id = entry.id ?? '';
@@ -246,7 +412,7 @@ export async function pollCfAuditLogs(env: Bindings): Promise<void> {
         advanceWatermark(id, entry.when);
       }
 
-      if (entries.length < PAGE_SIZE) break;
+      if (rawCount < PAGE_SIZE) break;
     }
 
     await writeCursor(db, { since: newestWhen, boundaryIds: [...newestIds] });

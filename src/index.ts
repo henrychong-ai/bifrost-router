@@ -17,7 +17,7 @@ import {
 } from './db/analytics';
 import { CACHE_STATUS_HEADER, handleProxy, handleR2, handleRedirect } from './handlers';
 import { proxyDestination } from './handlers/proxy';
-import { matchRoute, rawWildcardRemainder } from './kv/lookup';
+import { lookupRoute, rawWildcardRemainder } from './kv/lookup';
 import { privacySafeRequestLogger } from './middleware/request-logger';
 import { denySensitivePaths } from './middleware/sensitive-paths';
 import { handleR2EventBatch, type R2EventMessage } from './queue/r2-events';
@@ -313,7 +313,15 @@ app.all('*', async c => {
   );
 
   // Look up route in unified KV namespace with domain prefix
-  const route = await matchRoute(c.env.ROUTES, domain, path);
+  const lookup = await lookupRoute(c.env.ROUTES, domain, path);
+
+  // A stored record that cannot be read is a 404 and nothing else (v1.38.0):
+  // never a broader wildcard and never the service binding
+  if (lookup.status === 'invalid') {
+    c.set('unifiedEventType', 'not_found');
+    return c.json({ error: 'Not Found', path }, 404);
+  }
+  const route = lookup.status === 'ok' ? lookup.route : null;
 
   if (!route) {
     // Check for service binding fallback (e.g., example-site for example.com)

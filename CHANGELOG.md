@@ -6,6 +6,131 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## Unreleased — Validated boundary reads; proxy redirects checked hop by hop; fixed preview errors
+
+**Why:** a type argument on a KV read or an `as` cast on parsed JSON only told
+the compiler what a stored or remote value held; nothing checked it, and the
+runtime's JSON parser could quote a stored value in its error. An invalid
+exact route fell through to a broader wildcard. The proxy let the runtime
+follow upstream redirects, so a redirect hop was not checked against the
+outbound host policy and the visitor's request headers, `Authorization`
+included, went on to a redirect target on another origin. The link-preview
+endpoint returned an error's own text. No D1 migration.
+
+**Proxy routes:** check any proxy route whose upstream redirects to another
+origin and expects the visitor's `Authorization` or `Cookie` there: those
+headers are no longer sent on such a hop.
+
+### Proxy
+
+- **Redirects are followed hop by hop, each one checked.** The proxy handler
+  follows upstream redirects itself (`redirect: 'manual'`), at most 20 (the
+  Fetch limit the runtime applied, `MAX_PROXY_REDIRECTS`). Each `Location`
+  passes `validateProxyTarget` (scheme and the outbound host policy) before it
+  is fetched: a refused hop answers 502 `validation_error`, an unparseable one
+  or a 21st redirect 502 `upstream_error`, and each redirect's body is
+  cancelled unread. A 303 (except for HEAD) or a 301/302 answering a POST
+  becomes a bodiless GET, as `fetch` does; a 307/308 that would have to resend
+  a streamed body answers 502.
+- **Credentials stay on their origin.** On a hop to another origin only
+  `accept`, `accept-encoding`, `accept-language`, `cache-control`, `range`,
+  `user-agent` and `if-*` go on: `Authorization`, `Cookie`,
+  `Proxy-Authorization`, the route's `Host` override and any custom header
+  stay behind, for that hop and every later one. `wrangler.toml` no longer
+  sets `retain_authorization_on_cross_origin_redirect`.
+- **More best-fit look-alikes in the remainder rule.** A segment is also
+  refused when a variant holds `´` (U+00B4, read as `/` by best-fit code
+  pages), when its name part before `∶` (U+2236) or `։` (U+0589), read as `:`,
+  is only dots, and when it holds `٪` (U+066A, read as `%`) before two hex
+  digits or `u`. The remainder oracle gains NTFS-stream and best-fit models,
+  the new atoms in its seeded fuzz, and these vectors.
+
+### Outbound host policy
+
+- **Wildcard-DNS names are refused.** Known services that answer with an
+  address written in the name or with loopback (`nip.io`, `sslip.io`,
+  `localtest.me`, `lvh.me`, `traefik.me`, `vcap.me`, `lacolhost.com`,
+  `localhost.direct`, `local.gd`, `1u.ms`, `rbndr.us`) are refused by name,
+  the name and every subdomain, in any case and with one trailing dot, for
+  link previews (and `og:image`/`og:url`) and proxy targets alike. They share
+  one name-or-subdomain list with `localhost`, `internal` and `local` (so the
+  bare names `internal` and `local` are refused too). The list is
+  illustrative, not complete: names are still not resolved.
+
+### Link previews
+
+- **Fixed error messages.** `GET /api/metadata/og` answers a fixed message per
+  failure class and never an error's own text: 403 with the refusal class
+  (`Invalid URL format`, `Blocked scheme`, `Blocked hostname`, `Blocked
+  private IP address`, `Blocked IPv6 address`), 413 for a page over 1 MB, and
+  502 with `Too many redirects (max 5)`, `HTTP <status>`, `The page did not
+  answer in time` or `The page could not be fetched`.
+- **DOCTYPE parsing is pinned to the spec.** A `<!DOCTYPE …>` ends at its
+  first `>`, a quoted public or system identifier included, as in every HTML
+  DOCTYPE state; the scanner already did this, and new tests and the parse5
+  differential (DOCTYPE fixtures, 900,000 generated cases) pin it, with no
+  divergence beyond the documented unclosed `<title>`.
+
+### Validated boundary reads
+
+- **One reader.** KV values are read as text and parsed locally
+  (`readKvJson`, `src/utils/boundary.ts`); stored strings and response bodies
+  go through `readStoredJson` and `readResponseJson`. Each answers missing,
+  valid or invalid and never throws a parser message; an invalid value is
+  logged as one fixed line naming its category (and, for a route or QR code,
+  its key), never the value.
+- **An invalid stored route fails closed.** It is never served, and the
+  lookup no longer falls through to a broader wildcard or to the host's
+  service binding: the visitor gets a 404, and so does a preview of it.
+  `GET` answers 404 and listings leave it out. Create, update (a toggle
+  included), migrate and transfer over it answer a fixed 409
+  `ROUTE_RECORD_INVALID`, and seed skips it; nothing is merged with it.
+  `DELETE` removes it, which is the recovery. The guard is as tolerant as the
+  shared `RouteSchema`, so routes stored before today's write caps still read.
+- **Listings read route keys only.** Keys that are not `{domain}:/…` (QR
+  records and the optional rate limiter's `ratelimit:` entries, which hold
+  client IP addresses) are skipped before they are read or logged.
+- **QR records are validated before they are returned:** every field a reader
+  uses, nested payload, design and `linkedRoute` fields included, with
+  supported legacy forms normalised (a missing design or design field takes
+  its default, a Wi-Fi payload without `auth` reads as `WPA`). An unreadable
+  record is not found, can be deleted, and a create with its id answers 409.
+  QR timestamps stay the Worker's clock; a client-sent `createdAt` or
+  `updatedAt` is ignored (now pinned by a test).
+- **Other stored and remote values:** a malformed rate-limit entry resets its
+  window; a malformed Cloudflare audit cursor restarts the first-run window; an
+  audit-log entry that fails its shape is recorded in a minimal form (its id or
+  a hash, its time, `unparsed`) and never its content, at most 20 per run,
+  while pagination counts the raw page; feedback context and screenshot-key
+  columns read as their fallbacks; stored R2 audit details that are not a JSON
+  object match no event (a stored `null` used to throw and retry the queue
+  batch); a cache-purge answer that is not an object counts as a failure.
+- **Request bodies** are read as unknown and validated; a feedback
+  submission's `context` that is not JSON or not the context shape is now a
+  400 `context metadata is not valid` instead of being stored as an empty
+  context. The feedback context cap moved to `shared`
+  (`FEEDBACK_CONTEXT_MAX_BYTES`).
+- **Clients:** the shared API client reads the response envelope as unknown
+  (a body that is not a JSON object is a parse failure, and `error`,
+  `message` and `meta` count only with their declared types; a failed
+  response keeps the server's `error` and `message` text even without a
+  `success` flag, as the admin-host 404 sends it); the dashboard
+  validates backup health, the Tailscale identity, feedback capture
+  attachments, audit details and the Routes page's navigation hand-off.
+- **Gate:** `scripts/check-boundary-reads.mjs` (`pnpm run boundary:check`, in
+  `pnpm run check` and CI) fails on a KV read typed or asked for as `'json'`,
+  `.json<T>()`, `c.req.json<T>()` or an untyped `c.req.json()`, a `.json()`
+  result cast with `as`, `JSON.parse(…) as T`, and an argument-free `.json()`
+  or a `JSON.parse(…)` initialising, or assigned (`=`, `??=`, `||=`, `&&=`)
+  to, a binding annotated with a type other than `unknown`
+  (`unknown | null | undefined` counts as `unknown`). These patterns only; it
+  is not a proof that every read is checked. A vetted case needs a real
+  `// boundary-ok: <reason>` comment on the read's line or the line before
+  it; text that only looks like one, in a string, template literal, regular
+  expression or block comment, exempts nothing.
+
+---
+
 ## v1.37.2 (2026-10-06) — Bounded backup inflation; linear preview parsing; one outbound host policy; own-domain previews
 
 **Why:** hardening of the backup verifier and the link-preview endpoint. The

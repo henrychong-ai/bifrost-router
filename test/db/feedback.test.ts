@@ -143,4 +143,27 @@ describe('db/feedback', () => {
     expect(await listFeedback(env.DB, {})).toEqual([]);
     await env.DB.prepare(FEEDBACK_DDL).run(); // restore for isolation
   });
+
+  // v1.38.0: JSON columns are read as unknown and validated; a bad stored
+  // value reads as its fallback with one fixed log line, never the value
+  it('reads an invalid context or screenshot-key column as its fallback, quoting nothing', async () => {
+    const { vi } = await import('vitest');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const created = await createFeedback(env.DB, data());
+      await env.DB.prepare('UPDATE feedback SET context_json = ?, screenshot_keys = ? WHERE id = ?')
+        .bind('{"url": "secret-context-value"', JSON.stringify([1, 'secret-key-value']), created.id)
+        .run();
+      const read = await getFeedbackById(env.DB, created.id);
+      expect(read?.context).toBeNull();
+      expect(read?.screenshotKeys).toEqual([]);
+      const logged = JSON.stringify(warn.mock.calls);
+      expect(logged).toContain('feedback-context');
+      expect(logged).toContain('feedback-keys');
+      expect(logged).not.toContain('secret-context-value');
+      expect(logged).not.toContain('secret-key-value');
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });

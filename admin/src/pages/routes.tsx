@@ -86,7 +86,7 @@ import {
 } from '@/hooks';
 import { getPersistedPageSize, getR2ObjectUrl, persistPageSize } from '@/lib/constants';
 import { credentialTargetParametersFromError } from '@/lib/credential-target';
-import { useClearNavigationState } from '@/lib/navigation-state';
+import { navEditRoute, useClearNavigationState } from '@/lib/navigation-state';
 import type { QrPageNavState } from '@/lib/qr-page-domain';
 import { requireWriteDomain } from '@/lib/route-write-domain';
 import type { CreateRouteInput, R2BucketName, Route, UpdateRouteInput } from '@/lib/schemas';
@@ -752,13 +752,14 @@ export function RoutesPage() {
   // Auto-open edit dialog from navigate state (e.g., storage "View in Routes"),
   // once per navigation: opened during render, and the history entry's state
   // cleared through the router after commit so a reload does not reopen it.
-  const navEditRoute = (location.state as { editRoute?: Route } | null)?.editRoute;
+  // The state is read as unknown and validated (v1.38.0)
+  const navRoute = navEditRoute(location.state);
   const [openedNavState, setOpenedNavState] = useState<unknown>(null);
-  if (navEditRoute && location.state !== openedNavState) {
+  if (navRoute && location.state !== openedNavState) {
     setOpenedNavState(location.state);
-    setEditRoute(navEditRoute);
+    setEditRoute(navRoute);
   }
-  useClearNavigationState(navEditRoute !== undefined);
+  useClearNavigationState(navRoute !== undefined);
 
   // Filter and sort routes (client-side for type/enabled, server handles search)
   const filteredRoutes = useMemo(() => {

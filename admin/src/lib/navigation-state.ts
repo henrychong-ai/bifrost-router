@@ -1,5 +1,18 @@
 import { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router';
+import { type Route, RouteSchema } from '@/lib/schemas';
+
+/**
+ * The route a page hand-off asks the Routes page to open for editing
+ * (`navigate('/routes', { state: { editRoute } })`), read from
+ * `location.state` as unknown and validated (v1.38.0); undefined when the
+ * state carries no valid route.
+ */
+export function navEditRoute(state: unknown): Route | undefined {
+  if (typeof state !== 'object' || state === null || !('editRoute' in state)) return undefined;
+  const parsed = RouteSchema.safeParse(state.editRoute);
+  return parsed.success ? parsed.data : undefined;
+}
 
 /**
  * Clear the current history entry's navigation state once a page has consumed

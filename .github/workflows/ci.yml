@@ -66,6 +66,11 @@ jobs:
       - name: Lint
         run: pnpm run redaction:check && pnpm run lint
 
+      # Reads across a trust or storage boundary are parsed as unknown and
+      # validated (scripts/check-boundary-reads.mjs)
+      - name: Boundary-read gate
+        run: pnpm run boundary:check
+
       - name: Lint admin
         run: pnpm -C admin run lint
 

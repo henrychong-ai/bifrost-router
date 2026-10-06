@@ -91,6 +91,7 @@ pnpm run format       # Format and sort imports (biome check --write)
 pnpm run format:check # Format and import-order check (CI)
 pnpm run typecheck    # TypeScript check
 pnpm run check        # Full quality, test, build, performance, dry-run, and public gate
+pnpm run boundary:check # Boundary-read gate (scripts/check-boundary-reads.mjs)
 pnpm run changelog:generate # Regenerate src/generated/changelog-text.ts from CHANGELOG.md
 ```
 
@@ -122,7 +123,7 @@ pnpm run deploy
 
 | Trigger | Actions |
 |---------|---------|
-| Push to any branch / PR | Gitleaks → Public sanitisation → Lint → Format → Typecheck → Tests + coverage → Runtime types → Dashboard build → performance gates → production/development Wrangler dry-runs |
+| Push to any branch / PR | Gitleaks → Public sanitisation → Lint → Boundary-read gate → Format → Typecheck → Tests + coverage → Runtime types → Dashboard build → performance gates → production/development Wrangler dry-runs |
 | Version tag (`v1.2.3`) | No run, and no deployment is enabled by default. The run for the tag's branch tests the same commit: trust the tag only once that run has finished green, and re-run it if it failed or was cancelled. Other tags still run CI |
 | Manual dispatch | Same CI checks |
 
@@ -243,7 +244,7 @@ interface KVRouteConfig {
 | `POST /api/routes/transfer` | Transfer route between domains |
 | `POST /api/routes/normalize-case` | One-time migration: convert all route paths to lowercase |
 | `GET /api/routes/by-target` | Find routes serving an R2 object |
-| `GET /api/metadata/og?url=` | Open Graph preview of a URL: every hop passes the shared outbound host policy (`src/utils/host-policy.ts`), 1 MB body cap, at most 5 redirects (the cap is checked before the `Location` is read) with a 5 s timeout each; every unread body is cancelled, and a cancel that rejects never replaces the result. `og:image` and `og:url` must be http(s) on a host the policy allows. Meta tags and the title are parsed in one linear pass that reads every tag with HTML's attribute tokenizer states (a quote opens a value only after `=`; tag names end only at ASCII whitespace, `/` or `>`); a tag over 16 KiB is skipped whole to its real end. Comments are skipped as HTML ends them (`<!-->` and `<!--->` at once, otherwise at the first `-->` or `--!>`, or at the end of input), `script` (with its escaped states), `style`, `xmp`, `iframe`, `noembed`, `noframes` and `noscript` are raw text and `title` and `textarea` RCDATA, so no meta tag inside them or inside another tag's attribute is read. A `<title>` that is never closed gives no title, and an end tag at the very end of the input (no `>` or delimiter after the name) is text, as in HTML. A hop on a supported domain or the admin host is resolved in process, never fetched (see [Own-domain link previews](#own-domain-link-previews-v1372)) |
+| `GET /api/metadata/og?url=` | Open Graph preview of a URL: every hop passes the shared outbound host policy (`src/utils/host-policy.ts`), 1 MB body cap, at most 5 redirects (the cap is checked before the `Location` is read) with a 5 s timeout each; every unread body is cancelled, and a cancel that rejects never replaces the result. `og:image` and `og:url` must be http(s) on a host the policy allows. Meta tags and the title are parsed in one linear pass that reads every tag with HTML's attribute tokenizer states (a quote opens a value only after `=`; tag names end only at ASCII whitespace, `/` or `>`); a tag over 16 KiB is skipped whole to its real end. Comments are skipped as HTML ends them (`<!-->` and `<!--->` at once, otherwise at the first `-->` or `--!>`, or at the end of input), `script` (with its escaped states), `style`, `xmp`, `iframe`, `noembed`, `noframes` and `noscript` are raw text and `title` and `textarea` RCDATA, so no meta tag inside them or inside another tag's attribute is read. A `<title>` that is never closed gives no title, and an end tag at the very end of the input (no `>` or delimiter after the name) is text, as in HTML. A `<!DOCTYPE …>` ends at its first `>`, a quoted public or system identifier included, as in every HTML DOCTYPE state (checked against parse5). A hop on a supported domain or the admin host is resolved in process, never fetched (see [Own-domain link previews](#own-domain-link-previews-v1372)). A failure answers a fixed message per class, never an error's own text (`describeOpenGraphFailure`, v1.38.0): 403 `URL blocked for security reasons` with `Invalid URL format`, `Blocked scheme`, `Blocked hostname`, `Blocked private IP address` or `Blocked IPv6 address`; 413 `Response too large`; 502 `Failed to fetch URL` with `Too many redirects (max 5)`, `HTTP <status>`, `The page did not answer in time` or `The page could not be fetched` |
 | `GET /api/changelog` | The engineering changelog as Markdown (authenticated) |
 | `GET /api/analytics/*` | Analytics endpoints |
 | `GET /api/storage/buckets` | List R2 buckets |
@@ -310,8 +311,17 @@ request) both use it; never add a second list.
 - **Names:** one trailing dot stripped; any other empty label refused; a last
   label that is all digits or `0x…` but not a canonical dotted quad refused (the
   WHATWG "ends in a number" rule); `localhost`, `*.localhost`, `*.internal`,
-  `*.local` and a few exact internal names (metadata, kubernetes) refused.
-  Hostnames are NOT resolved: a public name whose DNS answer is private passes.
+  `*.local` (and `internal` and `local` themselves) and a few exact internal
+  names (metadata, kubernetes) refused.
+  Known public wildcard-DNS services, which answer with an address written
+  in the name or with loopback (`nip.io`, `sslip.io`, `localtest.me`,
+  `lvh.me`, `traefik.me`, `vcap.me`, `lacolhost.com`, `localhost.direct`,
+  `local.gd`, `1u.ms`, `rbndr.us`), are refused by name, the name itself and
+  every subdomain, in any case and with one trailing dot; they share one
+  name-or-subdomain list with `localhost`, `internal` and `local`
+  (`BLOCKED_DOMAINS`, v1.38.0). The list is illustrative of known services,
+  not complete. Hostnames are NOT resolved: any other public name whose DNS
+  answer is private passes.
 - **IPv4:** a numeric CIDR block list of every non-public range (this network,
   private, CGNAT, loopback, link-local, protocol assignments, documentation,
   6to4 relay, benchmarking, multicast, reserved, broadcast).
@@ -326,20 +336,31 @@ address outside the allow-list, `100.64.0.0/10`, a documentation range, a
 `.local`/`.internal` name, …) now answers 502 `validation_error` where the
 older, narrower list let it through.
 
-**Known limitation: proxy redirects.** The proxy handler follows upstream
-redirects with the runtime's `fetch`, so a redirect hop is not checked against
-this policy, and `wrangler.toml` sets
-`retain_authorization_on_cross_origin_redirect`, so visitor request headers,
-`Authorization` included, can reach a redirect target on another origin.
-Preview hops are checked one by one and send no visitor headers.
+**Proxy redirects (v1.38.0).** The proxy handler follows upstream redirects
+itself (`redirect: 'manual'`), one hop at a time, at most
+`MAX_PROXY_REDIRECTS` (20, the Fetch limit the runtime applied): each
+`Location` is resolved against the hop and checked with `validateProxyTarget`
+(scheme and this policy) before it is fetched; a refused hop answers 502
+`validation_error`, an unparseable `Location` or a 21st redirect 502
+`upstream_error`, and a redirect's body is cancelled unread. As `fetch` does,
+a 303 (except for HEAD) or a 301/302 answering a POST becomes a bodiless GET;
+a 307/308 that would have to resend a streamed body answers 502. On a hop to
+another origin only allow-listed request headers go on (`accept`,
+`accept-encoding`, `accept-language`, `cache-control`, `range`, `user-agent`
+and `if-*`): `Authorization`, `Cookie`, `Proxy-Authorization`, the route's
+`Host` override and every custom header stay behind, for that hop and every
+later one. Same-origin hops keep the request headers. `wrangler.toml` no
+longer sets `retain_authorization_on_cross_origin_redirect`. Preview hops are
+checked one by one and send no visitor headers.
 
 **Browser-facing preview fields.** `og:image` and `og:url` are loaded by the
 operator's browser, not the Worker, so besides the policy they refuse a
 single-label name (resolved through the browser's search domain) and the
 private-network suffixes `.ts.net`, `.lan`, `.home.arpa`, `.corp`, `.home`,
 `.intranet`, `.private` and `.localdomain` (one trailing dot ignored). Hostnames
-are not resolved, so a public wildcard-DNS name that answers with a private
-address (`*.nip.io`, `*.sslip.io`, `localtest.me`) is not caught.
+are not resolved: the wildcard-DNS services in the policy are refused by
+name, but any other public name that answers with a private address is not
+caught.
 
 ## Own-domain link previews (v1.37.2)
 
@@ -367,7 +388,8 @@ stopped from reaching or sent elsewhere from.
 |---|---|
 | Redirect route | a 3xx to the destination `redirectDestination` gives the handler; followed under the cap, in process again on an own host. A non-web destination (`tel:`, `mailto:`) gives the minimal result |
 | Proxy route | the upstream (`proxyDestination`) fetched by the parser as proxied hops: each upstream redirect is followed only after `validateProxyTarget`, under the same cap and timeouts; reported under the public URL, never the upstream's own `og:url`, and no error names the upstream (an `og:image` the page itself gives may still be an absolute upstream URL; a refused hop, a hop on one of our own hosts, or passing the redirect cap gives the minimal result; a failed fetch `HTTP 502`). A `hostHeader` override or a refused target gives the minimal result; a path that would leave the target's base path `HTTP 404`, as the handler answers |
-| No route, or a disabled one (matchRoute skips it) | the service binding's response if the host has one (`safeServiceFetch`; a failed binding `HTTP 503`), else `HTTP 404` |
+| No route, or a disabled one (the lookup skips it) | the service binding's response if the host has one (`safeServiceFetch`; a failed binding `HTTP 503`), else `HTTP 404` |
+| A stored route on the way that cannot be read (v1.38.0) | `HTTP 404`, as the router answers it: never a broader wildcard, never the service binding |
 | R2 route, a path `src/index.ts` answers itself (`/health`, `GET /.well-known/security.txt`, `/api`, `/api/*`), a refused source path, the admin host's traversal query, a URL with userinfo | the minimal result |
 
 The Worker-answered paths are case-sensitive, as Hono matches them: `/API`,
@@ -413,14 +435,18 @@ segment is refused (404, nothing fetched) when:
 
 - it does not decode (a bare `%`, `%u`, invalid or overlong UTF-8, Latin-1
   bytes);
-- any variant holds a `/` or `\`, fullwidth forms included, or a division
-  slash, fraction slash, big solidus or set minus (U+2215, U+2044, U+29F8,
-  U+2216);
+- any variant holds a `/` or `\`, fullwidth forms included, or a best-fit
+  look-alike: a division slash, fraction slash, big solidus, set minus or
+  acute accent (U+2215, U+2044, U+29F8, U+2216, U+00B4);
 - any variant holds a C0 control, DEL or a C1 control (U+0085 NEL among
   them);
-- any variant still holds `%hh` or `%u`, so a second decode would change it;
-- any variant's core, before any `;`, `?`, `#` or `:` (an NTFS stream suffix
-  such as `..::$INDEX_ALLOCATION` is dropped by Windows upstreams), is empty or only dots,
+- any variant still holds `%hh` or `%u`, so a second decode would change it,
+  also written with `٪` (U+066A ARABIC PERCENT SIGN, which best-fit
+  conversion turns into `%`; the fullwidth and small forms are caught on the
+  NFKC variant);
+- any variant's core, before any `;`, `?`, `#` or `:`, or the best-fit
+  colons `∶` (U+2236) and `։` (U+0589) (an NTFS stream suffix such as
+  `..::$INDEX_ALLOCATION` is dropped by Windows upstreams), is empty or only dots,
   spaces, `+`, Unicode White_Space, combining marks or ignorable code points
   (`..`, `..;x`, `...`, `;x`, `%20`, `..%C2%85`, `..%CC%81`, `..%E2%80%8B`,
   `‥`).
@@ -439,14 +465,17 @@ only dots, spaces, `+`, Unicode whitespace (U+0085 NEL, U+00A0, U+2028),
 combining marks or ignorable code points (`..%CC%81`, `..%E2%80%8B`), a C1
 control character, an escape split by an ignorable code point
 (`%25%E2%80%8B2e`), a segment starting with `:` or a dot name followed by
-`:` (`..:`), a division-slash look-alike (`a%E2%88%95b`), and a leading empty
+`:` (`..:`), a division-slash look-alike (`a%E2%88%95b`), an acute accent
+(`caf%C2%B4e`), a dot name before a best-fit colon (`..%E2%88%B6x`), an Arabic
+percent sign before two hex digits (`50%D9%AA25`), and a leading empty
 segment. Accepted residuals: best-fit code-page mappings outside NFKC (for
 example `¥` or `₩` read as `\` by a CP932 or CP949 IIS upstream), and upstreams that decode the whole request target before splitting
-it into path segments. `test/handlers/remainder-oracle.test.ts` models sixteen
+it into path segments. `test/handlers/remainder-oracle.test.ts` models twenty
 upstream behaviours (decoding, path parameters, `+` as space, NFKC, Win32
 trimming, Unicode White_Space trimming, combining-mark stripping, StringPrep
 mapping to nothing, NUL
-truncation, WHATWG reparsing, ignorable code points, `\` as `/`,
+truncation, WHATWG reparsing, ignorable code points, NTFS stream names,
+best-fit mapping of look-alike slashes, colons and percent signs, `\` as `/`,
 dot resolution) and checks that no forwarded path, under any composition of
 them, leaves the target's path: known vectors, a seeded fuzz, a parity table
 of legitimate paths, and the documented refusals.
@@ -494,6 +523,91 @@ the new `updatedAt` would take past 64 KiB cannot be updated. The path field its
 lookups (`getRoute`, `matchRoute`) never ask KV for a key over the limit, so a
 very long request path is a 404 (or a shorter wildcard's match), not a 500.
 
+## Validate at the boundary (v1.38.0)
+
+Data that crosses a trust or storage boundary (KV, R2, D1 JSON columns,
+remote responses, request bodies, stored strings, the dashboard's
+`location.state`) is read as `unknown` and validated before use. A type
+argument on the read or an `as` cast only tells the compiler.
+
+- **One reader** (`src/utils/boundary.ts`): `readKvJson`, `readStoredJson`
+  and `readResponseJson` return `missing`, `ok` with the value, or `invalid`,
+  and never throw a parser or schema message (either can quote the stored
+  value). KV values are read as text and parsed locally, never with
+  `kv.get(…, 'json')`; a key over KV's 512-byte limit reads as `missing`
+  without a KV call. An invalid value is logged by `logInvalidBoundary` as one
+  fixed line, `boundary-invalid-value` with a category and, for a route or QR
+  code, its key; never the value.
+- **Routes** (`src/kv/stored-route.ts`): a hand-written guard for the hot path
+  (`isStoredRoute`), as tolerant as the shared response schema `RouteSchema`
+  (legacy records over today's write caps still read; `test/kv/stored-route.test.ts`
+  keeps the two in step). An invalid record is **never served and never a
+  fall-through**: `lookupRoute` (`src/kv/lookup.ts`) stops with `invalid`, and
+  the router and the own-host preview answer 404 instead of trying a broader
+  wildcard or the host's service binding. Management reads and listings treat it as missing, so `GET` is
+  404 and listings leave it out. Every write over it refuses with a fixed 409
+  `{ success: false, error: 'ROUTE_RECORD_INVALID', message }` (create,
+  update even a toggle, migrate from or to it, transfer from or to it; seed
+  skips it) and nothing is merged with it. **Recovery: `DELETE` the route**
+  (delete treats an invalid record as present), then create it again.
+- **Listings never read a key that is not route-shaped** (`isRouteKey`,
+  `{domain}:/…` with a dotted host): `qr:` records and the optional rate
+  limiter's `ratelimit:` entries (client IP addresses) are skipped before they
+  are read or logged. The backup lists only the per-domain route and QR
+  prefixes, so it never reads them either.
+- **QR records** (`parseStoredQR` in `src/kv/qr.ts`): a structural check of
+  every field a reader consumes, nested ones included (the payload fields of
+  the record's type, the design fields the renderer reads, `linkedRoute` as
+  `{domain, path}` with a path starting `/`), then normalised (a missing or
+  null design or design field takes its default, a Wi-Fi payload without
+  `auth` reads as `WPA`, null optional fields are dropped). Not
+  `QRCodeSchema`, whose write limits would refuse older records. An invalid
+  record is not found (`GET`, `PUT`, image and listings), can be deleted (its
+  audit row names the id only), and a create with its id answers 409.
+  Timestamps are always the Worker's clock (`Date.now()`): a client-sent
+  `createdAt` or `updatedAt` is ignored.
+- **Other stored and remote values:** a rate-limit entry that is not two
+  finite numbers resets the window; the Cloudflare audit cursor restarts the
+  first-run window; the audit-log API body must be an object with `result` a
+  list, and an entry that fails its shape is recorded in a minimal shape (its
+  `id`, or `unparsed:` and a hash of the entry, its `when`, `unparsed: true`,
+  path `unknown/unparsed`), at most `MAX_UNPARSED_PER_RUN` (20) per run, never
+  its content, while pagination counts the raw page, so a full page with one
+  bad entry still fetches the next; feedback `context_json` and screenshot
+  keys read as their fallbacks; stored R2 audit details that are not a JSON
+  object match no event (a stored `null` used to throw and retry the batch);
+  the cache purge API body must be an object. The shared client and the
+  dashboard read the response envelope as unknown (`success`, `error`,
+  `message` and `meta` count only with their declared types; the `data`
+  payload is the endpoint's documented contract), and the dashboard validates
+  backup health, the Tailscale identity, feedback capture attachments, audit
+  details and the Routes page's `editRoute` hand-off with schemas.
+- **Request bodies** are read with `c.req.json<unknown>()` and a schema; a
+  body that is not JSON or not the expected shape is a fixed 400. A feedback
+  submission's `context` part that is not JSON or not the context shape is a
+  400 `context metadata is not valid`; a `capture` part that fails its schema
+  is dropped and the submission kept.
+
+**Gate:** `scripts/check-boundary-reads.mjs` (`pnpm run boundary:check`, in
+`pnpm run check`, CI and, through its test, `test:gates`) parses `src/`,
+`shared/src`, `mcp/src` and `admin/src` (tests and generated code excluded)
+with the TypeScript compiler and fails on these patterns only: a KV
+`.get`/`.getWithMetadata` with `'json'` or an options object whose `type` is
+`'json'` (any key spelling or position), `.json<T>()`, `c.req.json<T>()` and
+`c.req.json()` without `<unknown>`, a `.json()` result cast with `as T`
+(also after `.catch()`), `JSON.parse(…) as T`, and an argument-free `.json()`
+or a `JSON.parse(…)` that initialises a binding annotated with a type other
+than `unknown`, or is assigned (`=`, `??=`, `||=`, `&&=`) to a variable or
+parameter so declared in the same file. `unknown | null | undefined` counts as
+`unknown`; `c.json(body)` is not a read. D1 `.first<T>()` and `.all<T>()` rows
+are this Worker's own schema and out of scope; JSON columns are parsed with a
+schema. A vetted case carries a real `// boundary-ok: <reason>` line comment
+on the line where the flagged read starts or on the line immediately before
+it; nothing further away counts and nothing is inherited from an enclosing
+statement or function. Comments are taken from the parsed comment trivia, so
+text that only looks like the marker, in a string, template literal, regular
+expression or block comment, exempts nothing.
+
 ## Route paths must round-trip (v1.36.0)
 
 `normalizePath()` strips `?`/`#` BEFORE percent-decoding, so it is **not
@@ -521,8 +635,9 @@ idempotent**: `/p%3Fx` → `/p?x` → `/p`.
     resolves a different key from the write and could publish an unexamined
     second copy of a route.
   `updateRoute`, `deleteRoute`, `migrateRoute` and `transferRoute` normalise
-  themselves and use the second helper; every admin pre-read and existence check
-  passes the raw path to `getRoute()` and lets it normalise.
+  themselves once and read the exact key they write (through the stored-route
+  reader, v1.38.0); every admin pre-read and existence check passes the raw
+  path to `getRoute()` or `getRouteState()` and lets it normalise.
 
 ## A route update names only what it changes
 
@@ -608,6 +723,9 @@ If the domain is missing from this list, the binding was never created.
 | `src/utils/safe-service-fetch.ts` | Defensive wrapper around service-binding `fetch` calls |
 | `src/utils/host-policy.ts` | Outbound host policy shared by link previews and proxy targets |
 | `src/utils/og-own-host.ts` | In-process link previews of own-domain URLs |
+| `src/utils/boundary.ts` | Boundary reader: KV, stored and response JSON read as unknown and validated |
+| `src/kv/stored-route.ts` | Stored route guard; invalid records fail closed |
+| `scripts/check-boundary-reads.mjs` | Boundary-read gate |
 | `openapi/bifrost-api.yaml` | API Shield schema |
 | `scripts/upload-api-shield.mjs` | Auto-upload schema to API Shield (called by CI/CD) |
 
@@ -724,6 +842,8 @@ Contributors/ports must preserve all four rows — do not ship an uncommented co
 Unified QR resource with optional route linking. Feature files: `shared/src/qr.ts` (contract) + `qr-render.ts` (SVG renderer) + `qr-brand-presets.ts` (ships NEUTRAL — self-hosters add presets; a drift-guard test forces every SUPPORTED_DOMAIN to be branded or deliberately neutral), `src/kv/qr.ts` (KV under `qr:{domain}:{id}` in the ROUTES namespace — full scans skip the prefix), `src/routes/qr.ts` (CRUD + `/from-route` + `/:id/image`, authed-only serving, `private, no-store` — Wi-Fi payloads can carry credentials), `admin/src/pages/qr-codes.tsx` + `lib/qr-form-state.ts` + `lib/qr-brand-logo.ts`, `mcp/src/tools/qr.ts` (6 tools). Audit actions `qr_create`/`qr_update`/`qr_delete` (Wi-Fi credentials redacted in audit projections). The record `id` is surfaced as "Reference", normalised by `normalizeQrId()`, prefilled from the type's payload field only (never the description); type is immutable post-create.
 
 **List after create:** KV listing is eventually consistent, so a list fetched right after a create can miss the new code. Codes created in this session go into a pending store (`admin/src/lib/qr-pending.ts`, keyed by domain and id) and are merged into the first page of every list for their domain whose filters match, by the Worker's own predicate (`qrMatchesListFilters` in `shared/src/qr.ts`, also used by `src/kv/qr.ts`). Page 1 grows by the pending codes instead of dropping server rows, so no server row is pushed off every page; `total`, `offset`, `limit` and `hasMore` stay the server's and only `count` follows the merged items (the pagination labels derive from `total`, so adding the pending codes to it would announce a page the server does not have). An entry is dropped once the server lists it, when the code is deleted, or after 5 minutes. The merge happens inside the list query's fetch, so cached lists are never patched and marked fresh. "Save as QR Code" on the Routes page uses the route's own domain (else the filtered one, never a guessed default) and opens the QR page on that domain via navigation state, which the QR page reads once and clears.
+
+**Stored records are validated on read** (v1.38.0, see [Validate at the boundary](#validate-at-the-boundary-v1380)): an unreadable record is not found, stays deletable, and is never overwritten by a create.
 
 **Linked route domain:** create and update bodies, the MCP tool inputs and the tool catalogue accept only a supported domain (`QRLinkedRouteInputSchema`), and the handlers also require it to be the QR code's own domain. Stored records stay tolerant (`QRLinkedRouteSchema` keeps a string), so a domain later retired from `SUPPORTED_DOMAINS` never makes a record unreadable.
 
@@ -908,7 +1028,7 @@ The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `sr
 **Type-aware rules:** `options.typeAware` is on, with `oxlint-tsgolint` (the TypeScript 7 checker). The tsconfigs are TypeScript 7-ready: no `baseUrl` (the dashboard's `@/*` paths resolve relative to their tsconfig) and explicit `types` (`shared` and `mcp` list `node`, because TypeScript 7 no longer loads every installed `@types` package). Adopted, at `error`: `typescript/no-floating-promises`, `typescript/no-misused-promises`, the `no-unsafe-*` set (`argument`, `assignment`, `call`, `member-access`, `return`, `enum-comparison`, `unary-minus`), `typescript/no-unnecessary-type-assertion`, `typescript/no-unnecessary-type-conversion` and `typescript/consistent-return`. An intentionally unawaited promise is marked `void`. `tsc --noEmit` remains the type gate.
 
 **Type-aware rules not adopted yet (off):** turning `typeAware` on enables every type-aware rule in the `correctness` and `suspicious` categories; the rest are off explicitly in `.oxlintrc.json` until each is adopted on its own:
-- `typescript/no-unsafe-type-assertion` — 148 assertions in runtime code (MCP tool arguments, API and D1 results read with `as`) and 228 in tests; adopting it means validating those values at runtime, which changes behaviour on malformed input. **Follow-up** (this repo keeps no `TODO.md`; carry it into the next release's Follow-ups): adopt it one package at a time, each step its own approved behaviour change — (1) the MCP server parses tool arguments with the Zod schemas in `shared` (27 sites), (2) the dashboard API client reads its remaining raw responses through Zod response schemas (`admin/src/lib`, 26 sites, then the rest of the dashboard), (3) the Worker parses the JSON it stores in KV and D1 (`src/`, 29 sites). Tests and the vendored shadcn components stay excluded
+- `typescript/no-unsafe-type-assertion` — off for good. No lint rule sees a typed KV read or `json<T>()`, so reads that cross a trust or storage boundary are validated at the boundary instead and the forms that skip it are gated by `scripts/check-boundary-reads.mjs` (see [Validate at the boundary](#validate-at-the-boundary-v1380))
 - `typescript/unbound-method` — its hits are `expect(client.method)` in tests, which hands vitest the mock itself
 - `await-thenable`, `no-array-delete`, `no-base-to-string`, `no-duplicate-type-constituents`, `no-for-in-array`, `no-implied-eval`, `no-meaningless-void-operator`, `no-misused-spread`, `no-redundant-type-constituents`, `no-unnecessary-boolean-literal-compare`, `no-unnecessary-template-expression`, `no-unnecessary-type-arguments`, `no-unnecessary-type-parameters`, `no-useless-default-assignment`, `require-array-sort-compare`, `restrict-template-expressions` (all `typescript/`) — not yet adopted; in the type-checked code they currently flag only one line of the vendored shadcn `form.tsx`
 

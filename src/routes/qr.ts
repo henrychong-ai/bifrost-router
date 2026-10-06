@@ -43,7 +43,7 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import { type AuditAction, recordAuditLog } from '../db/analytics';
-import { deleteQR, getQR, listQRs, putQR } from '../kv/qr';
+import { deleteQR, getQR, getQRState, listQRs, putQR } from '../kv/qr';
 import { getRoute } from '../kv/routes';
 import type { AppEnv } from '../types';
 import {
@@ -192,6 +192,26 @@ function auditQr(
   }
 }
 
+/** The audit row of a deleted record that could not be read: its id only. */
+function auditInvalidQrDelete(c: Context<AppEnv>, domain: string, id: string): void {
+  try {
+    const actor = getActorInfo(c);
+    c.executionCtx.waitUntil(
+      recordAuditLog(c.env.DB, {
+        domain,
+        action: 'qr_delete',
+        actorLogin: actor.login,
+        actorName: actor.name,
+        path: `/qr/${id}`,
+        details: JSON.stringify({ id, unreadableRecord: true }),
+        ipAddress: c.req.header('CF-Connecting-IP') || null,
+      }),
+    );
+  } catch {
+    // No executionCtx (unit tests via app.request) — audit is best-effort.
+  }
+}
+
 // =============================================================================
 // Ephemeral + image endpoints. Registered BEFORE the :id routes so
 // 'from-route' never matches as an id.
@@ -311,7 +331,7 @@ qrRoutes.get('/:id', async c => {
 qrRoutes.post('/', async c => {
   const domain = requireDomain(c);
 
-  const body: unknown = await c.req.json().catch(() => {
+  const body: unknown = await c.req.json<unknown>().catch(() => {
     throw new HTTPException(400, { message: 'Invalid JSON body' });
   });
   const parsedInput = CreateQRInputSchema.safeParse(body);
@@ -327,9 +347,15 @@ qrRoutes.post('/', async c => {
     throw new HTTPException(400, { message: `QR id must match ${QR_ID_REGEX}` });
   }
 
-  const existing = await getQR(c.env.ROUTES, domain, id);
-  if (existing) {
-    throw new HTTPException(409, { message: `QR code already exists: ${id}` });
+  // An unreadable stored record is present too (v1.38.0): never overwritten
+  const existing = await getQRState(c.env.ROUTES, domain, id);
+  if (existing.status !== 'missing') {
+    throw new HTTPException(409, {
+      message:
+        existing.status === 'invalid'
+          ? `QR code ${id} is stored in a shape that cannot be read. Delete it and create it again.`
+          : `QR code already exists: ${id}`,
+    });
   }
 
   assertPayloadSize(input.type, input.payload);
@@ -362,7 +388,7 @@ qrRoutes.put('/:id', async c => {
   const domain = requireDomain(c);
   const existing = await requireQR(c, domain, c.req.param('id'));
 
-  const body: unknown = await c.req.json().catch(() => {
+  const body: unknown = await c.req.json<unknown>().catch(() => {
     throw new HTTPException(400, { message: 'Invalid JSON body' });
   });
   const parsedInput = UpdateQRInputSchema.safeParse(body);
@@ -434,10 +460,20 @@ qrRoutes.put('/:id', async c => {
 
 qrRoutes.delete('/:id', async c => {
   const domain = requireDomain(c);
-  const existing = await requireQR(c, domain, c.req.param('id'));
+  const id = c.req.param('id');
+  const state = await getQRState(c.env.ROUTES, domain, id);
+  if (state.status === 'missing') {
+    throw new HTTPException(404, { message: `QR code not found: ${id}` });
+  }
 
-  await deleteQR(c.env.ROUTES, domain, existing.id);
-  auditQr(c, 'qr_delete', domain, existing, { qr: redactQrForAudit(existing) });
+  // An unreadable record is deleted too: that is how it is recovered
+  // (v1.38.0). Its audit row names the id only, never the unreadable value.
+  await deleteQR(c.env.ROUTES, domain, id);
+  if (state.status === 'ok') {
+    auditQr(c, 'qr_delete', domain, state.value, { qr: redactQrForAudit(state.value) });
+  } else {
+    auditInvalidQrDelete(c, domain, id);
+  }
 
-  return c.json({ success: true as const, data: { deleted: true as const, id: existing.id } });
+  return c.json({ success: true as const, data: { deleted: true as const, id } });
 });

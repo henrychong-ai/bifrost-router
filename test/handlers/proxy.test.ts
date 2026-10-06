@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:test';
 import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
-import { handleProxy } from '../../src/handlers/proxy';
+import { handleProxy, MAX_PROXY_REDIRECTS } from '../../src/handlers/proxy';
 import type { AppEnv, KVRouteConfig } from '../../src/types';
 
 const capturedUrl = (route: KVRouteConfig, requestUrl: string) => {
@@ -363,5 +363,260 @@ describe('handleProxy', () => {
         'https://upstream.example.net/base/b',
       ]);
     });
+  });
+});
+
+// v1.38.0: upstream redirects are followed by the handler, one hop at a time,
+// each hop checked against the outbound host policy, and only allow-listed
+// request headers go on to another origin.
+/** One upstream request as the proxy sent it. */
+interface SentRequest {
+  url: string;
+  method: string;
+  headers: Headers;
+  hasBody: boolean;
+  redirect: RequestRedirect | undefined;
+}
+
+/**
+ * Run one request through a proxy route whose upstream answers with
+ * `answers` in turn, recording each request the proxy sent (headers copied
+ * at send time, since the proxy reuses one Headers object across hops).
+ */
+async function proxyThrough(
+  answers: Array<() => Response>,
+  request: Request,
+  route: Partial<KVRouteConfig> = {},
+) {
+  const sent: SentRequest[] = [];
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    sent.push({
+      url: String(input),
+      method: init?.method ?? 'GET',
+      headers: new Headers(init?.headers),
+      hasBody: init?.body !== undefined && init.body !== null,
+      redirect: init?.redirect,
+    });
+    const answer = answers[sent.length - 1];
+    if (!answer) throw new Error('unexpected upstream request');
+    return answer();
+  });
+  const app = new Hono<AppEnv>();
+  const config: KVRouteConfig = {
+    path: '/svc',
+    type: 'proxy',
+    target: 'https://upstream.example.com/base',
+    createdAt: 0,
+    updatedAt: 0,
+    ...route,
+  };
+  app.all('/svc', c => handleProxy(c, config));
+  try {
+    const response = await app.fetch(request, env);
+    return { response, sent };
+  } finally {
+    spy.mockRestore();
+  }
+}
+
+const redirectTo =
+  (location: string, status = 302) =>
+  () =>
+    new Response('moved', { status, headers: { location } });
+const ok =
+  (text = 'final') =>
+  () =>
+    new Response(text, { status: 200 });
+
+describe('handleProxy redirects (v1.38.0)', () => {
+  it('follows an allowed redirect itself, with redirect: manual, and serves the final answer', async () => {
+    const { response, sent } = await proxyThrough(
+      [redirectTo('/next'), redirectTo('https://cdn.example.net/file', 301), ok()],
+      new Request('https://links.example.com/svc'),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('final');
+    expect(response.headers.get('X-Proxied-By')).toBe('bifrost');
+    expect(sent.map(request => request.url)).toEqual([
+      'https://upstream.example.com/base',
+      'https://upstream.example.com/next',
+      'https://cdn.example.net/file',
+    ]);
+    expect(sent.every(request => request.redirect === 'manual')).toBe(true);
+  });
+
+  it.each([
+    'http://127.0.0.1/admin',
+    'http://169.254.169.254/latest/meta-data/',
+    'http://localhost:8080/',
+    'http://[::1]/',
+    'http://10.0.0.1/',
+    'http://127.1/',
+    'file:///etc/passwd',
+  ])('refuses a redirect to %s without fetching it', async location => {
+    const { response, sent } = await proxyThrough(
+      [redirectTo(location)],
+      new Request('https://links.example.com/svc'),
+    );
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({
+      type: 'validation_error',
+      message: 'The proxy target is not allowed.',
+    });
+    expect(sent).toHaveLength(1);
+  });
+
+  it('follows at most twenty redirects, the Fetch limit the runtime applied', async () => {
+    expect(MAX_PROXY_REDIRECTS).toBe(20);
+    const twenty = await proxyThrough(
+      [...Array.from({ length: 20 }, (_, i) => redirectTo(`/hop${i}`)), ok()],
+      new Request('https://links.example.com/svc'),
+    );
+    expect(twenty.response.status).toBe(200);
+    expect(twenty.sent).toHaveLength(21);
+
+    const more = await proxyThrough(
+      Array.from({ length: 21 }, (_, i) => redirectTo(`/hop${i}`)),
+      new Request('https://links.example.com/svc'),
+    );
+    expect(more.response.status).toBe(502);
+    expect(await more.response.json()).toMatchObject({ type: 'upstream_error' });
+    expect(more.sent).toHaveLength(21);
+  });
+
+  it('cancels the body of every redirect it follows', async () => {
+    let cancelled = 0;
+    const redirectWithBody = () =>
+      new Response(
+        new ReadableStream({
+          cancel() {
+            cancelled += 1;
+          },
+        }),
+        { status: 302, headers: { location: '/next' } },
+      );
+    const { response } = await proxyThrough(
+      [redirectWithBody, redirectWithBody, ok()],
+      new Request('https://links.example.com/svc'),
+    );
+    expect(response.status).toBe(200);
+    expect(cancelled).toBe(2);
+  });
+
+  it('carries only allowlisted headers to another origin', async () => {
+    const { response, sent } = await proxyThrough(
+      [redirectTo('/same'), redirectTo('https://other.example.org/x'), redirectTo('/y'), ok()],
+      new Request('https://links.example.com/svc', {
+        headers: {
+          Authorization: 'Bearer visitor-token',
+          'Proxy-Authorization': 'Basic abc',
+          Cookie: 'session=1',
+          'X-Custom-Secret': 'custom',
+          Accept: 'text/plain',
+          'Accept-Language': 'en',
+          'Accept-Encoding': 'gzip',
+          'User-Agent': 'visitor-agent',
+          'Cache-Control': 'no-cache',
+          'If-None-Match': '"etag"',
+          'If-Modified-Since': 'Tue, 06 Oct 2026 00:00:00 GMT',
+          Range: 'bytes=0-10',
+        },
+      }),
+      { hostHeader: 'upstream.example.com' },
+    );
+    expect(response.status).toBe(200);
+    const [first, sameOrigin, otherOrigin, afterwards] = sent;
+    for (const request of [first, sameOrigin]) {
+      expect(request?.headers.get('authorization')).toBe('Bearer visitor-token');
+      expect(request?.headers.get('proxy-authorization')).toBe('Basic abc');
+      expect(request?.headers.get('cookie')).toBe('session=1');
+    }
+    for (const request of [otherOrigin, afterwards]) {
+      expect(request?.headers.get('authorization')).toBeNull();
+      expect(request?.headers.get('proxy-authorization')).toBeNull();
+      expect(request?.headers.get('cookie')).toBeNull();
+      expect(request?.headers.get('host')).toBeNull();
+      expect(request?.headers.get('x-custom-secret')).toBeNull();
+      expect(request?.headers.get('accept')).toBe('text/plain');
+      expect(request?.headers.get('accept-language')).toBe('en');
+      expect(request?.headers.get('accept-encoding')).toBe('gzip');
+      expect(request?.headers.get('user-agent')).toBe('visitor-agent');
+      expect(request?.headers.get('cache-control')).toBe('no-cache');
+      expect(request?.headers.get('if-none-match')).toBe('"etag"');
+      expect(request?.headers.get('if-modified-since')).toBe('Tue, 06 Oct 2026 00:00:00 GMT');
+      expect(request?.headers.get('range')).toBe('bytes=0-10');
+    }
+    for (const request of [first, sameOrigin]) {
+      expect(request?.headers.get('x-custom-secret')).toBe('custom');
+    }
+  });
+
+  it('turns a POST into a GET without a body on 303, 301 and 302', async () => {
+    for (const status of [301, 302, 303]) {
+      const { response, sent } = await proxyThrough(
+        [redirectTo('/done', status), ok()],
+        new Request('https://links.example.com/svc', {
+          method: 'POST',
+          body: 'payload',
+          headers: { 'content-type': 'text/plain' },
+        }),
+      );
+      expect(response.status).toBe(200);
+      expect(sent[0]).toMatchObject({ method: 'POST', hasBody: true });
+      expect(sent[1]).toMatchObject({ method: 'GET', hasBody: false });
+      expect(sent[1]?.headers.get('content-type')).toBeNull();
+    }
+  });
+
+  it('keeps HEAD on a 303 and the method on a 307 or 308 without a body', async () => {
+    const head = await proxyThrough(
+      [redirectTo('/done', 303), ok('')],
+      new Request('https://links.example.com/svc', { method: 'HEAD' }),
+    );
+    expect(head.sent.map(request => request.method)).toEqual(['HEAD', 'HEAD']);
+    for (const status of [307, 308]) {
+      const { response, sent } = await proxyThrough(
+        [redirectTo('/done', status), ok()],
+        new Request('https://links.example.com/svc'),
+      );
+      expect(response.status).toBe(200);
+      expect(sent.map(request => request.method)).toEqual(['GET', 'GET']);
+    }
+  });
+
+  it('answers 502 when a 307 or 308 would have to resend a streamed body', async () => {
+    for (const status of [307, 308]) {
+      const { response, sent } = await proxyThrough(
+        [redirectTo('/done', status)],
+        new Request('https://links.example.com/svc', { method: 'PUT', body: 'payload' }),
+      );
+      expect(response.status).toBe(502);
+      expect(await response.json()).toMatchObject({ type: 'network_error' });
+      expect(sent).toHaveLength(1);
+    }
+  });
+
+  it('serves a 3xx without a Location, or a status it does not follow, as it is', async () => {
+    for (const answer of [
+      () => new Response(null, { status: 302 }),
+      () => new Response(null, { status: 304, headers: { location: '/x' } }),
+      () => new Response('choices', { status: 300, headers: { location: '/x' } }),
+    ]) {
+      const { response, sent } = await proxyThrough(
+        [answer],
+        new Request('https://links.example.com/svc'),
+      );
+      expect([300, 302, 304]).toContain(response.status);
+      expect(sent).toHaveLength(1);
+    }
+  });
+
+  it('answers 502 for a Location that does not parse', async () => {
+    const { response } = await proxyThrough(
+      [redirectTo('http://[bad')],
+      new Request('https://links.example.com/svc'),
+    );
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ type: 'upstream_error' });
   });
 });

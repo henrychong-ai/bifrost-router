@@ -30,7 +30,9 @@ function createLatencyModel(routes: ReadonlyMap<string, KVRouteConfig>): KVNames
   return {
     async get(key: string) {
       await scheduler.wait(READ_LATENCY_MS);
-      return routes.get(key) ?? null;
+      // KV values are read as text and parsed by the lookup
+      const route = routes.get(key);
+      return route === undefined ? null : JSON.stringify(route);
     },
   } as unknown as KVNamespace;
 }

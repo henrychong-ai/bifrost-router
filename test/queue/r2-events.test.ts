@@ -23,7 +23,7 @@
 
 import { env } from 'cloudflare:test';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { handleR2EventBatch, type R2EventMessage } from '../../src/queue/r2-events';
+import { _internal, handleR2EventBatch, type R2EventMessage } from '../../src/queue/r2-events';
 import type { Bindings } from '../../src/types';
 
 const AUDIT_DDL = `
@@ -424,5 +424,28 @@ describe('handleR2EventBatch', () => {
       expect(rows).toHaveLength(1);
       expect(rows[0].actor_login).toBe('external-unattributed');
     });
+  });
+});
+
+// v1.38.0: stored audit details are read as unknown; anything but a JSON
+// object matches nothing, and never throws (a throw would retry the batch)
+describe('rowExplainsEvent with stored details that are not an object', () => {
+  const event = {
+    account: 'a',
+    action: 'PutObject',
+    bucket: 'files',
+    object: { key: 'b.txt' },
+    eventTime: '2026-06-10T08:00:00Z',
+  } as const;
+  it.each(['null', '5', '"text"', '[1]', '{"bucket":', ''])('details %j', details => {
+    for (const action of ['r2_rename', 'r2_move']) {
+      expect(
+        _internal.rowExplainsEvent(
+          { id: 1, action, path: 'files/a.txt', details, createdAt: 0 },
+          event,
+          'create',
+        ),
+      ).toBe(false);
+    }
   });
 });

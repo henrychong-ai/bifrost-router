@@ -23,9 +23,10 @@
  *   (a visitor would get 502 or 522) or an upstream that passes the redirect
  *   cap; a request path that would leave the target's base path gives 404, as
  *   the handler does.
- * - no route, or a disabled one (matchRoute skips it, as the router does): the
+ * - no route, or a disabled one (the lookup skips it, as the router does): the
  *   service binding's own response if the host has one (a failed binding gives
- *   503, as the router does), else 404.
+ *   503, as the router does), else 404. A stored record on the way that cannot
+ *   be read gives 404, as the router answers it, never the binding (v1.38.0).
  * - r2 route, a path the Worker answers itself before its routes, or a URL
  *   with userinfo: the minimal result, so nothing about an object or an
  *   internal response is described.
@@ -42,7 +43,7 @@
 import { getPath } from 'hono/utils/url';
 import { proxyDestination } from '../handlers/proxy';
 import { redirectDestination } from '../handlers/redirect';
-import { matchRoute } from '../kv/lookup';
+import { lookupRoute } from '../kv/lookup';
 import { isSensitivePath, queryHasTraversal } from '../middleware/sensitive-paths';
 import { type Bindings, getServiceFallback, isValidDomain } from '../types';
 import { stripTrailingDot } from './host-policy';
@@ -109,8 +110,11 @@ async function resolveOwnHost(
   const path = getPath({ url: requestUrl.href } as Request);
   if (isWorkerAnsweredPath(path, requestUrl.search, host, env)) return MINIMAL;
 
-  // matchRoute skips a disabled route, as the router does
-  const route = await matchRoute(env.ROUTES, host, path);
+  // The lookup skips a disabled route, as the router does, and an invalid
+  // stored record is a 404, never the service binding (v1.38.0)
+  const lookup = await lookupRoute(env.ROUTES, host, path);
+  if (lookup.status === 'invalid') return statusOnly(404);
+  const route = lookup.status === 'ok' ? lookup.route : null;
   if (!route) {
     const binding = getServiceFallback(env, host);
     if (!binding) return statusOnly(404);

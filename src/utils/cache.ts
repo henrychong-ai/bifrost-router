@@ -1,5 +1,6 @@
 import { findRoutesByR2Target } from '../kv/routes';
 import { CLOUDFLARE_ZONE_IDS, getR2CustomDomainUrls, getZoneIdForDomain } from '../types';
+import { guard, isRecord, readResponseJson } from './boundary';
 
 /**
  * Result of a cache purge operation.
@@ -200,10 +201,12 @@ async function purgeZone(
     );
 
     if (response.ok) {
-      // CF API can return 200 with success: false in the body
-      try {
-        const body = (await response.json()) as { success?: boolean };
-        if (body.success === true) {
+      // CF API can return 200 with success: false in the body. The body is
+      // read as unknown and validated (v1.38.0): anything but a JSON object
+      // is unparseable
+      const read = await readResponseJson(response, guard(isRecord));
+      if (read.status === 'ok') {
+        if (read.value['success'] === true) {
           purged += batch.length;
         } else {
           failed += batch.length;
@@ -216,7 +219,7 @@ async function purgeZone(
             }),
           );
         }
-      } catch {
+      } else {
         // Failed to parse response body — treat as failure
         failed += batch.length;
         console.error(

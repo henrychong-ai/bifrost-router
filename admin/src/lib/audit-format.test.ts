@@ -522,3 +522,25 @@ describe('parseDetails (rename)', () => {
     ).toBe('a.pdf -> b.pdf');
   });
 });
+
+// v1.38.0: stored details are read as unknown; fields of the wrong type are
+// not trusted, and a value that is not an object keeps a minimal safe shape
+describe('parseDetails with details of an unexpected shape', () => {
+  it.each([
+    ['null', 'null'],
+    ['a number', '5'],
+    ['an array', '[1,2]'],
+  ])('shows %s as its raw text', (_label, details) => {
+    expect(parseDetails(details)).toBe(details);
+  });
+
+  it('never prints a nested object for a field declared as text', () => {
+    expect(parseDetails(JSON.stringify({ cf_audit_id: 'x', actionType: { a: 1 } }))).toBe(
+      'config change',
+    );
+    expect(
+      parseDetails(JSON.stringify({ cf_audit_id: 'x', actionType: 'update', resource: 'r2' })),
+    ).toBe('update');
+    expect(parseDetails(JSON.stringify({ route: { target: ['x'] } }))).toBe('Route data');
+  });
+});

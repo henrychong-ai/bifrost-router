@@ -1,5 +1,6 @@
 import type { Context, Next } from 'hono';
 import type { AppEnv } from '../types';
+import { guard, isRecord, logInvalidBoundary, readKvJson } from '../utils/boundary';
 
 /**
  * Rate limit configuration
@@ -28,6 +29,23 @@ const DEFAULT_CONFIG: RateLimitConfig = {
 interface RateLimitEntry {
   count: number;
   resetAt: number;
+}
+
+/** A stored entry is two finite numbers (v1.38.0); anything else resets the window. */
+const storedEntry = guard(
+  (value: unknown): value is RateLimitEntry =>
+    isRecord(value) && Number.isFinite(value['count']) && Number.isFinite(value['resetAt']),
+);
+
+/**
+ * The stored entry for `key`, or null when there is none. One that is not a
+ * valid entry resets the window (v1.38.0), with a fixed log line that names
+ * neither the key (it holds the client IP) nor the value.
+ */
+async function readEntry(kv: KVNamespace, key: string): Promise<RateLimitEntry | null> {
+  const read = await readKvJson(kv, key, storedEntry);
+  if (read.status === 'invalid') logInvalidBoundary('rate-limit');
+  return read.status === 'ok' ? read.value : null;
 }
 
 /**
@@ -75,7 +93,7 @@ export function rateLimit(config: Partial<RateLimitConfig> = {}) {
 
     try {
       // Get current rate limit entry
-      const existing = await kv.get<RateLimitEntry>(key, 'json');
+      const existing = await readEntry(kv, key);
 
       let entry: RateLimitEntry;
 
@@ -161,7 +179,7 @@ export function rateLimitStrict(config: Partial<RateLimitConfig> = {}) {
     const windowMs = finalConfig.windowSeconds * 1000;
 
     try {
-      const existing = await kv.get<RateLimitEntry>(key, 'json');
+      const existing = await readEntry(kv, key);
 
       let entry: RateLimitEntry;
 

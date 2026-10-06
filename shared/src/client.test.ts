@@ -426,6 +426,105 @@ describe('EdgeRouterClient', () => {
   });
 });
 
+// v1.38.0: the response envelope is read as unknown and checked before use
+describe('EdgeRouterClient response envelope', () => {
+  const mockFetch = vi.fn<StubFetch>();
+  const client = new EdgeRouterClient({
+    baseUrl: 'https://test.example.com',
+    apiKey: 'test-api-key',
+    fetch: mockFetch as unknown as typeof fetch,
+  });
+  beforeEach(() => mockFetch.mockReset());
+
+  it.each([
+    ['null', null],
+    ['an array', [{ success: true }]],
+    ['a string', 'success'],
+  ])('a body that is %s is a parse failure, not a crash', async (_label, body) => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => body,
+    });
+    const error = await client.listRoutes('links.example.com').catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(EdgeRouterError);
+    expect((error as EdgeRouterError).message).toContain('Failed to parse response');
+  });
+
+  it.each([
+    [
+      'the admin-host 404',
+      404,
+      { error: 'Not Found', path: '/api/routes', message: 'No route configured for this path.' },
+      'Not Found: No route configured for this path.',
+    ],
+    [
+      'a rate-limit 429',
+      429,
+      { error: 'Too Many Requests', message: 'Rate limit exceeded.', retryAfter: 30 },
+      'Too Many Requests: Rate limit exceeded.',
+    ],
+    ['an error alone', 409, { error: 'Route already exists: /a' }, 'Route already exists: /a'],
+  ])(
+    'keeps the server text of %s, which has no success flag',
+    async (_label, status, body, text) => {
+      for (const call of [
+        () => client.listRoutes('links.example.com'),
+        () => client.getQrImageSvg('abc', 'links.example.com'),
+      ]) {
+        mockFetch.mockResolvedValueOnce({
+          ok: false,
+          status,
+          statusText: 'x',
+          json: async () => body,
+        });
+        const error = await call().catch((caught: unknown) => caught);
+        expect((error as EdgeRouterError).message).toBe(text);
+        expect((error as EdgeRouterError).status).toBe(status);
+      }
+    },
+  );
+
+  it('ignores an error or message that is not a string', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      statusText: 'Bad Request',
+      json: async () => ({ success: false, error: { nested: true }, message: 7 }),
+    });
+    const error = await client.listRoutes('links.example.com').catch((caught: unknown) => caught);
+    expect((error as EdgeRouterError).message).toBe('Request failed: Bad Request');
+  });
+
+  it('a multipart upload with a body that is not an object is a parse failure', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => null,
+    });
+    const error = await client
+      .uploadObject('files', 'a.txt', new Blob(['x']), 'text/plain')
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(EdgeRouterError);
+    expect((error as EdgeRouterError).message).toContain('Failed to parse response');
+  });
+
+  it('a raw request error body that is not an object keeps the default message', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 502,
+      statusText: 'Bad Gateway',
+      json: async () => ['upstream'],
+    });
+    const error = await client
+      .getQrImageSvg('abc', 'links.example.com')
+      .catch((caught: unknown) => caught);
+    expect((error as EdgeRouterError).message).toBe('Request failed: Bad Gateway');
+  });
+});
+
 describe('createClientFromEnv', () => {
   it('creates client from env object', () => {
     const client = createClientFromEnv({

@@ -1,15 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
+import {
+  parseTailscaleIdentity,
+  SIGNED_OUT_IDENTITY,
+  type TailscaleIdentity,
+} from '@/lib/stored-json';
 
 // =============================================================================
 // Types
 // =============================================================================
 
-export interface TailscaleIdentity {
-  login: string | null;
-  name: string | null;
-  profilePic: string | null;
-  isAuthenticated: boolean;
-}
+export type { TailscaleIdentity } from '@/lib/stored-json';
 
 // =============================================================================
 // Query Keys
@@ -25,16 +25,11 @@ export const tailscaleKeys = {
 
 async function fetchTailscaleIdentity(): Promise<TailscaleIdentity> {
   const response = await fetch('/api/tailscale/identity');
-  if (!response.ok) {
-    // Return unauthenticated state on error
-    return {
-      login: null,
-      name: null,
-      profilePic: null,
-      isAuthenticated: false,
-    };
-  }
-  return (await response.json()) as TailscaleIdentity;
+  // Return unauthenticated state on error, or on an answer that is not an
+  // identity (read as unknown and validated, v1.38.0)
+  if (!response.ok) return SIGNED_OUT_IDENTITY;
+  const body: unknown = await response.json().catch(() => null);
+  return parseTailscaleIdentity(body);
 }
 
 /**

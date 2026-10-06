@@ -93,6 +93,38 @@ const BLOCKED: ReadonlyArray<readonly [string, string, 'name' | 'ipv4' | 'ipv6']
     'name',
   ],
   ['a name with two trailing dots', 'http://example.com../', 'name'],
+  // Wildcard-DNS names that answer with the address written in them, a
+  // private or loopback one included (v1.38.0): refused by name, unresolved
+  ['nip.io', 'http://nip.io/', 'name'],
+  ['a nip.io name holding a private address', 'http://10.0.0.1.nip.io/', 'name'],
+  ['a nip.io name with dashes', 'http://app-127-0-0-1.nip.io/', 'name'],
+  ['sslip.io', 'https://sslip.io/', 'name'],
+  ['an sslip.io name', 'http://169.254.169.254.sslip.io/latest', 'name'],
+  ['localtest.me', 'http://localtest.me/', 'name'],
+  ['a localtest.me subdomain', 'http://admin.localtest.me:8080/', 'name'],
+  ['lvh.me', 'http://lvh.me/', 'name'],
+  ['an lvh.me subdomain with a trailing dot', 'http://app.lvh.me./', 'name'],
+  ['traefik.me', 'http://traefik.me/', 'name'],
+  ['a traefik.me subdomain in mixed case', 'http://Dashboard.Traefik.ME/', 'name'],
+  ['nip.io in fullwidth letters', 'http://x.\uFF4E\uFF49\uFF50.\uFF49\uFF4F/', 'name'],
+  ['vcap.me', 'http://vcap.me/', 'name'],
+  ['a vcap.me subdomain', 'http://api.vcap.me/', 'name'],
+  ['lacolhost.com', 'http://lacolhost.com/', 'name'],
+  ['a lacolhost.com subdomain', 'http://a.b.lacolhost.com/', 'name'],
+  ['localhost.direct', 'https://localhost.direct/', 'name'],
+  ['a localhost.direct subdomain', 'https://app.localhost.direct/', 'name'],
+  ['local.gd', 'http://local.gd/', 'name'],
+  ['a local.gd subdomain', 'http://my.local.gd/', 'name'],
+  ['1u.ms', 'http://1u.ms/', 'name'],
+  [
+    'a 1u.ms name holding addresses',
+    'http://make-1.2.3.4-rebind-169.254.169.254-rr.1u.ms/',
+    'name',
+  ],
+  ['rbndr.us', 'http://rbndr.us/', 'name'],
+  ['an rbndr.us subdomain', 'http://7f000001.c0a80001.rbndr.us/', 'name'],
+  ['the bare internal namespace', 'http://internal/', 'name'],
+  ['the bare local namespace', 'http://local./', 'name'],
 ];
 
 /** Public controls both validators must let through. */
@@ -120,6 +152,14 @@ const ALLOWED: readonly string[] = [
   'http://[2001:30::1]/',
   'https://mylocal.com/',
   'https://internal.example.com/',
+  // Only the wildcard-DNS names themselves and their subdomains are refused
+  'https://nip.io.example.com/',
+  'https://notnip.io/',
+  'https://lvh.media/',
+  'https://sslip.io-example.com/',
+  'https://local.gd.example.com/',
+  'https://vcap.media/',
+  'https://internal-tools.example.com/',
 ];
 
 describe('shared outbound host policy', () => {
@@ -159,6 +199,22 @@ describe('shared outbound host policy', () => {
     expect(hostRefusal('8.8.8.8.')).toBeNull();
     expect(hostRefusal('8.8.8.8..')).toBe('name');
     expect(hostRefusal('a..b')).toBe('name');
+  });
+
+  it('refuses a wildcard-DNS name passed raw, in any case and with one trailing dot', () => {
+    for (const host of [
+      'NIP.IO',
+      '1.2.3.4.Nip.Io.',
+      'sslip.io.',
+      'a.b.localtest.me',
+      'LVH.ME',
+      'X.RBNDR.US',
+      'localhost.direct.',
+    ]) {
+      expect(hostRefusal(host)).toBe('name');
+    }
+    expect(hostRefusal('nip.io..')).toBe('name');
+    expect(hostRefusal('nipio')).toBeNull();
   });
 
   it('refuses an empty host', () => {

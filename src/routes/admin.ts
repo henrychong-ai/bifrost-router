@@ -16,6 +16,8 @@ import {
   getAllRoutesAllDomains,
   getMetadata,
   getRoute,
+  getRouteState,
+  InvalidStoredRouteError,
   migrateRoute,
   seedRoutes,
   serializeStoredRoute,
@@ -32,10 +34,11 @@ import {
 import { cors } from '../middleware/cors';
 import type { AppEnv, KVRouteConfig } from '../types';
 import { isValidDomain, SUPPORTED_DOMAINS } from '../types';
+import { isRecord } from '../utils/boundary';
 import { purgeRouteUrl } from '../utils/cache';
 import { validateApiKey } from '../utils/crypto';
 import { ownHostResolver } from '../utils/og-own-host';
-import { parseOpenGraph, ResponseTooLargeError, SSRFBlockedError } from '../utils/og-parser';
+import { describeOpenGraphFailure, parseOpenGraph } from '../utils/og-parser';
 import { findCredentialParams } from '../utils/unified-traffic';
 import { analyticsRoutes } from './analytics';
 import { feedbackRoutes } from './feedback';
@@ -193,11 +196,7 @@ function credentialTargetRefusal(parameters: string[], subject: string): Credent
  * and it can never reach KV or a route response.
  */
 function readCredentialAcknowledgement(body: unknown): boolean {
-  return (
-    typeof body === 'object' &&
-    body !== null &&
-    (body as { acknowledgeCredentialTarget?: unknown }).acknowledgeCredentialTarget === true
-  );
+  return isRecord(body) && body['acknowledgeCredentialTarget'] === true;
 }
 
 /**
@@ -450,7 +449,7 @@ adminRoutes.post('/routes', async c => {
   }
 
   const domain = domainResult.domain;
-  const body: unknown = await c.req.json().catch(() => {
+  const body: unknown = await c.req.json<unknown>().catch(() => {
     throw new HTTPException(400, { message: 'Invalid JSON body' });
   });
 
@@ -474,9 +473,11 @@ adminRoutes.post('/routes', async c => {
     return c.json(credentialTargetRefusal(credentialParams, 'This route target'), 400);
   }
 
-  // Check if route already exists
-  const existing = await getRoute(c.env.ROUTES, domain, result.data.path);
-  if (existing) {
+  // Check if route already exists. A stored record that cannot be read is
+  // present too: never overwritten, 409 ROUTE_RECORD_INVALID (v1.38.0)
+  const existing = await getRouteState(c.env.ROUTES, domain, result.data.path);
+  if (existing.status === 'invalid') throw new InvalidStoredRouteError();
+  if (existing.status === 'ok') {
     return c.json(
       {
         success: false,
@@ -561,21 +562,24 @@ adminRoutes.put('/routes', async c => {
   const domain = domainResult.domain;
 
   // A missing route is a 404 before anything about the patch is judged
-  // (v1.37.2), so the answer does not depend on what was sent
-  const beforeRoute = await getRoute(c.env.ROUTES, domain, path);
-  if (!beforeRoute) {
+  // (v1.37.2), so the answer does not depend on what was sent. A stored record
+  // that cannot be read is never merged with a patch (v1.38.0): 409, and the
+  // operator deletes it and creates it again
+  const beforeState = await getRouteState(c.env.ROUTES, domain, path);
+  if (beforeState.status === 'missing') {
     throw new HTTPException(404, { message: `Route not found: ${path}` });
   }
+  if (beforeState.status === 'invalid') throw new InvalidStoredRouteError();
+  const beforeRoute = beforeState.value;
 
-  const body: unknown = await c.req.json().catch(() => {
+  const body: unknown = await c.req.json<unknown>().catch(() => {
     throw new HTTPException(400, { message: 'Invalid JSON body' });
   });
 
   // Validate input. A body that is not a JSON object goes to the schema as it
   // is, so it is refused as a type error — spread over `path` it would read as
   // an empty patch (and `null` then failed AFTER the write, on the audit step).
-  const isObjectBody = typeof body === 'object' && body !== null && !Array.isArray(body);
-  const result = UpdateRouteSchema.safeParse(isObjectBody ? { ...body, path } : body);
+  const result = UpdateRouteSchema.safeParse(isRecord(body) ? { ...body, path } : body);
   if (!result.success) {
     return c.json(
       {
@@ -587,7 +591,7 @@ adminRoutes.put('/routes', async c => {
     );
   }
   // The schema accepted an object, so its fields can be read for the audit row.
-  const fields = body as Record<string, unknown>;
+  const fields: Record<string, unknown> = isRecord(body) ? body : {};
 
   // Credential-shaped target guard — on the EFFECTIVE post-update route, so a
   // patch that leaves a credential target in place, or a re-enable of a stored
@@ -741,14 +745,13 @@ adminRoutes.post('/routes/seed', async c => {
   }
 
   const domain = domainResult.domain;
-  // Read as an object that may carry `routes`; anything else, `null` included,
-  // fails the array check below.
-  const body = (await c.req.json().catch(() => {
+  // Read as unknown; anything but an object carrying a `routes` array, `null`
+  // included, is refused below.
+  const body: unknown = await c.req.json<unknown>().catch(() => {
     throw new HTTPException(400, { message: 'Invalid JSON body' });
-  })) as { routes?: unknown } | null;
+  });
 
-  // Optional chaining: a `null` body has no `routes` either.
-  if (!Array.isArray(body?.routes)) {
+  if (!isRecord(body) || !Array.isArray(body['routes'])) {
     return c.json(
       {
         success: false,
@@ -766,7 +769,8 @@ adminRoutes.post('/routes/seed', async c => {
   const seedCredentialPaths = new Set<string>();
   const seedCredentialParamsByPath = new Map<string, string[]>();
 
-  for (const route of body.routes as unknown[]) {
+  const submitted: unknown[] = body['routes'];
+  for (const route of submitted) {
     const result = CreateRouteSchema.safeParse(route);
     if (result.success) {
       // Seed takes full route bodies, so it can plant exactly what create
@@ -786,7 +790,7 @@ adminRoutes.post('/routes/seed', async c => {
     } else {
       // A seed entry may be `null` or a primitive, which has no path to report.
       errors.push({
-        path: (route as { path?: unknown } | null)?.path,
+        path: isRecord(route) ? route['path'] : undefined,
         issues: result.error.issues,
       });
     }
@@ -1021,6 +1025,7 @@ adminRoutes.get('/backups/health', async c => {
  * - SSRF protection blocks private IPs, localhost, cloud metadata endpoints
  * - Response size limited to 1MB
  * - Request timeout of 5 seconds
+ * - Errors answer a fixed message per failure class (describeOpenGraphFailure)
  */
 adminRoutes.get('/metadata/og', async c => {
   const url = c.req.query('url');
@@ -1044,36 +1049,11 @@ adminRoutes.get('/metadata/og', async c => {
       data: ogData,
     });
   } catch (error) {
-    if (error instanceof SSRFBlockedError) {
-      return c.json(
-        {
-          success: false,
-          error: 'URL blocked for security reasons',
-          details: error.message,
-        },
-        403,
-      );
-    }
-
-    if (error instanceof ResponseTooLargeError) {
-      return c.json(
-        {
-          success: false,
-          error: 'Response too large',
-          details: error.message,
-        },
-        413,
-      );
-    }
-
-    // Network or HTTP errors
+    // A fixed message per failure class, never the error's own text (v1.38.0)
+    const failure = describeOpenGraphFailure(error);
     return c.json(
-      {
-        success: false,
-        error: 'Failed to fetch URL',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      },
-      502,
+      { success: false, error: failure.error, details: failure.details },
+      failure.status,
     );
   }
 });
@@ -1093,7 +1073,7 @@ adminRoutes.get('/metadata/og', async c => {
 adminRoutes.post('/routes/transfer', async c => {
   // The RAW body is kept: the request-only `acknowledgeCredentialTarget` flag
   // is read from it below and is never part of the parsed shape.
-  const body: unknown = await c.req.json().catch(() => {
+  const body: unknown = await c.req.json<unknown>().catch(() => {
     throw new HTTPException(400, { message: 'Invalid JSON body' });
   });
 

@@ -98,7 +98,7 @@ function getActorInfo(c: { req: { header: (name: string) => string | undefined }
  * checks (empty values, `validateR2Key`, bucket lookups) still run afterwards.
  */
 async function parseJsonBody<T>(c: Context<AppEnv>, schema: ZodType<T>, what: string): Promise<T> {
-  const raw: unknown = await c.req.json().catch(() => {
+  const raw: unknown = await c.req.json<unknown>().catch(() => {
     throw new HTTPException(400, { message: 'Invalid JSON body' });
   });
   const parsed = schema.safeParse(raw);

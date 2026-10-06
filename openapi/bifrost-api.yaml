@@ -72,6 +72,10 @@ paths:
       responses:
         '201':
           description: Created
+        '409':
+          description: >-
+            A route already exists at the path, or the stored record there cannot be
+            read (`error: ROUTE_RECORD_INVALID`; delete it and create it again)
     put:
       summary: Update route
       parameters:
@@ -86,6 +90,10 @@ paths:
       responses:
         '200':
           description: Updated
+        '409':
+          description: >-
+            The stored record cannot be read (`error: ROUTE_RECORD_INVALID`); it is
+            never merged with the patch. Delete it and create it again
     delete:
       summary: Delete route
       parameters:
@@ -93,7 +101,7 @@ paths:
         - $ref: '#/components/parameters/DomainQueryWrite'
       responses:
         '200':
-          description: Deleted
+          description: Deleted (also a route whose stored record cannot be read)
 
   /api/routes/seed:
     post:
@@ -139,7 +147,9 @@ paths:
         '404':
           description: Route not found at oldPath
         '409':
-          description: Route already exists at newPath
+          description: >-
+            Route already exists at newPath, or the record at either path cannot be
+            read (`error: ROUTE_RECORD_INVALID`)
 
   /api/routes/transfer:
     post:
@@ -181,7 +191,9 @@ paths:
         '404':
           description: Route not found on source domain
         '409':
-          description: Route already exists on destination domain
+          description: >-
+            Route already exists on destination domain, or the record on either domain
+            cannot be read (`error: ROUTE_RECORD_INVALID`)
 
   /api/routes/normalize-case:
     post:

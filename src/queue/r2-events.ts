@@ -3,6 +3,7 @@ import { BACKUP_BUCKET_NAME, BACKUP_DAILY_PREFIX } from '../backup/constants';
 import { createDb } from '../db';
 import { auditLogs, r2EventCorrelations, r2EventSeen } from '../db/schema';
 import type { Bindings } from '../types';
+import { guard, isRecord, readStoredJson } from '../utils/boundary';
 
 /**
  * R2 event notification message payload (delivered via Cloudflare Queues).
@@ -115,13 +116,11 @@ function rowExplainsEvent(row: CandidateRow, event: R2EventMessage, kind: EventK
   }
 
   if (row.action === 'r2_rename' || row.action === 'r2_move') {
-    if (!row.details) return false;
-    let d: Record<string, unknown>;
-    try {
-      d = JSON.parse(row.details) as Record<string, unknown>;
-    } catch {
-      return false;
-    }
+    // Stored details read as unknown (v1.38.0): anything but a JSON object
+    // matches nothing (a stored `null` used to throw and retry the batch)
+    const read = readStoredJson(row.details || null, guard(isRecord));
+    if (read.status !== 'ok') return false;
+    const d = read.value;
     if (row.action === 'r2_rename') {
       const bucketOk = d['bucket'] === event.bucket;
       return bucketOk && (kind === 'create' ? d['newKey'] === key : d['oldKey'] === key);

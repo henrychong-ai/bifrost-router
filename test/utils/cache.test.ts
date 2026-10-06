@@ -135,6 +135,24 @@ describe('purgeRouteUrl', () => {
     expect(purgeBodies).toHaveLength(0);
   });
 
+  // v1.38.0: the API body is read as unknown and validated
+  it.each([
+    ['null', 'null'],
+    ['not JSON', '<html>busy</html>'],
+    ['an array', '[true]'],
+  ])('reports a failure, as unparseable, when the CF API body is %s', async (_label, body) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(body, { status: 200 })),
+    );
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const result = await purgeRouteUrl('links.example.com', '/report', 'test-token');
+    expect(result.purged).toBe(0);
+    expect(result.failed).toBe(1);
+    expect(JSON.stringify(error.mock.calls)).toContain('unparseable response');
+    expect(JSON.stringify(error.mock.calls)).not.toContain('busy');
+  });
+
   it('reports a failure when the CF API returns success:false', async () => {
     stubPurgeApi({ success: false });
 

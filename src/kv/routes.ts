@@ -7,6 +7,7 @@ import {
 import { HTTPException } from 'hono/http-exception';
 import type { KVRouteConfig, RoutesMetadata, SupportedDomain } from '../types';
 import { SUPPORTED_DOMAINS } from '../types';
+import type { BoundaryRead } from '../utils/boundary';
 import {
   KVDeleteError,
   KVReadError,
@@ -19,11 +20,12 @@ import {
   type CreateRouteInput,
   domainPrefix,
   fitsKvKey,
+  isRouteKey,
   parseRouteKey,
-  QR_KV_NAMESPACE,
   routeKey,
   SCHEMA_VERSION,
 } from './schema';
+import { readRouteRecord, readRouteState } from './stored-route';
 
 /** The fixed refusals of a route write that would store too much (v1.37.2). */
 export const ROUTE_WRITE_REFUSALS = {
@@ -53,6 +55,29 @@ export class RouteWriteRefusedError extends HTTPException {
       ),
     });
     this.name = 'RouteWriteRefusedError';
+  }
+}
+
+/** The fixed message of {@link InvalidStoredRouteError}. */
+export const ROUTE_RECORD_INVALID_MESSAGE =
+  'This route is stored in a shape that cannot be read. Delete it and create it again.';
+
+/**
+ * A write over a stored route record that cannot be read (v1.38.0): a fixed
+ * 409 `{ success: false, error: 'ROUTE_RECORD_INVALID', message }` instead of
+ * merging with, moving or overwriting unreadable data. The recovery is to
+ * delete the route (DELETE accepts an invalid record) and create it again.
+ */
+export class InvalidStoredRouteError extends HTTPException {
+  constructor() {
+    super(409, {
+      message: ROUTE_RECORD_INVALID_MESSAGE,
+      res: Response.json(
+        { success: false, error: 'ROUTE_RECORD_INVALID', message: ROUTE_RECORD_INVALID_MESSAGE },
+        { status: 409 },
+      ),
+    });
+    this.name = 'InvalidStoredRouteError';
   }
 }
 
@@ -161,11 +186,12 @@ export async function getRoute(
   domain: string,
   path: string,
 ): Promise<KVRouteConfig | null> {
+  // A key over KV's limit reads as absent (readKvJson): no route is stored
+  // there, and KV refuses such a key even on read. An invalid record reads as
+  // absent too, logged once (stored-route.ts)
   const key = routeKey(domain, normalizePath(path));
-  // KV refuses a key over its limit even on read; no route is stored there
-  if (!fitsKvKey(key)) return null;
   try {
-    return await kv.get<KVRouteConfig>(key, 'json');
+    return await readRouteRecord(kv, key);
   } catch (error) {
     throw new KVReadError(key, error instanceof Error ? error : new Error(String(error)));
   }
@@ -193,12 +219,46 @@ export async function getRouteByNormalizedPath(
   normalizedPath: string,
 ): Promise<KVRouteConfig | null> {
   const key = routeKey(domain, normalizedPath);
-  if (!fitsKvKey(key)) return null;
   try {
-    return await kv.get<KVRouteConfig>(key, 'json');
+    return await readRouteRecord(kv, key);
   } catch (error) {
     throw new KVReadError(key, error instanceof Error ? error : new Error(String(error)));
   }
+}
+
+/** A route's stored state by its exact key; a KV failure is a KVReadError. */
+async function readStateOrThrow(
+  kv: KVNamespace,
+  key: string,
+): Promise<BoundaryRead<KVRouteConfig>> {
+  try {
+    return await readRouteState(kv, key);
+  } catch (error) {
+    throw new KVReadError(key, error instanceof Error ? error : new Error(String(error)));
+  }
+}
+
+/**
+ * The record of a route that is present, null when absent; an unreadable
+ * record is refused (409 ROUTE_RECORD_INVALID) rather than treated as absent.
+ */
+function presentRoute(read: BoundaryRead<KVRouteConfig>): KVRouteConfig | null {
+  if (read.status === 'invalid') throw new InvalidStoredRouteError();
+  return read.status === 'ok' ? read.value : null;
+}
+
+/**
+ * A route's stored state by domain and path (v1.38.0): `missing`, `ok` with
+ * the record, or `invalid` (the record exists but cannot be read). For the
+ * management API, which must tell an unreadable record from an absent one.
+ * The path is normalised, as in {@link getRoute}.
+ */
+export async function getRouteState(
+  kv: KVNamespace,
+  domain: string,
+  path: string,
+): Promise<BoundaryRead<KVRouteConfig>> {
+  return readStateOrThrow(kv, routeKey(domain, normalizePath(path)));
 }
 
 /**
@@ -212,9 +272,8 @@ export async function getRouteSafe(
 ): Promise<KVResult<KVRouteConfig | null>> {
   // Same normalisation contract as getRoute().
   const key = routeKey(domain, normalizePath(path));
-  if (!fitsKvKey(key)) return { success: true, data: null };
   return withKVErrorHandling(
-    () => kv.get<KVRouteConfig>(key, 'json'),
+    () => readRouteRecord(kv, key),
     cause => new KVReadError(key, cause),
   );
 }
@@ -234,11 +293,10 @@ export async function getAllRoutes(kv: KVNamespace, domain: string): Promise<KVR
     do {
       const result = await kv.list({ prefix, ...(cursor !== undefined && { cursor }) });
 
-      // Fetch route values for each key
-      const routePromises = result.keys.map(async key => {
-        const route = await kv.get<KVRouteConfig>(key.name, 'json');
-        return route;
-      });
+      // Fetch route values for each route-shaped key: nothing else is read
+      const routePromises = result.keys
+        .filter(key => isRouteKey(key.name))
+        .map(key => readRouteRecord(kv, key.name));
 
       const routeResults = await Promise.all(routePromises);
       routes.push(...routeResults.filter((r): r is KVRouteConfig => r !== null));
@@ -281,12 +339,11 @@ export async function getAllRoutesAllDomains(kv: KVNamespace): Promise<KVRouteCo
       // Fetch route values and parse domain from key
       const routePromises = result.keys.map(async key => {
         try {
-          // QR records share this KV namespace under `qr:{domain}:{id}` keys
-          // (v1.30.0) — they would otherwise parse as domain "qr" and be
-          // discarded by the supported-domain filter; skip them explicitly.
-          if (key.name.startsWith(QR_KV_NAMESPACE)) {
-            return null;
-          }
+          // Only route-shaped keys `{domain}:/…` are read (v1.38.0). The
+          // namespace also holds `qr:` records and, with the optional rate
+          // limiter, `ratelimit:` entries (client IP addresses): none of them
+          // may be read, or logged by the invalid-record line, as a route.
+          if (!isRouteKey(key.name)) return null;
 
           // Parse domain from key (format: "domain:/path")
           const [domain] = parseRouteKey(key.name);
@@ -296,7 +353,7 @@ export async function getAllRoutesAllDomains(kv: KVNamespace): Promise<KVRouteCo
             return null;
           }
 
-          const route = await kv.get<KVRouteConfig>(key.name, 'json');
+          const route = await readRouteRecord(kv, key.name);
           if (!route) return null;
 
           return { ...route, domain: domain as SupportedDomain };
@@ -359,10 +416,11 @@ export async function updateRoute(
   updates: RoutePatch,
 ): Promise<KVRouteConfig | null> {
   const normalizedPath = normalizePath(path);
-  const existing = await getRouteByNormalizedPath(kv, domain, normalizedPath);
+  const key = routeKey(domain, normalizedPath);
+  // Never merged with a record that cannot be read: 409, delete and recreate
+  const existing = presentRoute(await readStateOrThrow(kv, key));
   if (!existing) return null;
 
-  const key = routeKey(domain, normalizedPath);
   const updated: KVRouteConfig = {
     ...existing,
     ...updates,
@@ -394,15 +452,15 @@ export async function updateRoute(
 }
 
 /**
- * Delete a route
+ * Delete a route, also one whose stored record cannot be read (v1.38.0):
+ * deleting it is how an operator recovers it.
  * Returns false if not found, throws KVDeleteError on failure
  */
 export async function deleteRoute(kv: KVNamespace, domain: string, path: string): Promise<boolean> {
   const normalizedPath = normalizePath(path);
-  const existing = await getRouteByNormalizedPath(kv, domain, normalizedPath);
-  if (!existing) return false;
-
   const key = routeKey(domain, normalizedPath);
+  if ((await readStateOrThrow(kv, key)).status === 'missing') return false;
+
   try {
     await kv.delete(key);
     return true;
@@ -452,13 +510,14 @@ export async function seedRoutes(
     built.push({ inputPath: route.path, key, serialized });
   }
 
-  // getRoute() normalises, so each existence check resolves exactly the key
-  // about to be written — an alias of a stored path is SKIPPED rather than
-  // silently overwriting the record it aliases. The reads are independent.
-  const existing = await Promise.all(built.map(entry => getRoute(kv, domain, entry.inputPath)));
+  // Each existence check reads exactly the key about to be written, so an
+  // alias of a stored path is SKIPPED rather than silently overwriting the
+  // record it aliases; a record that cannot be read is present too, and is
+  // never overwritten (v1.38.0). The reads are independent.
+  const existing = await Promise.all(built.map(entry => readStateOrThrow(kv, entry.key)));
 
   for (const [index, { inputPath, key, serialized }] of built.entries()) {
-    if (existing[index]) {
+    if (existing[index]?.status !== 'missing') {
       skipped++;
       continue;
     }
@@ -507,15 +566,17 @@ export async function migrateRoute(
     throw new Error('Old path and new path cannot be the same');
   }
 
-  // Get existing route at oldPath
-  const existing = await getRouteByNormalizedPath(kv, domain, normalizedOldPath);
+  // Get existing route at oldPath; an unreadable record is never moved
+  const existing = presentRoute(await readStateOrThrow(kv, routeKey(domain, normalizedOldPath)));
   if (!existing) {
     return null;
   }
 
-  // Check if newPath already exists
-  const existingAtNew = await getRouteByNormalizedPath(kv, domain, normalizedNewPath);
-  if (existingAtNew) {
+  // Check if newPath already exists; an unreadable record there is present
+  // too, and is never overwritten
+  const atNew = await readStateOrThrow(kv, routeKey(domain, normalizedNewPath));
+  if (atNew.status === 'invalid') throw new InvalidStoredRouteError();
+  if (atNew.status === 'ok') {
     throw new Error(`Route already exists at path: ${normalizedNewPath}`);
   }
 
@@ -569,13 +630,15 @@ export async function transferRoute(
     throw new Error('Source and destination domains cannot be the same');
   }
 
-  const existing = await getRouteByNormalizedPath(kv, fromDomain, normalizedPath);
+  // An unreadable record is never moved, and never overwritten at the target
+  const existing = presentRoute(await readStateOrThrow(kv, routeKey(fromDomain, normalizedPath)));
   if (!existing) {
     return null;
   }
 
-  const existingAtTarget = await getRouteByNormalizedPath(kv, toDomain, normalizedPath);
-  if (existingAtTarget) {
+  const atTarget = await readStateOrThrow(kv, routeKey(toDomain, normalizedPath));
+  if (atTarget.status === 'invalid') throw new InvalidStoredRouteError();
+  if (atTarget.status === 'ok') {
     throw new Error(`Route already exists at ${toDomain}:${normalizedPath}`);
   }
 

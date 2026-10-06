@@ -14,23 +14,34 @@
 import {
   FEEDBACK_PRIORITY_DEFAULT,
   type FeedbackContext,
+  FeedbackContextSchema,
   type FeedbackItem,
   type FeedbackStatus,
+  FeedbackStringListSchema,
   type FeedbackType,
   formatFeedbackShortId,
   type TriageFeedbackInput,
 } from '@bifrost/shared';
 import { and, desc, eq, gte } from 'drizzle-orm';
+import { logInvalidBoundary, readStoredJson, type Validator } from '../utils/boundary';
 import { createDb } from './index';
 import { type FeedbackRow, feedback } from './schema';
 
-function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
-  if (!raw) return fallback;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
+/**
+ * A JSON column read as unknown and validated (v1.38.0): absent or empty
+ * gives `fallback`, and so does a value that is not JSON or not the expected
+ * shape, with one fixed log line (`category`), never the value.
+ */
+function storedJson<T>(
+  raw: string | null | undefined,
+  schema: Validator<T>,
+  fallback: T,
+  category: string,
+): T {
+  const read = readStoredJson(raw || null, schema);
+  if (read.status === 'ok') return read.value;
+  if (read.status === 'invalid') logInvalidBoundary(category);
+  return fallback;
 }
 
 /** Map a raw DB row to the camelCase API/MCP shape (context + arrays parsed). */
@@ -46,8 +57,13 @@ export function rowToFeedbackItem(row: FeedbackRow): FeedbackItem {
     steps: row.steps ?? null,
     expected: row.expected ?? null,
     actual: row.actual ?? null,
-    context: safeJsonParse<FeedbackContext | null>(row.contextJson, null),
-    screenshotKeys: safeJsonParse<string[]>(row.screenshotKeys, []),
+    context: storedJson<FeedbackContext | null>(
+      row.contextJson,
+      FeedbackContextSchema,
+      null,
+      'feedback-context',
+    ),
+    screenshotKeys: storedJson(row.screenshotKeys, FeedbackStringListSchema, [], 'feedback-keys'),
     captureKey: row.captureKey ?? null,
     labels: row.labels ?? null,
     area: row.area ?? null,

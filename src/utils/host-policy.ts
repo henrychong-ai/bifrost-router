@@ -14,9 +14,12 @@
  *   treats `2130706433..` as a domain rather than an IPv4 address. A name
  *   whose last label is all digits or `0x…` but is not a valid IPv4 address
  *   is refused too (the WHATWG "ends in a number" rule). `localhost` and every
- *   `*.localhost`, `*.internal` and `*.local` name are refused, plus a few
- *   exact internal names. Other names are allowed and are NOT resolved: a
- *   public name whose DNS answer is private is not caught here.
+ *   `*.localhost`, `*.internal` and `*.local` name (and `internal` and
+ *   `local` themselves) are refused, plus a few exact internal names and the
+ *   known public wildcard-DNS services that answer with a private or
+ *   loopback address, each with every subdomain (BLOCKED_DOMAINS). Other
+ *   names are allowed and are NOT resolved: a public name whose DNS answer is
+ *   private is not caught here.
  * - **IPv4:** a numeric block list of non-public ranges (BLOCKED_IPV4_CIDRS).
  * - **IPv6:** an ALLOW-list. Only global unicast 2000::/3 is allowed, minus
  *   Teredo (2001::/32), documentation (2001:db8::/32 and 3fff::/20),
@@ -30,9 +33,8 @@
 /** Why a host was refused, for the callers' error messages. */
 export type HostRefusal = 'name' | 'ipv4' | 'ipv6';
 
-/** Exact names refused besides `localhost` and the refused suffixes. */
+/** Exact names refused besides the refused domains below. */
 const BLOCKED_NAMES: ReadonlySet<string> = new Set([
-  'localhost',
   'localhost.localdomain',
   'ip6-localhost',
   'ip6-loopback',
@@ -43,8 +45,31 @@ const BLOCKED_NAMES: ReadonlySet<string> = new Set([
   'metadata.google.internal',
 ]);
 
-/** Name suffixes refused: a `.localhost`, `.internal` or `.local` name. */
-const BLOCKED_SUFFIXES = ['.localhost', '.internal', '.local'] as const;
+/**
+ * Domains refused by name, the name itself and every subdomain: the internal
+ * namespaces `localhost`, `internal` and `local`, and public wildcard-DNS
+ * services whose names resolve to an address written in the name, or to
+ * loopback, private ones included (`10.0.0.1.nip.io`, `app.localtest.me`,
+ * v1.38.0). The services are an illustrative list of known ones, not a
+ * complete one: names are still not resolved, so another service of the
+ * kind, or any other name that answers with a private address, passes.
+ */
+export const BLOCKED_DOMAINS = [
+  'localhost',
+  'internal',
+  'local',
+  'nip.io',
+  'sslip.io',
+  'localtest.me',
+  'lvh.me',
+  'traefik.me',
+  'vcap.me',
+  'lacolhost.com',
+  'localhost.direct',
+  'local.gd',
+  '1u.ms',
+  'rbndr.us',
+] as const;
 
 /** Non-public IPv4 ranges, as CIDR. */
 const BLOCKED_IPV4_CIDRS = [
@@ -167,7 +192,10 @@ export function hostRefusal(hostname: string): HostRefusal | null {
   // never a name, so anything not already a canonical dotted quad is refused
   const last = labels.at(-1) ?? '';
   if (/^\d+$/.test(last) || /^0x[0-9a-f]*$/.test(last)) return 'ipv4';
-  if (BLOCKED_NAMES.has(host) || BLOCKED_SUFFIXES.some(suffix => host.endsWith(suffix))) {
+  if (
+    BLOCKED_NAMES.has(host) ||
+    BLOCKED_DOMAINS.some(domain => host === domain || host.endsWith(`.${domain}`))
+  ) {
     return 'name';
   }
   return null;

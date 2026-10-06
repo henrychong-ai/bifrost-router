@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test';
 import { Hono } from 'hono';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { rateLimit, rateLimitStrict } from '../../src/middleware/rate-limit';
 import type { AppEnv } from '../../src/types';
 
@@ -114,5 +114,46 @@ describe('rateLimitStrict middleware', () => {
     await makeRequest();
     const response = await makeRequest();
     expect(response.status).toBe(429);
+  });
+});
+
+describe('a stored rate-limit entry is validated (v1.38.0)', () => {
+  const ip = '9.9.9.9';
+  const key = `ratelimit:${ip}`;
+  beforeEach(async () => {
+    const list = await env.ROUTES.list({ prefix: 'ratelimit:' });
+    for (const listed of list.keys) await env.ROUTES.delete(listed.name);
+  });
+
+  it.each([
+    ['not JSON', '{"count":'],
+    ['the wrong shape', JSON.stringify({ count: 'many', resetAt: Date.now() + 60_000 })],
+    ['a JSON array', JSON.stringify([99, Date.now() + 60_000])],
+  ])('an entry that is %s resets the window, logged as fixed text', async (_label, stored) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      for (const make of [rateLimit, rateLimitStrict]) {
+        await env.ROUTES.put(key, stored);
+        const app = new Hono<AppEnv>();
+        app.use('*', make({ maxRequests: 3, windowSeconds: 60 }));
+        app.get('/test', c => c.json({ success: true }));
+        const response = await app.fetch(
+          new Request('http://localhost/test', { headers: { 'CF-Connecting-IP': ip } }),
+          env,
+        );
+        expect(response.status).toBe(200);
+        expect(response.headers.get('X-RateLimit-Remaining')).toBe('2');
+      }
+      expect(warn).toHaveBeenCalledWith(
+        JSON.stringify({
+          level: 'warn',
+          message: 'boundary-invalid-value',
+          category: 'rate-limit',
+        }),
+      );
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(ip);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
