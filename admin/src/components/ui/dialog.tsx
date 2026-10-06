@@ -46,7 +46,7 @@ function DialogContent({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
-  /** Render an in-dialog "Feedback" button (ported from upstream v1.42.2). */
+  /** Render an in-dialog "Feedback" button. */
   feedbackTrigger?: boolean;
 }) {
   return (

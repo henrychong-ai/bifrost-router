@@ -977,7 +977,11 @@ adminRoutes.get('/changelog', c =>
  * - Route count verification
  *
  * HTTP Status:
- * - 200: Always (status conveyed via JSON body field)
+ * - 200: whatever R2 or the stored archive does (status conveyed via the JSON
+ *   body: an R2 failure or a bad archive is a critical issue there)
+ * - 503: BACKUP_BUCKET is not bound
+ * - 500: only a programming error, which health rethrows rather than report
+ *   as an R2 outage
  */
 adminRoutes.get('/backups/health', async c => {
   const bucket = c.env.BACKUP_BUCKET;
@@ -1302,7 +1306,7 @@ adminRoutes.route('/analytics', analyticsRoutes);
 adminRoutes.route('/feedback', feedbackRoutes);
 
 /**
- * QR code API routes (v1.30.0 — ported from upstream v1.54.0)
+ * QR code API routes (v1.30.0)
  * Mounted at /api/qr/*
  * Inherits domain restriction, CORS, and ADMIN_API_KEY auth from parent middleware
  */

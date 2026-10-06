@@ -13,9 +13,8 @@ import {
 import { getWelcomeSeen, persistWelcomeSeen } from '@/lib/constants';
 
 /**
- * First-visit orientation dialog (v1.30.0 — ported from the internal
- * deployments' v1.56.0, simplified for the single-operator template: no
- * role personalisation). Shown once per browser; EVERY dismissal path marks
+ * First-visit orientation dialog (v1.30.0), for the single-operator
+ * template: no role personalisation. Shown once per browser; EVERY dismissal path marks
  * it seen so it never re-prompts.
  */
 export function WelcomeDialog() {

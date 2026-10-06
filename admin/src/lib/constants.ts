@@ -42,7 +42,7 @@ export function getR2ObjectUrl(bucket: string, key: string): string | null {
 }
 
 // -----------------------------------------------------------------------------
-// First-visit welcome (v1.30.0 — ported from the internal deployments' v1.56.0)
+// First-visit welcome (v1.30.0)
 // -----------------------------------------------------------------------------
 
 export const WELCOME_SEEN_STORAGE_KEY = 'bifrost-welcome-seen-v1';

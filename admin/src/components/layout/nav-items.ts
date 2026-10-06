@@ -16,8 +16,8 @@ import {
 } from 'lucide-react';
 
 /**
- * Sidebar navigation registry (v1.30.0 — extracted from app-sidebar.tsx,
- * mirroring the upstream layout/nav-items.ts module). Render-free so the
+ * Sidebar navigation registry (v1.30.0 — extracted from app-sidebar.tsx into
+ * its own module). Render-free so the
  * User Guide coverage parity test (guide-coverage.test.ts) can import it in
  * a plain node vitest run.
  */
@@ -43,7 +43,7 @@ export const navigationItems: NavItem[] = [
     href: '/storage',
     icon: HardDrive,
   },
-  // QR Codes sits directly below Storage (upstream v1.58.2 ordering): the two
+  // QR Codes sits directly below Storage: the two
   // storage-shaped surfaces stay together, and QR Codes builds on a route.
   {
     title: 'QR Codes',

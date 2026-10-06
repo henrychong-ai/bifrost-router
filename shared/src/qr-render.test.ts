@@ -65,7 +65,7 @@ describe('renderQrSvg', () => {
     expect(svg).not.toContain('<image');
   });
 
-  // v1.58.0 — wide-logo mode (wordmark-style logos, e.g. a 5.3:1 lockup).
+  // Wide-logo mode (wordmark-style logos, e.g. a 5.3:1 lockup).
 
   it('uses a WIDE window when logoAspectRatio > 2 (width 50%, height derived)', () => {
     const svg = renderQrSvg(
@@ -123,12 +123,12 @@ describe('renderQrSvg', () => {
         `<rect x="199.68" y="199.68" width="112.64" height="112.64" fill="#ffffff"/>`,
       );
     }
-    // Byte-identical to the pre-v1.58 square output when no ratio is stored.
+    // Byte-identical to the square-window output when no ratio is stored.
     expect(withoutRatio).toBe(withMildRatio);
   });
 
-  it('paints the logo knockout window in the design bg, not hardcoded white (v1.58.2)', () => {
-    // Brand presets ship tinted backgrounds since v1.58.2 — a knockout window
+  it('paints the logo knockout window in the design bg, not hardcoded white', () => {
+    // Brand presets can ship tinted backgrounds — a knockout window
     // left at #ffffff would punch a white hole through the tint.
     const svg = renderQrSvg(
       'hello',

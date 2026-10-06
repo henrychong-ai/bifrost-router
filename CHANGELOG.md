@@ -6,6 +6,150 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.37.1 (2026-10-06) — Failed backups fail loudly; health survives R2 errors; security headers on every dashboard path
+
+**Why:** follow-ups to v1.37.0, from its own follow-up list and from review of
+its backup, health and dashboard changes. A failed nightly backup was only
+logged, so the cron invocation still counted as a success and no failure alert
+could see it. Backup health answered 500 when R2 failed a listing or a HEAD,
+instead of the 200 critical report the endpoint promises. The dashboard's nginx
+served `/assets/`, `/env-config.js` and `/health` without its CSP and other
+security headers. No REST API or storage change; no D1 migration.
+
+### Backups
+
+- **A failed backup now fails the cron invocation.** The scheduled handler
+  logs `[Scheduled] Backup failed: <message>`, then rejects its `waitUntil`
+  promise with `Backup failed: <message>`, which the runtime records as the
+  invocation's outcome, so Cron Events and Workers observability show the
+  failure. The unified-traffic prune now has its own `waitUntil` instead of
+  sharing a `Promise.all` with the backup, so a failed backup neither cuts the
+  prune short nor stands in for its result.
+- **Backup failures carry fixed text only.** `<message>` is the message of a
+  backup integrity, listing or archive-read error (each fixed text), or
+  `BACKUP_BUCKET not configured`, else `Storage or platform error`
+  (`fixedBackupFailure`, decided by error class). Before, the raw error went
+  into the log line and would have gone into the rejection, and a KV value
+  that was not JSON reached both through the runtime's parse error, which
+  quotes the start of the value. `backupKV` now reads values as text and parses
+  them itself: a malformed value fails with `KV record is not valid JSON`, with
+  no cause, and is located in the log by its listing prefix and index, never
+  its key or value; a stored JSON `null` is still skipped. Any other error is
+  logged once, as it is (`[Backup] Platform error:`), except a `SyntaxError`,
+  logged by name only; the duplicate `[Backup] Failed:` line is gone.
+- **What a failed run leaves behind.** A run that fails before its archive
+  write writes nothing. One whose manifest write fails has already stored the
+  archive it verified; a re-run verifies its own archive and overwrites both
+  objects, so re-running is safe either way.
+- **Backup health answers 200 whatever R2 does** (whenever `BACKUP_BUCKET` is
+  bound; without it the endpoint answers 503, as before). Each R2 failure is a
+  critical issue with its own fixed message: a failed list call, on any page,
+  `Backup listing failed`; a failed HEAD `Backup files could not be checked`,
+  with `filesComplete: false` and no archive scan; a failed manifest GET or
+  body read `Backup manifest could not be read`, no longer reported as a
+  missing manifest; a rejected archive GET or an archive stream that fails
+  mid-read `Backup archive could not be read` (`BackupReadError`), no longer
+  reported as a content failure. A read rejected by verification's own cancel
+  (workerd rejects a pending read on a cancelled native stream) is not a read
+  failure, so a size, count or content failure is still reported as such. Each R2 error is logged and never put in the
+  response; the list, head and manifest failures used to escape as a 500. Only
+  the R2 calls are wrapped, so a programming error still throws rather than
+  pass for an R2 outage.
+- **The listing-cursor error is matched by class.** KV and R2 listings throw a
+  `BackupListingError` (message unchanged, `Backup listing cursor invalid`),
+  and health recognises it by class, never by its text.
+- **One gzip member, pinned.** A verifier that stops after the first gzip
+  member would accept trailing bytes. The runtime's `DecompressionStream`
+  refuses them; new tests pin that for trailing junk and for a second member,
+  in one chunk, split at the member boundary, across chunks and byte by byte,
+  both in memory before the write and as a stored R2 object.
+- **A decompression bomb stops at the cap.** workerd's `DecompressionStream`
+  inflates each written chunk in full before any of it is read, so a small,
+  high-ratio archive delivered as one chunk could expand far past the 16 MiB
+  inflated cap before the cap was checked. Verification now writes the archive
+  to the inflater in slices of at most 4 KiB (`INFLATE_SLICE_BYTES`), and only
+  once the previous slice's output has been read, so at most one slice's
+  output, about 4 MiB, is held. Slicing alone was not enough: the inflater
+  accepts every write at once. "Read" is inferred from timing: workerd
+  settles a read of already-queued output before a 0 ms timer (measured at the
+  deployed compatibility date), and the bomb test's write count pins that
+  ordering; if it changed, the bound would degrade towards the archive's full
+  expansion. The line buffer can additionally hold up to the inflated cap.
+  If the inflated stream ends while archive bytes are still unwritten, the
+  scan fails as a content error instead of waiting.
+
+### Link previews
+
+- **A body cancel that rejects no longer replaces the result.** Cancelling an
+  unread body on an already-errored stream could reject, and that rejection
+  replaced the preview's real outcome (the size-limit error, the HTTP status,
+  the minimal non-HTML result or the next redirect hop). Every cancel now drops
+  its own rejection.
+
+### Dashboard
+
+- **Security headers on every path.** nginx drops all server-level
+  `add_header` directives in a location that has its own, so `/assets/`,
+  `/env-config.js` and `/health` were served without the CSP, HSTS,
+  `X-Frame-Options` and the rest. Cache-Control now comes from a `map` sent by
+  one server-level `add_header`, and `/health` sets its type with
+  `default_type`, so no location uses `add_header`; the Cache-Control values
+  are unchanged. `scripts/check-dashboard-security.test.mjs` fails on any
+  location-level `add_header`. **Dashboard container deployers:** rebuild the
+  image to pick this up.
+- **Navigation state is cleared through the router.** The Routes page (opened
+  from Storage with a route to edit) and the QR page (opened from Save as QR
+  Code on a domain) cleared the hand-off with
+  `window.history.replaceState({}, '')`, behind React Router's back, which left
+  its `location.state` stale. Both now use `useClearNavigationState`
+  (`admin/src/lib/navigation-state.ts`), a replace navigation to the same path,
+  query and hash with `state: null`.
+
+### MCP
+
+- **The `linkedRoute.path` catalogue entry carries its constraints.** `create_qr`
+  and `update_qr` advertised only the path's type, so a client could send a path
+  the server then refused. It now declares `minLength: 1` and `pattern: '^/'`,
+  and a test checks the catalogue accepts and refuses the same paths as
+  `QRLinkedRouteInputSchema`.
+
+### Security
+
+- **`source-map-js` raised to 1.2.2 (Dependabot alert, high).** The vulnerable
+  1.2.1 reached the tree only through dev tooling (`magicast`, used by the
+  Vitest coverage providers, and `@tailwindcss/node`), both of which pin it, so
+  Dependabot could not raise it. A `pnpm.overrides` entry,
+  `"source-map-js@<1.2.2": "1.2.2"`, lifts every copy; `pnpm why source-map-js`
+  now lists 1.2.2 only. Nothing in the Worker bundle changes.
+
+### CI
+
+- **Each CI test runs once.** Root, `shared`, `admin` and `mcp` run only under
+  coverage; `slackbot`, which has no coverage run, keeps its plain run. A gate
+  (`scripts/check-ci-test-coverage.mjs`, in `test:gates`) fails when a
+  workspace package with tests is run by neither, and credits only exact,
+  unconditional commands.
+- **Version tag pushes skip CI.** A `v*` tag's commit is tested by the run for
+  its branch, and no deployment runs from tags; trust a tag only once that run
+  has finished green. Other tags still run CI.
+- **Each `main` run is isolated.** Every run on `main` has its own concurrency
+  group, so a later push neither cancels nor replaces it; a newer push to any
+  other branch still cancels that branch's older run.
+- **The heavy backup tests carry a 30 s timeout,** after one passed Vitest's
+  5 s default on a slow runner.
+
+### Follow-ups from v1.37.0 now done
+
+Rethrow a failed backup; detect the listing cursor error by class; keep the
+security headers on the nginx `/assets/`, `/env-config.js` and `/health`
+locations (through a map rather than by repeating them); drop the
+`LISTING_CURSOR_INVALID` alias in `src/backup/health.ts`; tell an R2 read error
+from corruption in health (its own message now, though still critical, not the
+suggested warning). Still open: the QR pending store's handling of a newer
+pending edit against a stale listing, which waits for a redesign of that store.
+
+---
+
 ## v1.37.0 (2026-10-05) — Writes name their domain; backups are verified before they count; a hardened dashboard container
 
 **Breaking for direct API callers:** REST writes now require a domain, in the

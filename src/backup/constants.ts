@@ -20,12 +20,16 @@ export const BACKUP_DAILY_PREFIX = 'daily/';
 export const BACKUP_MANIFEST_VERSION = '2.0.0';
 
 /**
- * Error a backup listing (R2 for health, KV for backupKV) fails with when a
- * page says it is truncated but gives no cursor, or repeats one: never a
- * silent stop on a partial listing. Health reports it; the backup writes
- * nothing.
+ * Message of BackupListingError (src/backup/integrity.ts), which a backup
+ * listing (R2 for health, KV for backupKV) throws when a page says it is
+ * truncated but gives no cursor, or repeats one: never a silent stop on a
+ * partial listing. Health reports it; the backup writes nothing. Callers match
+ * the class, never this text.
  */
 export const BACKUP_LISTING_CURSOR_INVALID = 'Backup listing cursor invalid';
+
+/** handleScheduled's failure when the BACKUP_BUCKET binding is missing. */
+export const BACKUP_BUCKET_NOT_CONFIGURED = 'BACKUP_BUCKET not configured';
 
 /** The archive key for a backup date: daily/{YYYYMMDD}/kv-routes.ndjson.gz */
 export function backupArchiveKey(date: string): string {

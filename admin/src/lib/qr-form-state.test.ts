@@ -11,9 +11,9 @@ import {
 } from './qr-form-state';
 
 /**
- * Unit tests for the pure form-state derivation — extracted in the v1.58.0
- * review round after codex found the stale-credential path (MAJOR): hidden
- * fields keep their state, so derivation must EXCLUDE inapplicable values.
+ * Unit tests for the pure form-state derivation. Hidden fields keep their
+ * state, so derivation must EXCLUDE inapplicable values: a stale credential
+ * must never reach the record.
  */
 
 function wifiState(patch: Partial<QrFormState>): QrFormState {
@@ -29,7 +29,7 @@ describe('payloadFromState — unknown type', () => {
 });
 
 describe('payloadFromState — wifi credential exclusions', () => {
-  it('TLS NEVER submits a password, even when stale state holds one (review MAJOR)', () => {
+  it('TLS NEVER submits a password, even when stale state holds one', () => {
     // User typed a password under PEAP, then switched to TLS (field hidden).
     const payload = payloadFromState(
       wifiState({
@@ -130,7 +130,7 @@ describe('stateFromQr — edit round-trip', () => {
     expect(stateFromQr().brandSel).toBe('auto');
   });
 
-  describe('suggestQrId (Reference prefill, v1.58.5; description decoupled v1.58.7)', () => {
+  describe('suggestQrId (Reference prefill; description decoupled)', () => {
     it('ignores the description — Reference and Description are independent fields', () => {
       expect(suggestQrId(base({ description: 'Office WiFi', type: 'wifi', ssid: 'CorpNet' }))).toBe(
         'corpnet',
@@ -157,7 +157,7 @@ describe('stateFromQr — edit round-trip', () => {
     });
   });
 
-  describe('wifi security trigger labels (v1.58.3)', () => {
+  describe('wifi security trigger labels', () => {
     it('covers every auth option the schema accepts', () => {
       // Keyed off the canonical enum, so a new auth category fails here
       // until it gets a trigger label — the map can never silently

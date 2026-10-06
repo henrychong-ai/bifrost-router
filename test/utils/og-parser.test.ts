@@ -334,6 +334,90 @@ describe('parseOpenGraph', () => {
     });
   });
 
+  // v1.37.1: a body cancel that rejects (a stream that has already errored)
+  // used to replace the error or result being returned with its own rejection.
+  describe('a cancel that rejects', () => {
+    const cancelError = new Error('stream already errored');
+
+    /** A response stub whose body only supports a cancel that rejects. */
+    function rejectingCancel(status: number, headers: Record<string, string>) {
+      const cancel = vi.fn<() => Promise<void>>().mockRejectedValue(cancelError);
+      const response = {
+        ok: status >= 200 && status < 300,
+        status,
+        headers: new Headers(headers),
+        body: { cancel },
+      };
+      return { response: response as unknown as Response, cancel };
+    }
+
+    it('still reports ResponseTooLargeError for an oversized Content-Length', async () => {
+      const { response, cancel } = rejectingCancel(200, {
+        ...HTML,
+        'content-length': String(2 * 1024 * 1024),
+      });
+      vi.mocked(fetch).mockResolvedValueOnce(response);
+
+      await expect(parseOpenGraph('https://example.com/huge')).rejects.toThrow(
+        ResponseTooLargeError,
+      );
+      expect(cancel).toHaveBeenCalledOnce();
+    });
+
+    it('still reports ResponseTooLargeError when the streamed body passes the limit', async () => {
+      const reader = {
+        read: vi
+          .fn<() => Promise<ReadableStreamReadResult<Uint8Array>>>()
+          .mockResolvedValue({ done: false, value: new Uint8Array(600 * 1024) }),
+        cancel: vi.fn<() => Promise<void>>().mockRejectedValue(cancelError),
+        releaseLock: vi.fn<() => void>(),
+      };
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers(HTML),
+        body: { getReader: () => reader },
+      } as unknown as Response);
+
+      await expect(parseOpenGraph('https://example.com/stream')).rejects.toThrow(
+        ResponseTooLargeError,
+      );
+      expect(reader.cancel).toHaveBeenCalledOnce();
+      expect(reader.releaseLock).toHaveBeenCalledOnce();
+    });
+
+    it('still returns the minimal result for a non-HTML answer', async () => {
+      const { response, cancel } = rejectingCancel(200, { 'content-type': 'application/pdf' });
+      vi.mocked(fetch).mockResolvedValueOnce(response);
+
+      expect(await parseOpenGraph('https://example.com/doc.pdf')).toEqual(
+        minimalOpenGraph('https://example.com/doc.pdf'),
+      );
+      expect(cancel).toHaveBeenCalledOnce();
+    });
+
+    it('still reports the HTTP status of an error answer', async () => {
+      const { response, cancel } = rejectingCancel(503, HTML);
+      vi.mocked(fetch).mockResolvedValueOnce(response);
+
+      await expect(parseOpenGraph('https://example.com/down')).rejects.toThrow('HTTP 503');
+      expect(cancel).toHaveBeenCalledOnce();
+    });
+
+    it('still follows a redirect', async () => {
+      const { response, cancel } = rejectingCancel(302, {
+        location: 'https://example.com/next',
+      });
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(response)
+        .mockResolvedValueOnce(new Response('<title>Next</title>', { headers: HTML }));
+
+      expect((await parseOpenGraph('https://example.com/start')).title).toBe('Next');
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(fetchedUrls()).toEqual(['https://example.com/start', 'https://example.com/next']);
+    });
+  });
+
   describe('GET /api/metadata/og', () => {
     const testEnv = { ...env, ADMIN_API_DOMAIN: 'example.com' };
 

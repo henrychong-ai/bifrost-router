@@ -1,5 +1,5 @@
 /**
- * Live QR preview (v1.54.0). Renders CLIENT-SIDE with the SAME shared renderer
+ * Live QR preview. Renders CLIENT-SIDE with the SAME shared renderer
  * the Worker uses (WYSIWYG by construction — locked plan decision), embedded
  * via an <img data:> URI rather than injected SVG markup (no DOM injection;
  * CSP img-src already allows data:).

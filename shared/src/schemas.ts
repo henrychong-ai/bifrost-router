@@ -588,8 +588,7 @@ export const R2UpdateCommentRequestSchema = z.object({
 });
 
 /**
- * update_object_comment tool input schema (v1.30.0, ported from upstream
- * v1.58.7). The `comment` field is REQUIRED — send null (or an empty string)
+ * update_object_comment tool input schema (v1.30.0). The `comment` field is REQUIRED — send null (or an empty string)
  * to clear the note. Mirrors the explicit-set semantics of
  * PUT /api/storage/:bucket/comment/:key, which rejects a missing field rather
  * than treating absence as "clear".
@@ -676,7 +675,7 @@ export const AuditActionSchema = z.enum([
   'feedback_create',
   'feedback_triage',
   'feedback_delete',
-  // v1.30.0 — QR codes (ported from upstream v1.54.0)
+  // v1.30.0 — QR codes
   'qr_create',
   'qr_update',
   'qr_delete',

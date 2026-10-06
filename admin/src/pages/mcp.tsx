@@ -5,8 +5,8 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 /**
- * MCP integration tab (v1.30.0 — ported from upstream v1.53.0, rewritten for
- * this deployment's LOCAL STDIO server: there is no remote /mcp endpoint and
+ * MCP integration tab (v1.30.0), written for this deployment's LOCAL STDIO
+ * server: there is no remote /mcp endpoint and
  * no OAuth — the server runs on your machine and authenticates to the admin
  * API with the ADMIN_API_KEY, exactly like the dashboard).
  */

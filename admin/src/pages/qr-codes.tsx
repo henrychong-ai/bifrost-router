@@ -1,5 +1,5 @@
 /**
- * QR Codes page (v1.54.0) — plan Rev 3, Approach C-prime.
+ * QR Codes page — plan Rev 3, Approach C-prime.
  *
  * List + create/edit/delete for the unified QR resource. All previews and
  * downloads render CLIENT-SIDE via the shared renderer (WYSIWYG with the
@@ -72,6 +72,7 @@ import { SUPPORTED_DOMAINS } from '@/context';
 import { useCreateQr, useDebounce, useDeleteQr, useQrCodes, useUpdateQr } from '@/hooks';
 import type { QrQueryParams } from '@/lib/api-client';
 import { getPersistedPageSize, persistPageSize } from '@/lib/constants';
+import { useClearNavigationState } from '@/lib/navigation-state';
 import { computeLogoAspectRatio, fetchBrandLogo } from '@/lib/qr-brand-logo';
 import {
   designFromState,
@@ -131,8 +132,8 @@ async function handleDownload(qr: QRCode, format: 'svg' | 'png'): Promise<void> 
 // Create/Edit form
 // =============================================================================
 
-// Pure form-state derivation lives in admin/src/lib/qr-form-state.ts (v1.58.0
-// review round) — unit-tested there, incl. the stale-credential exclusions.
+// Pure form-state derivation lives in admin/src/lib/qr-form-state.ts —
+// unit-tested there, incl. the stale-credential exclusions.
 
 /** The design fields a brand preset (or neutral, for null) sets; its logo loads separately. */
 function presetDesignPatch(preset: QrBrandPreset | null): Partial<QrFormState> {
@@ -186,8 +187,8 @@ interface QrFormProps {
 }
 
 function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
-  // Single-operator deployment (v1.30.0 port): the ADMIN_API_KEY grants full
-  // write access — the upstream RBAC gate collapses to a constant.
+  // Single-operator deployment (v1.30.0): the ADMIN_API_KEY grants full write
+  // access, so the write-lock gate is a constant.
   const writeLocked = false;
   // Create mode starts in Auto on the target domain's preset (null: neutral);
   // edit mode starts in Custom (undefined). The form mounts per dialog open,
@@ -247,8 +248,8 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
   }, [startPreset]);
 
   // Prefill the Reference from the type's identifying payload field, until the
-  // user takes it over (v1.58.5; description deliberately NOT a source since
-  // v1.58.7 — the two fields are independent). Create-only — in edit mode the
+  // user takes it over (description deliberately NOT a source — the two
+  // fields are independent). Create-only — in edit mode the
   // id is the immutable KV key and `idTouched` is seeded true. Adjusted during
   // render: the next render's suggestion equals s.id, so it settles at once.
   if (mode === 'create' && !s.idTouched) {
@@ -257,7 +258,7 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
   }
 
   // Live preview content — invalid mid-typing states just blank the preview.
-  // A route-linked QR encodes its short URL (v1.54.1 review fix): the edit
+  // A route-linked QR encodes its short URL (a review fix): the edit
   // preview must agree with the list-row preview and the Worker render.
   const preview = useMemo(() => {
     try {
@@ -392,7 +393,7 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
             </div>
             <div className="space-y-1">
               <Label>Security</Label>
-              {/* Category picker, not a protocol picker (v1.58.0): every
+              {/* Category picker, not a protocol picker: every
                   password-secured personal network — WPA, WPA2, or WPA3 —
                   encodes the interoperable T:WPA token (T:SAE/T:WPA3 break
                   many scanners). Enterprise encodes the ZXing T:WPA2-EAP
@@ -400,7 +401,7 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
               <Select value={s.auth} onValueChange={v => set({ auth: v as QrFormState['auth'] })}>
                 <SelectTrigger>
                   {/* Short trigger label; the menu below keeps the full
-                      protocol list (v1.58.3 — the long label overflowed
+                      protocol list (the long label overflowed
                       this half-width column). */}
                   <SelectValue>{WIFI_AUTH_TRIGGER_LABELS[s.auth]}</SelectValue>
                 </SelectTrigger>
@@ -675,11 +676,10 @@ export function QrCodesPage() {
   const [domain, setDomain] = useState<string>(() =>
     initialQrPageDomain(location.state, allowedDomains),
   );
-  // Clear the domain from the history entry once read, so a reload or a
-  // return to this entry opens on the page's own default (as routes.tsx does)
-  useEffect(() => {
-    if (qrPageNavDomain(location.state) !== undefined) window.history.replaceState({}, '');
-  }, [location.state]);
+  // Clear the domain from the history entry once read, through the router, so
+  // a reload or a return to this entry opens on the page's own default (as
+  // routes.tsx does)
+  useClearNavigationState(qrPageNavDomain(location.state) !== undefined);
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);

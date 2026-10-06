@@ -3,7 +3,7 @@ import { Label } from '@/components/ui/label';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 /**
- * Form label with an inline explanatory tooltip (v1.58.5).
+ * Form label with an inline explanatory tooltip.
  *
  * Introduced when the QR dialog's field labels had accumulated their own
  * documentation — "Custom id (optional)", "Logo (PNG/JPEG/SVG, max 100 KB —

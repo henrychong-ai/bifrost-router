@@ -149,7 +149,7 @@ export type UpdateRouteInput = z.infer<typeof UpdateRouteSchema>;
 export const SCHEMA_VERSION = '2.0.0';
 
 // =============================================================================
-// QR code keys (v1.30.0 — ported from upstream v1.54.0)
+// QR code keys (v1.30.0)
 // =============================================================================
 
 /**

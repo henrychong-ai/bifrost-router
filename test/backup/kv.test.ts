@@ -1,5 +1,6 @@
 import { env } from 'cloudflare:test';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { BackupIntegrityError, BackupListingError } from '../../src/backup/integrity';
 import { backupKV, KV_BULK_GET_MAX_KEYS } from '../../src/backup/kv';
 import { readBackupRecords } from './archive-records';
 
@@ -31,6 +32,10 @@ describe('backupKV', () => {
   beforeEach(async () => {
     await clearKV();
     await clearBackupBucket();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('backs up KV routes to R2 as a compressed file', async () => {
@@ -245,7 +250,10 @@ describe('backupKV', () => {
       },
     });
 
-    await expect(backupKV(kv, bucket, '20260115')).rejects.toThrow('Backup listing cursor invalid');
+    const failure = backupKV(kv, bucket, '20260115');
+    // Identified by class (v1.37.1), with the same fixed message
+    await expect(failure).rejects.toBeInstanceOf(BackupListingError);
+    await expect(failure).rejects.toThrow('Backup listing cursor invalid');
     expect(bucketCalls).toBe(0);
   });
 
@@ -255,11 +263,53 @@ describe('backupKV', () => {
         prefix === 'example.com:'
           ? { keys: [{ name: 'example.com:/a' }, { name: 'example.com:/a' }], list_complete: true }
           : { keys: [], list_complete: true },
-      get: async (keys: string[]) => new Map(keys.map(key => [key, { target: 'x' }])),
+      get: async (keys: string[]) =>
+        new Map(keys.map(key => [key, JSON.stringify({ target: 'x' })])),
     } as unknown as KVNamespace;
 
     await expect(backupKV(kv, env.BACKUP_BUCKET, '20260115')).rejects.toThrow(
       'Backup contains a duplicate key',
     );
+  });
+
+  // v1.37.1: values are read as text and parsed by backupKV, so a malformed
+  // value fails with fixed text and the runtime's parse error, which quotes
+  // the value, goes nowhere.
+  it('refuses a value that is not JSON with fixed text, quoting nothing', async () => {
+    // Short and bare: V8's parse error quotes the first ten characters
+    const secret = 'zq7f3a91x';
+    await env.ROUTES.put('links.example.com:/good', JSON.stringify({ target: 'x' }));
+    await env.ROUTES.put('links.example.com:/bad', secret);
+
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const failure = await backupKV(env.ROUTES, env.BACKUP_BUCKET, '20260115').then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(BackupIntegrityError);
+    expect((failure as Error).message).toBe('KV record is not valid JSON');
+    // Located by prefix and listing index (`/bad` sorts before `/good`)
+    expect(errorLog.mock.calls).toEqual([
+      ['[Backup] KV record is not valid JSON: prefix links.example.com:, listing index 0'],
+    ]);
+    // No cause, and the secret is nowhere on the error
+    expect((failure as Error).cause).toBeUndefined();
+    expect(JSON.stringify(failure, Object.getOwnPropertyNames(failure))).not.toContain(secret);
+    expect(await env.BACKUP_BUCKET.head('daily/20260115/kv-routes.ndjson.gz')).toBeNull();
+  });
+
+  it('skips a stored JSON null like a key that vanished', async () => {
+    await env.ROUTES.put('links.example.com:/kept', JSON.stringify({ target: 'x' }));
+    await env.ROUTES.put('links.example.com:/null', 'null');
+    const result = await backupKV(env.ROUTES, env.BACKUP_BUCKET, '20260115');
+    expect(result.totalRoutes).toBe(1);
+    expect(
+      await readBackupRecords(env.BACKUP_BUCKET, {
+        version: '2.0.0',
+        timestamp: 0,
+        date: '20260115',
+        kv: result,
+      }),
+    ).toEqual([{ key: 'links.example.com:/kept', value: { target: 'x' } }]);
   });
 });

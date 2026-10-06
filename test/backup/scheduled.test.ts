@@ -102,6 +102,8 @@ describe('handleScheduled', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    // The console spies some cases install
+    vi.restoreAllMocks();
   });
 
   it('completes a full backup cycle successfully', async () => {
@@ -267,13 +269,18 @@ describe('handleScheduled', () => {
       JSON.stringify({ path: '/second', type: 'redirect', target: 'https://example.com/2' }),
     );
     const calls: RecordedCall[] = [];
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     const second = await handleScheduled({
       ...env,
       BACKUP_BUCKET: recordingBucket(calls, key => key.endsWith('kv-routes.ndjson.gz')),
     } as unknown as Bindings);
 
     expect(second.success).toBe(false);
-    expect(second.error).toBe('R2 refused the put');
+    // v1.37.1: the result is fixed text; the platform error is logged once
+    expect(second.error).toBe('Storage or platform error');
+    expect(errorLog).toHaveBeenCalledOnce();
+    expect(errorLog.mock.calls[0]?.[0]).toBe('[Backup] Platform error:');
+    expect(errorLog.mock.calls[0]?.[1]).toMatchObject({ message: 'R2 refused the put' });
     expect(calls.map(c => `${c.op} ${c.name}`)).toEqual(['put kv-routes.ndjson.gz']);
     expect({
       archive: await readBytes(`daily/${date}/kv-routes.ndjson.gz`),

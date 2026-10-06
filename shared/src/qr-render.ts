@@ -1,5 +1,5 @@
 /**
- * Shared QR renderer (v1.54.0) — ONE renderer, three consumers: the Worker
+ * Shared QR renderer — ONE renderer, three consumers: the Worker
  * (`GET /api/qr/:id/image`), the MCP tools (base64 SVG), and the admin
  * dashboard (live preview + downloads). Pure string-in/string-out over the
  * `qrcode-svg` package — no DOM, no Canvas, no fs — so output is byte-identical
@@ -12,7 +12,7 @@ import type { QRDesign } from './qr.js';
 /**
  * Logo edge length as a fraction of the rendered size (square window).
  *
- * These three are EXPORTED (v1.58.4) because the embed pipeline must size its
+ * These three are EXPORTED because the embed pipeline must size its
  * raster to the window this renderer will draw it into. Keeping them private
  * is what let the two drift: the embed capped every logo at 128px while a wide
  * window is 50% of the QR (512px at the largest offered size), so wide logos
@@ -21,7 +21,7 @@ import type { QRDesign } from './qr.js';
 export const LOGO_SIZE_RATIO = 0.22;
 
 /**
- * Wide-logo mode (v1.58.0): aspect ratios above this use a WIDE centre window
+ * Wide-logo mode: aspect ratios above this use a WIDE centre window
  * instead of the square one, so wordmark-style logos stay legible.
  */
 export const WIDE_LOGO_MIN_RATIO = 2;
@@ -41,7 +41,7 @@ export const WIDE_LOGO_WIDTH_RATIO = 0.5;
  * at the height cap (ratios 2–5.17), falling below the square's footprint past
  * ~5.17 (e.g. a 5.3:1 wordmark ≈ 4.7%). All well inside the forced 'H'
  * correction's 30% redundancy. Records without a stored ratio render
- * byte-identically to pre-v1.58 output.
+ * byte-identically to the square-window output.
  */
 export function renderQrSvg(content: string, design: QRDesign): string {
   const svg = new QRCode({

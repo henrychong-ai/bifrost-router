@@ -403,8 +403,7 @@ describe('R2UpdateCommentInputSchema (v1.30.0 — nullable-boundary semantics)',
  * with its own minimal valid input plus a domain that is: omitted, empty,
  * non-string, unsupported, or each supported value in turn.
  *
- * Deliberately absent: `migrate_route` and `transfer_route`. Unlike upstream,
- * this repo has no shared Zod input schema for either — their contract lives in
+ * Deliberately absent: `migrate_route` and `transfer_route`. This repo has no shared Zod input schema for either — their contract lives in
  * the JSON-Schema catalog (`shared/src/tools.ts`, pinned by tools.test.ts) and
  * in the stdio handler guards (pinned by
  * mcp/src/tools/routes.no-domain.test.ts).

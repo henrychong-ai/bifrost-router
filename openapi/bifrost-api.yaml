@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Bifrost Admin API
   description: Edge router management API for route configuration and analytics
-  version: 1.37.0
+  version: 1.37.1
   contact:
     name: Bifrost Maintainers
     url: https://example.com
@@ -253,6 +253,10 @@ paths:
   /api/backups/health:
     get:
       summary: Check backup system health
+      description: >-
+        Answers 200 whatever R2 or the stored archive does; an R2 failure or a
+        bad archive is a critical issue in the body. 503 when the BACKUP_BUCKET
+        binding is missing.
       responses:
         '200':
           description: Health status (check `status` field for healthy/warning/critical)
@@ -260,6 +264,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BackupHealthResponse'
+        '503':
+          description: Backup bucket not configured (no BACKUP_BUCKET binding)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, error]
+                properties:
+                  success:
+                    type: boolean
+                    enum: [false]
+                  error:
+                    type: string
+                    enum: [Backup bucket not configured]
 
   # Analytics endpoints
   /api/analytics/summary:

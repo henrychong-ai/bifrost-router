@@ -22,9 +22,9 @@ export interface ChangelogVersion {
 
 // Regex patterns hoisted to module scope to avoid recompilation per line.
 // Version heading shapes (all three historical formats):
-//   ## v1.58.0 (2026-07-24) — feat: subtitle   (newest — subtitle in heading)
+//   ## v1.37.0 (2026-10-05) — subtitle         (newest — subtitle in heading)
 //   ## v1.20.0 (2026-02-25)                    (older — bold subtitle line follows)
-//   ## v1.11.4                                  (oldest — bare; date backfilled v1.58.1)
+//   ## v1.11.4                                  (oldest — bare; date backfilled)
 const RE_VERSION = /^## v([\d.]+)(?:\s+\((\d{4}-\d{2}-\d{2})\))?(?:\s*[—–-]\s*(.+))?$/;
 const RE_SECTION = /^### (.+)$/;
 const RE_BOLD_DASH = /^\*\*(.+?)\*\*\s*[—–-]\s*(.+)$/;

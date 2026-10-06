@@ -195,7 +195,7 @@ describe('QR API (v1.30.0 port seams)', () => {
   it('enforces the serialized-payload BYTE budget (multibyte text passes the char cap but not the byte cap)', async () => {
     // 400 CJK chars: within the 800-char TextPayloadSchema cap, but ~1200
     // UTF-8 bytes — over MAX_QR_PAYLOAD_LENGTH (1024). The byte-oriented
-    // check (upstream codex F2) must reject with a byte count.
+    // check must reject with a byte count.
     const res = await fetchSettled(
       authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
         type: 'text',
@@ -281,7 +281,7 @@ describe('QR API (v1.30.0 port seams)', () => {
       }),
     );
     expect(created.status).toBe(201);
-    // The stored record keeps the credentials (locked upstream decision)…
+    // The stored record keeps the credentials (a locked design decision)…
     const record = (await created.json()) as { data: { payload: { password: string } } };
     expect(record.data.payload.password).toBe('super-secret-pw');
 

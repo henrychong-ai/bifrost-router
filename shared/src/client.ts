@@ -587,8 +587,7 @@ export class EdgeRouterClient {
   }
 
   /**
-   * Set or clear the free-text comment on an R2 object (v1.30.0, ported from
-   * upstream v1.58.7). Writes the D1 `file_comments` sidecar — no object
+   * Set or clear the free-text comment on an R2 object (v1.30.0). Writes the D1 `file_comments` sidecar — no object
    * copy, works at any file size. Pass `null` (or an empty string) to clear.
    */
   async updateObjectComment(
@@ -606,7 +605,7 @@ export class EdgeRouterClient {
   }
 
   // ---------------------------------------------------------------------------
-  // QR codes (v1.30.0 — ported from upstream v1.54.0)
+  // QR codes (v1.30.0)
   // ---------------------------------------------------------------------------
 
   /**

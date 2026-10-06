@@ -1,7 +1,6 @@
 /**
  * Request-context helpers shared by the admin sub-routers (extracted from
- * admin.ts in v1.30.0 when the QR routes joined — mirrors the upstream
- * `src/routes/request-context.ts` layout and avoids a circular import
+ * admin.ts in v1.30.0 when the QR routes joined — avoids a circular import
  * between admin.ts and its mounted sub-route modules).
  */
 

@@ -1,6 +1,5 @@
 /**
- * Unit tests for the Cloudflare account audit-log poller (v1.28.0, ported
- * from the hardened upstream implementation).
+ * Unit tests for the Cloudflare account audit-log poller (v1.28.0).
  *
  * Layer 2 of the external R2 operations audit capture
  * (see README.md "External R2 operations audit capture"). Exercises:

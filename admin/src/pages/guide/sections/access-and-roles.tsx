@@ -5,8 +5,8 @@ import { GUIDE_SECTIONS } from '../guide-registry';
 const meta = GUIDE_SECTIONS.find(s => s.id === 'access-and-roles')!;
 
 /**
- * Single-operator access model (v1.30.0 — replaces the upstream multi-user
- * roles section): this deployment has no role system, so the section explains
+ * Single-operator access model (v1.30.0 — in place of a multi-user roles
+ * section): this deployment has no role system, so the section explains
  * the two real gates instead.
  */
 export function AccessAndRolesSection() {

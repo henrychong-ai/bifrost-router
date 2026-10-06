@@ -3,12 +3,7 @@
 // compatibility_date) — no import needed since the migration off
 // @cloudflare/workers-types.
 
-import {
-  BACKUP_DAILY_PREFIX,
-  BACKUP_LISTING_CURSOR_INVALID,
-  backupArchiveKey,
-  backupManifestKey,
-} from './constants';
+import { BACKUP_DAILY_PREFIX, backupArchiveKey, backupManifestKey } from './constants';
 import type {
   ArchiveInfo,
   BackupAgeStatus,
@@ -21,8 +16,9 @@ import type {
 } from './health-schemas';
 import { DEFAULT_HEALTH_CONFIG } from './health-schemas';
 import {
-  BACKUP_ERRORS,
   BackupIntegrityError,
+  BackupListingError,
+  BackupReadError,
   MAX_BACKUP_BYTES,
   parseBackupManifest,
   verifyBackupArchive,
@@ -35,8 +31,49 @@ const expectedFiles = (date: string): string[] => [backupManifestKey(date), back
 /** Bytes as MiB with one decimal, for health messages. */
 const mib = (bytes: number): string => (bytes / (1024 * 1024)).toFixed(1);
 
-/** Error findLatestBackup throws on a broken listing; reported, never thrown. */
-const LISTING_CURSOR_INVALID = BACKUP_LISTING_CURSOR_INVALID;
+/**
+ * Fixed messages for the R2 failures health reports instead of throwing
+ * (v1.37.1), so `GET /api/backups/health` answers 200 whatever R2 does. The
+ * R2 error itself is logged, never put in the response.
+ */
+export const HEALTH_R2_ERRORS = {
+  /** Listing the daily backups failed (other than a broken cursor). */
+  listing: 'Backup listing failed',
+  /** Checking the expected backup objects (R2 head) failed. */
+  files: 'Backup files could not be checked',
+  /** Fetching or reading the manifest failed (not: missing or invalid). */
+  manifest: 'Backup manifest could not be read',
+} as const;
+
+/**
+ * An R2 call health made failed. It carries the fixed message to report and
+ * the R2 error as its cause, for the log only. Only R2 calls are wrapped, so
+ * a programming error is never reported as an R2 outage: it still throws.
+ */
+class HealthR2Error extends Error {
+  constructor(message: (typeof HEALTH_R2_ERRORS)[keyof typeof HEALTH_R2_ERRORS], cause: unknown) {
+    super(message, { cause });
+    this.name = 'HealthR2Error';
+  }
+}
+
+/** Run one R2 call, turning its failure into a {@link HealthR2Error}. */
+async function r2Call<T>(
+  message: (typeof HEALTH_R2_ERRORS)[keyof typeof HEALTH_R2_ERRORS],
+  call: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await call();
+  } catch (error) {
+    throw new HealthR2Error(message, error);
+  }
+}
+
+/** Log an R2 failure's cause and return its fixed message. */
+function reportR2Failure(error: HealthR2Error | BackupReadError, what: string): string {
+  console.error(`[Backup] Health ${what} failed:`, error.cause);
+  return error.message;
+}
 
 /**
  * Find the most recent backup in the R2 bucket
@@ -52,16 +89,18 @@ async function findLatestBackup(
   const seenCursors = new Set<string>();
   let cursor: string | undefined;
   do {
-    const page = await bucket.list({
-      prefix: BACKUP_DAILY_PREFIX,
-      delimiter: '/',
-      ...(cursor !== undefined && { cursor }),
-    });
+    const page = await r2Call(HEALTH_R2_ERRORS.listing, () =>
+      bucket.list({
+        prefix: BACKUP_DAILY_PREFIX,
+        delimiter: '/',
+        ...(cursor !== undefined && { cursor }),
+      }),
+    );
     // A page without delimited prefixes (no directories on it) adds none
     prefixes.push(...(page.delimitedPrefixes ?? []));
     cursor = page.truncated ? page.cursor : undefined;
     if (page.truncated && (!cursor || seenCursors.has(cursor))) {
-      throw new Error(LISTING_CURSOR_INVALID);
+      throw new BackupListingError();
     }
     if (cursor) seenCursors.add(cursor);
   } while (cursor);
@@ -86,13 +125,24 @@ async function findLatestBackup(
 }
 
 /**
- * Fetch and parse the backup manifest
+ * Fetch and parse the backup manifest: null when it is missing, not JSON or
+ * not a valid manifest for `date`. An R2 failure fetching or reading it is a
+ * different fault and throws a {@link HealthR2Error} (v1.37.1).
  */
 async function fetchManifest(bucket: R2Bucket, date: string): Promise<BackupManifest | null> {
+  const obj = await r2Call(HEALTH_R2_ERRORS.manifest, () => bucket.get(backupManifestKey(date)));
+  if (!obj) return null;
+  let value: unknown;
   try {
-    const obj = await bucket.get(backupManifestKey(date));
-    if (!obj) return null;
-    return parseBackupManifest(await obj.json(), date);
+    value = await obj.json();
+  } catch (error) {
+    // Not JSON: an invalid manifest. Any other failure is R2 failing to read
+    // the body.
+    if (error instanceof SyntaxError) return null;
+    throw new HealthR2Error(HEALTH_R2_ERRORS.manifest, error);
+  }
+  try {
+    return parseBackupManifest(value, date);
   } catch {
     return null;
   }
@@ -117,7 +167,7 @@ function manifestToSummary(manifest: BackupManifest): ManifestSummary {
 async function checkBackupFiles(bucket: R2Bucket, date: string): Promise<BackupFileStatus[]> {
   const results = await Promise.all(
     expectedFiles(date).map(async key => {
-      const obj = await bucket.head(key);
+      const obj = await r2Call(HEALTH_R2_ERRORS.files, () => bucket.head(key));
       return {
         key,
         size: obj?.size ?? 0,
@@ -147,18 +197,26 @@ export async function checkBackupHealth(
   const now = new Date();
   const issues: HealthIssue[] = [];
 
-  // Find latest backup. A broken listing is reported as critical, never
-  // thrown, so the endpoint keeps answering 200 with a body that says why.
+  // Find latest backup. A broken listing (a bad cursor, or an R2 failure of
+  // the list call) is reported as critical, never thrown, so the endpoint
+  // keeps answering 200 with a body that says why. Anything else still throws.
   let latestBackup: Awaited<ReturnType<typeof findLatestBackup>>;
   try {
     latestBackup = await findLatestBackup(bucket);
   } catch (error) {
-    if (!(error instanceof Error) || error.message !== LISTING_CURSOR_INVALID) throw error;
+    let message: string;
+    if (error instanceof BackupListingError) {
+      message = error.message;
+    } else if (error instanceof HealthR2Error) {
+      message = reportR2Failure(error, 'listing');
+    } else {
+      throw error;
+    }
     return {
       status: 'critical',
       timestamp: now.toISOString(),
       lastBackup: null,
-      issues: [{ severity: 'critical', message: LISTING_CURSOR_INVALID }],
+      issues: [{ severity: 'critical', message }],
       checks: {
         backupExists: false,
         backupAge: 'critical',
@@ -186,16 +244,19 @@ export async function checkBackupHealth(
     };
   }
 
-  // Fetch and validate manifest
-  const manifest = await fetchManifest(bucket, latestBackup.date);
-  const manifestValid = manifest !== null;
-
-  if (!manifestValid) {
-    issues.push({
-      severity: 'critical',
-      message: 'Backup manifest is missing or invalid',
-    });
+  // Fetch and validate manifest. An R2 failure is reported as such, not as a
+  // missing or invalid manifest.
+  let manifest: BackupManifest | null = null;
+  try {
+    manifest = await fetchManifest(bucket, latestBackup.date);
+    if (!manifest) {
+      issues.push({ severity: 'critical', message: 'Backup manifest is missing or invalid' });
+    }
+  } catch (error) {
+    if (!(error instanceof HealthR2Error)) throw error;
+    issues.push({ severity: 'critical', message: reportR2Failure(error, 'manifest read') });
   }
+  const manifestValid = manifest !== null;
 
   // Check backup age
   const backupTime = new Date(latestBackup.timestamp);
@@ -216,23 +277,31 @@ export async function checkBackupHealth(
     });
   }
 
-  // Check file completeness
-  const files = await checkBackupFiles(bucket, latestBackup.date);
-  // An empty object is as unusable as a missing one.
-  const filesComplete = files.every(f => f.exists && f.size > 0);
-
-  if (!filesComplete) {
-    const missing = files.filter(f => !f.exists || f.size === 0).map(f => f.key);
-    issues.push({
-      severity: 'critical',
-      message: `Missing backup files: ${missing.join(', ')}`,
-    });
+  // Check file completeness. An R2 failure is a critical issue, not a 500.
+  let files: BackupFileStatus[] = [];
+  let filesComplete = false;
+  try {
+    files = await checkBackupFiles(bucket, latestBackup.date);
+  } catch (error) {
+    if (!(error instanceof HealthR2Error)) throw error;
+    issues.push({ severity: 'critical', message: reportR2Failure(error, 'file check') });
+  }
+  if (files.length > 0) {
+    // An empty object is as unusable as a missing one.
+    filesComplete = files.every(f => f.exists && f.size > 0);
+    if (!filesComplete) {
+      const missing = files.filter(f => !f.exists || f.size === 0).map(f => f.key);
+      issues.push({
+        severity: 'critical',
+        message: `Missing backup files: ${missing.join(', ')}`,
+      });
+    }
   }
 
   // Read the archive back, counting only (no record array): every object can
   // exist and still be unrestorable (truncated, corrupt, or holding a different
   // record count). It is checked against its own routeCount metadata (the
-  // manifest's count only for a legacy archive without it).
+  // manifest's count only for an archive without it).
   let archive: ArchiveInfo | null = null;
   if (manifest && filesComplete) {
     try {
@@ -248,12 +317,17 @@ export async function checkBackupHealth(
       }
     } catch (error) {
       // Every failure is critical. A fixed integrity message (size limit,
-      // count, duplicate key, missing archive) is reported as is; anything
-      // else, an R2 read error included, as the generic content failure.
-      issues.push({
-        severity: 'critical',
-        message: error instanceof BackupIntegrityError ? error.message : BACKUP_ERRORS.content,
-      });
+      // count, duplicate key, content, missing archive) is reported as is. R2
+      // failing to fetch or stream the archive (BackupReadError, v1.37.1) is a
+      // storage fault: logged, and reported with its own fixed message, never
+      // as a content failure. Anything else still throws.
+      if (error instanceof BackupIntegrityError) {
+        issues.push({ severity: 'critical', message: error.message });
+      } else if (error instanceof BackupReadError) {
+        issues.push({ severity: 'critical', message: reportR2Failure(error, 'archive read') });
+      } else {
+        throw error;
+      }
     }
   }
   if (archive && archive.inflatedBytes > MAX_BACKUP_BYTES / 2) {

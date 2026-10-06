@@ -117,7 +117,7 @@ describe('qr contract', () => {
       ).toBe(false);
     });
 
-    // v1.58.0 — enterprise (WPA2-EAP) refinements.
+    // Enterprise (WPA2-EAP) refinements.
 
     it('WPA2-EAP requires eapMethod + identity', () => {
       expect(
@@ -464,7 +464,7 @@ describe('qr contract', () => {
     });
 
     it('accepts any record-shaped payload at the wire (handler validates per type)', () => {
-      // v1.54.1: the wire schema is transport-loose — the strict union was
+      // The wire schema is transport-loose — the strict union was
       // first-match-wins with key-stripping, which made vcards carrying a
       // scheme-bearing website `url` uneditable. Per-type validation is the
       // handler's job (QR_PAYLOAD_SCHEMAS[existing.type]); integration tests
@@ -550,7 +550,7 @@ describe('qr contract', () => {
       ).toBe('WIFI:T:WEP;S:Cloak;P:k;H:true;;');
     });
 
-    it('serializes enterprise (WPA2-EAP) wifi with the ZXing E:/PH2:/A:/I: fields (v1.58.0)', () => {
+    it('serializes enterprise (WPA2-EAP) wifi with the ZXing E:/PH2:/A:/I: fields', () => {
       expect(
         serializePayload('wifi', {
           ssid: 'Corp',
@@ -638,7 +638,7 @@ describe('qr contract', () => {
     });
   });
 
-  describe('normalizeQrId (v1.58.5)', () => {
+  describe('normalizeQrId', () => {
     it('lowercases and kebab-cases free text', () => {
       expect(normalizeQrId('Office WiFi')).toBe('office-wifi');
       expect(normalizeQrId('KL Office — Guest Network')).toBe('kl-office-guest-network');
@@ -721,7 +721,7 @@ describe('logoDataUri attribute-breakout hardening', () => {
     ).toBe(true);
   });
 
-  describe('normalizeQrIdInput (v1.58.8 — typing-friendly controlled-input variant)', () => {
+  describe('normalizeQrIdInput (typing-friendly controlled-input variant)', () => {
     it('preserves a trailing hyphen while typing (the controlled-input hyphen-eating fix)', () => {
       // Keystroke sequence 'office' -> '-' -> 'w': the input normaliser must
       // keep the trailing hyphen so the next character lands after it.

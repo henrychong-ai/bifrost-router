@@ -1,9 +1,10 @@
 import { SUPPORTED_DOMAINS } from '../types';
 import { gzipCompress } from './compress';
-import { BACKUP_LISTING_CURSOR_INVALID, backupArchiveKey } from './constants';
+import { backupArchiveKey } from './constants';
 import {
   BACKUP_ERRORS,
   BackupIntegrityError,
+  BackupListingError,
   MAX_BACKUP_BYTES,
   verifyArchiveBytes,
 } from './integrity';
@@ -35,7 +36,9 @@ export const KV_BULK_GET_MAX_KEYS = 100;
  * BACKUP_ERRORS.sizeLimit as soon as it passes `maxBytes`, before any join or
  * gzip and without reading the rest of the namespace. A listing page that is
  * truncated but gives no cursor, or repeats one, stops the run with
- * BACKUP_LISTING_CURSOR_INVALID rather than backing up a partial listing.
+ * BackupListingError rather than backing up a partial listing. Values are
+ * read as text and parsed here, so a value that is not JSON stops the run with
+ * the fixed BACKUP_ERRORS.kvRecordNotJson, quoting nothing (v1.37.1).
  *
  * @param kv - KV namespace containing routes
  * @param bucket - R2 bucket for backup storage
@@ -67,6 +70,9 @@ export async function backupKV(
     for (const prefix of [`${domain}:`, `qr:${domain}:`]) {
       let cursor: string | undefined;
       const seenCursors = new Set<string>();
+      // Records listed so far under this prefix: locates a malformed value
+      // in the log without naming its key
+      let listed = 0;
 
       do {
         const result = await kv.list({
@@ -81,13 +87,32 @@ export async function backupKV(
         const names = result.keys.map(key => key.name);
         for (let start = 0; start < names.length; start += KV_BULK_GET_MAX_KEYS) {
           const chunk = names.slice(start, start + KV_BULK_GET_MAX_KEYS);
-          const values = await kv.get(chunk, 'json');
+          // Read as text and parsed here (v1.37.1): the runtime's JSON parse
+          // error can quote the stored value, so a malformed record fails with
+          // the fixed BACKUP_ERRORS.kvRecordNotJson and its text goes nowhere.
+          const texts = await kv.get(chunk, 'text');
           for (const name of chunk) {
+            const index = listed;
+            listed += 1;
             // `null` (or absent) means the key vanished between list and get.
             // Any other value is kept, falsy ones included (`false`, `0`,
             // `""`): a truthiness check dropped them and the restore lost the
             // record.
-            const value = values.get(name) ?? null;
+            const text = texts.get(name) ?? null;
+            if (text === null) continue;
+            let value: unknown;
+            try {
+              value = JSON.parse(text);
+            } catch {
+              // No cause: the SyntaxError quotes the value. Log where it is,
+              // as the prefix and its position in that listing, never the key
+              // or the value.
+              console.error(
+                `[Backup] ${BACKUP_ERRORS.kvRecordNotJson}: prefix ${prefix}, listing index ${index}`,
+              );
+              throw new BackupIntegrityError(BACKUP_ERRORS.kvRecordNotJson);
+            }
+            // A stored JSON `null` is skipped, as the 'json' read returned it
             if (value === null) continue;
             if (seenKeys.has(name)) throw new BackupIntegrityError(BACKUP_ERRORS.duplicateKey);
             seenKeys.add(name);
@@ -103,7 +128,7 @@ export async function backupKV(
         } else {
           // A truncated page must hand over a cursor not seen before
           if (!result.cursor || seenCursors.has(result.cursor)) {
-            throw new Error(BACKUP_LISTING_CURSOR_INVALID);
+            throw new BackupListingError();
           }
           seenCursors.add(result.cursor);
           cursor = result.cursor;

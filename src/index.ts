@@ -4,6 +4,7 @@ import { HTTPException } from 'hono/http-exception';
 import { secureHeaders } from 'hono/secure-headers';
 import { pollCfAuditLogs } from './audit/cf-audit-poll';
 import { handleScheduled } from './backup';
+import { BACKUP_FAILED_GENERIC } from './backup/integrity';
 import {
   pruneUnifiedTrafficEvents,
   recordClick,
@@ -538,7 +539,20 @@ app.onError((err, c) => {
 // EXPORTS
 // ============================================
 
-/** The daily KV backup, logging its outcome; the backup cron's waitUntil work. */
+/**
+ * The daily KV backup, logging its outcome; the backup cron's waitUntil work.
+ * A failed backup rejects (v1.37.1): the runtime records a rejected waitUntil
+ * as the invocation's outcome, so Cron Events and Workers observability show
+ * the failure instead of an "ok" run. The rejection and the log line carry
+ * handleScheduled's `error`, which is fixed text only (a fixed backup message,
+ * else BACKUP_FAILED_GENERIC); a platform error's own text is logged once, by
+ * handleScheduled.
+ *
+ * A re-run is safe. A run that fails before its archive write writes nothing.
+ * One whose manifest write fails has already stored an archive it verified; a
+ * re-run verifies its own archive again, overwrites the archive, then writes
+ * the manifest.
+ */
 async function runScheduledBackup(env: Bindings): Promise<void> {
   const result = await handleScheduled(env);
   if (result.success) {
@@ -546,9 +560,12 @@ async function runScheduledBackup(env: Bindings): Promise<void> {
       `[Scheduled] Backup completed in ${result.duration}ms - ` +
         `${result.manifest?.kv.totalRoutes} routes`,
     );
-  } else {
-    console.error(`[Scheduled] Backup failed: ${result.error}`);
+    return;
   }
+  // handleScheduled always sets `error` on failure; the fallback is a type guard
+  const failure = result.error ?? BACKUP_FAILED_GENERIC;
+  console.error(`[Scheduled] Backup failed: ${failure}`);
+  throw new Error(`Backup failed: ${failure}`);
 }
 
 export default {
@@ -577,14 +594,16 @@ export default {
     if (event.cron === '0 20 * * *' || !event.cron) {
       const cutoverAt = parseUnifiedTrafficCutoverAt(env.UNIFIED_TRAFFIC_CUTOVER_AT);
       const retentionDays = parseUnifiedTrafficRetentionDays(env.UNIFIED_TRAFFIC_RETENTION_DAYS);
-      ctx.waitUntil(
-        Promise.all([
-          runScheduledBackup(env),
-          cutoverAt !== null && retentionDays !== null && cutoverAt <= Math.floor(Date.now() / 1000)
-            ? pruneUnifiedTrafficEvents(env.DB, retentionDays)
-            : Promise.resolve(0),
-        ]).then(() => undefined),
-      );
+      // Two waitUntil calls, not one Promise.all: a failed backup rejects its
+      // own promise, and the prune stays tracked until it finishes.
+      ctx.waitUntil(runScheduledBackup(env));
+      if (
+        cutoverAt !== null &&
+        retentionDays !== null &&
+        cutoverAt <= Math.floor(Date.now() / 1000)
+      ) {
+        ctx.waitUntil(pruneUnifiedTrafficEvents(env.DB, retentionDays));
+      }
       return;
     }
     console.warn(

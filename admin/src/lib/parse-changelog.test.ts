@@ -254,7 +254,7 @@ All notable changes to this project.
   });
 
   // ===========================================================================
-  // v1.58.1 — date capture + heading-subtitle fallback
+  // Date capture + heading-subtitle fallback
   // ===========================================================================
 
   test('captures the release date from a dated heading; bare headings stay undated', () => {
@@ -272,14 +272,14 @@ All notable changes to this project.
   });
 
   test('captures the em-dash heading subtitle (newest format) as the card subtitle', () => {
-    const input = `## v1.58.0 (2026-07-24) — feat: QR brand presets + Wi-Fi security modernisation
+    const input = `## v9.8.7 (2030-01-15) — feat: example widgets + sample settings refresh
 
-- **Brand presets** — Six brands
+- **Example widgets** — Three widgets
 `;
     const result = parseChangelog(input);
-    expect(at(result, 0).version).toBe('1.58.0');
-    expect(at(result, 0).date).toBe('2026-07-24');
-    expect(at(result, 0).subtitle).toBe('feat: QR brand presets + Wi-Fi security modernisation');
+    expect(at(result, 0).version).toBe('9.8.7');
+    expect(at(result, 0).date).toBe('2030-01-15');
+    expect(at(result, 0).subtitle).toBe('feat: example widgets + sample settings refresh');
   });
 
   test('tolerates en-dash and hyphen heading-subtitle separators', () => {
@@ -562,7 +562,7 @@ Two R2 security improvements identified during review.
       expect(versions.length).toBeGreaterThanOrEqual(60);
     });
 
-    test('EVERY raw `## v` heading parses — the anchored regex drops none (v1.58.1 guard)', () => {
+    test('EVERY raw `## v` heading parses — the anchored regex drops none', () => {
       // The RE_VERSION anchor means a non-matching heading silently vanishes
       // from the dashboard AND its bullets merge into the previous card. This
       // count guard is the CI tripwire for that failure mode.
@@ -585,7 +585,7 @@ Two R2 security improvements identified during review.
       }
     });
 
-    test('every version carries a release date after the v1.58.1 backfill', () => {
+    test('every version carries a release date (dates backfilled)', () => {
       for (const v of versions) {
         expect(v.date, `v${v.version} is undated`).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       }
@@ -593,8 +593,8 @@ Two R2 security improvements identified during review.
 
     test('every date is a real calendar date within the repo lifetime', () => {
       // Strict monotonicity deliberately NOT asserted: hotfixes on older lines
-      // legitimately release after newer minors (e.g. v1.37.3 on 2026-05-28,
-      // one day after v1.38.0).
+      // legitimately release after newer minors (a patch to an older minor can
+      // ship a day after the next minor).
       for (const v of versions) {
         const parsed = new Date(`${v.date}T00:00:00Z`);
         expect(Number.isNaN(parsed.getTime()), `v${v.version} date unparseable`).toBe(false);

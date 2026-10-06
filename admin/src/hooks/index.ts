@@ -39,7 +39,7 @@ export {
 export { getModifierKey, useKeyboardShortcut } from './use-keyboard-shortcuts';
 // Link preview hooks
 export { useLinkPreview } from './use-link-preview';
-// QR code hooks (v1.30.0 — ported from upstream v1.54.0)
+// QR code hooks (v1.30.0)
 export { qrKeys, useCreateQr, useDeleteQr, useQrCodes, useUpdateQr } from './use-qr-codes';
 export {
   routeKeys,

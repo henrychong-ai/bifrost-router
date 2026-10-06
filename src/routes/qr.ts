@@ -1,11 +1,11 @@
 /**
- * QR code API (v1.30.0 — ported from upstream v1.54.0, adapted to the
- * plain-Hono / ADMIN_API_KEY structure of this deployment).
+ * QR code API (v1.30.0), built on the plain-Hono / ADMIN_API_KEY structure of
+ * this deployment.
  *
  * Mounted at /api/qr inside adminRoutes, so it inherits the domain
  * restriction + CORS + ADMIN_API_KEY auth chain. This deployment is
- * single-operator: there is no per-domain RBAC layer, so the upstream
- * hasDomainAccess checks collapse into domain validation.
+ * single-operator: there is no per-domain RBAC layer, so per-domain access
+ * checks reduce to domain validation.
  *
  *  - GET    /api/qr             list (filter/paginate)
  *  - POST   /api/qr             create
@@ -15,7 +15,7 @@
  *  - PUT    /api/qr/:id         update
  *  - DELETE /api/qr/:id         delete
  *
- * Serving is AUTHED-ONLY (upstream locked decision): there is NO public image
+ * Serving is AUTHED-ONLY (a locked design decision): there is NO public image
  * endpoint — image responses carry `Cache-Control: private, no-store` because
  * payloads may embed Wi-Fi credentials / vCard PII.
  *
@@ -89,7 +89,7 @@ async function requireQR(c: Context<AppEnv>, domain: string, id: string): Promis
 }
 
 /**
- * linkedRoute must live on the SAME domain as the QR (upstream codex F1):
+ * linkedRoute must live on the SAME domain as the QR (a review finding):
  * allowing a foreign domain would make the render-time fallback an
  * existence oracle for routes on other domains.
  */
@@ -107,7 +107,7 @@ function assertSameDomainLink(
 /** Enforce the serialized-payload budget (QR density limit). */
 function assertPayloadSize(type: QRCode['type'], payload: QRCode['payload']): string {
   const serialized = serializePayload(type, payload);
-  // Byte length, not char length (upstream codex F2): QR capacity is
+  // Byte length, not char length (a review finding): QR capacity is
   // byte-oriented, so multibyte payloads must count at their UTF-8 size.
   const bytes = new TextEncoder().encode(serialized).length;
   if (bytes > MAX_QR_PAYLOAD_LENGTH) {
@@ -253,7 +253,7 @@ qrRoutes.get('/:id/image', async c => {
 });
 
 // =============================================================================
-// JSON CRUD (plain-Hono, envelope responses matching the upstream shapes)
+// JSON CRUD (plain-Hono, envelope responses)
 // =============================================================================
 
 const ListQuerySchema = z.object({
@@ -373,7 +373,7 @@ qrRoutes.put('/:id', async c => {
   }
   const input = parsedInput.data;
 
-  // Type is immutable (upstream locked decision): changing it would silently
+  // Type is immutable (a locked design decision): changing it would silently
   // break every printed copy — create a new QR instead.
   if (input.type !== undefined && input.type !== existing.type) {
     throw new HTTPException(400, {
@@ -409,7 +409,7 @@ qrRoutes.put('/:id', async c => {
 
   const updated = QRCodeSchema.parse({
     ...existing,
-    // Explicit '' clears the description (upstream codex F7); undefined
+    // Explicit '' clears the description (a review finding); undefined
     // preserves it.
     description:
       input.description !== undefined ? input.description || undefined : existing.description,

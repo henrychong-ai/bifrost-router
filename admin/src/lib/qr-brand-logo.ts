@@ -1,5 +1,5 @@
 /**
- * Brand-preset logo pipeline (v1.58.0).
+ * Brand-preset logo pipeline.
  *
  * Fetches a preset's logo from the `assets` bucket through the SAME-ORIGIN
  * authed storage API (hot-load doctrine: brand assets are never bundled; CSP
@@ -36,7 +36,7 @@ export const MAX_QR_SIZE = 1024;
 const EMBED_STEPS = [512, 384, 256, 192, 128] as const;
 
 /**
- * Longest edge to embed for a logo of this aspect ratio (v1.58.4).
+ * Longest edge to embed for a logo of this aspect ratio.
  *
  * Sized to the window the SHARED renderer will draw into at MAX_QR_SIZE — a
  * wide logo occupies 50% of the QR's width, a square one 22%. The previous

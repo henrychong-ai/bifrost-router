@@ -74,6 +74,20 @@ function createCompleteFilesMap(date: string): Map<string, { size: number }> {
   return files;
 }
 
+/** A healthy-looking backup for 20260123 whose `get` misbehaves as given. */
+function bucketWithGet(get: (key: string, real: R2Bucket['get']) => Promise<unknown>) {
+  const bucket = createMockBucket({
+    delimitedPrefixes: ['daily/20260123/'],
+    manifest: createTestManifest(),
+    files: createCompleteFilesMap('20260123'),
+  });
+  const original = vi.mocked(bucket.get).getMockImplementation();
+  if (!original) throw new Error('mock bucket has no get');
+  const real = ((key: string) => original(key)) as unknown as R2Bucket['get'];
+  vi.mocked(bucket.get).mockImplementation(key => get(key, real) as never);
+  return bucket;
+}
+
 describe('checkBackupHealth', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -401,6 +415,8 @@ describe('backup integrity health boundaries', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    // The console spies some cases install
+    vi.restoreAllMocks();
   });
 
   it('checks later listing pages before choosing the latest backup', async () => {
@@ -469,10 +485,170 @@ describe('backup integrity health boundaries', () => {
     ]);
   });
 
-  it('still throws a listing failure that is not a cursor problem', async () => {
+  // v1.37.1: any R2 listing or head failure is a critical issue in a 200
+  // body, with a fixed message; it used to throw (a 500 from the endpoint).
+  it('reports an R2 listing failure as critical with a fixed message, never a throw', async () => {
     const bucket = createMockBucket({});
-    vi.mocked(bucket.list).mockRejectedValue(new Error('R2 unavailable'));
-    await expect(checkBackupHealth(bucket)).rejects.toThrow('R2 unavailable');
+    vi.mocked(bucket.list).mockRejectedValue(new Error('R2 unavailable: internal detail'));
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const health = await checkBackupHealth(bucket);
+    expect(health.status).toBe('critical');
+    expect(health.lastBackup).toBeNull();
+    expect(health.issues).toEqual([{ severity: 'critical', message: 'Backup listing failed' }]);
+    expect(health.checks.backupExists).toBe(false);
+    expect(JSON.stringify(health)).not.toContain('internal detail');
+    expect(errorLog).toHaveBeenCalledOnce();
+  });
+
+  it('reports a failure on a later listing page the same way', async () => {
+    const bucket = createMockBucket({});
+    vi.mocked(bucket.list)
+      .mockResolvedValueOnce({
+        delimitedPrefixes: ['daily/20260122/'],
+        objects: [],
+        truncated: true,
+        cursor: 'page-2',
+      } as unknown as R2Objects)
+      .mockRejectedValueOnce(new Error('R2 page 2 failed'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect((await checkBackupHealth(bucket)).issues).toEqual([
+      { severity: 'critical', message: 'Backup listing failed' },
+    ]);
+  });
+
+  it('reports an R2 head failure as critical with a fixed message, never a throw', async () => {
+    const bucket = createMockBucket({
+      delimitedPrefixes: ['daily/20260123/'],
+      manifest: createTestManifest(),
+      files: createCompleteFilesMap('20260123'),
+    });
+    vi.mocked(bucket.head).mockRejectedValue(new Error('R2 head timed out: internal detail'));
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const health = await checkBackupHealth(bucket);
+    expect(health.status).toBe('critical');
+    expect(health.checks.filesComplete).toBe(false);
+    expect(health.lastBackup?.files).toEqual([]);
+    // No archive read without a complete file check
+    expect(health.lastBackup?.archive).toBeNull();
+    expect(health.issues).toContainEqual({
+      severity: 'critical',
+      message: 'Backup files could not be checked',
+    });
+    expect(JSON.stringify(health)).not.toContain('internal detail');
+    expect(errorLog).toHaveBeenCalledOnce();
+  });
+
+  it('detects the cursor failure by class: a plain error with its text is a listing failure', async () => {
+    const bucket = createMockBucket({});
+    vi.mocked(bucket.list).mockRejectedValue(new Error('Backup listing cursor invalid'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect((await checkBackupHealth(bucket)).issues).toEqual([
+      { severity: 'critical', message: 'Backup listing failed' },
+    ]);
+  });
+
+  // v1.37.1: R2 failing to read the archive is a storage fault with its own
+  // fixed message; it used to be reported as a content failure.
+  it('reports a rejected archive GET as unreadable, logged, never as content', async () => {
+    const bucket = bucketWithGet((key, real) =>
+      key.endsWith('.ndjson.gz') ? Promise.reject(new Error('R2 get: internal detail')) : real(key),
+    );
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const health = await checkBackupHealth(bucket);
+    expect(health.status).toBe('critical');
+    expect(health.issues).toEqual([
+      { severity: 'critical', message: 'Backup archive could not be read' },
+    ]);
+    expect(health.lastBackup?.archive).toBeNull();
+    expect(JSON.stringify(health)).not.toContain('internal detail');
+    expect(errorLog).toHaveBeenCalledOnce();
+  });
+
+  it('reports an archive stream that fails mid-read as unreadable', async () => {
+    const bucket = bucketWithGet(async (key, real) => {
+      if (!key.endsWith('.ndjson.gz')) return real(key);
+      const gzip = new Uint8Array(await gzipCompress('{"key":"a","value":1}\n'.repeat(50)));
+      let sent = false;
+      return {
+        size: gzip.byteLength,
+        body: new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (sent) {
+              controller.error(new Error('R2 stream reset: internal detail'));
+              return;
+            }
+            sent = true;
+            controller.enqueue(gzip.slice(0, 10));
+          },
+        }),
+      };
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const health = await checkBackupHealth(bucket);
+    expect(health.issues).toEqual([
+      { severity: 'critical', message: 'Backup archive could not be read' },
+    ]);
+  });
+
+  it('still reports corrupt archive content as content, not as unreadable', async () => {
+    const bucket = bucketWithGet(async (key, real) =>
+      key.endsWith('.ndjson.gz')
+        ? { size: 4, body: new Response(new Uint8Array([1, 2, 3, 4])).body }
+        : real(key),
+    );
+    expect((await checkBackupHealth(bucket)).issues).toEqual([
+      { severity: 'critical', message: 'Backup content verification failed' },
+    ]);
+  });
+
+  it('tells a manifest GET failure from a missing or invalid manifest', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const failing = bucketWithGet((key, real) =>
+      key.endsWith('manifest.json')
+        ? Promise.reject(new Error('R2 get: internal detail'))
+        : real(key),
+    );
+    let health = await checkBackupHealth(failing);
+    expect(health.status).toBe('critical');
+    expect(health.checks.manifestValid).toBe(false);
+    expect(health.issues).toEqual([
+      { severity: 'critical', message: 'Backup manifest could not be read' },
+    ]);
+    expect(JSON.stringify(health)).not.toContain('internal detail');
+    expect(errorLog).toHaveBeenCalledOnce();
+
+    // The body failing to read is the same R2 fault
+    const unreadable = bucketWithGet((key, real) =>
+      key.endsWith('manifest.json')
+        ? Promise.resolve({ json: () => Promise.reject(new TypeError('body stream reset')) })
+        : real(key),
+    );
+    health = await checkBackupHealth(unreadable);
+    expect(health.issues).toEqual([
+      { severity: 'critical', message: 'Backup manifest could not be read' },
+    ]);
+
+    // A body that is not JSON is an invalid manifest, as before
+    const invalid = bucketWithGet((key, real) =>
+      key.endsWith('manifest.json')
+        ? Promise.resolve({ json: () => Promise.reject(new SyntaxError('not JSON')) })
+        : real(key),
+    );
+    health = await checkBackupHealth(invalid);
+    expect(health.issues).toEqual([
+      { severity: 'critical', message: 'Backup manifest is missing or invalid' },
+    ]);
+  });
+
+  it('throws a programming error instead of reporting it as an R2 outage', async () => {
+    const bucket = createMockBucket({});
+    // A listing page whose delimitedPrefixes is not iterable: not an R2 failure
+    vi.mocked(bucket.list).mockResolvedValue({
+      delimitedPrefixes: 5,
+      objects: [],
+      truncated: false,
+    } as unknown as R2Objects);
+    await expect(checkBackupHealth(bucket)).rejects.toThrow(TypeError);
   });
 
   it('reports the verified archive size and record count', async () => {

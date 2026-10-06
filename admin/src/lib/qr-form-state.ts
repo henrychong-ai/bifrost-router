@@ -1,9 +1,9 @@
 /**
- * Pure QR form-state helpers (extracted from qr-codes.tsx in v1.58.0 so the
- * payload/design derivation is unit-testable — the review round's MAJOR was a
- * silent stale-credential path in exactly this logic).
+ * Pure QR form-state helpers (extracted from qr-codes.tsx so the
+ * payload/design derivation is unit-testable, including the stale-credential
+ * invariant below).
  *
- * SECURITY INVARIANT (v1.58.0 review MAJOR): switching auth/EAP method hides
+ * SECURITY INVARIANT: switching auth/EAP method hides
  * form fields but does NOT clear their state — derivation here must therefore
  * EXCLUDE inapplicable fields so hidden stale values can never reach the
  * record. Specifically: TLS (certificate-based) must never submit a password
@@ -15,7 +15,7 @@ import type { QRCode, QRType } from '@bifrost/shared';
 import { normalizeQrId, WifiAuthSchema } from '@bifrost/shared';
 
 /**
- * Derived from the canonical schema rather than hand-duplicated (v1.58.3):
+ * Derived from the canonical schema rather than hand-duplicated:
  * a schema-side addition now widens this union automatically, so
  * `Record<WifiAuthOption, …>` maps below fail to COMPILE until updated,
  * instead of relying on a test to notice.
@@ -29,11 +29,11 @@ export type BrandSelection = 'auto' | 'custom' | (string & {});
 export const TUNNELED_EAP_METHODS = ['PEAP', 'TTLS'] as const;
 
 /**
- * Short labels for the Wi-Fi security SELECT TRIGGER (v1.58.3).
+ * Short labels for the Wi-Fi security SELECT TRIGGER.
  *
  * The dropdown keeps the long protocol-bearing labels — teaching that one
  * "Password-protected" entry covers WPA/WPA2/WPA3 is the whole point of the
- * v1.58.0 category picker. But the trigger sits in a half-width grid column,
+ * category picker. But the trigger sits in a half-width grid column,
  * where "Password-protected (WPA / WPA2 / WPA3)" overflowed its border and
  * ran under the chevron. Short trigger + full menu keeps both.
  */
@@ -93,7 +93,7 @@ export function stateFromQr(qr?: QRCode): QrFormState {
     url: typeof p['url'] === 'string' ? p['url'] : '',
     text: typeof p['text'] === 'string' ? p['text'] : '',
     ssid: typeof p['ssid'] === 'string' ? p['ssid'] : '',
-    // Validated, not cast (v1.58.3): every sibling field type-guards, and an
+    // Validated, not cast: every sibling field type-guards, and an
     // out-of-enum stored value would now render a BLANK security trigger
     // (SelectValue takes explicit children) plus an unexplainable 400 on save.
     auth: WifiAuthSchema.catch('WPA').parse(p['auth']),
@@ -132,13 +132,13 @@ function hostFromUrl(url: string): string {
 }
 
 /**
- * Suggested Reference for a not-yet-named QR (v1.58.5; description decoupled
- * v1.58.7). Sourced from the type's most identifying payload field only.
+ * Suggested Reference for a not-yet-named QR (description decoupled).
+ * Sourced from the type's most identifying payload field only.
  * Returns '' when there is nothing to go on yet, so the caller leaves the
  * field alone rather than writing a placeholder.
  */
 export function suggestQrId(s: QrFormState): string {
-  // Deliberately NOT sourced from the description (v1.58.7): the Reference is
+  // Deliberately NOT sourced from the description: the Reference is
   // the code's stable address and the description is free-form prose — linking
   // the two made editing one silently rewrite the other. Only the type's most
   // identifying payload field seeds the suggestion.

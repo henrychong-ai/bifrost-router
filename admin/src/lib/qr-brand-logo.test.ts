@@ -11,7 +11,7 @@ vi.mock('@/lib/api-client', () => ({
 import { MAX_QR_SIZE, targetEmbedDim } from './qr-brand-logo';
 
 /**
- * Embed-resolution guard (v1.58.4). The defect this locks down: the embed
+ * Embed-resolution guard. The defect this locks down: the embed
  * pipeline capped every logo at 128px while the renderer's WIDE window is 50%
  * of the QR — 512px at the largest offered size — so wide marks (wordmark-style
  * lockups) were upscaled 2–4× and rendered blurry.

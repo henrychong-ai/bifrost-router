@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
+import { QRLinkedRouteInputSchema } from './qr.js';
 import { ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION } from './schemas.js';
 import {
   analyticsTools,
@@ -333,11 +335,45 @@ describe('QR linkedRoute', () => {
         required: ['domain', 'path'],
         properties: {
           domain: { type: 'string', enum: [...SUPPORTED_DOMAINS] },
-          path: { type: 'string' },
+          path: { type: 'string', minLength: 1, pattern: '^/' },
         },
       });
     },
   );
+
+  // v1.37.1: the catalogue advertised only the path's type, so a client could
+  // send a path the server then refused. It now carries the same constraints.
+  it('advertises the same path constraints as QRLinkedRouteInputSchema', () => {
+    const zodShape = z.toJSONSchema(QRLinkedRouteInputSchema) as {
+      properties: Record<string, { type?: string; minLength?: number; pattern?: string }>;
+      required: string[];
+    };
+    for (const name of ['create_qr', 'update_qr']) {
+      const linkedRoute = getToolDefinition(name)?.inputSchema.properties['linkedRoute'];
+      expect(linkedRoute?.required?.toSorted()).toEqual(zodShape.required.toSorted());
+      const path = linkedRoute?.properties?.['path'];
+      const zodPath = zodShape.properties['path'];
+      expect(path?.type).toBe(zodPath?.type);
+      expect(path?.minLength).toBe(1);
+      expect(path?.minLength).toBe(zodPath?.minLength);
+      expect(path?.pattern).toBe('^/');
+      // The catalogue pattern accepts and refuses exactly what Zod's does, and
+      // both agree with the schema the server parses
+      const ours = new RegExp(path?.pattern ?? '(?!)');
+      const theirs = new RegExp(zodPath?.pattern ?? '(?!)');
+      const samples = ['/', '/a', '/a/b?c=1', 'a', '', ' /a', 'https://example.com/'];
+      const accepted = samples.map(sample => ours.test(sample));
+      expect(accepted).toEqual([true, true, true, false, false, false, false]);
+      expect(samples.map(sample => theirs.test(sample))).toEqual(accepted);
+      expect(
+        samples.map(
+          sample =>
+            QRLinkedRouteInputSchema.safeParse({ domain: SUPPORTED_DOMAINS[0], path: sample })
+              .success,
+        ),
+      ).toEqual(accepted);
+    }
+  });
 
   it('reaches MCP clients unchanged', () => {
     const tool = toMCPTools().find(t => t.name === 'create_qr');

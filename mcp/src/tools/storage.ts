@@ -404,8 +404,7 @@ export async function handlePurgeCache(
 }
 
 /**
- * Set or clear the free-text comment on an R2 object (v1.30.0, ported from
- * upstream v1.58.7)
+ * Set or clear the free-text comment on an R2 object (v1.30.0)
  */
 export async function updateObjectComment(
   client: EdgeRouterClient,

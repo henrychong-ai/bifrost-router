@@ -15,7 +15,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { CredentialTargetDialog } from '@/components/credential-target-dialog';
@@ -86,6 +86,7 @@ import {
 } from '@/hooks';
 import { getPersistedPageSize, getR2ObjectUrl, persistPageSize } from '@/lib/constants';
 import { credentialTargetParametersFromError } from '@/lib/credential-target';
+import { useClearNavigationState } from '@/lib/navigation-state';
 import type { QrPageNavState } from '@/lib/qr-page-domain';
 import { requireWriteDomain } from '@/lib/route-write-domain';
 import type { CreateRouteInput, R2BucketName, Route, UpdateRouteInput } from '@/lib/schemas';
@@ -656,7 +657,7 @@ export function RoutesPage() {
   const [pageSize, setPageSize] = useState(getPersistedPageSize);
   const [offset, setOffset] = useState(0);
 
-  // QR dialog (v1.30.0, ported from upstream v1.54.0/v1.58.0): per-row
+  // QR dialog (v1.30.0): per-row
   // preview/downloads + optional save-as-QR. Dedup guard: while the dialog is
   // open, look up the domain's url-type QRs for one already linking this
   // route — soft guard only (the API allows duplicates by design).
@@ -750,16 +751,14 @@ export function RoutesPage() {
 
   // Auto-open edit dialog from navigate state (e.g., storage "View in Routes"),
   // once per navigation: opened during render, and the history entry's state
-  // cleared after commit so a reload does not reopen it.
+  // cleared through the router after commit so a reload does not reopen it.
   const navEditRoute = (location.state as { editRoute?: Route } | null)?.editRoute;
   const [openedNavState, setOpenedNavState] = useState<unknown>(null);
   if (navEditRoute && location.state !== openedNavState) {
     setOpenedNavState(location.state);
     setEditRoute(navEditRoute);
   }
-  useEffect(() => {
-    if (navEditRoute) window.history.replaceState({}, '');
-  }, [navEditRoute]);
+  useClearNavigationState(navEditRoute !== undefined);
 
   // Filter and sort routes (client-side for type/enabled, server handles search)
   const filteredRoutes = useMemo(() => {

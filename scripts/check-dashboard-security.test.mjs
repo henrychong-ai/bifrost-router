@@ -59,6 +59,121 @@ test('nginx dashboard template has a static-bundle CSP and baseline browser head
   assert.doesNotMatch(config, /unsafe-eval/);
 });
 
+/**
+ * `config` with comments removed and every quoted string emptied (its quotes
+ * kept), so braces and directive names inside a string, such as the JSON body
+ * of `return 200 '{"status":"ok"}'`, are not read as config syntax.
+ */
+function stripCommentsAndStrings(config) {
+  let out = '';
+  let i = 0;
+  while (i < config.length) {
+    const char = config[i];
+    if (char === '#') {
+      while (i < config.length && config[i] !== '\n') i += 1;
+    } else if (char === '"' || char === "'") {
+      i += 1;
+      while (i < config.length && config[i] !== char) i += config[i] === '\\' ? 2 : 1;
+      assert.ok(i < config.length, 'unterminated quoted string');
+      out += char + char;
+      i += 1;
+    } else {
+      out += char;
+      i += 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * The `location` blocks of an nginx config, each with its whole body: braces
+ * are matched by depth, so an `if` block (or a nested location) inside one
+ * does not end it early.
+ */
+function locationBlocks(config) {
+  const text = stripCommentsAndStrings(config);
+  const blocks = [];
+  const opener = /\blocation\b[^{;]*\{/g;
+  for (let match = opener.exec(text); match; match = opener.exec(text)) {
+    const start = match.index + match[0].length;
+    let depth = 1;
+    let end = start;
+    for (; end < text.length && depth > 0; end += 1) {
+      if (text[end] === '{') depth += 1;
+      else if (text[end] === '}') depth -= 1;
+    }
+    assert.equal(depth, 0, `unterminated ${match[0].trim()}`);
+    blocks.push({ head: match[0].trim(), body: text.slice(start, end - 1) });
+  }
+  return blocks;
+}
+
+/** The heads of the locations that set their own add_header. */
+function locationsWithAddHeader(config) {
+  return locationBlocks(config)
+    .filter(({ body }) => /\badd_header\b/.test(body))
+    .map(({ head }) => head);
+}
+
+// v1.37.1: a location with its own add_header inherits none of the server's,
+// so /assets/, /env-config.js and /health were served without the CSP and the
+// other security headers. Per-path headers now come from a map.
+test('no nginx location sets its own add_header, so every response keeps the security headers', () => {
+  const config = readFileSync(TEMPLATE, 'utf8');
+  const locations = locationBlocks(config);
+  assert.deepEqual(
+    locations.map(({ head }) => head),
+    [
+      'location /assets/ {',
+      'location = /env-config.js {',
+      'location /api/tailscale/identity {',
+      'location / {',
+      'location /health {',
+    ],
+  );
+  assert.deepEqual(locationsWithAddHeader(config), []);
+  for (const header of [
+    'Content-Security-Policy',
+    'X-Content-Type-Options',
+    'Referrer-Policy',
+    'Permissions-Policy',
+    'X-Frame-Options',
+    'Strict-Transport-Security',
+  ]) {
+    assert.match(config, new RegExp(`^    add_header ${header} "[^"]+" always;$`, 'm'), header);
+  }
+  // Cache-Control per path through the map, at server level
+  assert.match(config, /^    add_header Cache-Control \$bifrost_cache_control;$/m);
+  assert.match(config, /^\s+~\^\/assets\/\s+"public, immutable";$/m);
+  assert.match(config, /^\s+\/env-config\.js\s+"no-store, no-cache, must-revalidate";$/m);
+  assert.match(config, /^\s+default\s+"";$/m);
+});
+
+// The guard must see a location-level add_header wherever the block puts it:
+// after a quoted string holding a closing brace (the original /health bug),
+// and after a nested if block. A first-closing-brace scan missed both.
+test('the add_header guard sees past quoted braces and nested if blocks', () => {
+  const config = readFileSync(TEMPLATE, 'utf8');
+  const afterQuotedReturn = config.replace(
+    `return 200 '{"status":"ok"}';`,
+    `return 200 '{"status":"ok"}';\n        add_header Content-Type application/json;`,
+  );
+  assert.notEqual(afterQuotedReturn, config, 'the /health return line moved');
+  assert.deepEqual(locationsWithAddHeader(afterQuotedReturn), ['location /health {']);
+
+  const ifBlock = /( {8}if \(\$ts_login != ""\) \{\n[^}]*\n {8}\}\n)/;
+  assert.match(config, ifBlock, 'the identity if block moved');
+  const afterIf = config.replace(ifBlock, '$1        add_header X-Probe "1";\n');
+  assert.deepEqual(locationsWithAddHeader(afterIf), ['location /api/tailscale/identity {']);
+
+  // A quoted add_header is a string, not a directive
+  const quoted = config.replace(
+    `return 200 '{"status":"ok"}';`,
+    `return 200 '{"note":"add_header"}';`,
+  );
+  assert.deepEqual(locationsWithAddHeader(quoted), []);
+});
+
 test('without R2_PREVIEW_ORIGINS the CSP keeps object-src none and frame-src self', () => {
   for (const origins of [undefined, '', '  \t ']) {
     const rendered = render(origins);

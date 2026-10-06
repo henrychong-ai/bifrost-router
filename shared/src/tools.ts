@@ -21,6 +21,10 @@ export interface JsonSchemaProperty {
   default?: unknown;
   minimum?: number;
   maximum?: number;
+  /** Shortest accepted string (v1.37.1: the QR `linkedRoute` path). */
+  minLength?: number;
+  /** ECMA-262 regular expression the string must match (v1.37.1). */
+  pattern?: string;
   /** Nested object fields (the QR tools' `linkedRoute`). */
   properties?: Record<string, JsonSchemaProperty>;
   required?: string[];
@@ -90,7 +94,14 @@ const linkedRouteProperty = (description: string): JsonSchemaProperty => ({
     domain: domainProperty(
       `Domain of the linked route: the QR code's own domain. One of: ${SUPPORTED_DOMAINS_LIST}.`,
     ),
-    path: { type: 'string', description: 'Path of the linked route, starting with /' },
+    // The same constraints as QRLinkedRouteInputSchema's path (v1.37.1):
+    // shared/src/tools.test.ts checks they accept and refuse alike.
+    path: {
+      type: 'string',
+      description: 'Path of the linked route, starting with /',
+      minLength: 1,
+      pattern: '^/',
+    },
   },
   required: ['domain', 'path'],
 });
@@ -735,7 +746,7 @@ export const toolDefinitions: ToolDefinition[] = [
     },
   },
   // ===========================================================================
-  // QR Codes (v1.54.0)
+  // QR Codes
   // ===========================================================================
   {
     name: 'list_qrs',

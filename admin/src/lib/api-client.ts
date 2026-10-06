@@ -1043,7 +1043,7 @@ export const feedbackApi = {
 };
 
 // =============================================================================
-// QR codes API (v1.30.0 — ported from upstream v1.54.0)
+// QR codes API (v1.30.0)
 // =============================================================================
 // Response schemas live here (not lib/schemas.ts) because they are thin
 // envelope wrappers around the shared QRCodeSchema — the record shape itself

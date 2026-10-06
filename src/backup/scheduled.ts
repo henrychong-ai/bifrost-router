@@ -1,5 +1,6 @@
 import type { Bindings } from '../types';
-import { backupManifestKey } from './constants';
+import { BACKUP_BUCKET_NOT_CONFIGURED, backupManifestKey } from './constants';
+import { BACKUP_FAILED_GENERIC, fixedBackupFailure } from './integrity';
 import { backupKV } from './kv';
 import { writeManifest } from './manifest';
 import type { BackupResult } from './types';
@@ -39,7 +40,7 @@ export async function handleScheduled(env: Bindings): Promise<BackupResult> {
     if (!env.BACKUP_BUCKET) {
       return {
         success: false,
-        error: 'BACKUP_BUCKET not configured',
+        error: BACKUP_BUCKET_NOT_CONFIGURED,
         duration: Date.now() - startTime,
       };
     }
@@ -56,6 +57,10 @@ export async function handleScheduled(env: Bindings): Promise<BackupResult> {
     // count. On a same-day re-run the earlier manifest stays, no longer matches,
     // and health WARNS; on the day's first run there is no manifest for the
     // date and health is CRITICAL (manifest missing). Both are deliberate.
+    // Such a failed run has stored (or replaced) the day's archive, so it is
+    // not one that wrote nothing. A re-run is still safe: it verifies its own
+    // archive before its single write, overwrites the archive, then writes the
+    // manifest.
     const manifest = await writeManifest(env.BACKUP_BUCKET, date, kvResult);
     console.log(`[Backup] Manifest written: ${backupManifestKey(date)}`);
 
@@ -65,10 +70,18 @@ export async function handleScheduled(env: Bindings): Promise<BackupResult> {
       duration: Date.now() - startTime,
     };
   } catch (error) {
-    console.error('[Backup] Failed:', error);
+    // The result carries fixed text only (v1.37.1): it becomes the cron's
+    // rejection and log line in src/index.ts, and a raw error can quote a
+    // stored value. Any other error (a KV or R2 API failure, say) becomes
+    // BACKUP_FAILED_GENERIC and is logged here, once, as it is; a SyntaxError,
+    // whose message can quote the text it failed to parse, is logged by name.
+    const failure = fixedBackupFailure(error);
+    if (failure === BACKUP_FAILED_GENERIC) {
+      console.error('[Backup] Platform error:', error instanceof SyntaxError ? error.name : error);
+    }
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: failure,
       duration: Date.now() - startTime,
     };
   }

@@ -513,8 +513,7 @@ export interface R2ObjectInfo {
 }
 
 /**
- * Result of PUT /api/storage/:bucket/comment/:key (v1.30.0, ported from
- * upstream v1.58.7) — the file-comment sidecar UPSERT. `comment: null`
+ * Result of PUT /api/storage/:bucket/comment/:key (v1.30.0) — the file-comment sidecar UPSERT. `comment: null`
  * means the note was cleared.
  */
 export interface R2CommentUpdateResult {

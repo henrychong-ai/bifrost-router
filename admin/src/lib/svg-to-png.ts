@@ -1,5 +1,5 @@
 /**
- * Client-side QR download helpers (v1.54.0).
+ * Client-side QR download helpers.
  *
  * SVG downloads serialise the shared renderer's output directly; PNG rasterises
  * it through a canvas. Canvas is browser-only, so this module has no unit tests
@@ -31,7 +31,7 @@ export function downloadSvg(svg: string, filename: string): void {
 
 /**
  * Pre-rasterise any nested SVG-type logo `<image>` inside the QR SVG to a PNG
- * data URI (v1.58.0). Safari and Firefox do not reliably rasterise a nested
+ * data URI. Safari and Firefox do not reliably rasterise a nested
  * `data:image/svg+xml` `<image>` through canvas — the PNG export silently
  * dropped SVG logos on those browsers. Substituting a pre-rasterised PNG data
  * URI (drawn on its own offscreen canvas at 2× for crispness) makes the full

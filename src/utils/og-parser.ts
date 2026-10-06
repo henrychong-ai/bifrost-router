@@ -235,6 +235,15 @@ function resolveHttpUrl(base: string, value: string | null): string | null {
 }
 
 /**
+ * Cancel a body this parser will not read. A cancel that rejects (a stream
+ * that has already errored) must never replace the error or result the caller
+ * is about to return (v1.37.1), so its rejection is dropped.
+ */
+async function releaseBody(response: Response): Promise<void> {
+  await response.body?.cancel().catch(() => undefined);
+}
+
+/**
  * Read response body with size limit to prevent memory exhaustion. Over the
  * limit (by Content-Length or while streaming), the body is cancelled before
  * ResponseTooLargeError is thrown.
@@ -247,7 +256,7 @@ async function readResponseWithSizeLimit(response: Response, maxSize: number): P
   if (contentLength) {
     const size = parseInt(contentLength, 10);
     if (!isNaN(size) && size > maxSize) {
-      await response.body?.cancel();
+      await releaseBody(response);
       throw new ResponseTooLargeError(`Response too large: ${size} bytes (max: ${maxSize})`);
     }
   }
@@ -271,7 +280,8 @@ async function readResponseWithSizeLimit(response: Response, maxSize: number): P
       if (totalSize > maxSize) {
         // Cancel, not just release: releaseLock() alone (in the finally) leaves
         // the rest of the body arriving.
-        await reader.cancel();
+        // A rejected cancel must not replace the size error (v1.37.1).
+        await reader.cancel().catch(() => undefined);
         throw new ResponseTooLargeError(`Response too large: exceeded ${maxSize} bytes`);
       }
 
@@ -346,7 +356,7 @@ async function fetchOpenGraph(
     // or throw (a bad Location, an SSRF refusal, the hop cap) leaves the
     // connection open.
     if (response.status >= 300 && response.status < 400) {
-      await response.body?.cancel();
+      await releaseBody(response);
       // Follow at most `maxRedirects` hops, each with its own timeout. The old
       // recursion had no cap, so an A→B→A loop ran until the Worker's
       // subrequest limit. The cap is checked BEFORE the Location is read, so
@@ -364,13 +374,13 @@ async function fetchOpenGraph(
     }
 
     if (!response.ok) {
-      await response.body?.cancel();
+      await releaseBody(response);
       throw new Error(`HTTP ${response.status}`);
     }
 
     const contentType = response.headers.get('content-type') ?? '';
     if (!contentType.includes('text/html')) {
-      await response.body?.cancel();
+      await releaseBody(response);
       return minimalOpenGraph(url);
     }
 

@@ -9,7 +9,7 @@ import {
 import { qrDomainPrefix, qrKey } from './schema';
 
 /**
- * KV CRUD for QR code records (v1.54.0).
+ * KV CRUD for QR code records.
  *
  * Key format `qr:{domain}:{id}` — see schema.ts. Mirrors src/kv/routes.ts:
  * mechanical storage operations only; existence conflicts, payload validation,

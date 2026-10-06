@@ -37,7 +37,7 @@ export async function fetchQrList(
 
 /**
  * Fetch QR codes with server-side filtering + pagination (mirrors useRoutes).
- * `options.enabled` gates the fetch (v1.58.0 — the routes-page Save-as-QR
+ * `options.enabled` gates the fetch (the routes-page Save-as-QR
  * dedup guard only needs the list while its dialog is open).
  */
 export function useQrCodes(params?: QrQueryParams, options?: { enabled?: boolean }) {

@@ -69,7 +69,7 @@ export {
 } from './feedback.js';
 // MIME detection
 export { EXTENSION_MIME_MAP, getContentTypeFromKey } from './mime.js';
-// QR codes (v1.30.0 — ported from upstream v1.54.0) — the QR contract shared
+// QR codes (v1.30.0) — the QR contract shared
 // by the Worker backend, the MCP server, and the admin dashboard: the type
 // enum, per-type payload schemas, design schema, stored-record +
 // create/update/list schemas, the WIFI:/MECARD: serializers, and id helpers.
@@ -140,7 +140,7 @@ export {
   type QrBrandPreset,
   uncoveredDomains,
 } from './qr-brand-presets.js';
-// Shared QR renderer (ported from upstream v1.54.0) — one renderer, three
+// Shared QR renderer — one renderer, three
 // consumers (Worker image endpoint, MCP base64 SVG, dashboard preview and
 // downloads). Pure string SVG output; runs identically in Worker + browser.
 export {

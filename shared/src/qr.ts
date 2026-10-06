@@ -1,5 +1,5 @@
 /**
- * QR code contract (v1.54.0) — the single source of truth for the QR feature
+ * QR code contract — the single source of truth for the QR feature
  * shared by the Worker backend (KV persistence + /api/qr routes), the MCP
  * server, and the admin dashboard.
  *
@@ -40,7 +40,7 @@ export const QR_DESCRIPTION_MAX_LENGTH = 100;
 const QR_ID_MAX_LENGTH = 32;
 
 /**
- * Slugify free text into a valid QR id (v1.58.5) — lowercase, non-alphanumerics
+ * Slugify free text into a valid QR id — lowercase, non-alphanumerics
  * collapsed to single hyphens, trimmed, capped at 32 chars.
  *
  * The dashboard normalises as the user types rather than rejecting, matching
@@ -57,7 +57,7 @@ export function normalizeQrId(input: string): string {
 }
 
 /**
- * Typing-friendly variant for CONTROLLED INPUTS (v1.58.8 fix): identical to
+ * Typing-friendly variant for CONTROLLED INPUTS: identical to
  * {@link normalizeQrId} except it does NOT strip a trailing hyphen. A
  * controlled input that re-bases on the fully-normalised value eats the
  * hyphen the moment it is typed (the end of the string is exactly where a
@@ -92,7 +92,7 @@ export const QR_LOGO_MAX_BYTES = 102400;
 const URI_SCHEME_REGEX = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 
 /** `url` payload — any free-form scheme-bearing URI. */
-// All payload schemas are .strict() (v1.54.1 review fix): the QRPayloadSchema
+// All payload schemas are .strict() (a review fix): the QRPayloadSchema
 // union is first-match-wins, and non-strict z.object STRIPS unknown keys — a
 // vcard payload whose website is a scheme-bearing `url` matched UrlPayloadSchema
 // first and silently lost name/phone/org. Strict members make a mismatched
@@ -117,7 +117,7 @@ export const TextPayloadSchema = z
   .strict();
 
 /**
- * Wi-Fi auth mode (WIFI: `T:` field). Interop doctrine (v1.58.0, researched):
+ * Wi-Fi auth mode (WIFI: `T:` field). Interop doctrine (researched):
  *  - `WPA` is the wildcard token for EVERY password-secured PERSONAL network —
  *    WPA, WPA2, WPA3/SAE, and transition mode alike. Scanners treat it as
  *    "secured, negotiate the best handshake"; `T:SAE`/`T:WPA3` tokens break
@@ -298,12 +298,12 @@ export const QRDesignSchema = z.object({
     })
     .optional()
     .describe('Center logo as a base64 data URI (max 100 KB decoded)'),
-  // v1.58.0 wide-logo mode: the logo image's intrinsic width/height ratio,
+  // Wide-logo mode: the logo image's intrinsic width/height ratio,
   // computed by the CLIENT when embedding (never user-typed). Ratio > 2 makes
   // the renderer use a WIDE centre window (~50% of QR width, height derived)
   // instead of the square 22% window, so wordmark-style logos (e.g. a
-  // 5.3:1 lockup) stay legible. Absent → square window (all pre-v1.58 records
-  // render byte-identically).
+  // 5.3:1 lockup) stay legible. Absent → square window (records without a
+  // ratio render byte-identically).
   logoAspectRatio: z
     .number()
     .min(0.2)
@@ -427,7 +427,7 @@ export const UpdateQRInputSchema = z.object({
   type: QRTypeSchema.optional().describe('Must match the existing type (immutable)'),
   description: QRDescriptionSchema.optional(),
   tags: QRTagsSchema.optional(),
-  // Transport-loose (v1.54.1 review fix): the strict QRPayloadSchema union is
+  // Transport-loose (a review fix): the strict QRPayloadSchema union is
   // FIRST-MATCH-WINS with key-stripping — a vcard payload whose website is a
   // scheme-bearing `url` matched UrlPayloadSchema first, lost name/phone/etc,
   // and then failed the handler's per-type revalidation, making such vcards
