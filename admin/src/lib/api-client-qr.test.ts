@@ -7,7 +7,7 @@
 import { SEARCH_PARAM_MAX_LENGTH } from '@bifrost/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { qrApi, routesApi } from './api-client';
-import { ApiError, isQrNotFoundError } from './api-error';
+import { ApiError, isQrAlreadyExistsError, isQrNotFoundError } from './api-error';
 
 vi.mock('@/env', () => ({
   env: { VITE_API_URL: 'https://api.example.test', ADMIN_API_KEY: 'test-admin-key' },
@@ -165,5 +165,102 @@ describe('unreadable records and older routes in the lists (v1.38.0)', () => {
       data: { routes: [{ path: '/x', type: 'script', target: 'x' }], meta: {} },
     });
     await expect(routesApi.list('example.com')).rejects.toBeInstanceOf(Error);
+  });
+});
+
+describe('a readable record holding an `invalid` field (v1.38.0)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('stays a route row: unreadable rows are told apart by shape, never by that field', async () => {
+    const flagged = {
+      path: '/flagged',
+      type: 'redirect',
+      target: 'https://example.com/f',
+      invalid: true,
+      domain: 'example.com',
+    };
+    answer({
+      success: true,
+      data: { routes: [flagged], meta: { total: 1, offset: 0, hasMore: false } },
+    });
+    const listed = await routesApi.list('example.com');
+    expect(listed.routes).toEqual([flagged]);
+    expect(listed.invalidRoutes).toEqual([]);
+  });
+});
+
+/** The ApiError a call rejects with. */
+const failure = (call: () => Promise<unknown>) =>
+  call().catch((error: unknown) => error) as Promise<ApiError>;
+
+describe('failed answers through the one shared envelope reader (v1.38.0)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('a code is an UPPER_SNAKE value only: a label beside a message is text', async () => {
+    answer({ error: 'Internal Server Error', message: 'boom' }, { status: 500 });
+    const error = await failure(() => qrApi.get('x', 'example.com'));
+    expect(error.message).toBe('boom');
+    expect(error.code).toBeUndefined();
+    vi.restoreAllMocks();
+    answer(
+      { success: false, code: 'not a code', error: 'Refused', message: 'Why' },
+      { status: 409 },
+    );
+    expect((await failure(() => qrApi.get('x', 'example.com'))).code).toBeUndefined();
+  });
+
+  it('shows the server sentence of a plain-text error, as the server wrote it', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('QR id must match a pattern', { status: 400 }),
+    );
+    const error = await failure(() => qrApi.create({ type: 'text' }, 'example.com'));
+    expect(error.status).toBe(400);
+    expect(error.message).toBe('QR id must match a pattern');
+  });
+
+  it('keeps the QR_ALREADY_EXISTS code with its sentence', async () => {
+    answer(
+      { success: false, error: 'QR_ALREADY_EXISTS', message: 'QR code already exists: a' },
+      { status: 409 },
+    );
+    const error = await failure(() => qrApi.create({ type: 'text', id: 'a' }, 'example.com'));
+    expect(error.code).toBe('QR_ALREADY_EXISTS');
+    expect(error.message).toBe('QR code already exists: a');
+    expect(isQrAlreadyExistsError(error)).toBe(true);
+  });
+
+  it('an empty body leaves the status', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 502 }));
+    expect((await failure(() => qrApi.get('x', 'example.com'))).message).toBe('HTTP 502');
+  });
+});
+
+describe('route writes (v1.38.0)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('a recovery delete names the exact key with recover=invalid', async () => {
+    const spy = answer({ success: true });
+    await routesApi.delete('/p?x', 'example.com', { recoverInvalid: true });
+    const url = new URL(String(spy.mock.calls[0]?.[0]));
+    expect(url.searchParams.get('path')).toBe('/p?x');
+    expect(url.searchParams.get('recover')).toBe('invalid');
+    vi.restoreAllMocks();
+    const plain = answer({ success: true });
+    await routesApi.delete('/promo', 'example.com');
+    expect(new URL(String(plain.mock.calls[0]?.[0])).searchParams.has('recover')).toBe(false);
+  });
+
+  it('a migration carries the rest of the edit in its body, and no body without one', async () => {
+    const route = { path: '/b', type: 'redirect', target: 'https://example.com/' };
+    const spy = answer({ success: true, data: route });
+    await routesApi.migrate('/a', '/b', 'example.com', { cacheControl: 'no-store' }, true);
+    expect(JSON.parse(String(spy.mock.calls[0]?.[1]?.body))).toEqual({
+      cacheControl: 'no-store',
+      acknowledgeCredentialTarget: true,
+    });
+    vi.restoreAllMocks();
+    const bare = answer({ success: true, data: route });
+    await routesApi.migrate('/a', '/b', 'example.com');
+    expect(bare.mock.calls[0]?.[1]?.body).toBeUndefined();
   });
 });

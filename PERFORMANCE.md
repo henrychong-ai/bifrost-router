@@ -89,9 +89,9 @@ latency claim is made.
 
 Command: `pnpm run benchmark:routing`
 
-The benchmark calls the real `matchRoute()` implementation for an eight-segment
-path. Its KV fake waits 2 ms per read so serial critical-path growth is visible
-without internet variance. Each case warms up, then samples for one second.
+The benchmark calls the real route-lookup implementation (`lookupRoute()` in
+`src/kv/lookup.ts` today) for an eight-segment path. Its KV fake waits 2 ms
+per read so serial critical-path growth is visible without internet variance. Each case warms up, then samples for one second.
 
 | Scenario | Before mean | After mean | Change | p99 after |
 |---|---:|---:|---:|---:|

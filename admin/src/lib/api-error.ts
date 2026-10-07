@@ -41,3 +41,12 @@ export class ApiError extends Error {
 export function isQrNotFoundError(error: unknown): error is ApiError {
   return error instanceof ApiError && error.status === 404 && error.code === 'QR_NOT_FOUND';
 }
+
+/**
+ * Whether an error is the server's answer that a create's id is already taken
+ * (v1.38.0): a 409 whose body names `QR_ALREADY_EXISTS`. Not `QR_RECORD_INVALID`
+ * (the id holds an unreadable record), which is another 409.
+ */
+export function isQrAlreadyExistsError(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.status === 409 && error.code === 'QR_ALREADY_EXISTS';
+}

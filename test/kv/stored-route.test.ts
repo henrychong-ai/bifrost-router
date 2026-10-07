@@ -14,8 +14,6 @@ import { lookupRoute } from '../../src/kv/lookup';
 import {
   deleteRoute,
   findRoutesByR2Target,
-  getAllRoutes,
-  getAllRoutesAllDomains,
   getRoute,
   getRouteByNormalizedPath,
   InvalidStoredRouteError,
@@ -172,9 +170,11 @@ describe('an invalid stored route', () => {
         status: 'invalid',
       });
       // Readers of records take the readable ones; the listings add a minimal row
-      expect((await getAllRoutes(env.ROUTES, DOMAIN)).map(route => route.path)).toEqual(['/good']);
+      expect((await listDomainRoutes(env.ROUTES, DOMAIN)).routes.map(route => route.path)).toEqual([
+        '/good',
+      ]);
       expect(
-        (await getAllRoutesAllDomains(env.ROUTES)).map(route => `${route.domain}${route.path}`),
+        (await listAllDomainRoutes(env.ROUTES)).routes.map(route => `${route.domain}${route.path}`),
       ).toEqual([`${DOMAIN}/good`]);
       expect(await listDomainRoutes(env.ROUTES, DOMAIN)).toEqual({
         routes: [good],
@@ -331,8 +331,10 @@ describe('listings never read a key that is not route-shaped', () => {
     await env.ROUTES.put(routeKey(DOMAIN, '/files/a'), JSON.stringify(route));
     const get = vi.spyOn(env.ROUTES, 'get');
     try {
-      expect((await getAllRoutesAllDomains(env.ROUTES)).map(r => r.path)).toEqual(['/files/a']);
-      expect((await getAllRoutes(env.ROUTES, DOMAIN)).map(r => r.path)).toEqual(['/files/a']);
+      expect((await listAllDomainRoutes(env.ROUTES)).routes.map(r => r.path)).toEqual(['/files/a']);
+      expect((await listDomainRoutes(env.ROUTES, DOMAIN)).routes.map(r => r.path)).toEqual([
+        '/files/a',
+      ]);
       expect((await findRoutesByR2Target(env.ROUTES, 'files', 'a.pdf')).map(r => r.path)).toEqual([
         '/files/a',
       ]);

@@ -114,19 +114,31 @@ export interface InvalidRouteRow {
   invalid: true;
 }
 
-/** Whether a listing row is an {@link InvalidRouteRow}. */
+/** The only fields an {@link InvalidRouteRow} has. */
+const INVALID_ROUTE_ROW_FIELDS: ReadonlySet<string> = new Set(['domain', 'path', 'invalid']);
+
+/**
+ * Whether a listing row is an {@link InvalidRouteRow}: told apart by its
+ * SHAPE, the key and the flag with nothing else, never by the `invalid` field
+ * alone (v1.38.0). A stored route keeps unknown extra fields, so a readable
+ * record that happens to hold `invalid: true` is a route (it has a type and a
+ * target), never an unreadable row.
+ */
 export function isInvalidRouteRow(row: unknown): row is InvalidRouteRow {
   return (
     isRecord(row) &&
     row['invalid'] === true &&
     typeof row['domain'] === 'string' &&
-    typeof row['path'] === 'string'
+    typeof row['path'] === 'string' &&
+    Object.keys(row).every(field => INVALID_ROUTE_ROW_FIELDS.has(field))
   );
 }
 
-/** {@link isInvalidRouteRow} as a schema (dashboard response validation). */
-export const InvalidRouteRowSchema = z.object({
-  domain: z.string(),
-  path: z.string(),
-  invalid: z.literal(true),
-});
+/** {@link isInvalidRouteRow} as a schema (dashboard response validation): exactly these fields. */
+export const InvalidRouteRowSchema = z
+  .object({
+    domain: z.string(),
+    path: z.string(),
+    invalid: z.literal(true),
+  })
+  .strict();

@@ -13,6 +13,7 @@ vi.mock('@/lib/api-client', () => ({
     qr: {
       list: vi.fn<typeof api.qr.list>(),
       create: vi.fn<typeof api.qr.create>(),
+      get: vi.fn<typeof api.qr.get>(),
       update: vi.fn<typeof api.qr.update>(),
       delete: vi.fn<typeof api.qr.delete>(),
     },
@@ -32,6 +33,7 @@ import {
 
 const list = vi.mocked(api.qr.list);
 const create = vi.mocked(api.qr.create);
+const get = vi.mocked(api.qr.get);
 const update = vi.mocked(api.qr.update);
 const remove = vi.mocked(api.qr.delete);
 
@@ -348,5 +350,62 @@ describe('QR list and mutation wiring', () => {
     ).rejects.toBeInstanceOf(ApiError);
     list.mockResolvedValueOnce(emptyPage());
     expect((await read(params, store)).items.map(item => item.id)).toEqual(['a']);
+  });
+});
+
+const exists = () =>
+  new ApiError(409, 'QR code already exists: promo', undefined, { code: 'QR_ALREADY_EXISTS' });
+const stored = () =>
+  qr('promo', {
+    payload: { url: 'https://example.com/summer' },
+    linkedRoute: { domain: 'example.com', path: '/summer' },
+  });
+
+describe('a create retried after an uncertain answer (v1.38.0)', () => {
+  const sent = {
+    type: 'url',
+    id: 'promo',
+    payload: { url: 'https://example.com/summer' },
+    linkedRoute: { domain: 'example.com', path: '/summer' },
+  };
+
+  it('takes a 409 QR_ALREADY_EXISTS for its own code as its earlier save, read back', async () => {
+    const client = new QueryClient();
+    const store = createPendingQrStore();
+    create.mockRejectedValueOnce(exists());
+    get.mockResolvedValueOnce(stored());
+    const created = await new MutationObserver(
+      client,
+      createQrMutationOptions(client, store),
+    ).mutate({ input: sent, domain: 'example.com', afterUncertainAnswer: true });
+    expect(created.id).toBe('promo');
+    expect(get).toHaveBeenCalledWith('promo', 'example.com');
+    // Remembered as any created code is, so stale lists show it
+    expect(store.size()).toBe(1);
+  });
+
+  it('keeps the 409 when the stored code is not the one sent', async () => {
+    const client = new QueryClient();
+    create.mockRejectedValueOnce(exists());
+    get.mockResolvedValueOnce(qr('promo', { payload: { url: 'https://example.com/other' } }));
+    await expect(
+      new MutationObserver(client, createQrMutationOptions(client, createPendingQrStore())).mutate({
+        input: sent,
+        domain: 'example.com',
+        afterUncertainAnswer: true,
+      }),
+    ).rejects.toMatchObject({ code: 'QR_ALREADY_EXISTS' });
+  });
+
+  it('never reads back after a certain answer: the 409 stands', async () => {
+    const client = new QueryClient();
+    create.mockRejectedValueOnce(exists());
+    await expect(
+      new MutationObserver(client, createQrMutationOptions(client, createPendingQrStore())).mutate({
+        input: sent,
+        domain: 'example.com',
+      }),
+    ).rejects.toMatchObject({ code: 'QR_ALREADY_EXISTS' });
+    expect(get).not.toHaveBeenCalled();
   });
 });

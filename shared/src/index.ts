@@ -43,6 +43,9 @@ export {
   isCommentEmpty,
   sanitizeComment,
 } from './comment.js';
+// The one reader of a failed answer's body (v1.38.0): the shared client and
+// the dashboard; a machine code is an UPPER_SNAKE value only
+export { type ErrorEnvelope, isErrorCode, readErrorEnvelope } from './error-envelope.js';
 // Feedback work-queue (v1.26.0)
 export {
   type CreateFeedbackInput,
@@ -136,6 +139,7 @@ export {
   normalizeQrId,
   normalizeQrIdInput,
   parseStoredQR,
+  QR_ALREADY_EXISTS_ERROR,
   QR_DESCRIPTION_MAX_LENGTH,
   QR_ID_REGEX,
   QR_LOGO_MAX_BYTES,
@@ -199,7 +203,12 @@ export {
 } from './qr-render.js';
 // R2 key normalization (v1.27.0) — lowercase + kebab-case, shared by the worker
 // (write-time enforcement) and the dashboard (clean default + live preview).
-export { isNormalizedR2Key, normalizeR2Key } from './r2-key.js'; // gitleaks:allow
+export {
+  isNormalizedR2Key,
+  isServableR2Key,
+  normalizeR2Key,
+  sanitizeR2Key,
+} from './r2-key.js'; // gitleaks:allow
 // Schemas - export selectively to avoid conflicts with types.ts
 export {
   ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION,
@@ -233,6 +242,7 @@ export {
   GetSlugStatsInputSchema,
   type GetViewsInput,
   GetViewsInputSchema,
+  ListBucketsInputSchema,
   // Inferred types from schemas (renamed to avoid conflicts)
   type ListRoutesInput,
   // MCP Tool input schemas
@@ -242,6 +252,7 @@ export {
   MAX_ROUTE_KEY_BYTES,
   MAX_ROUTE_RECORD_BYTES,
   MAX_ROUTE_TARGET_LENGTH,
+  MigrateRouteToolInputSchema,
   normalizeRoutePath,
   OptionalDomainSchema,
   type R2DeleteObjectInput,
@@ -250,18 +261,22 @@ export {
   R2GetObjectInputSchema,
   type R2ListObjectsInput,
   R2ListObjectsInputSchema,
+  R2MoveInputSchema,
   R2MoveRequestSchema,
   type R2ObjectKeyInput,
   R2ObjectKeyInputSchema,
   type R2RenameInput,
   R2RenameInputSchema,
   R2RenameRequestSchema,
+  R2UpdateCommentInputSchema,
   R2UpdateCommentRequestSchema,
   type R2UpdateMetadataInput,
   R2UpdateMetadataInputSchema,
   R2UpdateMetadataRequestSchema,
   type R2UploadInput,
   R2UploadInputSchema,
+  // Routes list query
+  RECOVER_INVALID_DESCRIPTION,
   RedirectStatusCodeSchema,
   RequiredDomainSchema,
   RouteCacheControlSchema,
@@ -269,7 +284,6 @@ export {
   RoutePathSchema,
   RouteSchema,
   type RoutesListQuery,
-  // Routes list query
   RoutesListQuerySchema,
   RouteTargetSchema,
   // Route schemas
@@ -278,6 +292,7 @@ export {
   SlugStatsQuerySchema,
   type ToggleRouteInput,
   ToggleRouteInputSchema,
+  TransferRouteToolInputSchema,
   UpdateRouteInputSchema,
   type UpdateRouteToolInput,
   UpdateRouteToolInputSchema,

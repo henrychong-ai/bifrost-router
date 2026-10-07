@@ -86,7 +86,7 @@ import {
   useUpdateQr,
 } from '@/hooks';
 import type { QrQueryParams } from '@/lib/api-client';
-import { isQrNotFoundError } from '@/lib/api-error';
+import { ApiError, isQrNotFoundError } from '@/lib/api-error';
 import { getPersistedPageSize, persistPageSize } from '@/lib/constants';
 import { credentialTargetParametersFromError } from '@/lib/credential-target';
 import { useClearNavigationState } from '@/lib/navigation-state';
@@ -402,9 +402,22 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
     void navigate('/routes', { state: { editRoute: route } });
   };
 
-  const reportRetainedRoute = (route: Route) => {
+  /**
+   * A route this form created is kept when the code is not saved. A refusal
+   * the server answered (a 400 reason, a 409 such as an id already taken or
+   * an unreadable record) is shown as the server wrote it (v1.38.0); an
+   * answer that never arrived says the save could not be confirmed.
+   */
+  const reportRetainedRoute = (route: Route, error?: unknown) => {
+    const url = linkedRouteUrl({ domain, path: route.path });
+    const refused =
+      error instanceof ApiError && error.status >= 400 && error.status < 500
+        ? error.message
+        : undefined;
     toast.error(
-      `Route ${linkedRouteUrl({ domain, path: route.path })} was created, but the QR save could not be confirmed. The route is kept; retry the QR save or view the route.`,
+      refused === undefined
+        ? `Route ${url} was created, but the QR save could not be confirmed. The route is kept; retry the QR save or view the route.`
+        : `Route ${url} was created, but the QR code was not saved: ${refused}. The route is kept; fix the code and save again, or view the route.`,
       { action: { label: 'View route', onClick: () => viewRoute(route) } },
     );
   };
@@ -451,7 +464,7 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
         setCredentialConfirm({ parameters, submission });
       } else {
         setCredentialConfirm(null);
-        if (retained) reportRetainedRoute(retained);
+        if (retained) reportRetainedRoute(retained, error);
         else toast.error(error instanceof Error ? error.message : 'Save failed');
       }
     } finally {
@@ -978,8 +991,27 @@ export function QrCodesPage() {
   // The code to delete: a readable code or an unreadable record's row
   const [deleteTarget, setDeleteTarget] = useState<QRCode | InvalidQRRow | null>(null);
 
+  // The code whose last create got no certain answer (v1.38.0): no answer
+  // at all, a 5xx or an unreadable body. Its save may have landed, so a retry
+  // of the same id that meets 409 QR_ALREADY_EXISTS reads the code back and
+  // takes it for this save when it is the one sent
+  const uncertainCreate = useRef<string | null>(null);
   const onCreate = async (input: Record<string, unknown>): Promise<QrSaveOutcome> => {
-    const qr = await createQr.mutateAsync({ input, domain });
+    const id = typeof input['id'] === 'string' ? input['id'] : undefined;
+    const key = id === undefined ? undefined : `${domain}:${id}`;
+    let qr: QRCode;
+    try {
+      qr = await createQr.mutateAsync({
+        input,
+        domain,
+        afterUncertainAnswer: key !== undefined && uncertainCreate.current === key,
+      });
+    } catch (failure) {
+      const answered = failure instanceof ApiError && failure.status >= 400 && failure.status < 500;
+      uncertainCreate.current = !answered && key !== undefined ? key : null;
+      throw failure;
+    }
+    uncertainCreate.current = null;
     toast.success(`QR code created: ${qr.id}`);
     setCreateOpen(false);
     return 'saved';

@@ -24,7 +24,9 @@ export function FilesAndStorageSection() {
         live "Saved as" preview) and can <strong>create a serving route in the same step</strong> —
         upload a PDF and walk away with a branded short link to it. Replacing an existing file
         automatically purges the CDN cache so the new version shows immediately; there is also a
-        manual <strong>Purge Cache</strong> action if a stale copy ever lingers.
+        manual <strong>Purge Cache</strong> action if a stale copy ever lingers. If the purge warns
+        that the route lookup failed, the file's own URLs were purged but a short link to it may
+        still show the old version for a while: purge again.
       </p>
       <Tip>
         Files in public buckets are served from a CDN — after replacing one, the auto-purge handles

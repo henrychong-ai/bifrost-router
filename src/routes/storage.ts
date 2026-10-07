@@ -1009,6 +1009,8 @@ storageRoutes.post('/:bucket/purge-cache/:key{.+}', async c => {
           purged: result.purged,
           failed: result.failed,
           urls: result.urls,
+          // false when the route listing failed: route URLs may be missing
+          routeDiscoveryComplete: result.routeDiscoveryComplete,
         }),
         ipAddress: c.req.header('CF-Connecting-IP') || null,
       }),

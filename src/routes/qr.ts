@@ -27,6 +27,7 @@ import {
   CreateQRInputSchema,
   generateQrId,
   MAX_QR_PAYLOAD_LENGTH,
+  QR_ALREADY_EXISTS_ERROR,
   QR_ID_REGEX,
   QR_NOT_FOUND_ERROR,
   QR_PAYLOAD_SCHEMAS,
@@ -386,7 +387,7 @@ qrRoutes.post('/', async c => {
   const existing = await getQR(c.env.ROUTES, domain, id);
   if (existing.status === 'invalid') throw qrRecordInvalid();
   if (existing.status === 'ok') {
-    throw new HTTPException(409, { message: `QR code already exists: ${id}` });
+    throw new CodedHTTPException(409, QR_ALREADY_EXISTS_ERROR, `QR code already exists: ${id}`);
   }
 
   assertPayloadSize(input.type, input.payload);

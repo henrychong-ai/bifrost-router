@@ -742,6 +742,30 @@ describe('EdgeRouterClient credential-target acknowledgement and changelog', () 
     });
   });
 
+  it('a code is an UPPER_SNAKE value only: an error sentence or a lower-case code field is text', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      json: async () => ({ error: 'Internal Server Error', message: 'boom' }),
+    });
+    await expect(client.getRoute('/x', 'links.example.com')).rejects.toMatchObject({
+      // The label heads the text, but is never a code
+      message: 'Internal Server Error: boom',
+      code: undefined,
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      statusText: 'Conflict',
+      json: async () => ({ success: false, code: 'not a code', error: 'Something failed' }),
+    });
+    await expect(client.getRoute('/x', 'links.example.com')).rejects.toMatchObject({
+      message: 'Something failed',
+      code: undefined,
+    });
+  });
+
   it('carries the code from a raw (SVG or markdown) request too', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,

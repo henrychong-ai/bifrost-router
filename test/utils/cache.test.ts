@@ -268,4 +268,32 @@ describe('purgeR2CacheForObject', () => {
     expect(result.purged).toBe(0);
     expect(purgeBodies).toHaveLength(0);
   });
+
+  it('a failed route discovery still purges the custom-domain URLs, and says so', async () => {
+    const errors: string[] = [];
+    vi.spyOn(console, 'error').mockImplementation((line: unknown) => {
+      errors.push(String(line));
+    });
+    const failing = {
+      list: async () => {
+        throw new Error('KV list unavailable token=abc123');
+      },
+      get: async () => null,
+    } as unknown as KVNamespace;
+
+    const result = await purgeR2CacheForObject(failing, 'files', 'docs/report.pdf', 'test-token');
+
+    expect(result.routeDiscoveryComplete).toBe(false);
+    expect(result.urls).toEqual(['https://files.example.com/docs/report.pdf']);
+    expect(result.purged).toBe(1);
+    expect(purgeBodies).toEqual([{ files: ['https://files.example.com/docs/report.pdf'] }]);
+    expect(errors.some(line => line.includes('route discovery incomplete'))).toBe(true);
+    // The KV error is logged redacted
+    expect(errors.join('\n')).not.toContain('abc123');
+  });
+
+  it('reports a complete route discovery when the listing succeeds', async () => {
+    const result = await purgeR2CacheForObject(env.ROUTES, 'files', 'docs/none.pdf', 'test-token');
+    expect(result.routeDiscoveryComplete).toBe(true);
+  });
 });

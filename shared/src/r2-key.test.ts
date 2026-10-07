@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isNormalizedR2Key, normalizeR2Key } from './r2-key.js';
+import { isNormalizedR2Key, isServableR2Key, normalizeR2Key } from './r2-key.js';
 
 describe('normalizeR2Key', () => {
   it('lowercases', () => {
@@ -86,5 +86,30 @@ describe('isNormalizedR2Key', () => {
     expect(isNormalizedR2Key('images/my-file.pdf')).toBe(true);
     expect(isNormalizedR2Key('My File.PDF')).toBe(false);
     expect(isNormalizedR2Key('a//b.txt')).toBe(false);
+  });
+});
+
+describe('isServableR2Key: the Worker rule for an r2 route target (v1.38.0)', () => {
+  it('accepts an object key an r2 route can serve as it is', () => {
+    for (const key of ['bio.pdf', 'docs/a.pdf', 'images/header.jpg', 'Report Q1.pdf']) {
+      expect(isServableR2Key(key)).toBe(true);
+    }
+  });
+
+  it('refuses a URL, a blank key and every key the Worker would sanitise', () => {
+    for (const key of [
+      'https://example.com/a.pdf',
+      '',
+      '   ',
+      '/leading.pdf',
+      'a/../b.pdf',
+      'docs/.hidden',
+      'a//b.pdf',
+      'trailing/',
+      'a\\b.pdf',
+      'a?b.pdf',
+    ]) {
+      expect({ key, servable: isServableR2Key(key) }).toEqual({ key, servable: false });
+    }
   });
 });

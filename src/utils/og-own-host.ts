@@ -43,7 +43,7 @@
 
 import { getPath } from 'hono/utils/url';
 import { proxyDestination } from '../handlers/proxy';
-import { redirectDestination } from '../handlers/redirect';
+import { redirectDestination, redirectStatus } from '../handlers/redirect';
 import { lookupRoute } from '../kv/lookup';
 import { isSensitivePath, queryHasTraversal } from '../middleware/sensitive-paths';
 import { type Bindings, getServiceFallback, isValidDomain } from '../types';
@@ -150,7 +150,7 @@ async function resolveOwnHost(
       return {
         kind: 'response',
         response: new Response(null, {
-          status: route.statusCode || 302,
+          status: redirectStatus(route),
           headers: { location: destination.href },
         }),
       };

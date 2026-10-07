@@ -68,4 +68,19 @@ describe('stored routes: one tolerant read shape for the Worker and the dashboar
     expect(isInvalidRouteRow({ ...row, invalid: 'yes' })).toBe(false);
     expect(isInvalidRouteRow({ path: '/a', type: 'redirect', target: 'x' })).toBe(false);
   });
+
+  it('a readable record that holds an `invalid` field stays a route, never an unreadable row', () => {
+    const route = {
+      domain: 'links.example.com',
+      path: '/promo',
+      type: 'redirect',
+      target: 'https://example.com/',
+      invalid: true,
+    };
+    expect(isStoredRoute(route)).toBe(true);
+    expect(isInvalidRouteRow(route)).toBe(false);
+    expect(InvalidRouteRowSchema.safeParse(route).success).toBe(false);
+    // The extra field is kept, as the Worker sends it
+    expect(StoredRouteSchema.parse(route)).toMatchObject({ invalid: true, type: 'redirect' });
+  });
 });

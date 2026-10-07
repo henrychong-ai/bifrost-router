@@ -274,6 +274,12 @@ describe('pollCfAuditLogs boundary validation', () => {
     ['not JSON', '{"since":"2026-'],
     ['the wrong shape', JSON.stringify({ since: 42, boundaryIds: 'cf-entry-1' })],
     ['an empty since', JSON.stringify({ since: '', boundaryIds: [] })],
+    // A since that passes a string check but is no timestamp used to make
+    // toISOString() throw on every run, forever
+    ['a since that is not a date', JSON.stringify({ since: 'not-a-date', boundaryIds: [] })],
+    // A zone-less time depends on the runtime's zone
+    ['a since with no zone', JSON.stringify({ since: '2026-06-10T08:00:00', boundaryIds: [] })],
+    ['a since that is no real time', JSON.stringify({ since: '2026-13-45T99:00:00Z' })],
   ])(
     'restarts the window from the first-run lookback when the cursor is %s',
     async (_label, value) => {
@@ -510,5 +516,55 @@ describe('pollCfAuditLogs boundary validation', () => {
     stubFetch([early]);
     await pollCfAuditLogs(envWith({}));
     expect(await unparsedIds()).toHaveLength(25);
+  });
+
+  it('records an entry with valid fields but a missing or empty id as unparsed, never skips it', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const noId = cfEntry({ when: '2026-06-10T08:01:00Z' });
+    delete noId['id'];
+    stubFetch([[noId, cfEntry({ id: '', when: '2026-06-10T08:02:00Z' })]]);
+    await pollCfAuditLogs(envWith({}));
+    const ids = await unparsedIds();
+    expect(ids).toHaveLength(2);
+    for (const id of ids) expect(id).toMatch(/^unparsed:[0-9a-f]{32}$/);
+    const rows = await allAudit();
+    expect(rows.map(row => row.path)).toEqual(['unknown/unparsed', 'unknown/unparsed']);
+    // Never its content
+    expect(JSON.stringify(rows)).not.toContain('admin@example.com');
+    // A re-run records neither again
+    stubFetch([[noId, cfEntry({ id: '', when: '2026-06-10T08:02:00Z' })]]);
+    await pollCfAuditLogs(envWith({}));
+    expect(await unparsedIds()).toHaveLength(2);
+  });
+
+  it('advances the watermark only from a zoned timestamp, never past the run clock', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    stubFetch([
+      [
+        cfEntry({ id: 'zoned', when: '2026-06-10T08:00:00Z' }),
+        // A zone-less time, read in the runtime's zone, must not move it
+        cfEntry({ id: 'zoneless', when: '2026-06-10T09:00:00' }),
+        // A time after the run's own clock (12:00Z) must not jump it
+        cfEntry({ id: 'future', when: '2026-06-11T00:00:00Z' }),
+        // Neither on an unparsed entry
+        cfEntry({ id: 'unparsed-zoneless', actor: 7, when: '2026-06-10T10:00:00' }),
+        cfEntry({ id: 'unparsed-future', actor: 7, when: '2030-01-01T00:00:00Z' }),
+      ],
+    ]);
+    await pollCfAuditLogs(envWith({}));
+    // Every entry is still recorded
+    expect(await allAudit()).toHaveLength(5);
+    const cursor = await env.DB.prepare(
+      "SELECT value FROM poll_cursors WHERE name = 'cf-audit-poll'",
+    ).first<{ value: string }>();
+    expect(JSON.parse(cursor?.value ?? '{}')).toEqual({
+      since: '2026-06-10T08:00:00Z',
+      boundaryIds: ['zoned'],
+    });
+    // And the cursor the run wrote reads back: the next run queries from it
+    const stub = stubFetch([[]]);
+    await pollCfAuditLogs(envWith({}));
+    const url = new URL(String(stub.mock.calls[0]?.[0]));
+    expect(url.searchParams.get('since')).toBe('2026-06-10T07:59:00.000Z');
   });
 });

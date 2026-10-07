@@ -5,7 +5,8 @@
  * the MCP server and the Slackbot Worker.
  */
 
-import { isRecord, isString } from './guards.js';
+import { type ErrorEnvelope, readErrorEnvelope } from './error-envelope.js';
+import { isRecord } from './guards.js';
 import type { InvalidQRRow, QRCode } from './qr.js';
 import type { InvalidRouteRow } from './stored-route.js';
 import type {
@@ -30,54 +31,41 @@ import type {
 /**
  * The Admin API's response envelope as the client reads it (v1.38.0): the
  * body is read as unknown and must be a JSON object; `success` counts only
- * when it is `true`, and `error`, `message` and `meta` only when they have
- * their declared types. Anything else reads as a parse failure. The `data`
- * payload is the endpoint's own documented contract and is passed on as the
- * caller's declared type, as before.
+ * when it is `true`, and `meta` only when it is an object. Anything else reads
+ * as a parse failure. The error fields go through the one reader the
+ * dashboard uses too ({@link readErrorEnvelope}): a code is an UPPER_SNAKE
+ * value only. The `data` payload is the endpoint's own documented contract
+ * and is passed on as the caller's declared type, as before.
  */
 interface ResponseEnvelope {
   success: boolean;
   data: unknown;
   meta: Record<string, unknown> | undefined;
-  error: string | undefined;
-  message: string | undefined;
-  code: string | undefined;
-  details: unknown;
+  error: ErrorEnvelope;
 }
-
-/** A non-empty string, else undefined. */
-const nonEmpty = (value: unknown): string | undefined =>
-  isString(value) && value !== '' ? value : undefined;
 
 /** `body` as a {@link ResponseEnvelope}, or null when it is not a JSON object. */
 function readEnvelope(body: unknown): ResponseEnvelope | null {
-  if (!isRecord(body)) return null;
+  const error = readErrorEnvelope(body);
+  if (error === null || !isRecord(body)) return null;
   const field = (name: string): unknown => (Object.hasOwn(body, name) ? body[name] : undefined);
   const meta = field('meta');
-  const error = field('error');
-  const message = field('message');
-  const code = field('code');
   return {
     success: field('success') === true,
     data: field('data'),
     meta: isRecord(meta) ? Object.fromEntries(Object.entries(meta)) : undefined,
-    // An empty string says nothing: it reads as absent, so the status text stands in
-    error: nonEmpty(error),
-    message: nonEmpty(message),
-    code: nonEmpty(code),
-    details: field('details'),
+    error,
   };
 }
 
 /**
- * The error a failed answer's envelope describes (v1.38.0). A handler that
- * sends a `message` beside `error` is using `error` as a machine code
+ * The error a failed answer's envelope describes (v1.38.0). The code
  * (`QR_NOT_FOUND`, `QR_RECORD_INVALID`, `ROUTE_RECORD_INVALID`,
- * `ROUTE_TARGET_CREDENTIAL`); an explicit `code` field wins over it. The code
- * is kept on the error (`EdgeRouterError.code`) and the text is
- * `code: message`, or the message alone when the two are the same, so a
- * human or MCP caller reads the sentence once. A body with `error` only keeps
- * it as the text.
+ * `ROUTE_TARGET_CREDENTIAL`, …), decided by the shared reader, is kept on the
+ * error (`EdgeRouterError.code`) and the text is `code: message`, or the
+ * message alone when the two are the same, so a human or MCP caller reads the
+ * sentence once. A label beside a message (`Not Found: …`) heads the text but
+ * is never a code. A body without text falls back to the status text.
  */
 function envelopeError(
   data: ResponseEnvelope | null,
@@ -85,10 +73,13 @@ function envelopeError(
 ): { message: string; code: string | undefined } {
   const fallback = `Request failed: ${response.statusText}`;
   if (data === null) return { message: fallback, code: undefined };
-  const code = data.code ?? (data.message === undefined ? undefined : data.error);
-  const text = data.message ?? data.error ?? fallback;
+  const { code, error, message } = data.error;
+  // The head names what failed: the code, else a label beside a message (the
+  // admin-host 404's `Not Found`), which is text and never a code
+  const head = code ?? (message === undefined ? undefined : error);
+  const text = message ?? error ?? code ?? fallback;
   return {
-    message: code === undefined || code === text ? text : `${code}: ${text}`,
+    message: head === undefined || head === text ? text : `${head}: ${text}`,
     code,
   };
 }
@@ -226,7 +217,7 @@ export class EdgeRouterClient {
     // Handle errors: the code and the sentence (envelopeError)
     if (!response.ok || !data.success) {
       const error = envelopeError(data, response);
-      throw new EdgeRouterError(error.message, response.status, data.details, error.code);
+      throw new EdgeRouterError(error.message, response.status, data.error.details, error.code);
     }
 
     // Return data (handle both ApiResponse and PaginatedApiResponse); the
@@ -261,7 +252,7 @@ export class EdgeRouterClient {
 
     if (!response.ok || !data.success) {
       const error = envelopeError(data, response);
-      throw new EdgeRouterError(error.message, response.status, data.details, error.code);
+      throw new EdgeRouterError(error.message, response.status, data.error.details, error.code);
     }
 
     return data.data as T;
@@ -298,7 +289,7 @@ export class EdgeRouterClient {
       const read = await readBody(response);
       const data = read === null ? null : readEnvelope(read.value);
       const error = envelopeError(data, response);
-      throw new EdgeRouterError(error.message, response.status, data?.details, error.code);
+      throw new EdgeRouterError(error.message, response.status, data?.error.details, error.code);
     }
 
     return response;
@@ -372,9 +363,16 @@ export class EdgeRouterClient {
    *
    * Uses query parameter for path to handle "/" and other special characters correctly.
    */
-  async deleteRoute(path: string, domain: string): Promise<void> {
+  async deleteRoute(
+    path: string,
+    domain: string,
+    options: { recoverInvalid?: boolean } = {},
+  ): Promise<void> {
+    // `recoverInvalid` (v1.38.0): delete the record at EXACTLY this key, only
+    // when it cannot be read — the recovery for a listed unreadable record,
+    // whose path may not round-trip through the ordinary delete's normalising
     await this.request<void>('DELETE', '/api/routes', {
-      params: { path, domain },
+      params: { path, domain, ...(options.recoverInvalid ? { recover: 'invalid' } : {}) },
     });
   }
 
@@ -672,11 +670,11 @@ export class EdgeRouterClient {
    */
   async listQrs(options: {
     domain: string;
-    type?: string;
-    tag?: string;
-    search?: string;
-    limit?: number;
-    offset?: number;
+    type?: string | undefined;
+    tag?: string | undefined;
+    search?: string | undefined;
+    limit?: number | undefined;
+    offset?: number | undefined;
   }): Promise<{ items: Array<QRCode | InvalidQRRow>; meta: QRListMeta }> {
     // A stored record that cannot be read is listed as an InvalidQRRow
     // (v1.38.0): its domain and id, flagged `invalid`

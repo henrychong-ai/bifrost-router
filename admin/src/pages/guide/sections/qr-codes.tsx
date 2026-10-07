@@ -64,9 +64,10 @@ export function QrCodesSection() {
         <strong>Editing.</strong> Saving an edit sends only the fields you changed, so a code saved
         under older limits can still be edited; with nothing changed, nothing is sent. A code
         deleted elsewhere while you edit it closes the dialog with a note (and a route the edit just
-        created for it is reported as kept, with View route). A row marked{' '}
-        <strong>Unreadable record</strong> is a code stored in a shape that cannot be read: delete
-        it and create it again.
+        created for it is reported as kept, with View route). If a code cannot be saved after its
+        new route was created, the message gives the reason, keeps the route and offers View route;
+        save again once it is fixed. A row marked <strong>Unreadable record</strong> is a code
+        stored in a shape that cannot be read: delete it and create it again.
       </p>
       <p>
         <strong>SVG or PNG?</strong> Both downloads scan identically — pick by where the QR is

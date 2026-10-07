@@ -5,6 +5,7 @@
 import type { EdgeRouterClient, InvalidRouteRow, Route } from '@bifrost/shared';
 import {
   AcknowledgeCredentialTargetToolSchema,
+  DeleteRouteInputSchema,
   isInvalidRouteRow,
   SUPPORTED_DOMAINS_LIST,
   ToggleRouteInputSchema,
@@ -30,7 +31,8 @@ export function requireDomain(domain: unknown): string | undefined {
   return typeof domain === 'string' && domain.length > 0 ? domain : undefined;
 }
 
-const transferDomainsError = (missing: string[]): string =>
+/** The refusal of a transfer without both domains, naming which is missing. */
+export const transferDomainsError = (missing: string[]): string =>
   `Error: transfer_route is missing ${missing.join(' and ')}. Pass both from_domain and to_domain explicitly — one of: ${SUPPORTED_DOMAINS_LIST}. A transfer deletes the route from the source, so the source is never guessed.`;
 
 /**
@@ -50,7 +52,7 @@ function formatRoute(route: Route): string {
  * that can be done with it.
  */
 export const UNREADABLE_ROUTE_NOTE =
-  'UNREADABLE RECORD: stored in a shape that cannot be read; never served. Delete it and create it again.';
+  'UNREADABLE RECORD: stored in a shape that cannot be read; never served. Delete it with delete_route (recover_invalid: true, this exact path) and create it again.';
 
 function formatRouteList(routes: Array<Route | InvalidRouteRow>, domain: string): string {
   if (routes.length === 0) {
@@ -118,7 +120,7 @@ function formatRouteDetails(route: Route, domain: string): string {
  */
 export async function listRoutes(
   client: EdgeRouterClient,
-  args: { domain?: string; search?: string },
+  args: { domain?: string | undefined; search?: string | undefined },
 ): Promise<string> {
   const domain = requireDomain(args.domain);
   if (!domain) {
@@ -141,7 +143,7 @@ export async function listRoutes(
  */
 export async function getRoute(
   client: EdgeRouterClient,
-  args: { path: string; domain?: string },
+  args: { path: string; domain?: string | undefined },
 ): Promise<string> {
   const domain = requireDomain(args.domain);
   if (!domain) {
@@ -193,17 +195,17 @@ export async function createRoute(
     path: string;
     type: 'redirect' | 'proxy' | 'r2';
     target: string;
-    statusCode?: number;
-    preserveQuery?: boolean;
-    preservePath?: boolean;
-    cacheControl?: string;
-    hostHeader?: string;
-    forceDownload?: boolean;
-    bucket?: string;
-    domain?: string;
+    statusCode?: number | undefined;
+    preserveQuery?: boolean | undefined;
+    preservePath?: boolean | undefined;
+    cacheControl?: string | undefined;
+    hostHeader?: string | undefined;
+    forceDownload?: boolean | undefined;
+    bucket?: string | undefined;
+    domain?: string | undefined;
     /** Request-only operator override; never stored. Raw JSON-RPC, so a client
      * may send the string form. */
-    acknowledgeCredentialTarget?: boolean | string;
+    acknowledgeCredentialTarget?: boolean | string | undefined;
   },
 ): Promise<string> {
   const domain = requireDomain(args.domain);
@@ -251,19 +253,19 @@ export async function updateRoute(
   client: EdgeRouterClient,
   args: {
     path: string;
-    type?: 'redirect' | 'proxy' | 'r2';
-    target?: string;
-    statusCode?: number;
-    preserveQuery?: boolean;
-    preservePath?: boolean;
-    cacheControl?: string;
-    hostHeader?: string;
-    forceDownload?: boolean;
-    bucket?: string;
-    domain?: string;
+    type?: 'redirect' | 'proxy' | 'r2' | undefined;
+    target?: string | undefined;
+    statusCode?: number | undefined;
+    preserveQuery?: boolean | undefined;
+    preservePath?: boolean | undefined;
+    cacheControl?: string | undefined;
+    hostHeader?: string | undefined;
+    forceDownload?: boolean | undefined;
+    bucket?: string | undefined;
+    domain?: string | undefined;
     /** Request-only operator override; never stored. Raw JSON-RPC, so a client
      * may send the string form. */
-    acknowledgeCredentialTarget?: boolean | string;
+    acknowledgeCredentialTarget?: boolean | string | undefined;
   },
 ): Promise<string> {
   const domain = requireDomain(args.domain);
@@ -309,16 +311,32 @@ export async function updateRoute(
  */
 export async function deleteRoute(
   client: EdgeRouterClient,
-  args: { path: string; domain?: string },
+  args: {
+    path: string;
+    domain?: string | undefined;
+    recover_invalid?: boolean | string | undefined;
+  },
 ): Promise<string> {
   const domain = requireDomain(args.domain);
   if (!domain) {
     return NO_DOMAIN_ERROR;
   }
+  // The exact-key recovery of an unreadable record (v1.38.0); a value
+  // mcpBoolean() does not recognise is refused, never guessed
+  const recover =
+    args.recover_invalid === undefined
+      ? false
+      : DeleteRouteInputSchema.shape.recover_invalid.safeParse(args.recover_invalid);
+  if (recover !== false && !recover.success) {
+    return 'Error deleting route: recover_invalid must be true or false.';
+  }
+  const recoverInvalid = recover !== false && recover.data === true;
 
   try {
-    await client.deleteRoute(args.path, domain);
-    return `Route ${args.path} deleted successfully from ${domain}.`;
+    await client.deleteRoute(args.path, domain, recoverInvalid ? { recoverInvalid } : {});
+    return recoverInvalid
+      ? `Unreadable route record ${args.path} deleted from ${domain}.`
+      : `Route ${args.path} deleted successfully from ${domain}.`;
   } catch (error) {
     return `Error deleting route: ${error instanceof Error ? error.message : String(error)}`;
   }
@@ -333,10 +351,10 @@ export async function toggleRoute(
     path: string;
     /** Raw JSON-RPC, so a client may send the string form. */
     enabled: boolean | string;
-    domain?: string;
+    domain?: string | undefined;
     /** Request-only operator override; never stored. Raw JSON-RPC, so a client
      * may send the string form. */
-    acknowledgeCredentialTarget?: boolean | string;
+    acknowledgeCredentialTarget?: boolean | string | undefined;
   },
 ): Promise<string> {
   const domain = requireDomain(args.domain);
@@ -365,7 +383,7 @@ export async function toggleRoute(
  */
 export async function migrateRoute(
   client: EdgeRouterClient,
-  args: { oldPath: string; newPath: string; domain?: string },
+  args: { oldPath: string; newPath: string; domain?: string | undefined },
 ): Promise<string> {
   const domain = requireDomain(args.domain);
   if (!domain) {
@@ -387,11 +405,11 @@ export async function handleTransferRoute(
   client: EdgeRouterClient,
   args: {
     path: string;
-    from_domain?: string;
-    to_domain?: string;
+    from_domain?: string | undefined;
+    to_domain?: string | undefined;
     /** Request-only operator override; never stored. Raw JSON-RPC, so a client
      * may send the string form. */
-    acknowledgeCredentialTarget?: boolean | string;
+    acknowledgeCredentialTarget?: boolean | string | undefined;
   },
 ): Promise<string> {
   // Both domains are explicit, never defaulted: a transfer deletes the route

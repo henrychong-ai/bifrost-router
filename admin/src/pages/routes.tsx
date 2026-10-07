@@ -97,17 +97,18 @@ import { getPersistedPageSize, getR2ObjectUrl, persistPageSize } from '@/lib/con
 import { credentialTargetParametersFromError } from '@/lib/credential-target';
 import { navEditRoute, useClearNavigationState } from '@/lib/navigation-state';
 import type { QrPageNavState } from '@/lib/qr-page-domain';
-import { type RouteFormValues, routeEditPatch, routeFormValues } from '@/lib/route-patch';
+import {
+  type RouteFormValues,
+  routeEditPatch,
+  routeFormValues,
+  routeTargetProblem,
+  toUpdateRouteInput,
+  unappliedPatchFields,
+  unsupportedPatchFields,
+} from '@/lib/route-patch';
 import { requireWriteDomain } from '@/lib/route-write-domain';
-import type {
-  CreateRouteInput,
-  InvalidRouteRow,
-  R2BucketName,
-  RedirectStatusCode,
-  Route,
-  UpdateRouteInput,
-} from '@/lib/schemas';
-import { R2_BUCKETS } from '@/lib/schemas';
+import type { CreateRouteInput, InvalidRouteRow, Route, UpdateRouteInput } from '@/lib/schemas';
+import { isR2BucketName, isRedirectStatusCode, R2_BUCKETS } from '@/lib/schemas';
 import { downloadPng, downloadSvg } from '@/lib/svg-to-png';
 import { copyToClipboard } from '@/lib/utils';
 import {
@@ -199,19 +200,38 @@ function RouteForm(props: RouteFormProps) {
   const parsedUtm = useMemo(() => parseUtm(formData.target), [formData.target]);
   // Target keys with capitals: applyUtm saves them lowercased, like an edit.
   const convertedUtmKeys = useMemo(() => uppercaseUtmKeys(formData.target), [formData.target]);
-  // The target as the user left it: the text changed, or a UTM field was
-  // edited. Only then is the composed target saved; an untouched stored
-  // target (capitals in its UTM values included) is never rewritten.
+  // The target as the user left it: the text changed, a UTM field was
+  // edited, or the TYPE changed (v1.38.0: the target then serves another kind
+  // of route, so it is checked for it). Only then is the composed target
+  // saved and checked; an untouched stored target (capitals in its UTM
+  // values included) is never rewritten.
   const targetTouched =
-    mode === 'create' || formData.target !== route.target || Object.keys(utmEdits).length > 0;
+    mode === 'create' ||
+    formData.target !== route.target ||
+    formData.type !== route.type ||
+    Object.keys(utmEdits).length > 0;
   const finalTarget = useMemo(() => {
-    if (formData.type === 'r2') return formData.target;
     // An untouched stored target is saved as it is, so one that is not a URL
     // does not block editing other fields
     if (!targetTouched) return route?.target ?? formData.target;
+    if (formData.type === 'r2') return formData.target;
     if (!parsedUtm) return null;
     return formData.type === 'redirect' ? applyUtm(formData.target, utmEdits) : formData.target;
   }, [formData.type, formData.target, parsedUtm, utmEdits, targetTouched, route]);
+  // What keeps a touched target from being saved for its type: a redirect
+  // needs an absolute URL, a proxy an http(s) URL, an r2 route an object key
+  const targetError = !targetTouched
+    ? null
+    : finalTarget === null
+      ? 'Enter a valid absolute target URL before saving.'
+      : routeTargetProblem(formData.type, finalTarget);
+  // An edit's dirty fields, and any stored value no write accepts that they
+  // would send (a status code or bucket kept through a type change)
+  const editPatch =
+    mode === 'edit' && finalTarget !== null
+      ? routeEditPatch(opened, { ...formData, target: finalTarget })
+      : {};
+  const unsupported = unsupportedPatchFields(editPatch);
   // Keys that will carry a value in the saved target (edited or kept from it).
   const activeUtmKeys = UTM_KEYS.filter(key => (utmEdits[key] ?? parsedUtm?.[key] ?? '').trim());
   const utmFieldStatus = (key: UtmKey) => {
@@ -259,8 +279,8 @@ function RouteForm(props: RouteFormProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // An unparseable redirect or proxy target: nothing is saved, the alert says why
-    if (finalTarget === null) return;
+    // A target the type cannot serve: nothing is saved, the alert says why
+    if (finalTarget === null || targetError !== null) return;
 
     if (mode === 'create') {
       onSubmit(
@@ -268,13 +288,17 @@ function RouteForm(props: RouteFormProps) {
           path: formData.path,
           type: formData.type,
           target: finalTarget,
-          statusCode: formData.type === 'redirect' ? formData.statusCode : undefined,
+          statusCode:
+            formData.type === 'redirect' && isRedirectStatusCode(formData.statusCode)
+              ? formData.statusCode
+              : undefined,
           preserveQuery: formData.preserveQuery,
           preservePath: formData.preservePath,
           cacheControl: formData.cacheControl || undefined,
           hostHeader: formData.type === 'proxy' ? formData.hostHeader || undefined : undefined,
           forceDownload: formData.type === 'r2' ? formData.forceDownload : undefined,
-          bucket: formData.type === 'r2' ? formData.bucket : undefined,
+          bucket:
+            formData.type === 'r2' && isR2BucketName(formData.bucket) ? formData.bucket : undefined,
           enabled: formData.enabled,
         },
         formData.domain,
@@ -283,12 +307,10 @@ function RouteForm(props: RouteFormProps) {
       const pathChanged = formData.path !== route.path;
       // Only the fields that changed since the dialog opened (v1.38.0): an
       // untouched field written under older limits (an over-cap target) is
-      // never re-sent and refused
-      onSubmit(
-        routeEditPatch(opened, { ...formData, target: finalTarget }),
-        pathChanged,
-        pathChanged ? formData.path : undefined,
-      );
+      // never re-sent and refused; a value no write accepts is never sent
+      const updates = toUpdateRouteInput(editPatch);
+      if (updates === null) return;
+      onSubmit(updates, pathChanged, pathChanged ? formData.path : undefined);
     }
   };
 
@@ -538,7 +560,7 @@ function RouteForm(props: RouteFormProps) {
           onChange={e => setFormData({ ...formData, target: e.target.value })}
           placeholder={formData.type === 'r2' ? 'bio.pdf' : 'https://example.com'}
           required
-          aria-invalid={formData.type !== 'r2' && !!formData.target && finalTarget === null}
+          aria-invalid={!!formData.target && targetError !== null}
           aria-describedby={formData.type === 'redirect' ? 'target-utm-help' : undefined}
           className="font-mono"
         />
@@ -548,9 +570,9 @@ function RouteForm(props: RouteFormProps) {
             new target until you choose “Reset to target URL's values”.
           </p>
         )}
-        {formData.type !== 'r2' && !!formData.target && finalTarget === null && (
+        {!!formData.target && targetError !== null && (
           <p role="alert" className="text-sm text-destructive">
-            Enter a valid absolute target URL before saving.
+            {targetError}
             {formData.type === 'redirect' && ' Your UTM edits are kept.'}
           </p>
         )}
@@ -671,17 +693,18 @@ function RouteForm(props: RouteFormProps) {
             </Label>
             <Select
               value={String(formData.statusCode)}
-              onValueChange={value =>
-                setFormData({
-                  ...formData,
-                  statusCode: Number(value) as RedirectStatusCode,
-                })
-              }
+              onValueChange={value => setFormData({ ...formData, statusCode: Number(value) })}
             >
-              <SelectTrigger className="font-inter">
+              <SelectTrigger id="statusCode" className="font-inter">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                {/* A stored code no write accepts is shown as it is (v1.38.0) */}
+                {!isRedirectStatusCode(opened.statusCode) && (
+                  <SelectItem value={String(opened.statusCode)} disabled className="font-inter">
+                    {opened.statusCode} (not supported — choose another)
+                  </SelectItem>
+                )}
                 <SelectItem value="301" className="font-inter">
                   301 (Permanent)
                 </SelectItem>
@@ -696,6 +719,15 @@ function RouteForm(props: RouteFormProps) {
                 </SelectItem>
               </SelectContent>
             </Select>
+            {!isRedirectStatusCode(formData.statusCode) && (
+              <p
+                role={unsupported.includes('statusCode') ? 'alert' : undefined}
+                className={`text-tiny font-inter ${unsupported.includes('statusCode') ? 'text-destructive' : 'text-amber-600'}`}
+              >
+                Stored as {formData.statusCode}, which is not supported: choose another to change
+                it.
+              </p>
+            )}
           </div>
 
           <div className="flex items-center justify-between rounded-lg border border-charcoal-200 p-3">
@@ -740,12 +772,18 @@ function RouteForm(props: RouteFormProps) {
             </Label>
             <Select
               value={formData.bucket}
-              onValueChange={value => setFormData({ ...formData, bucket: value as R2BucketName })}
+              onValueChange={value => setFormData({ ...formData, bucket: value })}
             >
-              <SelectTrigger className="font-mono">
+              <SelectTrigger id="bucket" className="font-mono">
                 <SelectValue placeholder="Select bucket" />
               </SelectTrigger>
               <SelectContent>
+                {/* A stored bucket no write accepts is shown as it is (v1.38.0) */}
+                {!isR2BucketName(opened.bucket) && (
+                  <SelectItem value={opened.bucket} disabled className="font-mono text-small">
+                    {opened.bucket} (not supported — choose another)
+                  </SelectItem>
+                )}
                 {R2_BUCKETS.map(bucket => (
                   <SelectItem key={bucket} value={bucket} className="font-mono text-small">
                     {bucket}
@@ -756,6 +794,14 @@ function RouteForm(props: RouteFormProps) {
             <p className="text-tiny text-muted-foreground font-inter">
               R2 bucket to serve files from
             </p>
+            {!isR2BucketName(formData.bucket) && (
+              <p
+                role={unsupported.includes('bucket') ? 'alert' : undefined}
+                className={`text-tiny font-inter ${unsupported.includes('bucket') ? 'text-destructive' : 'text-amber-600'}`}
+              >
+                Stored as {formData.bucket}, which is not supported: choose another to change it.
+              </p>
+            )}
           </div>
 
           <div className="flex items-center justify-between rounded-lg border border-charcoal-200 p-3">
@@ -836,7 +882,9 @@ function RouteForm(props: RouteFormProps) {
         </Button>
         <Button
           type="submit"
-          disabled={isSubmitting || finalTarget === null}
+          disabled={
+            isSubmitting || finalTarget === null || targetError !== null || unsupported.length > 0
+          }
           className="font-inter bg-blue-950 hover:bg-blue-900"
         >
           {isSubmitting ? 'Saving...' : route ? 'Update' : 'Create'}
@@ -930,10 +978,14 @@ export function RoutesPage() {
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editRoute, setEditRoute] = useState<Route | null>(null);
-  // The route to delete: a readable route or an unreadable record's row
+  // The route to delete: a readable route, or an unreadable record's row,
+  // which is deleted by its EXACT key through the recovery (v1.38.0): its
+  // listed path may not round-trip through the ordinary delete's normalising
+  // (`/p?x` would delete `/p`, `/Promo` the valid `/promo`)
   const [deleteConfirmRoute, setDeleteConfirmRoute] = useState<{
     path: string;
     domain?: string | undefined;
+    unreadable?: boolean;
   } | null>(null);
   // A route write refused because its TARGET carries a credential-named
   // parameter. The retry closes over the original submission and re-sends it
@@ -1104,6 +1156,7 @@ export function RoutesPage() {
       await deleteRoute.mutateAsync({
         path: deleteConfirmRoute.path,
         domain: requireWriteDomain(deleteConfirmRoute.domain, filters.domain),
+        ...(deleteConfirmRoute.unreadable ? { recoverInvalid: true } : {}),
       });
       toast.success('Route deleted successfully');
       setDeleteConfirmRoute(null);
@@ -1156,72 +1209,75 @@ export function RoutesPage() {
   };
 
   /**
-   * The rest of an edit whose path change was confirmed as a migration
-   * (v1.38.0): applied to the route at its new path once it has moved. A
-   * failure here is reported as such (the route HAS moved); a credential
-   * refusal asks for the confirmation as any update does.
+   * A path change confirmed as a migration (v1.38.0): ONE request moves the
+   * route and applies the rest of the edit in the same write at the new key
+   * (KV takes one write per key per second, so a move and then an update of
+   * the new key could lose the update). A credential refusal asks for the
+   * confirmation BEFORE anything has moved; cancelling it leaves the route
+   * where it was. "Moved, but other changes were not saved" is said only when
+   * the server moved the route and its answer does not show the changes (an
+   * older Worker that ignores them).
    */
-  const applyAfterMigration = async (
-    migrated: { oldPath: string; newPath: string; domain: string },
-    updates: UpdateRouteInput,
+  const handleConfirmMigration = async (
+    plan: { route: Route; newPath: string; updates: UpdateRouteInput } | null = migrationConfirm,
     acknowledgeCredentialTarget?: boolean,
   ) => {
+    if (!plan) return;
+    const { route, newPath, updates } = plan;
+
+    let domain: string;
     try {
-      await updateRoute.mutateAsync({
-        path: migrated.newPath,
-        data: updates,
-        domain: migrated.domain,
-        acknowledgeCredentialTarget,
-      });
-      setCredentialConfirm(null);
-      toast.success(`Route migrated from ${migrated.oldPath} to ${migrated.newPath} and updated`);
+      domain = requireWriteDomain(route.domain, filters.domain);
     } catch (err) {
-      const parameters = credentialTargetParametersFromError(err);
-      if (parameters && !acknowledgeCredentialTarget) {
-        setCredentialConfirm({
-          parameters,
-          verb: 'Save',
-          retry: () => applyAfterMigration(migrated, updates, true),
-          // The route has moved either way: cancelling leaves the rest unsaved
-          cancelled: () =>
-            toast.error(
-              `Route migrated from ${migrated.oldPath} to ${migrated.newPath}, but its other changes were not saved`,
-            ),
-        });
-        return;
-      }
-      setCredentialConfirm(null);
-      toast.error(
-        `Route migrated from ${migrated.oldPath} to ${migrated.newPath}, but its other changes were not saved: ${err instanceof Error ? err.message : 'Unknown error'}`,
-      );
-    }
-  };
-
-  const handleConfirmMigration = async () => {
-    if (!migrationConfirm) return;
-
-    const { route, newPath, updates } = migrationConfirm;
-    const domain = requireWriteDomain(route.domain, filters.domain);
-
-    let moved: Route;
-    try {
-      // Migrate the route to new path (preserves all config)
-      moved = await migrateRoute.mutateAsync({ oldPath: route.path, newPath, domain });
-    } catch (err) {
+      setMigrationConfirm(null);
       toast.error(
         `Failed to migrate route: ${err instanceof Error ? err.message : 'Unknown error'}`,
       );
       return;
     }
 
+    let moved: Route;
+    try {
+      moved = await migrateRoute.mutateAsync({
+        oldPath: route.path,
+        newPath,
+        domain,
+        updates,
+        acknowledgeCredentialTarget,
+      });
+    } catch (err) {
+      const parameters = credentialTargetParametersFromError(err);
+      if (parameters && !acknowledgeCredentialTarget) {
+        // Nothing has moved: the confirmation re-sends the same migration
+        setCredentialConfirm({
+          parameters,
+          verb: 'Migrate',
+          retry: () => handleConfirmMigration(plan, true),
+        });
+        return;
+      }
+      setCredentialConfirm(null);
+      toast.error(
+        `Failed to migrate route: ${err instanceof Error ? err.message : 'Unknown error'}`,
+      );
+      return;
+    }
+
+    setCredentialConfirm(null);
     setMigrationConfirm(null);
     setEditRoute(null);
-    // The other fields the dialog changed, on the route at its new path
     if (Object.keys(updates).length === 0) {
       toast.success(`Route migrated from ${route.path} to ${moved.path}`);
       return;
     }
-    await applyAfterMigration({ oldPath: route.path, newPath: moved.path, domain }, updates);
+    const unapplied = unappliedPatchFields(updates, moved);
+    if (unapplied.length === 0) {
+      toast.success(`Route migrated from ${route.path} to ${moved.path} and updated`);
+    } else {
+      toast.error(
+        `Route migrated from ${route.path} to ${moved.path}, but its other changes were not saved (${unapplied.join(', ')}): edit the route again to apply them`,
+      );
+    }
   };
 
   const handleTransferConfirm = async (acknowledgeCredentialTarget?: boolean) => {
@@ -1611,7 +1667,7 @@ export function RoutesPage() {
                         size="icon"
                         className="text-destructive hover:bg-destructive/10"
                         aria-label={`Delete unreadable record ${row.path}`}
-                        onClick={() => setDeleteConfirmRoute(row)}
+                        onClick={() => setDeleteConfirmRoute({ ...row, unreadable: true })}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -1812,9 +1868,20 @@ export function RoutesPage() {
               Delete Route
             </DialogTitle>
             <DialogDescription className="font-inter">
-              Are you sure you want to delete the route{' '}
-              <code className="font-mono text-blue-600">{deleteConfirmRoute?.path}</code>? This
-              action cannot be undone.
+              {deleteConfirmRoute?.unreadable ? (
+                <>
+                  Delete the unreadable record stored at exactly{' '}
+                  <code className="font-mono text-blue-600">{deleteConfirmRoute.path}</code>? Only
+                  that record is deleted; a route that can be read is never touched. This action
+                  cannot be undone.
+                </>
+              ) : (
+                <>
+                  Are you sure you want to delete the route{' '}
+                  <code className="font-mono text-blue-600">{deleteConfirmRoute?.path}</code>? This
+                  action cannot be undone.
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -1874,7 +1941,7 @@ export function RoutesPage() {
                     <li>Any existing bookmarks or links will break</li>
                     <li>The route's creation date and settings will be preserved</li>
                     {migrationConfirm && Object.keys(migrationConfirm.updates).length > 0 && (
-                      <li>Your other changes are saved on the new path once it has moved</li>
+                      <li>Your other changes are saved with the move, in the same write</li>
                     )}
                   </ul>
                 </div>
@@ -1884,9 +1951,9 @@ export function RoutesPage() {
           <AlertDialogFooter>
             <AlertDialogCancel className="font-inter">Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => void handleConfirmMigration()}
+              onClick={() => void handleConfirmMigration(migrationConfirm)}
               className="bg-blue-600 hover:bg-blue-700 font-inter"
-              disabled={migrateRoute.isPending || updateRoute.isPending}
+              disabled={migrateRoute.isPending}
             >
               {migrateRoute.isPending ? 'Migrating...' : 'Migrate Route'}
             </AlertDialogAction>

@@ -274,6 +274,24 @@ describe('own-domain link previews', () => {
     expect(fetchedUrls()).toEqual([]);
   });
 
+  it('follows a redirect route stored with a status code no write accepts, as the router does (302)', async () => {
+    for (const statusCode of [200, 999]) {
+      await clearAllRoutes();
+      await env.ROUTES.put(
+        'links.example.com:/odd',
+        JSON.stringify({
+          path: '/odd',
+          type: 'redirect',
+          target: 'https://dest.example.net/odd',
+          statusCode,
+        }),
+      );
+      vi.mocked(fetch).mockResolvedValueOnce(new Response('<title>Odd</title>', { headers: HTML }));
+      const result = await preview('https://links.example.com/odd');
+      expect(result).toMatchObject({ title: 'Odd', url: 'https://dest.example.net/odd' });
+    }
+  });
+
   it('answers 500, as the router does, for a redirect route whose target is not a URL', async () => {
     await seedRoute(
       route({ path: '/broken', type: 'redirect', target: 'not a url' }),

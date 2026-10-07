@@ -62,6 +62,14 @@ export const QR_NOT_FOUND_ERROR = 'QR_NOT_FOUND';
  */
 export const QR_RECORD_INVALID_ERROR = 'QR_RECORD_INVALID';
 
+/**
+ * The `error` of a 409 for a create whose id is already taken by a readable
+ * code (v1.38.0): `{ success: false, error: 'QR_ALREADY_EXISTS', message }`.
+ * The dashboard, retrying a create whose first answer never arrived, takes it
+ * for its own earlier save when the stored code is the one it sent.
+ */
+export const QR_ALREADY_EXISTS_ERROR = 'QR_ALREADY_EXISTS';
+
 /** The fixed message of a {@link QR_RECORD_INVALID_ERROR} answer. */
 export const QR_RECORD_INVALID_MESSAGE =
   'This QR code is stored in a shape that cannot be read. Delete it and create it again.';
@@ -591,22 +599,32 @@ export interface InvalidQRRow {
   invalid: true;
 }
 
-/** Whether a listing row is an {@link InvalidQRRow}. */
+/** The only fields an {@link InvalidQRRow} has. */
+const INVALID_QR_ROW_FIELDS: ReadonlySet<string> = new Set(['domain', 'id', 'invalid']);
+
+/**
+ * Whether a listing row is an {@link InvalidQRRow}: told apart by its SHAPE,
+ * the key and the flag with nothing else, never by the `invalid` field alone
+ * (v1.38.0).
+ */
 export function isInvalidQRRow(row: unknown): row is InvalidQRRow {
   return (
     isRecord(row) &&
     row['invalid'] === true &&
     typeof row['domain'] === 'string' &&
-    typeof row['id'] === 'string'
+    typeof row['id'] === 'string' &&
+    Object.keys(row).every(field => INVALID_QR_ROW_FIELDS.has(field))
   );
 }
 
-/** {@link isInvalidQRRow} as a schema (dashboard response validation). */
-export const InvalidQRRowSchema = z.object({
-  domain: z.string(),
-  id: z.string(),
-  invalid: z.literal(true),
-});
+/** {@link isInvalidQRRow} as a schema (dashboard response validation): exactly these fields. */
+export const InvalidQRRowSchema = z
+  .object({
+    domain: z.string(),
+    id: z.string(),
+    invalid: z.literal(true),
+  })
+  .strict();
 
 const createQrCommonFields = {
   id: z

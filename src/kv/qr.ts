@@ -7,14 +7,10 @@ import {
   type QRCode,
   type QRListQuery,
   qrMatchesListFilters,
+  StoredQRCodeSchema,
 } from '@bifrost/shared';
 import { HTTPException } from 'hono/http-exception';
-import {
-  type BoundaryRead,
-  logInvalidBoundary,
-  readKvJson,
-  type Validator,
-} from '../utils/boundary';
+import { type BoundaryRead, logInvalidBoundary, readKvJson } from '../utils/boundary';
 import { KVDeleteError, KVReadError, KVWriteError } from '../utils/kv-errors';
 import { qrDomainPrefix, qrKey } from './schema';
 
@@ -41,14 +37,6 @@ export const QR_RECORD_TOO_LARGE = 'QR record is too large';
  */
 export const parseStoredQR = parseSharedStoredQR;
 
-/** The validator readKvJson takes: the normalised record, or invalid. */
-const storedQR: Validator<QRCode> = {
-  safeParse: value => {
-    const record = parseStoredQR(value);
-    return record === null ? { success: false } : { success: true, data: record };
-  },
-};
-
 /**
  * Read one QR value as text and validate it locally (v1.38.0; KV's `'json'`
  * read threw the parser's SyntaxError, which can quote the value, Wi-Fi
@@ -57,7 +45,8 @@ const storedQR: Validator<QRCode> = {
  * ids are not secret), never the value. KV errors pass through.
  */
 async function readQRState(kv: KVNamespace, key: string): Promise<BoundaryRead<QRCode>> {
-  const read = await readKvJson(kv, key, storedQR);
+  // The shared read schema itself, no wrapper: the normalised record, or invalid
+  const read = await readKvJson(kv, key, StoredQRCodeSchema);
   if (read.status === 'invalid') logInvalidBoundary('qr', key);
   return read;
 }

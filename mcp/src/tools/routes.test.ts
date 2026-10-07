@@ -58,7 +58,7 @@ describe('Route tool handlers', () => {
 
       expect(result).toContain('/github');
       expect(result).toContain(
-        '2. /broken — UNREADABLE RECORD: stored in a shape that cannot be read; never served. Delete it and create it again.',
+        '2. /broken — UNREADABLE RECORD: stored in a shape that cannot be read; never served. Delete it with delete_route (recover_invalid: true, this exact path) and create it again.',
       );
     });
 
@@ -279,6 +279,41 @@ describe('Route tool handlers', () => {
 
       expect(result).toContain('Error deleting route');
       expect(result).toContain('Route not found');
+    });
+
+    it('recovers an unreadable record by its exact key with recover_invalid (v1.38.0)', async () => {
+      vi.mocked(mockClient.deleteRoute).mockResolvedValue(undefined);
+      for (const recover of [true, 'true', 'yes']) {
+        const result = await deleteRoute(mockClient, {
+          path: '/p?x',
+          domain: 'links.example.com',
+          recover_invalid: recover,
+        });
+        expect(result).toBe('Unreadable route record /p?x deleted from links.example.com.');
+      }
+      expect(mockClient.deleteRoute).toHaveBeenCalledWith('/p?x', 'links.example.com', {
+        recoverInvalid: true,
+      });
+    });
+
+    it('refuses a recover_invalid it does not recognise, deleting nothing', async () => {
+      const result = await deleteRoute(mockClient, {
+        path: '/p?x',
+        domain: 'links.example.com',
+        recover_invalid: 'maybe',
+      });
+      expect(result).toBe('Error deleting route: recover_invalid must be true or false.');
+      expect(mockClient.deleteRoute).not.toHaveBeenCalled();
+    });
+
+    it('an ordinary delete passes no recovery', async () => {
+      vi.mocked(mockClient.deleteRoute).mockResolvedValue(undefined);
+      await deleteRoute(mockClient, {
+        path: '/github',
+        domain: 'links.example.com',
+        recover_invalid: false,
+      });
+      expect(mockClient.deleteRoute).toHaveBeenCalledWith('/github', 'links.example.com', {});
     });
   });
 

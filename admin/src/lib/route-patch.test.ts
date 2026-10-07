@@ -8,7 +8,15 @@
  */
 import { MAX_ROUTE_TARGET_LENGTH } from '@bifrost/shared';
 import { describe, expect, it } from 'vitest';
-import { type RouteFormValues, routeEditPatch, routeFormValues } from './route-patch';
+import {
+  type RouteFormValues,
+  routeEditPatch,
+  routeFormValues,
+  routeTargetProblem,
+  toUpdateRouteInput,
+  unappliedPatchFields,
+  unsupportedPatchFields,
+} from './route-patch';
 import type { Route } from './schemas';
 
 const legacy: Route = {
@@ -57,19 +65,53 @@ describe('routeEditPatch', () => {
     });
   });
 
-  it('shows a status code or bucket no write accepts today as the default, and never sends it', () => {
+  it('shows a status code or bucket no write accepts as it is: unchanged, never sent', () => {
     const older: Route = {
       path: '/older',
       type: 'redirect',
       target: 'https://example.com/',
       statusCode: 303,
     };
-    expect(routeFormValues(older).statusCode).toBe(302);
+    expect(routeFormValues(older).statusCode).toBe(303);
     expect(edited(older)).toEqual({});
     expect(edited(older, { enabled: false })).toEqual({ enabled: false });
     const file: Route = { path: '/f', type: 'r2', target: 'a.pdf', bucket: 'retired-bucket' };
-    expect(routeFormValues(file).bucket).toBe('files');
+    expect(routeFormValues(file).bucket).toBe('retired-bucket');
     expect(edited(file)).toEqual({});
+  });
+
+  it('choosing the supported default over an unsupported stored value IS a change, and is sent', () => {
+    const older: Route = {
+      path: '/older',
+      type: 'redirect',
+      target: 'https://example.com/',
+      statusCode: 303,
+    };
+    expect(edited(older, { statusCode: 302 })).toEqual({ statusCode: 302 });
+    const file: Route = { path: '/f', type: 'r2', target: 'a.pdf', bucket: 'retired-bucket' };
+    expect(edited(file, { bucket: 'files' })).toEqual({ bucket: 'files' });
+  });
+
+  it('an unsupported value the patch would send is named, and never becomes an update', () => {
+    // A proxy stored with an old status code, converted to a redirect: the
+    // type change sends the status code the form shows
+    const proxy: Route = {
+      path: '/p',
+      type: 'proxy',
+      target: 'https://example.com/',
+      statusCode: 303,
+    };
+    const patch = edited(proxy, { type: 'redirect' });
+    expect(patch).toMatchObject({ type: 'redirect', statusCode: 303 });
+    expect(unsupportedPatchFields(patch)).toEqual(['statusCode']);
+    expect(toUpdateRouteInput(patch)).toBeNull();
+    expect(unsupportedPatchFields({ bucket: 'retired-bucket' })).toEqual(['bucket']);
+    expect(toUpdateRouteInput({ bucket: 'retired-bucket' })).toBeNull();
+    expect(toUpdateRouteInput({ statusCode: 301, bucket: 'assets', enabled: false })).toEqual({
+      statusCode: 301,
+      bucket: 'assets',
+      enabled: false,
+    });
   });
 
   describe('R2 routes stored without forceDownload or bucket', () => {
@@ -130,5 +172,46 @@ describe('routeEditPatch', () => {
         forceDownload: false,
       });
     }
+  });
+});
+
+describe('routeTargetProblem: the target checked for the type it will serve (v1.38.0)', () => {
+  it('a redirect needs an absolute URL, a mailto or tel link included', () => {
+    for (const target of ['https://example.com/', 'mailto:team@example.com', 'tel:+15550100']) {
+      expect(routeTargetProblem('redirect', target)).toBeNull();
+    }
+    expect(routeTargetProblem('redirect', 'docs/a.pdf')).toMatch(/absolute target URL/);
+  });
+
+  it('a proxy needs an absolute http(s) URL', () => {
+    expect(routeTargetProblem('proxy', 'https://origin.example.com/')).toBeNull();
+    expect(routeTargetProblem('proxy', 'mailto:team@example.com')).toMatch(/http or https/);
+    expect(routeTargetProblem('proxy', 'docs/a.pdf')).toMatch(/absolute target URL/);
+  });
+
+  it('an r2 route needs an object key the Worker serves as it is, never a URL', () => {
+    expect(routeTargetProblem('r2', 'docs/a.pdf')).toBeNull();
+    for (const target of ['https://example.com/a.pdf', '/docs/a.pdf', '', 'a/../b']) {
+      expect(routeTargetProblem('r2', target)).toMatch(/R2 object key/);
+    }
+  });
+});
+
+describe('unappliedPatchFields: a migrate answer that ignored the patch (v1.38.0)', () => {
+  const moved: Route = {
+    path: '/b',
+    type: 'redirect',
+    target: 'https://example.com/',
+    statusCode: 302,
+  };
+  it('names the fields the moved route does not show', () => {
+    expect(unappliedPatchFields({ statusCode: 301, cacheControl: 'no-store' }, moved)).toEqual([
+      'statusCode',
+      'cacheControl',
+    ]);
+  });
+  it('counts an applied patch, and a cleared field the route no longer holds, as applied', () => {
+    expect(unappliedPatchFields({ statusCode: 302, cacheControl: '' }, moved)).toEqual([]);
+    expect(unappliedPatchFields({ cacheControl: '' }, { ...moved, cacheControl: '' })).toEqual([]);
   });
 });

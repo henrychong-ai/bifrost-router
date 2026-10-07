@@ -91,12 +91,27 @@ const auditPageBody = guard(
     isOptional(value['result'], Array.isArray),
 );
 
-/** A stored cursor: a non-empty `since`, and string `boundaryIds` if any. */
+/**
+ * A time the cursor may hold (v1.38.0): an ISO 8601 date and time with an
+ * explicit zone (`Z` or `±hh:mm`) that parses to a finite instant. Anything
+ * else (a string that is no date, which made `toISOString()` throw on every
+ * run, or a zone-less local time, which depends on the runtime's zone) is
+ * refused. The ONE check for both sides of the cursor: the reader refuses a
+ * stored `since` that fails it (the window restarts) and the writer advances
+ * only from an entry `when` that passes it.
+ */
+const ZONED_TIMESTAMP =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})$/i;
+
+export function isZonedTimestamp(value: unknown): value is string {
+  return isString(value) && ZONED_TIMESTAMP.test(value) && Number.isFinite(Date.parse(value));
+}
+
+/** A stored cursor: a zoned `since` ({@link isZonedTimestamp}), and string `boundaryIds` if any. */
 const storedCursor = guard(
   (value: unknown): value is PollCursor =>
     isRecord(value) &&
-    typeof value['since'] === 'string' &&
-    value['since'] !== '' &&
+    isZonedTimestamp(value['since']) &&
     isOptional(
       value['boundaryIds'],
       ids => Array.isArray(ids) && ids.every(id => typeof id === 'string'),
@@ -213,7 +228,7 @@ async function unparsedEntry(raw: unknown): Promise<UnparsedAuditEntry> {
 
 /** One entry of a page, in the page's (ascending) order: validated, or malformed. */
 type PageItem =
-  | { kind: 'entry'; entry: CfAuditEntry }
+  | { kind: 'entry'; entry: CfAuditEntry & { id: string } }
   | { kind: 'unparsed'; entry: UnparsedAuditEntry };
 
 /**
@@ -249,11 +264,14 @@ async function fetchAuditPage(
   const raw = read.value.result ?? [];
   // A malformed entry is never recorded half-read; it is kept in a minimal
   // shape and recorded as unparsed, not dropped
+  // An entry with a missing or empty id cannot be told apart from another
+  // or recognised when fetched again, so it takes the unparsed path too (its
+  // id is the hash of its canonical JSON), never the skip of an id-less entry
   const items = await Promise.all(
     raw.map(
       async (entry): Promise<PageItem> =>
-        isCfAuditEntry(entry)
-          ? { kind: 'entry', entry }
+        isCfAuditEntry(entry) && isString(entry.id) && entry.id !== ''
+          ? { kind: 'entry', entry: { ...entry, id: entry.id } }
           : { kind: 'unparsed', entry: await unparsedEntry(entry) },
     ),
   );
@@ -364,13 +382,21 @@ export async function pollCfAuditLogs(env: Bindings): Promise<void> {
     // equal instants. The boundary id set never re-adds existing ids and never
     // admits empty ids (both previously leaked, growing the cursor unboundedly
     // on quiet accounts).
+    //
+    // The watermark moves only to an entry `when` the cursor reader accepts
+    // (isZonedTimestamp, v1.38.0), so the cursor this run writes always reads
+    // back, and never past this run's own clock: a future-dated `when` would
+    // otherwise jump the watermark over every entry still to come before it.
+    // Such an entry is still recorded; it is fetched again and absorbed by
+    // the id checks until the clock passes it.
+    const runClockMs = Date.now();
     let newestWhen = since;
     let newestWhenMs = Date.parse(since);
     const newestIds = new Set<string>(cursor?.boundaryIds ?? []);
     const advanceWatermark = (id: string, when: string | undefined): void => {
-      if (!when) return;
+      if (!isZonedTimestamp(when)) return;
       const whenMs = Date.parse(when);
-      if (Number.isNaN(whenMs) || whenMs < newestWhenMs) return;
+      if (whenMs > runClockMs || whenMs < newestWhenMs) return;
       if (whenMs > newestWhenMs) {
         newestWhenMs = whenMs;
         newestWhen = when;
@@ -432,8 +458,8 @@ export async function pollCfAuditLogs(env: Bindings): Promise<void> {
         }
 
         const entry = item.entry;
-        const id = entry.id ?? '';
-        if (!id || boundaryIds.has(id) || !isR2Scoped(entry)) {
+        const { id } = entry;
+        if (boundaryIds.has(id) || !isR2Scoped(entry)) {
           // Still advance the watermark over skipped entries.
           advanceWatermark(id, entry.when);
           continue;

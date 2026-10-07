@@ -458,12 +458,35 @@ export const UpdateRouteToolInputSchema = z.object({
 });
 
 /**
+ * The `recover_invalid` flag of delete_route (v1.38.0), with the same wording
+ * in the tool catalogue: the exact-key recovery of an unreadable record.
+ */
+export const RECOVER_INVALID_DESCRIPTION =
+  'Delete the record stored at exactly this path, only when it cannot be read: the recovery for a record list_routes marks as unreadable. The path is used exactly as listed, never normalised, and a readable route is refused.';
+
+/**
  * delete_route tool input schema
  */
-export const DeleteRouteInputSchema = z.object({
-  path: RoutePathSchema.describe('Route path to delete'),
-  domain: RequiredDomainSchema,
-});
+export const DeleteRouteInputSchema = z
+  .object({
+    path: z.string().describe('Route path to delete'),
+    domain: RequiredDomainSchema,
+    recover_invalid: mcpBoolean().optional().describe(RECOVER_INVALID_DESCRIPTION),
+  })
+  .superRefine((input, ctx) => {
+    // A recovery names a stored key exactly as listed (a legacy key may hold
+    // `?` or capitals), so its path is only checked for its leading slash;
+    // an ordinary delete takes the route-path rules (v1.38.0)
+    if (input.recover_invalid === true) {
+      if (!input.path.startsWith('/')) {
+        ctx.addIssue({ code: 'custom', path: ['path'], message: 'Path must start with /' });
+      }
+      return;
+    }
+    for (const issue of RoutePathSchema.safeParse(input.path).error?.issues ?? []) {
+      ctx.addIssue({ code: 'custom', path: ['path'], message: issue.message });
+    }
+  });
 
 /**
  * toggle_route tool input schema
@@ -478,6 +501,30 @@ export const ToggleRouteInputSchema = z.object({
   domain: RequiredDomainSchema,
   acknowledgeCredentialTarget: AcknowledgeCredentialTargetToolSchema,
 });
+
+/**
+ * migrate_route tool input schema (v1.38.0: the MCP server validates every
+ * call against a shared schema, so this tool has one too)
+ */
+export const MigrateRouteToolInputSchema = z.object({
+  oldPath: RoutePathSchema.describe('Current route path'),
+  newPath: RoutePathSchema.describe('New route path'),
+  domain: RequiredDomainSchema,
+});
+
+/**
+ * transfer_route tool input schema (v1.38.0). Both domains are required and
+ * never defaulted: a transfer deletes the route from the source.
+ */
+export const TransferRouteToolInputSchema = z.object({
+  path: RoutePathSchema.describe('Route path (stays the same on the destination domain)'),
+  from_domain: RequiredDomainSchema,
+  to_domain: RequiredDomainSchema,
+  acknowledgeCredentialTarget: AcknowledgeCredentialTargetToolSchema,
+});
+
+/** list_buckets takes no arguments; anything sent is ignored. */
+export const ListBucketsInputSchema = z.object({});
 
 /**
  * get_analytics_summary tool input schema
@@ -530,8 +577,10 @@ export const GetSlugStatsInputSchema = z.object({
  * Query parameters for listing routes with search and pagination
  */
 export const RoutesListQuerySchema = z.object({
-  limit: z.coerce.number().min(1).max(1000).optional(),
-  offset: z.coerce.number().min(0).default(0),
+  // Whole numbers only: GET /api/routes refuses an invalid query (400) and
+  // never falls back to an unfiltered list (v1.38.0)
+  limit: z.coerce.number().int().min(1).max(1000).optional(),
+  offset: z.coerce.number().int().min(0).default(0),
   // A sanity bound (v1.38.0); matching itself reads the first 200 units (search.ts)
   search: z.string().max(SEARCH_PARAM_MAX_LENGTH).optional(),
   type: z.enum(['redirect', 'proxy', 'r2']).optional(),

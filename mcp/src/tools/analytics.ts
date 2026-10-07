@@ -194,7 +194,7 @@ function formatSlugStats(stats: SlugStats): string {
  */
 export async function getAnalyticsSummary(
   client: EdgeRouterClient,
-  args: { domain?: string; days?: number },
+  args: { domain?: string | undefined; days?: number | undefined },
 ): Promise<string> {
   // `domain` is an optional SCOPE, not a default: omitting it means all domains.
   const domain = args.domain;
@@ -216,12 +216,12 @@ export async function getAnalyticsSummary(
 export async function getClicks(
   client: EdgeRouterClient,
   args: {
-    domain?: string;
-    days?: number;
-    limit?: number;
-    offset?: number;
-    slug?: string;
-    country?: string;
+    domain?: string | undefined;
+    days?: number | undefined;
+    limit?: number | undefined;
+    offset?: number | undefined;
+    slug?: string | undefined;
+    country?: string | undefined;
   },
 ): Promise<string> {
   const domain = args.domain;
@@ -247,12 +247,12 @@ export async function getClicks(
 export async function getViews(
   client: EdgeRouterClient,
   args: {
-    domain?: string;
-    days?: number;
-    limit?: number;
-    offset?: number;
-    path?: string;
-    country?: string;
+    domain?: string | undefined;
+    days?: number | undefined;
+    limit?: number | undefined;
+    offset?: number | undefined;
+    path?: string | undefined;
+    country?: string | undefined;
   },
 ): Promise<string> {
   const domain = args.domain;
@@ -277,7 +277,7 @@ export async function getViews(
  */
 export async function getSlugStats(
   client: EdgeRouterClient,
-  args: { slug: string; domain?: string; days?: number },
+  args: { slug: string; domain?: string | undefined; days?: number | undefined },
 ): Promise<string> {
   // Required: the same slug can exist on several domains and an unscoped read
   // silently merges their clicks into one total.

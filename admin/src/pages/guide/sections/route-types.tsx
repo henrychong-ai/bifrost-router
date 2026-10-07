@@ -63,7 +63,7 @@ export function RouteTypesSection() {
           <li>
             <strong>Migrate</strong> — change the <em>Path</em> field inside the Edit dialog; a
             confirmation migrates the route to the new slug, preserving its config and creation
-            date, then saves any other changes you made on the new slug.
+            date, and saves any other changes you made in the same step.
           </li>
           <li>
             <strong>Transfer</strong> — pick a different domain in the Edit dialog's
@@ -73,7 +73,8 @@ export function RouteTypesSection() {
             <strong>Delete</strong> (row menu) — permanent, with a confirmation dialog. Prefer
             Disable if unsure. A row marked <strong>Unreadable record</strong> is a route stored in
             a shape that cannot be read: it is never served, and Delete (then create it again) is
-            the only action.
+            the only action. That Delete removes exactly the record listed, never a route that can
+            be read beside it.
           </li>
         </ul>
       </div>

@@ -52,7 +52,14 @@ paths:
         - $ref: '#/components/parameters/SearchQuery'
         - $ref: '#/components/parameters/LimitQuery'
         - $ref: '#/components/parameters/OffsetQuery'
+        - $ref: '#/components/parameters/RouteTypeQuery'
+        - $ref: '#/components/parameters/RouteEnabledQuery'
       responses:
+        '400':
+          description: >-
+            An invalid list query (a limit or offset that is not a whole number
+            in range, an unknown type or enabled value, a search over 2,048
+            characters): refused, never answered with an unfiltered list
         '200':
           description: >-
             The route (with `path`), or the list. A stored record that cannot be
@@ -106,13 +113,40 @@ paths:
     delete:
       summary: Delete route
       parameters:
-        - $ref: '#/components/parameters/PathQueryRequired'
+        - name: path
+          in: query
+          required: true
+          description: >-
+            Route path (required). With `recover=invalid`, the stored key's own
+            path exactly as a listing shows it, never normalised.
+          schema:
+            type: string
+            pattern: ^/.*
         - $ref: '#/components/parameters/DomainQueryWrite'
+        - name: recover
+          in: query
+          required: false
+          description: >-
+            `invalid`: the exact-key recovery of an unreadable record. Deletes
+            the record stored at exactly `{domain}:{path}`, only when it cannot
+            be read; a readable route there is refused (409
+            `ROUTE_RECORD_READABLE`). Without it the path is normalised, as
+            every route write normalises it.
+          schema:
+            type: string
+            enum: [invalid]
       responses:
         '200':
           description: >-
             Deleted, also a route whose stored record cannot be read (its public
-            URL is purged and its audit row names its key with `state: invalid`)
+            URL is purged, as stored and percent-encoded for a recovery, and its
+            audit row names its key with `state: invalid`)
+        '404':
+          description: Nothing is stored at the key
+        '409':
+          description: >-
+            A recovery aimed at a readable route (`error: ROUTE_RECORD_READABLE`);
+            delete it with the ordinary delete
 
   /api/routes/seed:
     post:
@@ -132,7 +166,13 @@ paths:
   /api/routes/migrate:
     post:
       summary: Migrate route to new path
-      description: Atomically moves a route from oldPath to newPath, preserving createdAt timestamp.
+      description: >-
+        Moves a route from oldPath to newPath, preserving its createdAt. An
+        optional body holds the rest of an edit (an update body, with
+        `acknowledgeCredentialTarget` when confirmed): it is merged into the
+        moved record and written ONCE at the new key, validated, size-checked
+        and credential-guarded before anything moves. Without a body the record
+        moves unedited.
       tags: [Routes]
       parameters:
         - name: oldPath
@@ -150,11 +190,26 @@ paths:
             type: string
             pattern: ^/.*
         - $ref: '#/components/parameters/DomainQueryWrite'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/UpdateRouteInput'
+                - type: object
+                  properties:
+                    acknowledgeCredentialTarget:
+                      type: boolean
+                      description: Request-only; confirms a credential-named target parameter
       responses:
         '200':
           description: Route migrated successfully
         '400':
-          description: Invalid parameters
+          description: >-
+            Invalid parameters or body, a field over its cap, or a credential-named
+            target parameter not yet confirmed (`error: ROUTE_TARGET_CREDENTIAL`);
+            nothing moved
         '404':
           description: Route not found at oldPath
         '409':
@@ -673,6 +728,12 @@ paths:
                         items:
                           type: string
                         description: URLs that were targeted for purging
+                      routeDiscoveryComplete:
+                        type: boolean
+                        description: >-
+                          False when the routes serving the object could not be
+                          listed: the URLs known without them (custom-domain
+                          URLs) were still purged
         '400':
           description: Unknown bucket
 
@@ -981,8 +1042,9 @@ paths:
           description: QR code created
         '409':
           description: >-
-            QR code already exists, or a record that cannot be read is stored
-            under the id (JSON `error: QR_RECORD_INVALID`)
+            The id is taken by a readable code (JSON `error: QR_ALREADY_EXISTS`),
+            or a record that cannot be read is stored under it (JSON `error:
+            QR_RECORD_INVALID`)
 
   /api/qr/from-route:
     get:
@@ -1251,6 +1313,22 @@ components:
         type: integer
         minimum: 0
         default: 0
+
+    RouteTypeQuery:
+      name: type
+      in: query
+      description: Only routes of this type (an unreadable record matches none)
+      schema:
+        type: string
+        enum: [redirect, proxy, r2]
+
+    RouteEnabledQuery:
+      name: enabled
+      in: query
+      description: Only enabled (`true`) or disabled (`false`) routes (an unreadable record matches neither)
+      schema:
+        type: string
+        enum: ['true', 'false']
 
     SlugQuery:
       name: slug

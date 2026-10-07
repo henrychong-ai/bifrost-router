@@ -45,12 +45,12 @@ function formatError(error: unknown): string {
 export async function listQrs(
   client: EdgeRouterClient,
   args: {
-    domain?: string;
-    type?: string;
-    tag?: string;
-    search?: string;
-    limit?: number;
-    offset?: number;
+    domain?: string | undefined;
+    type?: string | undefined;
+    tag?: string | undefined;
+    search?: string | undefined;
+    limit?: number | undefined;
+    offset?: number | undefined;
   },
 ): Promise<string> {
   const domain = requireDomain(args.domain);
@@ -79,7 +79,7 @@ export async function listQrs(
 
 export async function getQr(
   client: EdgeRouterClient,
-  args: { id: string; domain?: string },
+  args: { id: string; domain?: string | undefined },
 ): Promise<string> {
   const domain = requireDomain(args.domain);
   if (!domain) {
@@ -97,14 +97,14 @@ export async function getQr(
 export async function createQr(
   client: EdgeRouterClient,
   args: {
-    domain?: string;
+    domain?: string | undefined;
     type: string;
     payload: Record<string, unknown>;
-    id?: string;
-    description?: string;
-    tags?: string[];
-    design?: Record<string, unknown>;
-    linkedRoute?: { domain: string; path: string };
+    id?: string | undefined;
+    description?: string | undefined;
+    tags?: string[] | undefined;
+    design?: Record<string, unknown> | undefined;
+    linkedRoute?: { domain: string; path: string } | undefined;
   },
 ): Promise<string> {
   const domain = requireDomain(args.domain);
@@ -125,13 +125,13 @@ export async function updateQr(
   client: EdgeRouterClient,
   args: {
     id: string;
-    domain?: string;
-    description?: string;
-    tags?: string[];
-    payload?: Record<string, unknown>;
-    design?: Record<string, unknown>;
-    linkedRoute?: { domain: string; path: string };
-    clearLinkedRoute?: boolean;
+    domain?: string | undefined;
+    description?: string | undefined;
+    tags?: string[] | undefined;
+    payload?: Record<string, unknown> | undefined;
+    design?: Record<string, unknown> | undefined;
+    linkedRoute?: { domain: string; path: string } | undefined;
+    clearLinkedRoute?: boolean | undefined;
   },
 ): Promise<string> {
   const domain = requireDomain(args.domain);
@@ -154,7 +154,7 @@ export async function updateQr(
 
 export async function deleteQr(
   client: EdgeRouterClient,
-  args: { id: string; domain?: string },
+  args: { id: string; domain?: string | undefined },
 ): Promise<string> {
   const domain = requireDomain(args.domain);
   if (!domain) {
@@ -177,7 +177,13 @@ export async function deleteQr(
 
 export async function getRouteQr(
   client: EdgeRouterClient,
-  args: { path: string; domain?: string; fg?: string; bg?: string; size?: number },
+  args: {
+    path: string;
+    domain?: string | undefined;
+    fg?: string | undefined;
+    bg?: string | undefined;
+    size?: number | undefined;
+  },
 ): Promise<string> {
   const domain = requireDomain(args.domain);
   if (!domain) {

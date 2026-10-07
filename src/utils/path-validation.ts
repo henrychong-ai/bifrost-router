@@ -4,7 +4,7 @@
  * Prevents path traversal attacks by rejecting R2 object keys with dangerous patterns
  */
 
-import { normalizeR2Key } from '@bifrost/shared';
+import { normalizeR2Key, sanitizeR2Key } from '@bifrost/shared';
 
 /* eslint-disable no-control-regex */
 const DANGEROUS_PATTERNS = [
@@ -21,26 +21,9 @@ export function hasDangerousPath(key: string): boolean {
   return DANGEROUS_PATTERNS.some(pattern => pattern.test(key));
 }
 
-export function sanitizeR2Key(key: string): string {
-  let sanitized = key;
-  /* eslint-disable no-control-regex */
-  sanitized = sanitized.replace(/\x00/g, '');
-  sanitized = sanitized.replace(/[\x00-\x1f]/g, '');
-  /* eslint-enable no-control-regex */
-  sanitized = sanitized.replace(/[<>:"|?*]/g, '');
-  sanitized = sanitized.replace(/\\/g, '/');
-  while (sanitized.includes('..')) {
-    sanitized = sanitized.replace(/\.\./g, '');
-  }
-  sanitized = sanitized.replace(/^\/+/, '');
-  sanitized = sanitized.replace(/\/+/g, '/');
-  sanitized = sanitized.replace(/\/+$/, '');
-  sanitized = sanitized.replace(/(?:^|\/)\.(?!\.)[^/]*/g, '');
-  sanitized = sanitized.replace(/^\/+/, '');
-  sanitized = sanitized.replace(/\/+/g, '/');
-  sanitized = sanitized.replace(/\/+$/, '');
-  return sanitized;
-}
+// The sanitiser lives in `@bifrost/shared` (v1.38.0), so the dashboard
+// checks an r2 route target with the same rule
+export { sanitizeR2Key };
 
 export interface R2KeyValidationResult {
   valid: boolean;

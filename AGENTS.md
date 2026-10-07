@@ -203,7 +203,7 @@ A drift-detection test (`test/supported-domains-consistency.test.ts`) asserts th
 
 | Type | Handler | Description |
 |------|---------|-------------|
-| `redirect` | `handleRedirect` | URL redirect (301/302/307/308) |
+| `redirect` | `handleRedirect` | URL redirect (301/302/307/308; a stored status code outside those answers 302, `redirectStatus`, v1.38.0) |
 | `proxy` | `handleProxy` | Reverse proxy to external URL |
 | `r2` | `handleR2` | Serve from R2 bucket |
 
@@ -238,9 +238,9 @@ interface KVRouteConfig {
 | `GET /api/routes?path=` | Get single route |
 | `POST /api/routes` | Create route |
 | `PUT /api/routes?path=` | Update route |
-| `DELETE /api/routes?path=` | Delete route |
+| `DELETE /api/routes?path=` | Delete route (`&recover=invalid`: the exact-key recovery of an unreadable record, see [Validate at the boundary](#validate-at-the-boundary-v1380)) |
 | `POST /api/routes/seed` | Bulk import routes |
-| `POST /api/routes/migrate` | Migrate route to new path |
+| `POST /api/routes/migrate` | Migrate route to new path; an optional update body is merged into the ONE write at the new key (v1.38.0) |
 | `POST /api/routes/transfer` | Transfer route between domains |
 | `POST /api/routes/normalize-case` | One-time migration: convert all route paths to lowercase |
 | `GET /api/routes/by-target` | Find routes serving an R2 object |
@@ -546,10 +546,16 @@ argument on the read or an `as` cast only tells the compiler.
   fixed line, `boundary-invalid-value` with a category and, for a route or QR
   code, its key; never the value.
 - **One unreadable state.** Every KV read helper for routes and QR codes
-  (`getRoute`, `getRouteByNormalizedPath`, `getRouteSafe`, `getQR`,
-  `getQRSafe`, `deleteRoute`, `deleteQR`) answers the boundary read itself,
-  `missing`, `ok` or `invalid`, and never a null for an unreadable record;
-  each caller decides what `invalid` means for it.
+  (`getRoute`, `getRouteByNormalizedPath`, `getRouteAtExactKey`, `getQR`,
+  `deleteRoute`, `deleteQR`) answers the boundary read itself, `missing`,
+  `ok` or `invalid`, and never a null for an unreadable record; each caller
+  decides what `invalid` means for it. Listings keep the two apart by the
+  read's own status (`RouteListing.routes` and `.invalid`), never by a field
+  of a record: a readable record holding an `invalid` property is a route,
+  and the clients tell an unreadable row by its exact shape
+  (`isInvalidRouteRow`, `isInvalidQRRow`: the key and the flag, nothing
+  else). A KV read failure for any key fails a listing, the all-domains one
+  included, rather than leaving a route out.
 - **Routes** (`shared/src/stored-route.ts`, used by `src/kv/stored-route.ts`):
   a hand-written guard for the hot path (`isStoredRoute`), as tolerant as the
   shared response schema `RouteSchema` without its write rules (legacy records
@@ -570,10 +576,21 @@ argument on the read or an `as` cast only tells the compiler.
   readable routes (matched by its path, and domain in the all-domains list,
   never by a type or enabled filter); the Routes page flags it "Unreadable
   record" with a Delete action only, and MCP `list_routes` marks it.
-  **Recovery: `DELETE` the route** (delete reads the record once and treats
-  an invalid one as present; its public URL, from the key, is purged whatever
-  it served, and its audit row records the key with `state: 'invalid'`), then
-  create it again.
+  **Recovery: `DELETE /api/routes?path=<listed path>&domain=&recover=invalid`**,
+  then create it again. The recovery deletes the record stored at EXACTLY
+  `{domain}:{path}` (`recoverInvalidRoute`, through `getRouteAtExactKey`),
+  only when it cannot be read: a readable route there is refused (409
+  `ROUTE_RECORD_READABLE`), an empty key is 404. The path is the stored key's
+  own text and is neither normalised nor checked by the route-path schema,
+  because `normalizePath()` is not idempotent: the ordinary delete of a listed
+  legacy key `/p?x` would delete the valid `/p`, and of `/Promo` the valid
+  `/promo`. Its public URL is purged as stored, each segment percent-encoded
+  and nothing normalised again (`/p?x` purges `/p%3Fx`; a wildcard key keeps
+  the no-purge limitation), and its audit row records the key with `state:
+  'invalid'` and `recovery: true`. The Routes page's Delete on an unreadable
+  row and MCP `delete_route` with `recover_invalid: true` use it. The
+  ordinary delete keeps normalising, and still deletes an unreadable record
+  at its normalised key.
 - **Listings never read a key that is not route-shaped** (`isRouteKey`,
   `{domain}:/…` with a dotted host): `qr:` records and the optional rate
   limiter's `ratelimit:` entries (client IP addresses) are skipped before they
@@ -581,7 +598,8 @@ argument on the read or an `as` cast only tells the compiler.
   prefixes, so it never reads them either.
 - **QR records** (`parseStoredQR`, in `shared/src/qr.ts` since v1.38.0 so the
   dashboard checks QR responses with the same tolerant shape,
-  `StoredQRCodeSchema`; `src/kv/qr.ts` re-exports it): normalised first (a
+  `StoredQRCodeSchema`, which the Worker's KV reader in `src/kv/qr.ts` passes
+  to `readKvJson` itself, with no wrapper): normalised first (a
   missing or null design or design field takes its default, a Wi-Fi payload
   without `auth` reads as `WPA`, null optional fields are dropped, and only
   the fields a record defines are kept: the payload keys of its type and the
@@ -611,10 +629,15 @@ argument on the read or an `as` cast only tells the compiler.
   Worker's clock (`Date.now()`): a client-sent `createdAt` or `updatedAt` is
   ignored.
 - **Other stored and remote values:** a rate-limit entry that is not two
-  finite numbers resets the window; the Cloudflare audit cursor restarts the
-  first-run window; the audit-log API body must be an object with `result` a
-  list, and an entry that fails its shape is recorded in a minimal shape (its
-  `id`, or `unparsed:` and a SHA-256 of its canonical JSON, keys sorted at
+  finite numbers resets the window; a Cloudflare audit cursor whose `since`
+  is not a finite, timezone-explicit ISO timestamp (`isZonedTimestamp`: `Z`
+  or `±hh:mm`) restarts the first-run window, and the watermark advances only
+  from an entry `when` that passes the same check and is not after the run's
+  own clock, so the cursor a run writes always reads back and a future-dated
+  entry never jumps it; the audit-log API body must be an object with
+  `result` a list, and an entry that fails its shape, or has a missing or
+  empty `id`, is recorded in a minimal shape (its `id`, or `unparsed:` and a
+  SHA-256 of its canonical JSON, keys sorted at
   every level so a re-fetched entry gets the same id whatever its key order;
   its `when`, `unparsed: true`, path `unknown/unparsed`), never its content
   and never twice (checked by id over the last 90 days,
@@ -630,10 +653,16 @@ argument on the read or an `as` cast only tells the compiler.
   the cache purge API body must be an object. The shared client and the
   dashboard read the response envelope as unknown (`success`, `error`,
   `message`, `code` and `meta` count only with their declared types; the
-  `data` payload is the endpoint's documented contract); a coded refusal keeps
-  its code on the error (`EdgeRouterError.code`; an explicit `code` field
-  wins over a code in `error`) and its text is `code: message`, or the
-  message alone when the two are the same. The dashboard validates backup
+  `data` payload is the endpoint's documented contract), and a failed
+  answer's body through ONE reader, `readErrorEnvelope`
+  (`shared/src/error-envelope.ts`): a machine code is an UPPER_SNAKE value
+  only (an explicit `code` field when it is one, else `error` when it is one
+  and a `message` stands beside it), so `error: 'Internal Server Error'` is
+  never a code. The client's text is `code: message`, or the message alone
+  when the two are the same (a label beside a message heads it, `Not Found:
+  …`); the dashboard shows the sentence and keeps the code beside it, and
+  shows a plain-text error body (a bare `HTTPException` message) as its
+  text, cut to 300 characters. The dashboard validates backup
   health (with the schemas in `shared/src/backup-health.ts`, which the Worker
   builds the answer with), the Tailscale identity, feedback capture
   attachments, audit details and the Routes page's `editRoute` hand-off with
@@ -687,10 +716,11 @@ idempotent**: `/p%3Fx` → `/p?x` → `/p`.
   path that fails it rather than re-keying it. `DELETE /api/routes` does NOT
   validate, which is a hazard rather than an escape hatch: `deleteRoute()`
   normalises, so `DELETE ?path=/p?x` resolves to `/p` and deletes a different,
-  live route. Repair a legacy record by its EXACT stored key (KV console or a
-  list-only script), never through the API.
+  live route. Delete a legacy record by its EXACT stored key with
+  `&recover=invalid` when it cannot be read (v1.38.0); a readable legacy key
+  that does not round-trip still needs the KV console or a list-only script.
 - **Normalise exactly once on each side of a mutation.** Two mirror hazards:
-  - `getRoute()` and `getRouteSafe()` NORMALISE, because every mutation
+  - `getRoute()` NORMALISES, because every mutation
     normalises before it writes. A read that did not would miss on any alias of
     a stored path (`/Promo`, `/promo/`, `//promo`, `/pro%6do`) — and the miss is
     silent, so a re-enable or transfer would skip the credential-target guard, a
@@ -724,8 +754,10 @@ the dashboard's `UpdateRouteSchema` declare no defaults.
 **The dashboard's edit dialog sends a patch of dirty fields (v1.38.0).**
 `routeEditPatch(opened, final)` (`admin/src/lib/route-patch.ts`) compares each
 final form value with the value the form showed when the dialog opened
-(`routeFormValues`: an unset Force Download shows off, an unset or unknown
-bucket `files`, an unset or unknown status code 302), never with the stored
+(`routeFormValues`: an unset Force Download shows off, an unset bucket
+`files`, an unset status code 302; a stored bucket or status code no write
+accepts is shown AS IT IS, marked "not supported — choose another", so
+choosing the supported default is a change and is sent), never with the stored
 record and copied server defaults. So an untouched field (a target written
 under older limits, an unset Force Download, a missing bucket) is never sent,
 a switch toggled on and off again is not dirty, and an unchanged save makes
@@ -733,13 +765,27 @@ no request ("No changes to save"). A cleared text field that showed a value
 sends `''`, which the handlers read as unset. When the type changes, every
 field the new type uses is sent as the form has it (a redirect or proxy
 converted to R2 sends `bucket` and `forceDownload: false` explicitly); fields
-the final type does not use are never sent. The target counts as changed only
-when its text or a UTM field was edited, so an untouched stored target (with
-capitals in its UTM values) is never rewritten. A path change confirmed as a
-migration migrates first, then saves the rest of the patch on the new path,
-and reports a failure of that second step, or a cancelled credential
-confirmation for it, as such (the route has moved). A route whose stored target
-is not a URL can be moved: an untouched target is never part of the patch.
+the final type does not use are never sent; a stored status code or bucket no
+write accepts that a type change would send holds the save until another is
+chosen (`unsupportedPatchFields`, `toUpdateRouteInput`). The target counts as
+changed only when its text, a UTM field or the TYPE changed, so an untouched
+stored target (with capitals in its UTM values) is never rewritten, and a
+target kept through a type change is checked for the new type
+(`routeTargetProblem`: a redirect needs an absolute URL, `mailto:` and `tel:`
+included, a proxy an http(s) URL, an r2 route an object key the Worker serves
+as it is, `isServableR2Key`, the Worker's own `sanitizeR2Key` rule from
+`shared/src/r2-key.ts`). A path change confirmed as a migration is ONE
+request (v1.38.0): `POST /api/routes/migrate` takes the rest of the patch as
+its body and writes the merged record once at the new key, validated, size-
+checked and credential-guarded on the merged record before anything moves
+(KV takes one write per key per second, so a move and then an update of the
+new key could lose the update). A credential refusal asks for the
+confirmation before anything has moved; cancelling leaves the route where it
+was. "Moved, but its other changes were not saved" is reported only when the
+server moved the route and its answer does not show the changes
+(`unappliedPatchFields`, an older Worker). An unresolvable write domain is a
+toast, never an unhandled rejection. A route whose stored target is not a URL
+can be moved: an untouched target is never part of the patch.
 
 **Dashboard browser baseline.** The dashboard's build target (Vite's default
 baseline) includes browsers without ES2023's array methods, which the bundler
@@ -769,8 +815,10 @@ units (after a 400-unit window before trimming, to keep final-sigma casing) and
 a cut query or one over 12 words matches as typed only. The `search`
 parameter is capped at 2,048 characters (`SEARCH_PARAM_MAX_LENGTH`) on the
 route and QR lists, the MCP list tools and in the OpenAPI schema; the route
-list answers 400 for a longer one (its other query parameters still fall back
-to defaults), and the dashboard cuts a long paste to the cap before sending.
+list answers 400 for a longer one, and for ANY invalid query (a `limit` or
+`offset` that is not a whole number in range, an unknown `type` or `enabled`
+value): it never falls back to an unfiltered list. The dashboard cuts a long
+paste to the cap before sending.
 Cmd+K searches once the trimmed text has two characters and shows the first
 15 in the server's order.
 
@@ -874,6 +922,9 @@ If the domain is missing from this list, the binding was never created.
 | `src/utils/og-own-host.ts` | In-process link previews of own-domain URLs |
 | `src/utils/boundary.ts` | Boundary reader: KV, stored and response JSON read as unknown and validated |
 | `shared/src/stored-route.ts` | Stored route guard (Worker and dashboard); the listing row of an unreadable record |
+| `shared/src/error-envelope.ts` | The one reader of a failed answer's body (shared client and dashboard); a code is UPPER_SNAKE only |
+| `mcp/src/dispatch.ts` | MCP tool calls: raw arguments validated with each tool's shared schema |
+| `scripts/check-single-guards.test.mjs` | Gate: one copy of each plain guard and of the envelope reader |
 | `src/kv/stored-route.ts` | Stored route reads; invalid records fail closed |
 | `scripts/check-boundary-reads.mjs` | Boundary-read gate |
 | `shared/src/search.ts` | The one search matcher and ranking (routes, QR codes, Cmd+K) |
@@ -906,7 +957,7 @@ Config in `~/.claude.json`:
 - OPTIONAL (but still enumerated — `OptionalDomainSchema`) on exactly 3: `get_analytics_summary`, `get_clicks`, `get_views`. Omitted = all domains (the query layer adds `WHERE domain = ?` only when a value is present) — a scope, never a default. `get_slug_stats` is REQUIRED because the same slug can exist on several domains and an unscoped read merges their clicks.
 - `EDGE_ROUTER_DOMAIN` is REMOVED (v1.35.0) — nothing reads it; a stale key logs one stderr warning at stdio boot and never fails startup. `EdgeRouterClient` has no `defaultDomain` and no `getDomain()`.
 - ⚠️ Never add a silent default — a defaulted write landing on the wrong domain is worse than a clear error.
-- Enforcement: this repo has no hosted MCP server, and the stdio server's low-level `Server` validates nothing, so the handler guards (`requireDomain()` + `NO_DOMAIN_ERROR` in `mcp/src/tools/routes.ts`) ARE the enforcement — pinned across all 14 by `mcp/src/tools/routes.no-domain.test.ts`, with the JSON-Schema catalog pinned by the `v1.35.0 domain contract (catalog)` block in `shared/src/tools.test.ts`.
+- Enforcement: this repo has no hosted MCP server, and the stdio server's low-level `Server` validates nothing, so the server validates every call itself: `mcp/src/dispatch.ts` (`callTool`, v1.38.0) reads the JSON-RPC arguments as unknown and parses them with the tool's SHARED schema before a handler runs (no `as` casts; a non-conforming argument is refused with the field and nothing is sent; `mcp/src/dispatch.test.ts` checks every catalogue tool is dispatched). A missing domain still answers first with the handler guards' message (`requireDomain()` + `NO_DOMAIN_ERROR` in `mcp/src/tools/routes.ts`), which ARE the domain enforcement — pinned across all 14 by `mcp/src/tools/routes.no-domain.test.ts`, with the JSON-Schema catalog pinned by the `v1.35.0 domain contract (catalog)` block in `shared/src/tools.test.ts`.
 - The REST API no longer defaults a write's domain either (Admin API → Domain on writes): a route or QR write without one answers 400, so no client, MCP or otherwise, can reach the old `ADMIN_API_DOMAIN` fallback with a write. Single-domain reads keep it. `requireDomain()` checks only for a non-empty string; an unsupported value is refused by the API's own validation. This repo keeps no `TODO.md`; open items live in the **Follow-ups** lists in [CHANGELOG.md](./CHANGELOG.md).
 - `create_qr` and `update_qr` advertise `linkedRoute` as `{ domain, path }`, both required, with `domain` enumerated and `path` constrained like `QRLinkedRouteInputSchema` (`minLength: 1`, `pattern: '^/'`; `shared/src/tools.test.ts` checks they accept and refuse alike) (`linkedRouteProperty` in `shared/src/tools.ts`; nested `properties`/`required`, `minLength` and `pattern` on `JsonSchemaProperty`).
 - Clients cache tool schemas: after rebuilding the server, reconnect (`/mcp` in Claude Code) before trusting the advertised inputs.
@@ -996,7 +1047,7 @@ Unified QR resource with optional route linking. Feature files: `shared/src/qr.t
 
 **QR store (v1.38.0).** KV listing is eventually consistent, so the dashboard keeps the latest known version of each code (`admin/src/lib/qr-pending.ts`) and applies it when a list page is READ: the list query caches the raw server page and projects it in `select`, which re-runs whenever the store changes (`useSyncExternalStore`), so a cached or re-mounted page shows the latest versions without a refetch and no cached page is ever patched. Per code the store keeps the highest `updatedAt` seen from create and update answers and every listed row, never moving backwards; a stale row shows the known version when it still matches the list's filters (`qrMatchesListFilters`, the Worker's own predicate) and is hidden when not. A code created in this session that page 1 lacks is added as one extra row (unless it sorts onto a later page); `total`, `offset`, `limit` and `hasMore` stay the server's. **Deletions are tombstones per incarnation.** A deleted code and a code re-created later with the same id are different incarnations, and `createdAt` tells them apart (the Worker sets it at create on its own clock, ignoring a client value, and every update keeps it). A delete, or the server's own `QR_NOT_FOUND` (a 404 `{ success: false, error: 'QR_NOT_FOUND', message }`; any other 404, and `QR_RECORD_INVALID`, is not a deletion), tombstones the incarnation the server names or the request was made for, never whatever the store knows when a delayed reply lands. Every row and mutation answer of that incarnation stays hidden, whatever its `updatedAt` and whenever it arrives (a stale row stamped later by a faster clock, a delayed answer to an update sent before the delete); another incarnation, this session's re-create or another session's, is never hidden by it, and the store compares versions as later `createdAt`, then later `updatedAt`. Every deleted incarnation keeps its own tombstone until its own TTL, so deleting A, re-creating B and deleting B keeps both hidden, in whatever order the replies arrive. A delete answers `{ deleted: true, id, createdAt }` with the removed record's `createdAt` (absent for an unreadable record), and the dashboard tombstones exactly that incarnation (an answer without it, from an older Worker, falls back to the request's); a `QR_NOT_FOUND` tombstones the incarnation the request was made for. No clock is compared anywhere: versions within one incarnation compare `updatedAt`, a later `createdAt` is a newer incarnation whatever its `updatedAt`, and deleting an unreadable record hides only the rows listing that record. Versions and tombstones last 90 seconds from their last change. The dashboard has no sign-out, so there is no session-end clearing. An edit or delete answering `QR_NOT_FOUND` closes the dialog with "already deleted"; when the edit had just created a new linked route, that route is reported as kept, with a View route action. "Save as QR Code" on the Routes page uses the route's own domain (else the filtered one, never a guessed default) and opens the QR page on that domain via navigation state, which the QR page reads once and clears.
 
-**QR editor (v1.38.0).** A url code can be linked to a route on its own domain: an existing route picked with the shared matcher, or a new 302 redirect (query kept) that the editor creates first and then links with the route's canonical path; the form switches to that existing route before saving the code, so a retry never creates the route twice, and a failed code save reports the kept route. A linked code gets a client-generated id when the Reference is empty, so a retry hits the same id. The credential-target confirmation applies to the new route. An edit sends only the changed fields (`qrEditPatch` in `admin/src/lib/qr-form-state.ts`, comparing the form's own derivation before and after; tags as the field's text, so stored tags the field cannot show as they are are never rewritten), checked client-side with `UpdateQRInputSchema` (and the type's payload schema when the payload changed); a cleared link sends `linkedRoute: null`. The Worker applies today's limits to the fields an update sets only and builds the stored record from the known fields through `parseStoredQR`, so a code saved under older limits stays editable and unknown fields are dropped (not in the audit `after` snapshot either).
+**QR editor (v1.38.0).** A url code can be linked to a route on its own domain: an existing route picked with the shared matcher, or a new 302 redirect (query kept) that the editor creates first and then links with the route's canonical path; the form switches to that existing route before saving the code, so a retry never creates the route twice, and a failed code save reports the kept route with the server's own answer when it gave one (a 400 reason, a 409 `QR_ALREADY_EXISTS` or `QR_RECORD_INVALID`), or "could not be confirmed" when no answer arrived. A create retried after an uncertain answer (none, a 5xx, an unreadable body) is marked (`afterUncertainAnswer`): a 409 `QR_ALREADY_EXISTS` for its own id then reads the code back and, when it is the one sent (type, payload, link), counts as that earlier save. A linked code gets a client-generated id when the Reference is empty, so a retry hits the same id. The credential-target confirmation applies to the new route. An edit sends only the changed fields (`qrEditPatch` in `admin/src/lib/qr-form-state.ts`, comparing the form's own derivation before and after; tags as the field's text, so stored tags the field cannot show as they are are never rewritten), checked client-side with `UpdateQRInputSchema` (and the type's payload schema when the payload changed); a cleared link sends `linkedRoute: null`. The Worker applies today's limits to the fields an update sets only and builds the stored record from the known fields through `parseStoredQR`, so a code saved under older limits stays editable and unknown fields are dropped (not in the audit `after` snapshot either).
 
 **Stored records are validated on read** (v1.38.0, see [Validate at the boundary](#validate-at-the-boundary-v1380)): an unreadable record answers 409 `QR_RECORD_INVALID`, is listed flagged, stays deletable, and is never overwritten by a create. An edit that does not touch the link never needs the linked route in the editor's picker (deleted, still loading, failed, or beyond the newest 1,000): the selection is checked only on create or when the link changes.
 
@@ -1122,7 +1173,7 @@ When "Purge Cache" is triggered from the storage edit dialog, the Worker uses th
 1. **Bifrost KV routes** — all R2-type routes pointing to the object
 2. **R2 custom domain URLs** — bucket-to-domain mapping in `src/types.ts`
 
-Requires `CLOUDFLARE_API_TOKEN` Worker secret with **Zone > Cache Purge > Purge** permission. Without it, URLs are collected but not purged (graceful degradation). Set via:
+Requires `CLOUDFLARE_API_TOKEN` Worker secret with **Zone > Cache Purge > Purge** permission. Without it, URLs are collected but not purged (graceful degradation). A failed route listing (a KV read error) no longer skips every purge (v1.38.0): the custom-domain URLs, which need no KV, are still purged, the error is logged as `route discovery incomplete`, and the result says `routeDiscoveryComplete: false` (in the manual purge's answer and audit row; the Storage page warns that links serving the file may still show the old version). Set via:
 ```bash
 wrangler secret put CLOUDFLARE_API_TOKEN
 ```

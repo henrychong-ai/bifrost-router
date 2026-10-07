@@ -1,3 +1,4 @@
+import { redactSensitive } from '@bifrost/shared';
 import { findRoutesByR2Target } from '../kv/routes';
 import { CLOUDFLARE_ZONE_IDS, getR2CustomDomainUrls, getZoneIdForDomain } from '../types';
 import { guard, isRecord, readResponseJson } from './boundary';
@@ -13,6 +14,20 @@ export interface PurgeCacheResult {
   /** URLs that were targeted for purging */
   urls: string[];
 }
+
+/** The result of an object purge ({@link purgeR2CacheForObject}). */
+export interface ObjectPurgeResult extends PurgeCacheResult {
+  /**
+   * Whether every route serving the object was found (v1.38.0). `false` when
+   * the KV route listing failed: the URLs known without it (the bucket's
+   * custom-domain URLs) were still purged, but a route's own URL may still
+   * serve the old bytes until its max-age.
+   */
+  routeDiscoveryComplete: boolean;
+}
+
+/** The fixed log line of a purge whose route discovery failed (v1.38.0). */
+export const ROUTE_DISCOVERY_INCOMPLETE = 'route discovery incomplete';
 
 /**
  * Purge Cloudflare CDN cache globally for all URLs serving a specific R2 object.
@@ -33,7 +48,7 @@ export async function purgeR2CacheForObject(
   bucket: string,
   key: string,
   cfApiToken?: string,
-): Promise<PurgeCacheResult> {
+): Promise<ObjectPurgeResult> {
   // Step 1: Collect all URLs that need purging
   const urlsWithZones: { url: string; zoneId: string }[] = [];
   const skippedUrls: string[] = [];
@@ -47,7 +62,26 @@ export async function purgeR2CacheForObject(
   // rejection fails the WHOLE 30-URL batch — taking the correctly-encoded
   // custom-domain URLs down with it. So: encode every segment, and drop
   // wildcard routes with a warning rather than poisoning the batch.
-  const routes = await findRoutesByR2Target(kv, bucket, key);
+  //
+  // A failed route listing must not cost the URLs that need no KV (v1.38.0):
+  // the custom-domain URLs are still purged, and the result says that the
+  // route discovery was incomplete instead of skipping every purge.
+  let routes: Awaited<ReturnType<typeof findRoutesByR2Target>> = [];
+  let routeDiscoveryComplete = true;
+  try {
+    routes = await findRoutesByR2Target(kv, bucket, key);
+  } catch (error) {
+    routeDiscoveryComplete = false;
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: ROUTE_DISCOVERY_INCOMPLETE,
+        bucket,
+        key,
+        error: redactSensitive(error instanceof Error ? error.message : String(error)),
+      }),
+    );
+  }
   for (const route of routes) {
     if (route.path.includes('*')) {
       console.warn(
@@ -87,11 +121,11 @@ export async function purgeR2CacheForObject(
 
   // Step 2: Purge via Zone Cache Purge API
   if (!cfApiToken || urlsWithZones.length === 0) {
-    return { purged: 0, failed: 0, urls: allUrls };
+    return { purged: 0, failed: 0, urls: allUrls, routeDiscoveryComplete };
   }
 
   const { purged, failed } = await purgeZoneCache(cfApiToken, urlsWithZones);
-  return { purged, failed, urls: allUrls };
+  return { purged, failed, urls: allUrls, routeDiscoveryComplete };
 }
 
 /**

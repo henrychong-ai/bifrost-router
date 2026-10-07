@@ -21,7 +21,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MAX_RECORD_LINE_BYTES } from '../../src/backup/integrity';
 import { backupKV } from '../../src/backup/kv';
 import { putQR } from '../../src/kv/qr';
-import { createRoute, getAllRoutesAllDomains } from '../../src/kv/routes';
+import { createRoute, listAllDomainRoutes } from '../../src/kv/routes';
 import { qrKey, routeKey } from '../../src/kv/schema';
 import { adminRoutes } from '../../src/routes/admin';
 import type { AppEnv } from '../../src/types';
@@ -113,6 +113,13 @@ describe('QR API (v1.30.0 port seams)', () => {
       }),
     );
     expect(dup.status).toBe(409);
+    // A coded JSON answer (v1.38.0), so a client can tell "already exists"
+    // from an unreadable record and show the server's own sentence
+    expect(await dup.json()).toEqual({
+      success: false,
+      error: 'QR_ALREADY_EXISTS',
+      message: 'QR code already exists: test-crud',
+    });
 
     const got = await fetchSettled(authedJson('GET', `${BASE}/test-crud`));
     expect(got.status).toBe(200);
@@ -410,7 +417,7 @@ describe('QR API (v1.30.0 port seams)', () => {
         payload: { text: 'kv cohabitation' },
       }),
     );
-    const routes = await getAllRoutesAllDomains(env.ROUTES);
+    const routes = (await listAllDomainRoutes(env.ROUTES)).routes;
     const leaked = routes.filter(
       r =>
         (r as { path?: string }).path?.includes('test-cohab') ||

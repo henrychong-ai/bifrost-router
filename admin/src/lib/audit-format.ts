@@ -125,69 +125,66 @@ function readDetailFields(value: Record<string, unknown>): AuditDetailFields {
 
 export function parseDetails(details: string | null): string {
   if (!details) return '-';
-  try {
-    // Read as unknown (v1.38.0): anything but an object keeps its raw text
-    const value: unknown = JSON.parse(details);
-    if (!isRecord(value)) return details.slice(0, 50);
-    const parsed = readDetailFields(value);
-    const has = (field: string) => field in value;
-    // CF audit-log poller entries: show the control-plane action type.
-    if (has('cf_audit_id')) {
-      const resource = parsed.resource?.type
-        ? ` on ${parsed.resource.type}${parsed.resource.id ? `/${parsed.resource.id}` : ''}`
-        : '';
-      return `${parsed.actionType || 'config change'}${resource}`;
-    }
-    // R2 event consumer entries: show raw R2 action + object.
-    if (has('r2Action')) {
-      return `${parsed.r2Action}: ${parsed.bucket}/${parsed.key}`;
-    }
-    // A deleted record that could not be read (v1.38.0): its key and state only
-    if (value['state'] === 'invalid') {
-      return parsed.key ? `Unreadable record ${parsed.key}` : 'Unreadable record';
-    }
-    // For toggle actions, show enabled status
-    if (has('enabled')) {
-      return parsed.enabled ? 'Enabled' : 'Disabled';
-    }
-    // For seed actions, show count
-    if (has('count')) {
-      return `${parsed.count} routes`;
-    }
-    // For migrate actions, show old -> new path
-    if (has('oldPath') && has('newPath')) {
-      return `${parsed.oldPath} -> ${parsed.newPath}`;
-    }
-    // For R2 move actions, show source -> destination
-    if (has('sourceBucket') && has('destinationBucket')) {
-      const destKey = parsed.destinationKey || parsed.key;
-      return `${parsed.sourceBucket}/${parsed.key} → ${parsed.destinationBucket}/${destKey}`;
-    }
-    // For R2 replace, show old and new size
-    if (has('replaced') && parsed.replaced) {
-      const oldSize = parsed.replaced.size;
-      const newSize = parsed.size;
-      return `${parsed.bucket}/${parsed.key} (${oldSize} → ${newSize} bytes)`;
-    }
-    // For R2 rename, show old -> new key
-    if (has('bucket') && has('oldKey') && has('newKey')) {
-      return `${parsed.oldKey} -> ${parsed.newKey}`;
-    }
-    // For R2 actions, show bucket/key info
-    if (has('bucket') && has('key')) {
-      return `${parsed.bucket}/${parsed.key}`;
-    }
-    // For other actions, show a summary
-    if (has('route')) {
-      return parsed.route?.target ? `Target: ${parsed.route.target}` : 'Route data';
-    }
-    if (has('before') && has('after')) {
-      return 'Modified route';
-    }
-    return JSON.stringify(value).slice(0, 50);
-  } catch {
-    return details.slice(0, 50);
+  // Parsed by the one reader of audit details (v1.38.0): anything but a JSON
+  // object keeps its raw text
+  const value = parseDetailsObject(details);
+  if (value === null) return details.slice(0, 50);
+  const parsed = readDetailFields(value);
+  const has = (field: string) => field in value;
+  // CF audit-log poller entries: show the control-plane action type.
+  if (has('cf_audit_id')) {
+    const resource = parsed.resource?.type
+      ? ` on ${parsed.resource.type}${parsed.resource.id ? `/${parsed.resource.id}` : ''}`
+      : '';
+    return `${parsed.actionType || 'config change'}${resource}`;
   }
+  // R2 event consumer entries: show raw R2 action + object.
+  if (has('r2Action')) {
+    return `${parsed.r2Action}: ${parsed.bucket}/${parsed.key}`;
+  }
+  // A deleted record that could not be read (v1.38.0): its key and state only
+  if (value['state'] === 'invalid') {
+    return parsed.key ? `Unreadable record ${parsed.key}` : 'Unreadable record';
+  }
+  // For toggle actions, show enabled status
+  if (has('enabled')) {
+    return parsed.enabled ? 'Enabled' : 'Disabled';
+  }
+  // For seed actions, show count
+  if (has('count')) {
+    return `${parsed.count} routes`;
+  }
+  // For migrate actions, show old -> new path
+  if (has('oldPath') && has('newPath')) {
+    return `${parsed.oldPath} -> ${parsed.newPath}`;
+  }
+  // For R2 move actions, show source -> destination
+  if (has('sourceBucket') && has('destinationBucket')) {
+    const destKey = parsed.destinationKey || parsed.key;
+    return `${parsed.sourceBucket}/${parsed.key} → ${parsed.destinationBucket}/${destKey}`;
+  }
+  // For R2 replace, show old and new size
+  if (has('replaced') && parsed.replaced) {
+    const oldSize = parsed.replaced.size;
+    const newSize = parsed.size;
+    return `${parsed.bucket}/${parsed.key} (${oldSize} → ${newSize} bytes)`;
+  }
+  // For R2 rename, show old -> new key
+  if (has('bucket') && has('oldKey') && has('newKey')) {
+    return `${parsed.oldKey} -> ${parsed.newKey}`;
+  }
+  // For R2 actions, show bucket/key info
+  if (has('bucket') && has('key')) {
+    return `${parsed.bucket}/${parsed.key}`;
+  }
+  // For other actions, show a summary
+  if (has('route')) {
+    return parsed.route?.target ? `Target: ${parsed.route.target}` : 'Route data';
+  }
+  if (has('before') && has('after')) {
+    return 'Modified route';
+  }
+  return JSON.stringify(value).slice(0, 50);
 }
 
 /**

@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:test';
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
-import { handleRedirect } from '../../src/handlers/redirect';
+import { handleRedirect, redirectStatus } from '../../src/handlers/redirect';
 import type { AppEnv, KVRouteConfig } from '../../src/types';
 
 describe('handleRedirect', () => {
@@ -306,5 +306,30 @@ describe('handleRedirect', () => {
 
       expect(response.headers.get('Location')).toBe('https://example.com/target');
     });
+  });
+});
+
+describe('a stored status code no write accepts (v1.38.0)', () => {
+  // The stored-route reader is tolerant: a record written before today's
+  // rules may hold any number. It is never passed raw to the response.
+  it.each([200, 303, 304, 404, 500, 999, 0, -1, 301.5])(
+    'answers a stored %s as 302',
+    async statusCode => {
+      const app = new Hono<AppEnv>();
+      const route = {
+        path: '/legacy',
+        type: 'redirect',
+        target: 'https://example.com/legacy',
+        statusCode,
+      } as unknown as KVRouteConfig;
+      app.get('/legacy', c => handleRedirect(c, route));
+      const response = await app.fetch(new Request('http://localhost/legacy'), env);
+      expect(response.status).toBe(302);
+      expect(response.headers.get('Location')).toBe('https://example.com/legacy');
+    },
+  );
+
+  it.each([301, 302, 307, 308])('keeps a supported %s', async statusCode => {
+    expect(redirectStatus({ statusCode } as KVRouteConfig)).toBe(statusCode);
   });
 });

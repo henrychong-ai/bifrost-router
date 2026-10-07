@@ -46,7 +46,7 @@ export function FirstShortLinkSection() {
         under the old slug). Pointing it somewhere new is just Edit too — the short link never has
         to change. An edit saves only the fields you changed; saving with nothing changed says “No
         changes to save” and sends nothing. Change the path together with other fields and both are
-        saved: the route moves first, then your other changes land on the new path.
+        saved in one step: the route is written once, at its new path.
       </Tip>
       <Tip>
         Naming a file link: name it after the document, not the file — no dates, versions or file

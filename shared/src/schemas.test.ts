@@ -23,6 +23,7 @@ import {
   RedirectStatusCodeSchema,
   RoutePathSchema,
   RouteSchema,
+  RoutesListQuerySchema,
   RouteTypeSchema,
   ToggleRouteInputSchema,
   UpdateRouteInputSchema,
@@ -198,6 +199,52 @@ describe('schemas', () => {
       ).toBe(true);
       expect(DeleteRouteInputSchema.safeParse({ domain: 'links.example.com' }).success).toBe(false);
       expect(DeleteRouteInputSchema.safeParse({ path: '/test' }).success).toBe(false);
+    });
+
+    it('an ordinary delete takes the route-path rules; a recovery takes the listed key as it is', () => {
+      const domain = 'links.example.com';
+      expect(DeleteRouteInputSchema.safeParse({ path: '/p?x', domain }).success).toBe(false);
+      for (const recover of [true, 'true']) {
+        const parsed = DeleteRouteInputSchema.safeParse({
+          path: '/p?x',
+          domain,
+          recover_invalid: recover,
+        });
+        expect(parsed.success).toBe(true);
+        expect(parsed.data?.recover_invalid).toBe(true);
+      }
+      expect(
+        DeleteRouteInputSchema.safeParse({ path: 'p', domain, recover_invalid: true }).success,
+      ).toBe(false);
+      expect(
+        DeleteRouteInputSchema.safeParse({ path: '/a', domain, recover_invalid: 'maybe' }).success,
+      ).toBe(false);
+    });
+  });
+
+  describe('RoutesListQuerySchema', () => {
+    it('accepts whole numbers and the known filters only', () => {
+      expect(RoutesListQuerySchema.parse({ limit: '10', offset: '20' })).toMatchObject({
+        limit: 10,
+        offset: 20,
+      });
+      for (const query of [
+        { limit: 'abc' },
+        { limit: '0' },
+        { limit: '1001' },
+        { limit: '1.5' },
+        { limit: '' },
+        { offset: '-1' },
+        { offset: '2.5' },
+        { offset: 'x' },
+        { type: 'bogus' },
+        { enabled: 'maybe' },
+      ]) {
+        expect({ query, success: RoutesListQuerySchema.safeParse(query).success }).toEqual({
+          query,
+          success: false,
+        });
+      }
     });
   });
 

@@ -12,6 +12,7 @@ import {
   MAX_CACHE_CONTROL_LENGTH,
   MAX_HOST_HEADER_LENGTH,
   MAX_ROUTE_TARGET_LENGTH,
+  RECOVER_INVALID_DESCRIPTION,
 } from './schemas.js';
 import {
   LIST_QRS_TOOL_DESCRIPTION,
@@ -285,7 +286,8 @@ export const toolDefinitions: ToolDefinition[] = [
   },
   {
     name: 'delete_route',
-    description: 'Permanently delete a route. This action cannot be undone.',
+    description:
+      'Permanently delete a route. This action cannot be undone. For a record list_routes marks as unreadable, pass recover_invalid: true with the path exactly as listed.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -294,6 +296,10 @@ export const toolDefinitions: ToolDefinition[] = [
           description: 'Route path to delete',
         },
         domain: routeDomainProperty,
+        recover_invalid: {
+          type: 'boolean',
+          description: RECOVER_INVALID_DESCRIPTION,
+        },
       },
       required: ['domain', 'path'],
     },

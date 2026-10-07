@@ -12,9 +12,9 @@ import {
   type InvalidRouteRow,
   isInvalidQRRow,
   isInvalidRouteRow,
-  isRecord,
   type LastBackupInfo,
   type ManifestSummary,
+  readErrorEnvelope,
   StoredQRCodeSchema,
   type TriageFeedbackInput,
 } from '@bifrost/shared';
@@ -66,29 +66,32 @@ const API_KEY = env.ADMIN_API_KEY;
 // Base Fetch Functions
 // =============================================================================
 
-/** An upper-case machine code such as `QR_NOT_FOUND` or `ROUTE_RECORD_INVALID`. */
-const ERROR_CODE = /^[A-Z][A-Z0-9_]+$/;
+/** The longest plain-text error body shown as it is (a longer one is cut). */
+const TEXT_ERROR_MAX_LENGTH = 300;
 
 /**
- * A failed response's error body. `error` and `message` are kept only when
- * they are strings; a body that is not JSON reads as `{ error: 'Unknown error' }`.
- * When `error` is a machine code and `message` text (v1.38.0: QR_NOT_FOUND,
- * ROUTE_RECORD_INVALID), the message is shown and the code kept beside it.
+ * A failed response's error, through the ONE envelope reader the shared
+ * client uses too (`readErrorEnvelope`, v1.38.0), so both agree on the code:
+ * an UPPER_SNAKE value only (`QR_NOT_FOUND`, `ROUTE_RECORD_INVALID`,
+ * `QR_ALREADY_EXISTS`). The dashboard shows the sentence (the message, else
+ * `error`) and keeps the code beside it. A body that is not JSON (a plain
+ * HTTPException message such as `Route not found: /x`) is shown as its text,
+ * cut to a length; an empty one leaves the status to the caller.
  */
 async function readErrorBody(
   response: Response,
-): Promise<{ error?: string; code?: string; details?: unknown }> {
-  const body: unknown = await response.json().catch(() => ({ error: 'Unknown error' }));
-  if (!isRecord(body)) return {};
-  const { error, message, details, code } = body;
-  // An explicit `code` field names the machine code beside the sentence
-  if (typeof code === 'string' && typeof message === 'string') {
-    return { error: message, code, details };
+): Promise<{ error?: string | undefined; code?: string | undefined; details?: unknown }> {
+  const text = await response.text().catch(() => '');
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    const plain = text.trim().replace(/\s+/g, ' ');
+    return plain ? { error: plain.slice(0, TEXT_ERROR_MAX_LENGTH) } : {};
   }
-  if (typeof error === 'string' && ERROR_CODE.test(error) && typeof message === 'string') {
-    return { error: message, code: error, details };
-  }
-  return { error: typeof error === 'string' ? error : undefined, details };
+  const envelope = readErrorEnvelope(body);
+  if (envelope === null) return {};
+  return { error: envelope.text ?? envelope.code, code: envelope.code, details: envelope.details };
 }
 
 /** A response as JSON, validated, or the ApiError a failed one carries. */
@@ -246,11 +249,22 @@ export const routesApi = {
 
   /**
    * Delete a route
-   * @param path - Route path to delete
+   * @param path - Route path to delete (the stored key's own path for a recovery)
    * @param domain - Target domain (required; the route's own in the all-domains view)
    */
-  async delete(path: string, domain: string): Promise<void> {
-    const query = buildQueryString({ path, domain });
+  async delete(
+    path: string,
+    domain: string,
+    options: { recoverInvalid?: boolean } = {},
+  ): Promise<void> {
+    // `recoverInvalid` (v1.38.0): delete the record at EXACTLY this key, only
+    // when it cannot be read — the recovery for a listed unreadable record,
+    // whose path may not round-trip through the ordinary delete's normalising
+    const query = buildQueryString({
+      path,
+      domain,
+      ...(options.recoverInvalid ? { recover: 'invalid' } : {}),
+    });
     await fetchApi(
       `/api/routes${query}`,
       z.object({ success: z.boolean(), error: z.string().optional() }),
@@ -259,15 +273,32 @@ export const routesApi = {
   },
 
   /**
-   * Migrate a route to a new path
+   * Migrate a route to a new path, with the rest of an edit in the same write
    * @param oldPath - Current route path
    * @param newPath - New route path
    * @param domain - Target domain
+   * @param updates - Other changed fields, applied to the moved record
+   * @param acknowledgeCredentialTarget - Set only after the credential confirmation
    */
-  async migrate(oldPath: string, newPath: string, domain: string): Promise<Route> {
+  async migrate(
+    oldPath: string,
+    newPath: string,
+    domain: string,
+    updates: UpdateRouteInput = {},
+    acknowledgeCredentialTarget?: boolean,
+  ): Promise<Route> {
     const query = buildQueryString({ oldPath, newPath, domain });
+    // The rest of the edit goes in the same request (v1.38.0): the Worker
+    // writes the moved record once, with the updates merged, so a second
+    // write to the new key can never be lost to KV's one-write-per-second
+    // limit. No updates: no body, the record moves unedited.
+    const body = {
+      ...updates,
+      ...(acknowledgeCredentialTarget ? { acknowledgeCredentialTarget } : {}),
+    };
     const response = await fetchApi(`/api/routes/migrate${query}`, RouteResponseSchema, {
       method: 'POST',
+      ...(Object.keys(body).length > 0 ? { body: JSON.stringify(body) } : {}),
     });
     if (!response.success || !response.data) {
       throw new ApiError(400, response.error || 'Failed to migrate route');
@@ -946,10 +977,7 @@ export const storageApi = {
   /**
    * Purge CDN cache for an R2 object
    */
-  async purgeCache(
-    bucket: string,
-    key: string,
-  ): Promise<{ purged: number; failed: number; urls: string[] }> {
+  async purgeCache(bucket: string, key: string): Promise<PurgeCacheResult> {
     const response = await fetchApi(
       `/api/storage/${encodeURIComponent(bucket)}/purge-cache/${encodeURIComponent(key)}`,
       z.object({
@@ -959,15 +987,36 @@ export const storageApi = {
             purged: z.number(),
             failed: z.number(),
             urls: z.array(z.string()),
+            // Absent from an older Worker: read as complete
+            routeDiscoveryComplete: z.boolean().optional(),
           })
           .optional(),
         error: z.string().optional(),
       }),
       { method: 'POST' },
     );
-    return response.data as { purged: number; failed: number; urls: string[] };
+    if (!response.data) throw new ApiError(500, response.error || 'Failed to purge cache');
+    return {
+      purged: response.data.purged,
+      failed: response.data.failed,
+      urls: response.data.urls,
+      routeDiscoveryComplete: response.data.routeDiscoveryComplete ?? true,
+    };
   },
 };
+
+/**
+ * The answer of a manual cache purge. `routeDiscoveryComplete` is false when
+ * the Worker could not list the routes serving the object (v1.38.0): the URLs
+ * it knew without them were still purged, but a route URL may still serve the
+ * old bytes until its max-age.
+ */
+export interface PurgeCacheResult {
+  purged: number;
+  failed: number;
+  urls: string[];
+  routeDiscoveryComplete: boolean;
+}
 
 // =============================================================================
 // Feedback API

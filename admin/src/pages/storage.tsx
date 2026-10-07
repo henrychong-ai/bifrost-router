@@ -84,9 +84,15 @@ import {
   useUpdateObjectMetadata,
   useUploadObject,
 } from '@/hooks';
-import type { R2MetadataUpdate, R2ObjectInfo, StorageListParams } from '@/lib/api-client';
+import type {
+  PurgeCacheResult,
+  R2MetadataUpdate,
+  R2ObjectInfo,
+  StorageListParams,
+} from '@/lib/api-client';
 import { storageApi } from '@/lib/api-client';
 import { getPersistedPageSize, getR2ObjectUrl, persistPageSize } from '@/lib/constants';
+import { purgeCacheMessages } from '@/lib/purge-cache-messages';
 import { copyToClipboard, formatBytes } from '@/lib/utils';
 
 const MAX_UPLOAD_SIZE = 100 * 1024 * 1024; // 100MB
@@ -137,22 +143,8 @@ function validateObjectKey(key: string): string | null {
   return null;
 }
 
-function showPurgeCacheToast(result: { purged: number; failed: number; urls: string[] }) {
-  if (result.purged === 0 && result.failed === 0) {
-    if (result.urls.length > 0) {
-      toast.warning(
-        `Found ${result.urls.length} cache ${result.urls.length === 1 ? 'URL' : 'URLs'} but purge not configured — set CLOUDFLARE_API_TOKEN Worker secret`,
-      );
-    } else {
-      toast.info('No cache entries to purge');
-    }
-  } else if (result.failed > 0) {
-    toast.warning(
-      `Purged ${result.purged}, failed ${result.failed} cache ${result.failed === 1 ? 'entry' : 'entries'}`,
-    );
-  } else {
-    toast.success(`Purged ${result.purged} cache ${result.purged === 1 ? 'entry' : 'entries'}`);
-  }
+function showPurgeCacheToast(result: PurgeCacheResult) {
+  for (const message of purgeCacheMessages(result)) toast[message.kind](message.text);
 }
 
 // =============================================================================

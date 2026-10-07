@@ -161,6 +161,25 @@ describe('qrEditPatch', () => {
     });
   });
 
+  it('a link that cannot be shown (unavailable route, or one on another domain) switched to static sends null', () => {
+    // Absent and null are told apart: the stored link is present, the
+    // final one absent, so the change is sent as linkedRoute: null
+    for (const linkedRoute of [
+      { domain: DOMAIN, path: '/deleted-route' },
+      { domain: 'retired.example', path: '/a' },
+    ]) {
+      const code: QRCode = {
+        ...legacy,
+        payload: { url: `https://${linkedRoute.domain}${linkedRoute.path}` },
+        linkedRoute,
+      };
+      const patch = qrEditPatch(code, { ...stateFromQr(code), linkMode: 'static' }, DOMAIN);
+      expect(patch).toHaveProperty('linkedRoute', null);
+    }
+    // A code with no link stays unchanged: an absent link is never sent as null
+    expect(qrEditPatch(legacy, stateFromQr(legacy), DOMAIN)).not.toHaveProperty('linkedRoute');
+  });
+
   it('never sends a link for a code of another type', () => {
     const text: QRCode = { ...legacy, type: 'text', payload: { text: 'hello' } };
     expect(qrEditPatch(text, { ...stateFromQr(text), text: 'bye' }, DOMAIN)).toEqual({

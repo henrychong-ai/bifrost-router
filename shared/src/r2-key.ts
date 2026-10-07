@@ -74,3 +74,41 @@ export function normalizeR2Key(key: string): string {
 export function isNormalizedR2Key(key: string): boolean {
   return normalizeR2Key(key) === key;
 }
+
+/**
+ * The key an R2 route can serve (moved here from the Worker's
+ * `path-validation.ts`, v1.38.0, so the dashboard checks a route target with
+ * the Worker's own rule): control characters, Windows-illegal characters,
+ * `..`, a leading `/`, empty segments and dot-prefixed (hidden) segments are
+ * stripped or collapsed. The Worker's `validateR2Key` refuses any key this
+ * changes; it never serves the sanitised form.
+ */
+export function sanitizeR2Key(key: string): string {
+  let sanitized = key;
+  /* eslint-disable no-control-regex */
+  sanitized = sanitized.replace(/\x00/g, '');
+  sanitized = sanitized.replace(/[\x00-\x1f]/g, '');
+  /* eslint-enable no-control-regex */
+  sanitized = sanitized.replace(/[<>:"|?*]/g, '');
+  sanitized = sanitized.replace(/\\/g, '/');
+  while (sanitized.includes('..')) {
+    sanitized = sanitized.replace(/\.\./g, '');
+  }
+  sanitized = sanitized.replace(/^\/+/, '');
+  sanitized = sanitized.replace(/\/+/g, '/');
+  sanitized = sanitized.replace(/\/+$/, '');
+  sanitized = sanitized.replace(/(?:^|\/)\.(?!\.)[^/]*/g, '');
+  sanitized = sanitized.replace(/^\/+/, '');
+  sanitized = sanitized.replace(/\/+/g, '/');
+  sanitized = sanitized.replace(/\/+$/, '');
+  return sanitized;
+}
+
+/**
+ * Whether `key` is an R2 object key an R2 route can serve as it is: not
+ * blank, and unchanged by {@link sanitizeR2Key} (the rule the Worker's
+ * `validateR2Key` applies before it reads R2). A URL (`https://…`) is not one.
+ */
+export function isServableR2Key(key: string): boolean {
+  return key.trim() !== '' && sanitizeR2Key(key) === key;
+}

@@ -100,6 +100,10 @@ headers are no longer sent on such a hop.
   as `/tv` does not list every route on a `.tv` domain), and only in the
   all-domains list: in a one-domain list every route shares the domain, so
   matching it would list them all.
+- **An invalid list query is refused.** `GET /api/routes` answers 400 for a
+  `limit` or `offset` that is not a whole number in range and for an unknown
+  `type` or `enabled` value, as it does for an over-long search; it never
+  answers with an unfiltered list instead.
 - **Results are ordered by relevance:** a path equal to the query (ignoring
   separators), then paths starting with it, other path matches, then matches
   in other fields, newest first on ties. Route lists without a search are
@@ -127,6 +131,15 @@ headers are no longer sent on such a hop.
   kept, with View route. An edit that does not touch the link never needs the
   linked route in the picker (deleted, still loading, or beyond the newest
   1,000 routes).
+- **A failed save after the editor created the route says why.** When the
+  code is refused after its new route was created, the message gives the
+  server's own reason (an invalid field, an id already taken, an unreadable
+  record) beside the kept route and View route; "could not be confirmed" is
+  kept for an answer that never arrived. A retry after such an answer that
+  finds the id taken by the very code it sent (same type, content and link)
+  counts as saved instead of failing. Creating a code with an id already
+  taken answers a JSON 409 `{ success: false, error: 'QR_ALREADY_EXISTS',
+  message }`.
 - **Edits send only what changed.** The QR edit dialog compares the form with
   what it showed when it opened and sends only the changed fields, checked
   against today's limits; an unchanged save makes no request ("No changes to
@@ -186,13 +199,24 @@ headers are no longer sent on such a hop.
   header that was shown clears it. Changing the type sends every field the
   new type uses, so a redirect or proxy converted to R2 sends its bucket and
   Force Download explicitly. A route stored with a status code or bucket no
-  write accepts today opens and edits like any other.
-- **A path change keeps the other changes.** Confirmed as a migration, it
-  moves the route first and then saves the rest of the edit on the new path;
-  if that second step fails, or its credential confirmation is cancelled, the
-  message says the route moved but its other changes were not saved. A route
-  whose stored target is not a URL can still be moved: the target is only
-  sent when it is edited.
+  write accepts today opens and edits like any other: the value is shown as
+  stored, marked "not supported — choose another", so choosing a supported
+  one (the default included) is a change and is saved, and a type change that
+  would send the unsupported value waits until another is chosen.
+- **Changing the type checks the target for the new type**, even when its
+  text is untouched: a redirect needs an absolute URL (`mailto:` and `tel:`
+  links included), a proxy an http or https URL, and an r2 route an object
+  key the router would serve as it is, never a URL.
+- **A path change and the other changes are one save.** Confirmed as a
+  migration, the move and the rest of the edit go in one request, and the
+  route is written once at its new path (`POST /api/routes/migrate` takes the
+  changes as an optional body, checked like an update, credential
+  confirmation included, before anything moves). Two writes to the same path
+  within a second could lose the second, so a migration no longer saves the
+  changes separately. "The route moved but its other changes were not saved"
+  is shown only if the server moved the route without them. A route whose
+  stored target is not a URL can still be moved: the target is only sent when
+  it is edited.
 - **UTM tracking.** Redirect routes get a **UTM tracking** section: source,
   medium, campaign, term and content, each with a short explanation (a proxy
   replaces the target's query with the visitor's, so it has none). Values are
@@ -228,13 +252,28 @@ headers are no longer sent on such a hop.
   `ROUTE_RECORD_INVALID`, and seed skips it; nothing is merged with it.
   Listings show it as a minimal row (`{ domain, path, invalid: true }`), which
   the Routes page flags as "Unreadable record" with a Delete action only and
-  MCP `list_routes` marks. `DELETE` removes it, which is the recovery: its
-  public URL, taken from the key, is purged whatever it served, and its audit
-  row records the key with `state: invalid`. The guard, now in `shared` and
+  MCP `list_routes` marks. Deleting it is the recovery: `DELETE
+  /api/routes?…&recover=invalid` (the Routes page's Delete on such a row, MCP
+  `delete_route` with `recover_invalid: true`) deletes the record stored at
+  exactly the listed key, and only when it cannot be read; a readable route
+  there is refused (409 `ROUTE_RECORD_READABLE`). The listed path is used as
+  it is, so a legacy key such as `/p?x` or `/Promo` can never resolve to the
+  valid `/p` or `/promo` beside it and delete that instead. Its public URL is
+  purged exactly as stored (`/p?x` as `/p%3Fx`), and its audit row records
+  the key with `state: invalid`. The guard, now in `shared` and
   used by the dashboard too, is as tolerant as the shared `RouteSchema`
   without its write rules, so routes stored before today's write caps,
   without timestamps or with a status code or bucket no write accepts today
   still read and list.
+- **Unreadable rows are told apart by the read, never by a field.** A
+  readable route that happens to store an `invalid` property lists, filters
+  and opens as the route it is; the clients recognise an unreadable row only
+  by its exact shape. A KV read failure in the all-domains route list now
+  fails the list, as the one-domain list does, instead of leaving the route
+  out.
+- **A stored redirect status code no write accepts answers 302.** A legacy
+  value (`200`, `303`, `999`) used to be passed to the response as it was;
+  the redirect and its link preview now use 302.
 - **Listings read route keys only.** Keys that are not `{domain}:/…` (QR
   records and the optional rate limiter's `ratelimit:` entries, which hold
   client IP addresses) are skipped before they are read or logged.
@@ -244,10 +283,15 @@ headers are no longer sent on such a hop.
   its default, a Wi-Fi payload without `auth` reads as `WPA`). An unreadable
   record is not found, can be deleted, and a create with its id answers 409.
   QR timestamps stay the Worker's clock; a client-sent `createdAt` or
-  `updatedAt` is ignored (now pinned by a test).
+  `updatedAt` is ignored (now pinned by a test). The Worker reads them with
+  the shared read schema itself.
 - **Other stored and remote values:** a malformed rate-limit entry resets its
-  window; a malformed Cloudflare audit cursor restarts the first-run window; an
-  audit-log entry that fails its shape is recorded in a minimal form (its id or
+  window; a Cloudflare audit cursor whose time is not a real time with an
+  explicit zone (`Z` or `±hh:mm`; a stored `not-a-date` made every run fail)
+  restarts the first-run window, and the cursor only advances to such a time,
+  never past the run's own clock, so a future-dated entry cannot skip the
+  ones before it; an audit-log entry that fails its shape, or has a missing
+  or empty id, is recorded in a minimal form (its id or
   a hash of its canonical JSON, the same whatever its key order), its time,
   `unparsed`) and never its content, never twice (looked up over the last 90
   days, far longer than an entry can be fetched again); at 20 such rows
@@ -266,7 +310,11 @@ headers are no longer sent on such a hop.
   (a body that is not a JSON object is a parse failure, and `error`,
   `message` and `meta` count only with their declared types; a failed
   response keeps the server's `error` and `message` text even without a
-  `success` flag, as the admin-host 404 sends it); the dashboard
+  `success` flag, as the admin-host 404 sends it). The client and the
+  dashboard read a failed answer through one shared reader, so they agree
+  on its code, and a code is an UPPER_SNAKE value only (`Internal Server
+  Error` is text, never a code); the dashboard also shows a plain-text error
+  body as the server wrote it instead of "Unknown error". The dashboard
   validates backup health, the Tailscale identity, feedback capture
   attachments, audit details and the Routes page's navigation hand-off. A
   coded refusal keeps its code on the client's error, its text written once,
@@ -290,7 +338,20 @@ headers are no longer sent on such a hop.
   receiver; text that only looks like one, in a string, template literal,
   regular expression or block comment, exempts nothing.
 - **Audit.** A route edit that only switches the route on or off records the
-  route key and `enabled` before and after.
+  route key and `enabled` before and after. A migration that also edited the
+  route records the record before it and the edited fields.
+- **Cache purges survive a failed route lookup.** When the routes serving an
+  R2 object cannot be listed, a replace, rename, move, delete or manual purge
+  still purges the object's custom-domain URLs and reports the route lookup
+  as incomplete (`routeDiscoveryComplete: false` in the manual purge's answer
+  and audit row; the Storage page warns that links may still show the old
+  version), instead of purging nothing.
+- **MCP arguments are validated.** The MCP server checks every call's
+  arguments against the tool's shared schema before anything is sent, and
+  refuses a non-conforming one (a path that is not a string, an unknown
+  bucket) naming the field; a missing domain still gets the same actionable
+  message. `delete_route` takes `recover_invalid: true` for the exact-key
+  recovery of an unreadable record.
 - **Dashboard browser baseline.** Dashboard code and the shared code it
   bundles call no ES2023 array method (`toSorted`, `toReversed`, `toSpliced`,
   `with`, `findLast`, `findLastIndex`), which the build target's older

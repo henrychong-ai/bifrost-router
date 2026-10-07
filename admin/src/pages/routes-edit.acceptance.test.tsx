@@ -141,9 +141,12 @@ const sentData = () => state.update.mock.calls[0]?.[0]?.['data'];
 beforeEach(() => {
   state.update.mockReset().mockResolvedValue({});
   state.create.mockReset().mockResolvedValue({});
-  state.migrate
-    .mockReset()
-    .mockImplementation(async ({ newPath }) => ({ path: String(newPath), type: 'redirect' }));
+  // The Worker answers the moved route with the edit applied (one write)
+  state.migrate.mockReset().mockImplementation(async ({ newPath, updates }) => ({
+    path: String(newPath),
+    type: 'redirect',
+    ...(typeof updates === 'object' && updates !== null ? updates : {}),
+  }));
   state.remove.mockReset().mockResolvedValue(undefined);
   state.invalidRoutes = [];
   state.filters = { domain: 'example.com' };
@@ -259,41 +262,54 @@ describe('UTM tracking in the route dialog', () => {
     expect(sentData()).toEqual({ hostHeader: 'origin.example.com' });
   });
 
-  it('a path change confirmed as a migration also saves the other changes, on the new path', async () => {
+  it('a path change confirmed as a migration saves the other changes in the SAME request', async () => {
     await editing(tagged);
     await typeInto(input('path'), '/promo-2');
     await typeInto(input('utm_campaign'), 'spring');
     await save();
-    expect(state.update).not.toHaveBeenCalled();
     await click(button('Migrate Route'));
+    // One request: never a move and then an update of the same new key
+    expect(state.migrate).toHaveBeenCalledTimes(1);
     expect(state.migrate).toHaveBeenCalledWith({
       oldPath: '/promo',
       newPath: '/promo-2',
       domain: DOMAIN,
+      updates: {
+        target: 'https://example.net/landing?ref=a&utm_source=news&utm_campaign=spring#top',
+      },
     });
-    expect(state.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        path: '/promo-2',
-        domain: DOMAIN,
-        data: {
-          target: 'https://example.net/landing?ref=a&utm_source=news&utm_campaign=spring#top',
-        },
-      }),
-    );
+    expect(state.update).not.toHaveBeenCalled();
     expect(toasts.success).toHaveBeenCalledWith(
       'Route migrated from /promo to /promo-2 and updated',
     );
   });
 
-  it('reports a migration whose other changes failed as moved but not updated', async () => {
-    state.update.mockRejectedValueOnce(new Error('network down'));
+  it('a failed migration moved nothing, and says so once', async () => {
+    state.migrate.mockRejectedValueOnce(new Error('network down'));
     await editing(tagged);
     await typeInto(input('path'), '/promo-2');
     await typeInto(input('cacheControl'), 'no-store');
     await save();
     await click(button('Migrate Route'));
+    expect(state.update).not.toHaveBeenCalled();
+    expect(toasts.error).toHaveBeenCalledTimes(1);
+    expect(toasts.error).toHaveBeenCalledWith('Failed to migrate route: network down');
+  });
+
+  it('reports moved-but-not-saved only when the server moved the route without the changes', async () => {
+    // An older Worker ignores the body and moves the record unedited
+    state.migrate.mockImplementationOnce(async ({ newPath }) => ({
+      path: String(newPath),
+      type: 'redirect',
+    }));
+    await editing(tagged);
+    await typeInto(input('path'), '/promo-2');
+    await typeInto(input('cacheControl'), 'no-store');
+    await save();
+    await click(button('Migrate Route'));
+    expect(state.update).not.toHaveBeenCalled();
     expect(toasts.error).toHaveBeenCalledWith(
-      'Route migrated from /promo to /promo-2, but its other changes were not saved: network down',
+      'Route migrated from /promo to /promo-2, but its other changes were not saved (cacheControl): edit the route again to apply them',
     );
   });
 
@@ -338,18 +354,20 @@ describe('a path change on a route whose stored target is not a URL', () => {
       oldPath: '/legacy-x',
       newPath: '/renamed',
       domain: DOMAIN,
+      updates: {},
     });
     expect(state.update).not.toHaveBeenCalled();
     expect(toasts.success).toHaveBeenCalledWith('Route migrated from /legacy-x to /renamed');
   });
 
-  it('saves other changes after the move without the target', async () => {
+  it('saves other changes with the move, without the target', async () => {
     await editing(legacy);
     await typeInto(input('path'), '/renamed');
     await typeInto(input('cacheControl'), 'no-store');
     await save();
     await click(button('Migrate Route'));
-    expect(sentData()).toEqual({ cacheControl: 'no-store' });
+    expect(state.migrate.mock.calls[0]?.[0]?.['updates']).toEqual({ cacheControl: 'no-store' });
+    expect(state.update).not.toHaveBeenCalled();
   });
 });
 
@@ -364,41 +382,60 @@ const refused = () =>
     { code: 'ROUTE_TARGET_CREDENTIAL' },
   );
 
-describe('a migration whose other changes need the credential confirmation', () => {
+describe('a migration whose changes need the credential confirmation', () => {
   const tokenTarget: Route = {
     ...base,
     path: '/promo',
     type: 'redirect',
     target: 'https://example.net/landing?token=x',
   };
-  it('cancelling reports that the route moved but its other changes were not saved', async () => {
-    state.update.mockRejectedValueOnce(refused());
+  it('asks BEFORE anything moves; cancelling leaves the route where it was', async () => {
+    state.migrate.mockRejectedValueOnce(refused());
     await editing(tokenTarget);
     await typeInto(input('path'), '/promo-2');
     await typeInto(input('cacheControl'), 'no-store');
     await save();
     await click(button('Migrate Route'));
+    expect(button('Migrate anyway')).toBeDefined();
     await click(button('Cancel'));
-    expect(toasts.error).toHaveBeenCalledWith(
-      'Route migrated from /promo to /promo-2, but its other changes were not saved',
-    );
+    expect(state.migrate).toHaveBeenCalledTimes(1);
+    expect(state.update).not.toHaveBeenCalled();
+    expect(toasts.error).not.toHaveBeenCalled();
+    expect(toasts.success).not.toHaveBeenCalled();
   });
 
-  it('confirming saves them, and says nothing about unsaved changes', async () => {
-    state.update.mockRejectedValueOnce(refused());
+  it('confirming re-sends the same migration with the acknowledgement, in one write', async () => {
+    state.migrate.mockRejectedValueOnce(refused());
     await editing(tokenTarget);
     await typeInto(input('path'), '/promo-2');
     await typeInto(input('cacheControl'), 'no-store');
     await save();
     await click(button('Migrate Route'));
-    await click(button('Save anyway'));
-    expect(state.update).toHaveBeenLastCalledWith(
-      expect.objectContaining({ path: '/promo-2', acknowledgeCredentialTarget: true }),
-    );
+    await click(button('Migrate anyway'));
+    expect(state.migrate).toHaveBeenLastCalledWith({
+      oldPath: '/promo',
+      newPath: '/promo-2',
+      domain: DOMAIN,
+      updates: { cacheControl: 'no-store' },
+      acknowledgeCredentialTarget: true,
+    });
+    expect(state.update).not.toHaveBeenCalled();
     expect(toasts.error).not.toHaveBeenCalled();
     expect(toasts.success).toHaveBeenCalledWith(
       'Route migrated from /promo to /promo-2 and updated',
     );
+  });
+});
+
+describe('a migration whose write domain cannot be resolved', () => {
+  it('is reported as a toast, never an unhandled rejection', async () => {
+    state.filters = {};
+    await editing({ path: '/nodomain', type: 'redirect', target: 'https://example.net/' });
+    await typeInto(input('path'), '/nodomain-2');
+    await save();
+    await click(button('Migrate Route'));
+    expect(state.migrate).not.toHaveBeenCalled();
+    expect(toasts.error).toHaveBeenCalledWith(expect.stringMatching(/^Failed to migrate route: /));
   });
 });
 
@@ -439,6 +476,101 @@ describe('converting and toggling in the route dialog', () => {
   });
 });
 
+describe('stored values no write accepts are shown as what they are (v1.38.0)', () => {
+  it('a status code outside 301/302/307/308 shows as stored; choosing 302 sends it', async () => {
+    await editing({
+      ...base,
+      path: '/old',
+      type: 'redirect',
+      target: 'https://example.net/',
+      statusCode: 303,
+    });
+    expect(document.getElementById('statusCode')?.textContent).toContain(
+      '303 (not supported — choose another)',
+    );
+    expect(document.body.textContent).toContain('Stored as 303, which is not supported');
+    await choose('Status Code', '302 (Temporary)');
+    await save();
+    expect(sentData()).toEqual({ statusCode: 302 });
+  });
+
+  it('a bucket outside the known list shows as stored; choosing files sends it', async () => {
+    await editing({
+      ...base,
+      path: '/doc',
+      type: 'r2',
+      target: 'docs/a.pdf',
+      bucket: 'retired-bucket',
+    });
+    expect(document.getElementById('bucket')?.textContent).toContain(
+      'retired-bucket (not supported — choose another)',
+    );
+    await save();
+    expect(state.update).not.toHaveBeenCalled();
+    await act(async () => root?.unmount());
+    await editing({
+      ...base,
+      path: '/doc',
+      type: 'r2',
+      target: 'docs/a.pdf',
+      bucket: 'retired-bucket',
+    });
+    await choose('R2 Bucket', 'files');
+    await save();
+    expect(sentData()).toEqual({ bucket: 'files' });
+  });
+
+  it('a type change that would send an unsupported stored value is held until another is chosen', async () => {
+    await editing({
+      ...base,
+      path: '/svc',
+      type: 'proxy',
+      target: 'https://origin.example.com/',
+      statusCode: 303,
+    });
+    await choose('Type', 'Redirect');
+    expect(button('Update').disabled).toBe(true);
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('Stored as 303');
+    await choose('Status Code', '301 (Permanent)');
+    expect(button('Update').disabled).toBe(false);
+    await save();
+    expect(sentData()).toMatchObject({ type: 'redirect', statusCode: 301 });
+  });
+});
+
+describe('a type change re-checks the untouched target for the new type (v1.38.0)', () => {
+  it('an r2 object key kept as a redirect target is refused', async () => {
+    await editing({ ...base, path: '/doc', type: 'r2', target: 'docs/a.pdf' });
+    await choose('Type', 'Redirect');
+    expect(document.body.textContent).toContain('Enter a valid absolute target URL before saving');
+    expect(button('Update').disabled).toBe(true);
+    await save();
+    expect(state.update).not.toHaveBeenCalled();
+  });
+
+  it('a URL kept as an r2 target is refused', async () => {
+    await editing({ ...base, path: '/doc', type: 'redirect', target: 'https://example.net/a.pdf' });
+    await choose('Type', 'R2');
+    expect(document.body.textContent).toContain('Enter an R2 object key');
+    expect(button('Update').disabled).toBe(true);
+  });
+
+  it('a mailto redirect kept as a proxy target is refused', async () => {
+    await editing({ ...base, path: '/mail', type: 'redirect', target: 'mailto:team@example.com' });
+    await choose('Type', 'Proxy');
+    expect(document.body.textContent).toContain('A proxy target must be an http or https URL');
+    expect(button('Update').disabled).toBe(true);
+  });
+
+  it('a proxy URL kept as a redirect target is accepted and sent', async () => {
+    await editing({ ...base, path: '/svc', type: 'proxy', target: 'https://origin.example.com/' });
+    await choose('Type', 'Redirect');
+    expect(button('Update').disabled).toBe(false);
+    await save();
+    expect(sentData()).toMatchObject({ type: 'redirect', target: 'https://origin.example.com/' });
+  });
+});
+
 describe('unreadable route records', () => {
   it('are listed flagged, with a Delete action and nothing else', async () => {
     state.invalidRoutes = [{ domain: DOMAIN, path: '/broken', invalid: true }];
@@ -452,13 +584,38 @@ describe('unreadable route records', () => {
       'Delete unreadable record /broken',
     ]);
     await click(buttons[0] ?? null);
+    expect(document.body.textContent).toContain('Delete the unreadable record stored at exactly');
     await click(button('Delete'));
-    expect(state.remove).toHaveBeenCalledWith({ path: '/broken', domain: DOMAIN });
+    // The exact-key recovery: never the ordinary, normalising delete
+    expect(state.remove).toHaveBeenCalledWith({
+      path: '/broken',
+      domain: DOMAIN,
+      recoverInvalid: true,
+    });
   });
 
-  it('are not shown under a type or status filter: their type and state are unknown', async () => {
+  it('a legacy key that does not round-trip is deleted by its exact key', async () => {
+    state.invalidRoutes = [{ domain: DOMAIN, path: '/p?x', invalid: true }];
+    await editing({ ...base, path: '/x', type: 'redirect', target: 'https://example.net/' });
+    await act(async () => button('Cancel').click());
+    await click(
+      document.body.querySelector<HTMLElement>('[aria-label="Delete unreadable record /p?x"]'),
+    );
+    await click(button('Delete'));
+    expect(state.remove).toHaveBeenCalledWith({
+      path: '/p?x',
+      domain: DOMAIN,
+      recoverInvalid: true,
+    });
+  });
+
+  it.each([
+    ['a type filter', { type: 'redirect' }],
+    ['an Active status filter', { enabled: true }],
+    ['a Disabled status filter', { enabled: false }],
+  ])('are not shown under %s: their type and state are unknown', async (_label, filter) => {
     state.invalidRoutes = [{ domain: DOMAIN, path: '/broken', invalid: true }];
-    state.filters = { domain: DOMAIN, type: 'redirect' };
+    state.filters = { domain: DOMAIN, ...filter };
     await editing({ ...base, path: '/x', type: 'redirect', target: 'https://example.net/' });
     expect(document.body.querySelector('[data-testid="unreadable-route"]')).toBeNull();
   });

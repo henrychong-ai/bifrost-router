@@ -1,4 +1,4 @@
-import type { QRCode } from '@bifrost/shared';
+import { isRecord, type QRCode } from '@bifrost/shared';
 import {
   hashKey,
   keepPreviousData,
@@ -9,7 +9,7 @@ import {
 } from '@tanstack/react-query';
 import { useCallback, useState, useSyncExternalStore } from 'react';
 import { api, type QrQueryParams } from '@/lib/api-client';
-import { isQrNotFoundError } from '@/lib/api-error';
+import { isQrAlreadyExistsError, isQrNotFoundError } from '@/lib/api-error';
 import { type PendingQrStore, pendingQrs, type QrListPage } from '@/lib/qr-pending';
 
 // =============================================================================
@@ -81,13 +81,69 @@ export function useQrCodes(params?: QrQueryParams, options?: { enabled?: boolean
 // The option factories are exported so tests can run them without a renderer.
 // =============================================================================
 
+/** A JSON text with every object's keys sorted: the same for the same value. */
+function sortedJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(sortedJson).join(',')}]`;
+  if (isRecord(value)) {
+    // In place on a fresh array: the dashboard's build target predates
+    // Array#toSorted
+    const keys = Object.keys(value);
+    keys.sort();
+    return `{${keys
+      .filter(key => value[key] !== undefined)
+      .map(key => `${JSON.stringify(key)}:${sortedJson(value[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+/**
+ * Whether a stored code is the one a create sent (v1.38.0): the same type,
+ * payload and link. A create retried after an uncertain answer (no answer, a
+ * 5xx, an unreadable body) that meets 409 `QR_ALREADY_EXISTS` for its own id
+ * is its own earlier save only when the stored code matches; otherwise the id
+ * belongs to another code and the 409 stands.
+ */
+function isCodeAsSent(stored: QRCode, input: Record<string, unknown>): boolean {
+  const sentLink = isRecord(input['linkedRoute']) ? input['linkedRoute'] : undefined;
+  return (
+    stored.type === input['type'] &&
+    sortedJson(stored.payload) === sortedJson(input['payload']) &&
+    stored.linkedRoute?.domain === sentLink?.['domain'] &&
+    stored.linkedRoute?.path === sentLink?.['path']
+  );
+}
+
+/**
+ * A create (v1.38.0). `afterUncertainAnswer` marks a retry of a create of the
+ * same id whose earlier answer never arrived: a 409 `QR_ALREADY_EXISTS` then
+ * means that earlier save landed, so the code is read back and, when it is the
+ * one sent, the create succeeds with it (no second code, no false failure).
+ */
+interface QrCreate {
+  input: Record<string, unknown>;
+  domain: string;
+  afterUncertainAnswer?: boolean;
+}
+
 export function createQrMutationOptions(
   queryClient: QueryClient,
   store: PendingQrStore = pendingQrs,
 ) {
   return {
-    mutationFn: ({ input, domain }: { input: Record<string, unknown>; domain: string }) =>
-      api.qr.create(input, domain),
+    mutationFn: async ({ input, domain, afterUncertainAnswer }: QrCreate): Promise<QRCode> => {
+      try {
+        return await api.qr.create(input, domain);
+      } catch (error) {
+        const id = input['id'];
+        if (!afterUncertainAnswer || typeof id !== 'string' || !isQrAlreadyExistsError(error)) {
+          throw error;
+        }
+        const stored = await api.qr.get(id, domain);
+        if (!isCodeAsSent(stored, input)) throw error;
+        return stored;
+      }
+    },
     onSuccess: async (created: QRCode) => {
       // Before the refetch, so the refetched lists include it (KV listing can
       // lag behind a successful write); supersedes a tombstone for the id

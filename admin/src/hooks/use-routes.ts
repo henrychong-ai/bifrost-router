@@ -160,8 +160,16 @@ export function useDeleteRoute() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ path, domain }: { path: string; domain: string }) =>
-      api.routes.delete(path, domain),
+    mutationFn: ({
+      path,
+      domain,
+      recoverInvalid,
+    }: {
+      path: string;
+      domain: string;
+      /** The exact-key recovery of an unreadable record (v1.38.0). */
+      recoverInvalid?: boolean;
+    }) => api.routes.delete(path, domain, recoverInvalid ? { recoverInvalid } : {}),
     onSuccess: (_data, variables) => {
       // Invalidate and remove the specific route from cache
       void queryClient.invalidateQueries({ queryKey: routeKeys.all });
@@ -200,7 +208,7 @@ export function useToggleRoute() {
 }
 
 /**
- * Migrate a route to a new path
+ * Migrate a route to a new path, with the rest of an edit in the same write
  */
 export function useMigrateRoute() {
   const queryClient = useQueryClient();
@@ -210,11 +218,17 @@ export function useMigrateRoute() {
       oldPath,
       newPath,
       domain,
+      updates,
+      acknowledgeCredentialTarget,
     }: {
       oldPath: string;
       newPath: string;
       domain: string;
-    }) => api.routes.migrate(oldPath, newPath, domain),
+      /** The rest of the edit, written with the move in one write (v1.38.0). */
+      updates?: UpdateRouteInput;
+      /** Set only after the operator confirmed the credential-target dialog. */
+      acknowledgeCredentialTarget?: boolean;
+    }) => api.routes.migrate(oldPath, newPath, domain, updates, acknowledgeCredentialTarget),
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: routeKeys.all });
       queryClient.removeQueries({

@@ -12,32 +12,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { warnIgnoredEnv } from './boot-warnings.js';
-
-import { getAnalyticsSummary, getClicks, getSlugStats, getViews } from './tools/analytics.js';
-import { createQr, deleteQr, getQr, getRouteQr, listQrs, updateQr } from './tools/qr.js';
-import {
-  createRoute,
-  deleteRoute,
-  getRoute,
-  handleTransferRoute,
-  listRoutes,
-  migrateRoute,
-  toggleRoute,
-  updateRoute,
-} from './tools/routes.js';
-import {
-  deleteObject,
-  getObject,
-  getObjectMeta,
-  handlePurgeCache,
-  listBuckets,
-  listObjects,
-  moveObject,
-  renameObject,
-  updateObjectComment,
-  updateObjectMetadata,
-  uploadObject,
-} from './tools/storage.js';
+import { callTool, isKnownTool } from './dispatch.js';
 
 /**
  * Main entry point
@@ -85,290 +60,25 @@ async function main(): Promise<void> {
     };
   });
 
-  // Register tool execution handler
+  // Register tool execution handler. The arguments are raw JSON-RPC: they
+  // are read as unknown and validated with each tool's shared schema before a
+  // handler sees them (dispatch.ts, v1.38.0), never cast.
   server.setRequestHandler(CallToolRequestSchema, async request => {
     const { name } = request.params;
-    // A call with no `arguments` object at all must still reach the handler, so
-    // it answers with the actionable no-domain error instead of a TypeError.
-    const args = request.params.arguments ?? {};
+    if (!isKnownTool(name)) {
+      return {
+        content: [{ type: 'text', text: `Unknown tool: ${name}` }],
+        isError: true,
+      };
+    }
 
     try {
-      let result: string;
-
-      switch (name) {
-        // Route management tools
-        case 'list_routes':
-          result = await listRoutes(client, args);
-          break;
-
-        case 'get_route':
-          result = await getRoute(client, args as { path: string; domain?: string });
-          break;
-
-        case 'create_route':
-          result = await createRoute(
-            client,
-            args as {
-              path: string;
-              type: 'redirect' | 'proxy' | 'r2';
-              target: string;
-              statusCode?: number;
-              preserveQuery?: boolean;
-              preservePath?: boolean;
-              cacheControl?: string;
-              hostHeader?: string;
-              forceDownload?: boolean;
-              bucket?: string;
-              domain?: string;
-              /** Request-only override; may arrive stringified. */
-              acknowledgeCredentialTarget?: boolean | string;
-            },
-          );
-          break;
-
-        case 'update_route':
-          result = await updateRoute(
-            client,
-            args as {
-              path: string;
-              type?: 'redirect' | 'proxy' | 'r2';
-              target?: string;
-              statusCode?: number;
-              preserveQuery?: boolean;
-              preservePath?: boolean;
-              cacheControl?: string;
-              hostHeader?: string;
-              forceDownload?: boolean;
-              bucket?: string;
-              domain?: string;
-              /** Request-only override; may arrive stringified. */
-              acknowledgeCredentialTarget?: boolean | string;
-            },
-          );
-          break;
-
-        case 'delete_route':
-          result = await deleteRoute(client, args as { path: string; domain?: string });
-          break;
-
-        case 'toggle_route':
-          result = await toggleRoute(
-            client,
-            args as {
-              path: string;
-              /** Raw JSON-RPC, so a client may send the string form. */
-              enabled: boolean | string;
-              domain?: string;
-              /** Request-only override; may arrive stringified. */
-              acknowledgeCredentialTarget?: boolean | string;
-            },
-          );
-          break;
-
-        case 'migrate_route':
-          result = await migrateRoute(
-            client,
-            args as { oldPath: string; newPath: string; domain?: string },
-          );
-          break;
-
-        case 'transfer_route':
-          result = await handleTransferRoute(
-            client,
-            args as {
-              path: string;
-              from_domain?: string;
-              to_domain?: string;
-              /** Request-only override; may arrive stringified. */
-              acknowledgeCredentialTarget?: boolean | string;
-            },
-          );
-          break;
-
-        // Analytics tools
-        case 'get_analytics_summary':
-          result = await getAnalyticsSummary(client, args);
-          break;
-
-        case 'get_clicks':
-          result = await getClicks(client, args);
-          break;
-
-        case 'get_views':
-          result = await getViews(client, args);
-          break;
-
-        case 'get_slug_stats':
-          result = await getSlugStats(
-            client,
-            args as { slug: string; domain?: string; days?: number },
-          );
-          break;
-
-        // Storage tools
-        case 'list_buckets':
-          result = await listBuckets(client);
-          break;
-
-        case 'list_objects':
-          result = await listObjects(
-            client,
-            args as {
-              bucket: string;
-              prefix?: string;
-              cursor?: string;
-              limit?: number;
-              delimiter?: string;
-            },
-          );
-          break;
-
-        case 'get_object_meta':
-          result = await getObjectMeta(client, args as { bucket: string; key: string });
-          break;
-
-        case 'get_object':
-          result = await getObject(
-            client,
-            args as {
-              bucket: string;
-              key: string;
-              metadata_only?: boolean;
-            },
-          );
-          break;
-
-        case 'upload_object':
-          result = await uploadObject(
-            client,
-            args as {
-              bucket: string;
-              key: string;
-              file_path?: string;
-              content_base64?: string;
-              content_type?: string;
-              overwrite?: boolean;
-            },
-          );
-          break;
-
-        case 'delete_object':
-          result = await deleteObject(client, args as { bucket: string; key: string });
-          break;
-
-        case 'rename_object':
-          result = await renameObject(
-            client,
-            args as {
-              bucket: string;
-              old_key: string;
-              new_key: string;
-            },
-          );
-          break;
-
-        case 'move_object':
-          result = await moveObject(
-            client,
-            args as {
-              bucket: string;
-              key: string;
-              destination_bucket: string;
-              destination_key?: string;
-            },
-          );
-          break;
-
-        case 'update_object_metadata':
-          result = await updateObjectMetadata(
-            client,
-            args as {
-              bucket: string;
-              key: string;
-              content_type?: string;
-              cache_control?: string;
-              content_disposition?: string;
-            },
-          );
-          break;
-
-        case 'update_object_comment':
-          result = await updateObjectComment(
-            client,
-            args as {
-              bucket: string;
-              key: string;
-              comment: string | null;
-            },
-          );
-          break;
-
-        case 'purge_cache':
-          result = await handlePurgeCache(
-            client,
-            args as {
-              bucket: string;
-              key: string;
-            },
-          );
-          break;
-
-        case 'list_qrs':
-          result = await listQrs(client, args);
-          break;
-
-        case 'get_qr':
-          result = await getQr(client, args as { id: string; domain?: string });
-          break;
-
-        case 'create_qr':
-          result = await createQr(client, args as Parameters<typeof createQr>[1]);
-          break;
-
-        case 'update_qr':
-          result = await updateQr(client, args as Parameters<typeof updateQr>[1]);
-          break;
-
-        case 'delete_qr':
-          result = await deleteQr(client, args as { id: string; domain?: string });
-          break;
-
-        case 'get_route_qr':
-          result = await getRouteQr(
-            client,
-            args as { path: string; domain?: string; fg?: string; bg?: string; size?: number },
-          );
-          break;
-
-        default:
-          return {
-            content: [
-              {
-                type: 'text',
-                text: `Unknown tool: ${name}`,
-              },
-            ],
-            isError: true,
-          };
-      }
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: result,
-          },
-        ],
-      };
+      const result = await callTool(client, name, request.params.arguments);
+      return { content: [{ type: 'text', text: result }] };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return {
-        content: [
-          {
-            type: 'text',
-            text: `Error executing ${name}: ${errorMessage}`,
-          },
-        ],
+        content: [{ type: 'text', text: `Error executing ${name}: ${errorMessage}` }],
         isError: true,
       };
     }

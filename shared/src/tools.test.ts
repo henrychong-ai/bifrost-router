@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { QRLinkedRouteInputSchema } from './qr.js';
-import { ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION } from './schemas.js';
+import {
+  ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION,
+  RECOVER_INVALID_DESCRIPTION,
+} from './schemas.js';
 import {
   analyticsTools,
   getToolDefinition,
@@ -395,5 +398,17 @@ describe('search parameters (v1.38.0)', () => {
     const search = getToolDefinition(name)?.inputSchema.properties['search'];
     expect(search?.maxLength).toBe(2048);
     expect(search?.description).toContain('separators');
+  });
+});
+
+describe('delete_route recovery of an unreadable record (v1.38.0)', () => {
+  it('advertises recover_invalid with the shared wording, never required', () => {
+    const schema = getToolDefinition('delete_route')?.inputSchema;
+    expect(schema?.properties['recover_invalid']).toEqual({
+      type: 'boolean',
+      description: RECOVER_INVALID_DESCRIPTION,
+    });
+    expect(schema?.required ?? []).not.toContain('recover_invalid');
+    expect(getToolDefinition('delete_route')?.description).toContain('recover_invalid: true');
   });
 });

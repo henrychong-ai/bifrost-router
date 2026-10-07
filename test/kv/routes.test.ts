@@ -4,15 +4,17 @@ import { lookupRoute } from '../../src/kv/lookup';
 import {
   createRoute,
   deleteRoute,
-  getAllRoutes,
-  getAllRoutesAllDomains,
+  findRoutesByR2Target,
   getRoute,
+  listAllDomainRoutes,
+  listDomainRoutes,
   migrateRoute,
   parseRouteKey,
   seedRoutes,
   updateRoute,
 } from '../../src/kv/routes';
 import { routeKey } from '../../src/kv/schema';
+import { KVReadError } from '../../src/utils/kv-errors';
 import { clearRoutes } from '../helpers';
 
 /** The record a single-route read found, else null (missing or invalid). */
@@ -298,7 +300,7 @@ describe('routes', () => {
   });
 });
 
-describe('getAllRoutes', () => {
+describe('listDomainRoutes', () => {
   const testDomain = 'allroutes.example.com';
 
   beforeEach(async () => {
@@ -306,7 +308,7 @@ describe('getAllRoutes', () => {
   });
 
   it('returns empty array when no routes exist', async () => {
-    const routes = await getAllRoutes(env.ROUTES, testDomain);
+    const routes = (await listDomainRoutes(env.ROUTES, testDomain)).routes;
     expect(routes).toEqual([]);
   });
 
@@ -327,7 +329,7 @@ describe('getAllRoutes', () => {
       target: 'https://third.example.com',
     });
 
-    const routes = await getAllRoutes(env.ROUTES, testDomain);
+    const routes = (await listDomainRoutes(env.ROUTES, testDomain)).routes;
     expect(routes).toHaveLength(3);
 
     const paths = routes.map(r => r.path).toSorted();
@@ -347,7 +349,7 @@ describe('getAllRoutes', () => {
       target: 'https://theirs.example.com',
     });
 
-    const routes = await getAllRoutes(env.ROUTES, testDomain);
+    const routes = (await listDomainRoutes(env.ROUTES, testDomain)).routes;
     expect(routes).toHaveLength(1);
     expect(routes[0].path).toBe('/mine');
 
@@ -356,8 +358,8 @@ describe('getAllRoutes', () => {
   });
 });
 
-describe('getAllRoutesAllDomains', () => {
-  // getAllRoutesAllDomains only returns routes for keys whose domain is in SUPPORTED_DOMAINS
+describe('listAllDomainRoutes', () => {
+  // listAllDomainRoutes only returns routes for keys whose domain is in SUPPORTED_DOMAINS
   const domain1 = 'example.com';
   const domain2 = 'secondary.example.net';
 
@@ -378,7 +380,7 @@ describe('getAllRoutesAllDomains', () => {
       target: 'https://b.example.com',
     });
 
-    const routes = await getAllRoutesAllDomains(env.ROUTES);
+    const routes = (await listAllDomainRoutes(env.ROUTES)).routes;
 
     // Should include routes from both supported domains
     const routeA = routes.find(r => r.path === '/route-a');
@@ -388,6 +390,49 @@ describe('getAllRoutesAllDomains', () => {
     expect(routeA?.domain).toBe(domain1);
     expect(routeB).toBeDefined();
     expect(routeB?.domain).toBe(domain2);
+  });
+
+  it('keeps a readable record holding an `invalid` field among the routes (read status decides)', async () => {
+    const record = {
+      path: '/flagged',
+      type: 'redirect',
+      target: 'https://example.com/f',
+      invalid: true,
+    };
+    await env.ROUTES.put(routeKey(domain1, '/flagged'), JSON.stringify(record));
+    for (const listing of [
+      await listAllDomainRoutes(env.ROUTES),
+      await listDomainRoutes(env.ROUTES, domain1),
+    ]) {
+      expect(listing.invalid).toEqual([]);
+      expect(listing.routes.find(route => route.path === '/flagged')).toMatchObject(record);
+    }
+  });
+
+  it('fails the whole listing on a KV read failure for one key, as the one-domain listing does', async () => {
+    await createRoute(env.ROUTES, domain1, {
+      path: '/fine',
+      type: 'redirect',
+      target: 'https://example.com/fine',
+    });
+    await createRoute(env.ROUTES, domain2, {
+      path: '/flaky',
+      type: 'r2',
+      target: 'docs/a.pdf',
+    });
+    const failing = {
+      list: (options?: KVNamespaceListOptions) => env.ROUTES.list(options),
+      get: async (key: string, type?: 'text') => {
+        if (key === routeKey(domain2, '/flaky')) throw new Error('KV unavailable');
+        return env.ROUTES.get(key, type ?? 'text');
+      },
+    } as unknown as KVNamespace;
+    await expect(listAllDomainRoutes(failing)).rejects.toBeInstanceOf(KVReadError);
+    await expect(listDomainRoutes(failing, domain2)).rejects.toBeInstanceOf(KVReadError);
+    // The route that serves the object is never silently missing from the answer
+    await expect(findRoutesByR2Target(failing, 'files', 'docs/a.pdf')).rejects.toBeInstanceOf(
+      KVReadError,
+    );
   });
 });
 

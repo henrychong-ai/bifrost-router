@@ -21,7 +21,13 @@ const state = vi.hoisted(() => ({
   invalid: [] as Array<{ domain: string; id: string; invalid: true }>,
   routes: [] as Route[],
   createQr:
-    vi.fn<(variables: { input: Record<string, unknown>; domain: string }) => Promise<QRCode>>(),
+    vi.fn<
+      (variables: {
+        input: Record<string, unknown>;
+        domain: string;
+        afterUncertainAnswer?: boolean;
+      }) => Promise<QRCode>
+    >(),
   updateQr:
     vi.fn<
       (variables: {
@@ -390,6 +396,72 @@ describe('a new linked route kept when the code is gone', () => {
     ];
     expect(message).toContain(`Route https://${DOMAIN}/autumn was created`);
     expect(options?.action?.label).toBe('View route');
+  });
+});
+
+/** The last error toast: its message and options. */
+const lastError = () =>
+  (toasts.error.mock.calls.at(-1) ?? []) as unknown as [
+    string,
+    { action?: { label?: string } } | undefined,
+  ];
+
+describe('a save failure after the editor created the linked route (v1.38.0)', () => {
+  beforeEach(async () => {
+    await render();
+    await click(button(/New QR code/));
+    const toggle = document.getElementById('qr-link-route');
+    if (!toggle) throw new Error('no link switch');
+    await click(toggle);
+    await click(button('New route'));
+    await typeInto(input('qr-route-path'), '/autumn');
+    await typeInto(input('qr-route-target'), 'https://example.net/autumn');
+  });
+
+  it.each([
+    [new ApiError(400, 'Tags must be at most 10')],
+    [
+      new ApiError(409, 'QR code already exists: autumn-code', undefined, {
+        code: 'QR_ALREADY_EXISTS',
+      }),
+    ],
+    [
+      new ApiError(
+        409,
+        'This QR code is stored in a shape that cannot be read. Delete it and create it again.',
+        undefined,
+        { code: 'QR_RECORD_INVALID' },
+      ),
+    ],
+  ])('shows the server answer %#, keeping the route with View route', async error => {
+    state.createQr.mockRejectedValueOnce(error);
+    await click(button('Create QR code'));
+    const [message, options] = lastError();
+    expect(message).toContain(`Route https://${DOMAIN}/autumn was created`);
+    expect(message).toContain(`the QR code was not saved: ${error.message}`);
+    expect(options?.action?.label).toBe('View route');
+  });
+
+  it('says the save could not be confirmed when no answer arrived, and marks the retry', async () => {
+    state.createQr.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await click(button('Create QR code'));
+    expect(lastError()[0]).toContain('the QR save could not be confirmed');
+    expect(state.createQr.mock.calls[0]?.[0]).toMatchObject({ afterUncertainAnswer: false });
+    // The retry of the same id says its first answer was uncertain, so a 409
+    // for its own code is taken as that earlier save
+    await click(button('Create QR code'));
+    expect(state.createQr.mock.calls[1]?.[0]).toMatchObject({ afterUncertainAnswer: true });
+    expect(state.createQr.mock.calls[1]?.[0].input['id']).toBe(
+      state.createQr.mock.calls[0]?.[0].input['id'],
+    );
+    expect(toasts.success).toHaveBeenCalledWith(expect.stringMatching(/^QR code created: /));
+  });
+
+  it('a retry after a certain refusal is not marked', async () => {
+    state.createQr.mockRejectedValueOnce(new ApiError(400, 'Tags must be at most 10'));
+    await click(button('Create QR code'));
+    await click(button('Create QR code'));
+    expect(state.createQr.mock.calls[1]?.[0]).toMatchObject({ afterUncertainAnswer: false });
   });
 });
 

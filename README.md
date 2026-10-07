@@ -452,6 +452,26 @@ curl -X POST "https://bifrost.yourdomain.com/api/routes/migrate?domain=yourdomai
   -H "X-Admin-Key: your-api-key"
 ```
 
+To change other fields in the same move, send them as the body (an update
+body); the route is written once, at the new path:
+
+```bash
+curl -X POST "https://bifrost.yourdomain.com/api/routes/migrate?domain=yourdomain.com&oldPath=/old&newPath=/new" \
+  -H "X-Admin-Key: your-api-key" -H "Content-Type: application/json" \
+  -d '{"statusCode": 301}'
+```
+
+### Delete an unreadable route record
+
+A route listed as `{ "path": …, "invalid": true }` is stored in a shape that
+cannot be read. Delete exactly that key (the path as listed, never
+normalised; a readable route there is refused), then create it again:
+
+```bash
+curl -X DELETE "https://bifrost.yourdomain.com/api/routes?domain=yourdomain.com&path=%2FPromo&recover=invalid" \
+  -H "X-Admin-Key: your-api-key"
+```
+
 ## API Reference
 
 All admin endpoints require `X-Admin-Key` header or `Authorization: Bearer <key>`.
@@ -463,12 +483,12 @@ domain for writes.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/routes` | List routes, newest first (`?search=` ranked by relevance, at most 2,048 characters; `?type=`, `?enabled=`, `?limit=`, `?offset=`, `?domain=`) |
+| `GET` | `/api/routes` | List routes, newest first (`?search=` ranked by relevance, at most 2,048 characters; `?type=`, `?enabled=`, `?limit=`, `?offset=`, `?domain=`; an invalid value answers 400) |
 | `GET` | `/api/routes?path=` | Get single route |
 | `POST` | `/api/routes` | Create route |
 | `PUT` | `/api/routes?path=` | Update route |
-| `DELETE` | `/api/routes?path=` | Delete route |
-| `POST` | `/api/routes/migrate` | Migrate route to new path |
+| `DELETE` | `/api/routes?path=` | Delete route (`&recover=invalid`: delete an unreadable record by its exact key) |
+| `POST` | `/api/routes/migrate` | Migrate route to new path (optional update body, written in the same write) |
 | `POST` | `/api/routes/transfer` | Transfer route between domains |
 | `POST` | `/api/routes/normalize-case` | One-time migration: convert all route paths to lowercase (run after upgrading to v1.22.0+ if you have pre-existing uppercase routes) |
 | `GET` | `/api/routes/by-target` | Find routes serving an R2 object (`?bucket=&target=`) |

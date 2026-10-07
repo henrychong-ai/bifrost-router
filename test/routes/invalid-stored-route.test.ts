@@ -84,6 +84,8 @@ describe('an invalid stored route through the API', () => {
 
   it('an invalid row matches a search by its path, and no type or enabled filter', async () => {
     expect(await listedPaths('&search=bad')).toEqual(['/bad']);
+    // In a one-domain list the domain every row shares is never matched
+    expect(await listedPaths('&search=links.example')).toEqual([]);
     expect(await listedPaths('&search=secret')).toEqual([]);
     expect(await listedPaths('&type=redirect')).toEqual([]);
     expect(await listedPaths('&enabled=true')).toEqual([]);
@@ -319,5 +321,61 @@ describe('request bodies are read as unknown and validated', () => {
       'Invalid JSON body',
       JSON.stringify({ success: false, error: 'Request body must contain a "routes" array' }),
     ]).toContain(body);
+  });
+});
+
+describe('the route list refuses an invalid query (v1.38.0)', () => {
+  beforeEach(async () => {
+    await clearAllRoutes();
+    await env.ROUTES.put(
+      routeKey(DOMAIN, '/good'),
+      JSON.stringify({ path: '/good', type: 'redirect', target: 'https://example.com/g' }),
+    );
+  });
+
+  it.each([
+    'limit=abc',
+    'limit=0',
+    'limit=1001',
+    'limit=1.5',
+    'limit=',
+    'offset=-1',
+    'offset=x',
+    'type=bogus',
+    'enabled=maybe',
+  ])('answers 400 for %s, never an unfiltered list', async query => {
+    for (const scope of [`domain=${DOMAIN}&`, '']) {
+      const response = await call('GET', `/routes?${scope}${query}`);
+      expect(response.status).toBe(400);
+      const body = (await response.json()) as { success: boolean; error: string };
+      expect(body.success).toBe(false);
+      expect(body.error).toMatch(/^Invalid query: /);
+    }
+  });
+
+  it('still answers a valid query', async () => {
+    expect(await listedPaths('&limit=10&offset=0&type=redirect&enabled=true')).toEqual(['/good']);
+  });
+});
+
+describe('a readable record that holds an `invalid` field (v1.38.0)', () => {
+  beforeEach(async () => {
+    await clearAllRoutes();
+  });
+
+  it('is listed as a route with its fields, matching type and enabled filters', async () => {
+    const record = {
+      path: '/flagged',
+      type: 'redirect',
+      target: 'https://example.com/f',
+      invalid: true,
+    };
+    await env.ROUTES.put(routeKey(DOMAIN, '/flagged'), JSON.stringify(record));
+    for (const query of [`?domain=${DOMAIN}`, '', `?domain=${DOMAIN}&type=redirect`]) {
+      const body = (await (await call('GET', `/routes${query}`)).json()) as {
+        data: { routes: Array<Record<string, unknown>> };
+      };
+      expect(body.data.routes).toEqual([{ ...record, domain: DOMAIN }]);
+    }
   });
 });

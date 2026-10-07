@@ -73,10 +73,10 @@ export async function listObjects(
   client: EdgeRouterClient,
   args: {
     bucket: string;
-    prefix?: string;
-    cursor?: string;
-    limit?: number;
-    delimiter?: string;
+    prefix?: string | undefined;
+    cursor?: string | undefined;
+    limit?: number | undefined;
+    delimiter?: string | undefined;
   },
 ): Promise<string> {
   try {
@@ -152,7 +152,7 @@ export async function getObjectMeta(
  */
 export async function getObject(
   client: EdgeRouterClient,
-  args: { bucket: string; key: string; metadata_only?: boolean },
+  args: { bucket: string; key: string; metadata_only?: boolean | undefined },
 ): Promise<string> {
   try {
     // Always get metadata first
@@ -190,10 +190,10 @@ export async function uploadObject(
   args: {
     bucket: string;
     key: string;
-    file_path?: string;
-    content_base64?: string;
-    content_type?: string;
-    overwrite?: boolean;
+    file_path?: string | undefined;
+    content_base64?: string | undefined;
+    content_type?: string | undefined;
+    overwrite?: boolean | undefined;
   },
 ): Promise<string> {
   try {
@@ -319,7 +319,12 @@ export async function renameObject(
  */
 export async function moveObject(
   client: EdgeRouterClient,
-  args: { bucket: string; key: string; destination_bucket: string; destination_key?: string },
+  args: {
+    bucket: string;
+    key: string;
+    destination_bucket: string;
+    destination_key?: string | undefined;
+  },
 ): Promise<string> {
   try {
     const result = await client.moveObject(
@@ -348,9 +353,9 @@ export async function updateObjectMetadata(
   args: {
     bucket: string;
     key: string;
-    content_type?: string;
-    cache_control?: string;
-    content_disposition?: string;
+    content_type?: string | undefined;
+    cache_control?: string | undefined;
+    content_disposition?: string | undefined;
   },
 ): Promise<string> {
   try {

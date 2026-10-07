@@ -4,6 +4,8 @@ import {
   CreateQrToolInputSchema,
   escapeMecard,
   generateQrId,
+  InvalidQRRowSchema,
+  isInvalidQRRow,
   MAX_QR_PAYLOAD_LENGTH,
   normalizeQrId,
   normalizeQrIdInput,
@@ -1016,5 +1018,16 @@ describe('QRLinkedRouteInputSchema key limit', () => {
     expect(routeKeyBytes('example.com', fits)).toBe(512);
     expect(link(fits)).toBe(true);
     expect(link(`${fits}b`)).toBe(false);
+  });
+});
+
+describe('unreadable QR listing rows are told apart by shape (v1.38.0)', () => {
+  it('only the key and the flag, nothing else, is an unreadable row', () => {
+    const row = { domain: 'links.example.com', id: 'gone', invalid: true };
+    expect(isInvalidQRRow(row)).toBe(true);
+    expect(InvalidQRRowSchema.parse(row)).toEqual(row);
+    const readable = { ...row, type: 'text', payload: { text: 'x' } };
+    expect(isInvalidQRRow(readable)).toBe(false);
+    expect(InvalidQRRowSchema.safeParse(readable).success).toBe(false);
   });
 });
