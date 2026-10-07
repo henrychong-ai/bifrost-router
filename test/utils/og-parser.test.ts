@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { adminRoutes } from '../../src/routes/admin';
 import type { AppEnv } from '../../src/types';
 import {
+  describeOpenGraphFailure,
   MAX_REDIRECTS,
   minimalOpenGraph,
   parseOpenGraph,
@@ -307,6 +308,18 @@ describe('parseOpenGraph', () => {
         'Too many redirects (max 2)',
       );
       expect(fetchedUrls()).toHaveLength(3);
+      // The preview's answer names the cap that was applied, not the default
+      const failure: unknown = await parseOpenGraph('https://loop.example/', {
+        maxRedirects: 2,
+      }).catch((error: unknown) => error);
+      expect(describeOpenGraphFailure(failure)).toEqual({
+        status: 502,
+        error: 'Failed to fetch URL',
+        details: 'Too many redirects (max 2)',
+      });
+      expect(describeOpenGraphFailure(new TooManyRedirectsError(MAX_REDIRECTS)).details).toBe(
+        `Too many redirects (max ${MAX_REDIRECTS})`,
+      );
     });
 
     it('checks the hop cap before the Location: at the cap a redirect is always TooManyRedirects', async () => {

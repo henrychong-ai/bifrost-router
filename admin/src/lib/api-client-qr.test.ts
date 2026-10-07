@@ -13,9 +13,6 @@ vi.mock('@/env', () => ({
   env: { VITE_API_URL: 'https://api.example.test', ADMIN_API_KEY: 'test-admin-key' },
 }));
 
-const DATE = 'Tue, 06 Oct 2026 10:00:00 GMT';
-const SECOND = Date.parse('2026-10-06T10:00:00Z');
-
 /** A record saved under earlier limits: a 120-character description, 12 tags. */
 const legacy = {
   id: 'legacy-code',
@@ -62,10 +59,10 @@ describe('qrApi responses', () => {
     await expect(qrApi.get('legacy-code', 'example.com')).rejects.toBeInstanceOf(Error);
   });
 
-  it('turns a QR_NOT_FOUND answer into an ApiError with its message, code and clock', async () => {
+  it('turns a QR_NOT_FOUND answer into an ApiError with its message and code', async () => {
     answer(
       { success: false, error: 'QR_NOT_FOUND', message: 'QR code not found: gone' },
-      { status: 404, headers: { Date: DATE, 'X-Server-Time': String(SECOND + 42) } },
+      { status: 404 },
     );
     const failure: unknown = await qrApi
       .delete('gone', 'example.com')
@@ -73,7 +70,6 @@ describe('qrApi responses', () => {
     expect(failure).toBeInstanceOf(ApiError);
     expect((failure as ApiError).message).toBe('QR code not found: gone');
     expect((failure as ApiError).code).toBe('QR_NOT_FOUND');
-    expect((failure as ApiError).serverTime).toBe(SECOND + 42);
     expect(isQrNotFoundError(failure)).toBe(true);
   });
 
@@ -85,12 +81,13 @@ describe('qrApi responses', () => {
     expect(isQrNotFoundError(new Error('QR_NOT_FOUND'))).toBe(false);
   });
 
-  it('resolves a delete with the server clock of its answer', async () => {
-    answer(
-      { success: true, data: { deleted: true, id: 'a' } },
-      { headers: { Date: DATE, 'X-Server-Time': String(SECOND + 7) } },
-    );
-    await expect(qrApi.delete('a', 'example.com')).resolves.toEqual({ serverTime: SECOND + 7 });
+  it('resolves a delete with the createdAt of the record it removed', async () => {
+    answer({ success: true, data: { deleted: true, id: 'a', createdAt: 42 } });
+    await expect(qrApi.delete('a', 'example.com')).resolves.toEqual({ createdAt: 42 });
+    vi.restoreAllMocks();
+    // An unreadable record names none
+    answer({ success: true, data: { deleted: true, id: 'a' } });
+    await expect(qrApi.delete('a', 'example.com')).resolves.toEqual({ createdAt: undefined });
   });
 
   it('cuts a long search to the API bound for QR and route lists', async () => {
@@ -111,5 +108,62 @@ describe('qrApi responses', () => {
     await routesApi.list(undefined, { search: 'z'.repeat(3000) });
     const routeUrl = new URL(String(routeSpy.mock.calls[0]?.[0]));
     expect(routeUrl.searchParams.get('search')).toHaveLength(SEARCH_PARAM_MAX_LENGTH);
+  });
+});
+
+describe('unreadable records and older routes in the lists (v1.38.0)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('splits the QR list into readable codes and unreadable rows', async () => {
+    answer({
+      success: true,
+      data: [legacy, { domain: 'example.com', id: 'broken-code', invalid: true }],
+      meta: { total: 2, count: 2, offset: 0, limit: 2, hasMore: false },
+    });
+    const listed = await qrApi.list({ domain: 'example.com' });
+    expect(listed.items.map(item => item.id)).toEqual(['legacy-code']);
+    expect(listed.invalid).toEqual([{ domain: 'example.com', id: 'broken-code', invalid: true }]);
+  });
+
+  it('lists a route stored before today’s rules, and splits out an unreadable row', async () => {
+    const older = {
+      path: '/older',
+      type: 'redirect',
+      target: 'https://example.com/',
+      statusCode: 303,
+      bucket: 'retired-bucket',
+      cacheControl: null,
+      domain: 'example.com',
+    };
+    answer({
+      success: true,
+      data: {
+        routes: [older, { domain: 'example.com', path: '/broken', invalid: true }],
+        meta: { total: 2, offset: 0, hasMore: false },
+      },
+    });
+    const listed = await routesApi.list('example.com');
+    expect(listed.routes).toEqual([
+      {
+        path: '/older',
+        type: 'redirect',
+        target: 'https://example.com/',
+        statusCode: 303,
+        bucket: 'retired-bucket',
+        domain: 'example.com',
+      },
+    ]);
+    expect(listed.invalidRoutes).toEqual([
+      { domain: 'example.com', path: '/broken', invalid: true },
+    ]);
+    expect(listed.total).toBe(2);
+  });
+
+  it('still refuses a route row that is neither a route nor an unreadable row', async () => {
+    answer({
+      success: true,
+      data: { routes: [{ path: '/x', type: 'script', target: 'x' }], meta: {} },
+    });
+    await expect(routesApi.list('example.com')).rejects.toBeInstanceOf(Error);
   });
 });

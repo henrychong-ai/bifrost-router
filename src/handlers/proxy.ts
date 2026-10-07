@@ -13,7 +13,9 @@ const DEFAULT_TIMEOUT_MS = 30000;
  * Upstream redirects the proxy follows before giving up (v1.38.0): 20, the
  * Fetch standard's limit the runtime applied when it followed them, so every
  * redirect chain served before is served now. Each hop is checked against the
- * shared outbound host policy before it is fetched.
+ * shared outbound host policy before it is fetched. The link preview has its
+ * own, lower cap (`MAX_REDIRECTS`, 5, in `og-parser.ts`), also for a preview
+ * of a proxy route; the two loops and caps are separate on purpose.
  */
 export const MAX_PROXY_REDIRECTS = 20;
 
@@ -22,10 +24,11 @@ const REDIRECT_STATUSES: ReadonlySet<number> = new Set([301, 302, 303, 307, 308]
 
 /**
  * The only request headers a followed redirect carries to another origin
- * (v1.38.0), an ALLOW-list: content negotiation, the user agent, caching and
- * conditional (`if-*`) headers and ranges. Everything else stays behind: the
- * visitor's credentials (Authorization, Cookie, Proxy-Authorization), the
- * route's Host override and any custom header. Before v1.38.0 the runtime
+ * (v1.38.0), an ALLOW-list by exact name: content negotiation, the user
+ * agent, caching, ranges and the five HTTP conditional headers. Everything
+ * else stays behind: the visitor's credentials (Authorization, Cookie,
+ * Proxy-Authorization), the route's Host override and any custom header, a
+ * custom `If-…` header (`If-Api-Key`) included. Before v1.38.0 the runtime
  * followed redirects itself and, with the
  * `retain_authorization_on_cross_origin_redirect` flag, sent every header on.
  */
@@ -36,6 +39,11 @@ const CROSS_ORIGIN_HEADERS: ReadonlySet<string> = new Set([
   'cache-control',
   'range',
   'user-agent',
+  'if-match',
+  'if-none-match',
+  'if-modified-since',
+  'if-unmodified-since',
+  'if-range',
 ]);
 
 /**
@@ -46,7 +54,7 @@ const CROSS_ORIGIN_HEADERS: ReadonlySet<string> = new Set([
 function crossOriginHeaders(headers: Headers): Headers {
   const kept = new Headers();
   for (const [name, value] of headers) {
-    if (CROSS_ORIGIN_HEADERS.has(name) || name.startsWith('if-')) kept.append(name, value);
+    if (CROSS_ORIGIN_HEADERS.has(name)) kept.append(name, value);
   }
   return kept;
 }
@@ -420,14 +428,19 @@ export async function handleProxy(
       );
     }
 
-    // Handle network errors
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    // Handle network errors: the visitor gets a fixed message, never the
+    // runtime's own text (it can name an upstream host or address); the error's
+    // class name is logged
     return createProxyErrorResponse(
       c,
       'network_error',
-      `Failed to connect to upstream server: ${errorMessage}`,
+      'Failed to connect to upstream server.',
       502,
-      { path: route.path, target: redactRouteTarget(route.target) },
+      {
+        path: route.path,
+        target: redactRouteTarget(route.target),
+        errorName: error instanceof Error ? error.name : typeof error,
+      },
     );
   }
 }

@@ -29,6 +29,25 @@ export const WIDE_LOGO_MIN_RATIO = 2;
 /** Wide window width as a fraction of the rendered size. */
 export const WIDE_LOGO_WIDTH_RATIO = 0.5;
 
+/** XML entities for the characters that could end or open markup in an attribute value. */
+const ATTRIBUTE_ENTITIES: Readonly<Record<string, string>> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
+
+/**
+ * A value made safe for an XML attribute (v1.38.0). Every write validates the
+ * design and a stored record is read by format (`parseStoredQR`), but the
+ * renderer escapes regardless: a valid colour or base64 logo holds none of
+ * these characters, so valid output is byte-identical.
+ */
+function attribute(value: string): string {
+  return value.replace(/[&<>"']/g, character => ATTRIBUTE_ENTITIES[character] ?? character);
+}
+
 /**
  * Render the serialized QR content to an SVG string. When a logo is present,
  * error correction is FORCED to 'H' (the logo obscures the center modules) and
@@ -49,8 +68,8 @@ export function renderQrSvg(content: string, design: QRDesign): string {
     padding: design.margin,
     width: design.size,
     height: design.size,
-    color: design.fg,
-    background: design.bg,
+    color: attribute(design.fg),
+    background: attribute(design.bg),
     ecl: design.logoDataUri ? 'H' : design.errorCorrection,
     join: true,
   }).svg();
@@ -65,8 +84,8 @@ export function renderQrSvg(content: string, design: QRDesign): string {
   const xOff = (design.size - logoW) / 2;
   const yOff = (design.size - logoH) / 2;
   const logo =
-    `<rect x="${xOff}" y="${yOff}" width="${logoW}" height="${logoH}" fill="${design.bg}"/>` +
-    `<image href="${design.logoDataUri}" x="${xOff}" y="${yOff}" width="${logoW}" height="${logoH}"/>`;
+    `<rect x="${xOff}" y="${yOff}" width="${logoW}" height="${logoH}" fill="${attribute(design.bg)}"/>` +
+    `<image href="${attribute(design.logoDataUri)}" x="${xOff}" y="${yOff}" width="${logoW}" height="${logoH}"/>`;
   return svg.replace('</svg>', `${logo}</svg>`);
 }
 

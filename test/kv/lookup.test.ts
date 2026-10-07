@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   getWildcardCandidates,
-  matchRoute,
+  lookupRoute,
   normalizePath,
   rawWildcardRemainder,
 } from '../../src/kv/lookup';
@@ -137,7 +137,7 @@ const createKv = (routes: ReadonlyMap<string, KVRouteConfig>): KVNamespace =>
     get: async (key: string) => stored(routes.get(key)),
   }) as unknown as KVNamespace;
 
-describe('matchRoute wildcard lookup', () => {
+describe('lookupRoute wildcard lookup', () => {
   const domain = 'lookup.example.com';
   const deepPath = '/a/b/c/d/e/f/g/h';
 
@@ -154,7 +154,10 @@ describe('matchRoute wildcard lookup', () => {
       },
     } as unknown as KVNamespace;
 
-    await expect(matchRoute(kv, domain, deepPath)).resolves.toEqual(specific);
+    await expect(lookupRoute(kv, domain, deepPath)).resolves.toEqual({
+      status: 'ok',
+      route: specific,
+    });
   });
 
   it('falls through a disabled specific wildcard to the next enabled candidate', async () => {
@@ -167,7 +170,7 @@ describe('matchRoute wildcard lookup', () => {
       ]),
     );
 
-    await expect(matchRoute(kv, domain, deepPath)).resolves.toEqual(root);
+    await expect(lookupRoute(kv, domain, deepPath)).resolves.toEqual({ status: 'ok', route: root });
   });
 
   it('loads wildcard candidates concurrently after an exact miss', async () => {
@@ -184,7 +187,7 @@ describe('matchRoute wildcard lookup', () => {
       },
     } as unknown as KVNamespace;
 
-    await expect(matchRoute(kv, domain, deepPath)).resolves.toBeNull();
+    await expect(lookupRoute(kv, domain, deepPath)).resolves.toEqual({ status: 'missing' });
     expect(maxActiveReads).toBe(getWildcardCandidates(deepPath).length);
   });
 });

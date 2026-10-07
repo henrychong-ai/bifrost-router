@@ -1,5 +1,8 @@
 import {
+  type InvalidQRRow,
   MAX_QR_RECORD_BYTES,
+  matchesSearchFields,
+  parseSearchQuery,
   parseStoredQR as parseSharedStoredQR,
   type QRCode,
   type QRListQuery,
@@ -12,13 +15,7 @@ import {
   readKvJson,
   type Validator,
 } from '../utils/boundary';
-import {
-  KVDeleteError,
-  KVReadError,
-  type KVResult,
-  KVWriteError,
-  withKVErrorHandling,
-} from '../utils/kv-errors';
+import { KVDeleteError, KVReadError, KVWriteError } from '../utils/kv-errors';
 import { qrDomainPrefix, qrKey } from './schema';
 
 /**
@@ -36,18 +33,13 @@ export const QR_RECORD_TOO_LARGE = 'QR record is too large';
 /**
  * A stored QR record validated and normalised, or null (v1.38.0). The one
  * read shape lives in `@bifrost/shared` (`parseStoredQR`), so the Worker and
- * the dashboard accept exactly the same records: a structural check of every
- * field a reader consumes, tolerant of records written under earlier limits,
+ * the dashboard accept exactly the same records: the write schemas minus
+ * their length and count caps (formats, types and ranges as on write),
  * keeping only the fields a record defines. Re-exported here for the Worker's
  * callers. `test/kv/qr-boundary.test.ts` checks that every record the write
  * schema produces passes.
  */
 export const parseStoredQR = parseSharedStoredQR;
-
-/** Whether `value` is a stored QR record (parseStoredQR accepts it). */
-export function isStoredQR(value: unknown): boolean {
-  return parseStoredQR(value) !== null;
-}
 
 /** The validator readKvJson takes: the normalised record, or invalid. */
 const storedQR: Validator<QRCode> = {
@@ -70,18 +62,14 @@ async function readQRState(kv: KVNamespace, key: string): Promise<BoundaryRead<Q
   return read;
 }
 
-async function readQRValue(kv: KVNamespace, key: string): Promise<QRCode | null> {
-  const read = await readQRState(kv, key);
-  return read.status === 'ok' ? read.value : null;
-}
-
 /**
  * A QR code's stored state (v1.38.0): `missing`, `ok` with the record, or
- * `invalid` (a record that cannot be read). Delete and create use it, so an
- * unreadable record is present: it can be deleted, and a create never
- * overwrites it. Throws KVReadError on failure.
+ * `invalid` (a record is stored but cannot be read, logged once), never
+ * collapsed: a read or an update answers 409 `QR_RECORD_INVALID` for it, a
+ * create with its id 409 too, and delete removes it. Throws KVReadError on a
+ * KV failure.
  */
-export async function getQRState(
+export async function getQR(
   kv: KVNamespace,
   domain: string,
   id: string,
@@ -92,34 +80,6 @@ export async function getQRState(
   } catch (error) {
     throw new KVReadError(key, error instanceof Error ? error : new Error(String(error)));
   }
-}
-
-/**
- * Get a single QR record by domain and id. Returns null if not found.
- * Throws KVReadError on failure.
- */
-export async function getQR(kv: KVNamespace, domain: string, id: string): Promise<QRCode | null> {
-  const key = qrKey(domain, id);
-  try {
-    return await readQRValue(kv, key);
-  } catch (error) {
-    throw new KVReadError(key, error instanceof Error ? error : new Error(String(error)));
-  }
-}
-
-/**
- * Non-throwing variant of {@link getQR} (mirrors getRouteSafe).
- */
-export async function getQRSafe(
-  kv: KVNamespace,
-  domain: string,
-  id: string,
-): Promise<KVResult<QRCode | null>> {
-  const key = qrKey(domain, id);
-  return withKVErrorHandling(
-    () => readQRValue(kv, key),
-    cause => new KVReadError(key, cause),
-  );
 }
 
 /**
@@ -145,17 +105,23 @@ export async function putQR(kv: KVNamespace, record: QRCode): Promise<QRCode> {
 }
 
 /**
- * Delete a QR record. Returns false if it did not exist.
- * Throws KVDeleteError on failure.
+ * Delete a QR record, also one that cannot be read (deleting it is the
+ * recovery). Answers the state it found, read once: `missing` (nothing
+ * deleted), or the `ok` record or `invalid` state it deleted, for the
+ * caller's audit row. Throws KVReadError or KVDeleteError on a KV failure.
  */
-export async function deleteQR(kv: KVNamespace, domain: string, id: string): Promise<boolean> {
-  // An unreadable record is present: deleting it is the recovery
-  if ((await getQRState(kv, domain, id)).status === 'missing') return false;
+export async function deleteQR(
+  kv: KVNamespace,
+  domain: string,
+  id: string,
+): Promise<BoundaryRead<QRCode>> {
+  const state = await getQR(kv, domain, id);
+  if (state.status === 'missing') return state;
 
   const key = qrKey(domain, id);
   try {
     await kv.delete(key);
-    return true;
+    return state;
   } catch (error) {
     throw new KVDeleteError(key, error instanceof Error ? error : new Error(String(error)));
   }
@@ -166,24 +132,28 @@ export async function deleteQR(kv: KVNamespace, domain: string, id: string): Pro
  * the offset/limit slice (mirrors GET /api/routes meta semantics).
  */
 export interface QRListResult {
-  items: QRCode[];
+  items: Array<QRCode | InvalidQRRow>;
   total: number;
 }
 
 /**
  * List QR records for a domain with in-memory filtering + offset/limit paging.
  *
- * Prefix scan over `qr:{domain}:` with a cursor loop (same pattern as
- * getAllRoutes). QR volumes are small (tens per domain), so fetch-then-filter
- * is fine — the same trade-off the routes listing makes.
+ * Prefix scan over `qr:{domain}:` with a cursor loop (the routes listing's
+ * pattern). QR volumes are small (tens per domain), so fetch-then-filter is
+ * fine — the same trade-off the routes listing makes.
  *
  * Filters: `type` exact; `tag` exact membership; `search` the shared matcher
  * (case and separators ignored, words in any order, v1.38.0) over description
  * AND id — `qrMatchesListFilters`, the predicate the dashboard's QR store
- * applies too. Sorted by updatedAt descending for a stable,
- * recency-first listing. When `limit` is undefined, returns ALL filtered items
- * (offset still applies) — mirroring the routes listing's
- * paginate-only-when-limit-provided semantics.
+ * applies too, with the query parsed once for the list. Sorted by updatedAt
+ * descending for a stable, recency-first listing. When `limit` is undefined,
+ * returns ALL filtered items (offset still applies) — mirroring the routes
+ * listing's paginate-only-when-limit-provided semantics.
+ *
+ * A record that cannot be read is listed as a minimal row (`{ domain, id,
+ * invalid: true }`, v1.38.0) so it can be found and deleted: it matches a
+ * search by its id only, matches no type or tag filter, and sorts last.
  */
 export async function listQRs(
   kv: KVNamespace,
@@ -192,13 +162,20 @@ export async function listQRs(
 ): Promise<QRListResult> {
   const prefix = qrDomainPrefix(domain);
   const records: QRCode[] = [];
+  const invalid: InvalidQRRow[] = [];
   let cursor: string | undefined;
 
   try {
     do {
       const result = await kv.list({ prefix, ...(cursor !== undefined && { cursor }) });
-      const fetched = await Promise.all(result.keys.map(key => readQRValue(kv, key.name)));
-      records.push(...fetched.filter((r): r is QRCode => r !== null));
+      const keys = result.keys.map(key => key.name);
+      const fetched = await Promise.all(keys.map(key => readQRState(kv, key)));
+      for (const [index, read] of fetched.entries()) {
+        if (read.status === 'ok') records.push(read.value);
+        else if (read.status === 'invalid') {
+          invalid.push({ domain, id: (keys[index] ?? prefix).slice(prefix.length), invalid: true });
+        }
+      }
       cursor = result.list_complete ? undefined : result.cursor;
     } while (cursor);
   } catch (error) {
@@ -209,16 +186,19 @@ export async function listQRs(
     );
   }
 
-  // Same predicate as the dashboard's create reconciliation (shared)
-  const filtered = records.filter(qr => qrMatchesListFilters(qr, query));
-
+  // Same predicate as the dashboard's QR store (shared), the query parsed once
+  const filters = { ...query, search: parseSearchQuery(query.search) };
+  const filtered = records.filter(qr => qrMatchesListFilters(qr, filters));
   filtered.sort((a, b) => b.updatedAt - a.updatedAt);
+  const unreadable =
+    query.type || query.tag
+      ? []
+      : invalid.filter(row => matchesSearchFields([row.id], filters.search));
+  const rows: Array<QRCode | InvalidQRRow> = [...filtered, ...unreadable];
 
   const offset = query.offset ?? 0;
   const items =
-    query.limit === undefined
-      ? filtered.slice(offset)
-      : filtered.slice(offset, offset + query.limit);
+    query.limit === undefined ? rows.slice(offset) : rows.slice(offset, offset + query.limit);
 
-  return { items, total: filtered.length };
+  return { items, total: rows.length };
 }

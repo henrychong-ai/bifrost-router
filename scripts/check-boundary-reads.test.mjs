@@ -292,7 +292,7 @@ test('a .json() call with arguments is a response helper, not a read', () => {
   }
 });
 
-test('unknown in a union with null or undefined counts as unknown', () => {
+test('a union with unknown in it counts as unknown', () => {
   for (const text of [
     'const a: unknown | null = await r.json();',
     'const a: undefined | unknown = JSON.parse(t);',
@@ -304,8 +304,100 @@ test('unknown in a union with null or undefined counts as unknown', () => {
   ]) {
     assert.deepEqual(patterns(text), [], text);
   }
-  assert.deepEqual(patterns('const a: unknown | string = await r.json();'), ['1 json-annotated']);
+  // TypeScript collapses `unknown | T` to `unknown`: nothing is asserted
+  for (const text of [
+    'const a: unknown | string = await r.json();',
+    'const a: Body | (unknown | null) = JSON.parse(t);',
+    'const a = JSON.parse(t) as Body | unknown;',
+    'const a = await r.json<string | unknown>();',
+  ]) {
+    assert.deepEqual(patterns(text), [], text);
+  }
   assert.deepEqual(patterns('const a = JSON.parse(t) as null | Body;'), ['1 json-parse-as']);
+});
+
+test('a union with any in it is any, not unknown, however it is nested', () => {
+  assert.deepEqual(patterns('const a: unknown | any = await r.json();'), ['1 json-annotated']);
+  assert.deepEqual(patterns('const a = JSON.parse(t) as (null | (any | unknown));'), [
+    '1 json-parse-as',
+  ]);
+  assert.deepEqual(patterns('const a = await r.json<unknown | (any)>();'), ['1 json-generic']);
+  assert.deepEqual(patterns('const a: any = await r.json();'), ['1 json-annotated']);
+});
+
+test('an annotated binding is looked through ??, ||, && and both branches of a conditional', () => {
+  assert.deepEqual(patterns('const a: Body = cached ?? (await r.json());'), ['1 json-annotated']);
+  assert.deepEqual(patterns('const a: Body = (await r.json()) || fallback;'), ['1 json-annotated']);
+  assert.deepEqual(patterns('const a: Body = ok && JSON.parse(t);'), ['1 json-parse-annotated']);
+  assert.deepEqual(patterns('const a: Body = ok ? JSON.parse(t) : await r.json();'), [
+    '1 json-annotated',
+    '1 json-parse-annotated',
+  ]);
+  assert.deepEqual(patterns('let a: Body;\na = ok ? fallback : (await r.json())!;'), [
+    '2 json-annotated',
+  ]);
+  assert.deepEqual(patterns('const a: unknown = cached ?? (await r.json());'), []);
+});
+
+test('a declaration in a switch is found in its whole case block', () => {
+  const text = [
+    'switch (k) {',
+    '  case 1:',
+    '    let a: Body;',
+    '    break;',
+    '  case 2:',
+    '    a = await r.json();',
+    '    break;',
+    '}',
+  ].join('\n');
+  assert.deepEqual(patterns(text), ['6 json-annotated']);
+});
+
+test('a chain of assertions is flagged when any assertion names a type', () => {
+  assert.deepEqual(patterns('const a = (await r.json()) as unknown as Body;'), ['1 json-await-as']);
+  assert.deepEqual(patterns('const a = JSON.parse(s) as unknown as Body;'), ['1 json-parse-as']);
+  assert.deepEqual(patterns('const a = <Body>(<unknown>JSON.parse(s));'), ['1 json-parse-as']);
+  // One finding for one chain, however long
+  assert.deepEqual(patterns('const a = (r.json() as Body) as Other;'), ['1 json-await-as']);
+  assert.deepEqual(patterns('const a = JSON.parse(s) as unknown;'), []);
+  assert.deepEqual(patterns('const a = JSON.parse(s) as unknown as const;'), []);
+});
+
+test('a KV read asking for json through an assertion is flagged', () => {
+  assert.deepEqual(patterns('const a = await kv.get<Body>(k, "json" as "json");'), [
+    '1 kv-get-json',
+  ]);
+  assert.deepEqual(patterns('const a = await kv.get(k, <const>"json");'), ['1 kv-get-json']);
+  assert.deepEqual(patterns('const a = await kv.get(k, { type: "json" as "json" });'), [
+    '1 kv-get-json',
+  ]);
+});
+
+test('a marker vets only its own read: never one inside a callback or argument of the receiver', () => {
+  // The inner marker documents the callback, not the outer read
+  const callback = [
+    'const a = await wrap(async () => {',
+    '  // boundary-ok: inner callback',
+    '  return 1;',
+    '}).json<Body>();',
+  ].join('\n');
+  assert.deepEqual(patterns(callback), ['4 json-generic']);
+  const argument = [
+    'const a = await fetch(url, {',
+    '  // boundary-ok: about the options',
+    '}).json<Body>();',
+  ].join('\n');
+  assert.deepEqual(patterns(argument), ['3 json-generic']);
+  // The legitimate multi-line chain: the marker on the line before `.json`
+  const chain = ['const a = await response', '  // boundary-ok: vetted', '  .json<Body>();'].join(
+    '\n',
+  );
+  assert.deepEqual(patterns(chain), []);
+  // A marker on the read's own token line still vets it
+  assert.deepEqual(
+    patterns('const a = await wrap(() => 1).json<Body>(); // boundary-ok: vetted'),
+    [],
+  );
 });
 
 test('flags a read assigned, plainly or logically, to an annotated binding declared earlier', () => {

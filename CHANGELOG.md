@@ -38,10 +38,18 @@ headers are no longer sent on such a hop.
   a streamed body answers 502.
 - **Credentials stay on their origin.** On a hop to another origin only
   `accept`, `accept-encoding`, `accept-language`, `cache-control`, `range`,
-  `user-agent` and `if-*` go on: `Authorization`, `Cookie`,
-  `Proxy-Authorization`, the route's `Host` override and any custom header
-  stay behind, for that hop and every later one. `wrangler.toml` no longer
-  sets `retain_authorization_on_cross_origin_redirect`.
+  `user-agent` and the five conditional headers by exact name (`if-match`,
+  `if-none-match`, `if-modified-since`, `if-unmodified-since`, `if-range`) go
+  on: `Authorization`, `Cookie`, `Proxy-Authorization`, the route's `Host`
+  override and any custom header, a custom `If-…` header such as `If-Api-Key`
+  included, stay behind, for that hop and every later one. `wrangler.toml` no
+  longer sets `retain_authorization_on_cross_origin_redirect`.
+- **A failed upstream connection answers fixed text.** 502 `network_error`
+  with `Failed to connect to upstream server.`, never the runtime's error
+  message, which can name an upstream host or address.
+- **Two redirect caps, on purpose.** The proxy follows up to 20 redirects;
+  link previews keep their own loop and cap of 5, also when previewing a proxy
+  route.
 - **More best-fit look-alikes in the remainder rule.** A segment is also
   refused when a variant holds `´` (U+00B4, read as `/` by best-fit code
   pages), when its name part before `∶` (U+2236) or `։` (U+0589), read as `:`,
@@ -67,8 +75,9 @@ headers are no longer sent on such a hop.
   failure class and never an error's own text: 403 with the refusal class
   (`Invalid URL format`, `Blocked scheme`, `Blocked hostname`, `Blocked
   private IP address`, `Blocked IPv6 address`), 413 for a page over 1 MB, and
-  502 with `Too many redirects (max 5)`, `HTTP <status>`, `The page did not
-  answer in time` or `The page could not be fetched`.
+  502 with `Too many redirects (max 5)` (the cap actually applied),
+  `HTTP <status>`, `The page did not answer in time` or `The page could not
+  be fetched`.
 - **DOCTYPE parsing is pinned to the spec.** A `<!DOCTYPE …>` ends at its
   first `>`, a quoted public or system identifier included, as in every HTML
   DOCTYPE state; the scanner already did this, and new tests and the parse5
@@ -88,7 +97,9 @@ headers are no longer sent on such a hop.
   the Cmd+K commands (`create route` finds Create New Route).
 - **Route search covers path, target, type, status code, bucket and host
   header, and now the domain as typed** (only as typed, so a short path such
-  as `/tv` does not list every route on a `.tv` domain).
+  as `/tv` does not list every route on a `.tv` domain), and only in the
+  all-domains list: in a one-domain list every route shares the domain, so
+  matching it would list them all.
 - **Results are ordered by relevance:** a path equal to the query (ignoring
   separators), then paths starting with it, other path matches, then matches
   in other fields, newest first on ties. Route lists without a search are
@@ -111,11 +122,16 @@ headers are no longer sent on such a hop.
   reuses it instead of creating it again; a linked code's Reference is
   generated up front when empty, so a retry cannot create a second code. The
   editor notes another code already linked to the route, and the credential
-  confirmation applies to the new route's target.
+  confirmation applies to the new route's target. If an edit that has just
+  created the route finds the code deleted elsewhere, the route is reported as
+  kept, with View route. An edit that does not touch the link never needs the
+  linked route in the picker (deleted, still loading, or beyond the newest
+  1,000 routes).
 - **Edits send only what changed.** The QR edit dialog compares the form with
   what it showed when it opened and sends only the changed fields, checked
   against today's limits; an unchanged save makes no request ("No changes to
-  save"). The Worker applies today's limits only to the fields an update
+  save"). Tags are compared as the text the field shows, so stored tags it
+  cannot show as they are (one holding a comma) are never rewritten. The Worker applies today's limits only to the fields an update
   sets, so a code saved under older limits (a longer description, more tags)
   can now have its design, link or any other field changed; setting an
   over-limit value is still refused. The updated record keeps only the fields
@@ -124,40 +140,69 @@ headers are no longer sent on such a hop.
   snapshot too.
 - **The dashboard reads QR answers with the Worker's tolerant read shape**
   (`parseStoredQR`, now in `shared`), so codes saved under older limits list,
-  render and open instead of failing the dashboard's stricter check.
+  render and open instead of failing the dashboard's stricter check. The read
+  shape is the write schemas minus their length and count caps only: formats
+  are checked as on write (hex colours, the logo data-URI pattern, the
+  error-correction level, the size, margin and aspect-ratio ranges, the URL
+  scheme and the Wi-Fi rules, a linked route only on a url code, `createdBy`
+  present), so a record that fails one is unreadable rather than half-read.
+  The renderer also XML-escapes every attribute value it writes.
+- **An unreadable code is never "not found".** A read, the image, an update
+  and a create with its id answer a JSON 409 `{ success: false, error:
+  'QR_RECORD_INVALID', message }` (the dashboard shows the message and never
+  treats it as a deletion); the list shows it as "Unreadable record" with a
+  Delete action only (MCP `list_qrs` marks it), and deleting it, with one read,
+  records its id and key with `state: invalid`. A linked code whose route is
+  unreadable still encodes the short URL; only a missing route falls back to
+  the payload.
 - **QR lists show the latest known version on every read.** The dashboard
   keeps the newest version of each code it has seen (from its own changes and
   every list) and applies it whenever a page is shown, not only when one is
   fetched, so a cached page shows an edit at once and hides a code that no
   longer matches its filters. Replaces the store that only added codes created
   in the session.
-- **Deletions are timed by the server's clock.** Every `/api/qr` answer
-  carries `X-Server-Time` (milliseconds; exposed to the dashboard's origin
-  together with `Date`). The dashboard accepts it only as a plausible whole
-  number within the `Date` header's second (±1 s), else uses the end of that
-  second, and hides rows of a deleted code up to that time plus one second.
-  A later version (the code re-created elsewhere) shows again; a code this
-  session re-creates or updates shows at once. A missing code answers a JSON
-  404 `{ success: false, error: 'QR_NOT_FOUND', message }`; only that answer
+- **A deletion hides the code that was deleted, never its re-creation.** A
+  deleted code and a code re-created later with the same id are told apart by
+  `createdAt`, which the Worker sets at create and every update keeps. A
+  delete now answers `{ deleted: true, id, createdAt }`, the `createdAt` of the
+  record it removed (MCP `delete_qr` reports it too). The dashboard keeps one
+  tombstone per deleted code, named by that answer, or, for a `QR_NOT_FOUND`,
+  by the code the request was made for: its rows and late answers stay hidden
+  however their clocks stamped them, every other version shows at once (a
+  later `createdAt` is newer whatever the `updatedAt`), and deleting a code,
+  re-creating it and deleting it again keeps both hidden, whatever order the
+  replies arrive in. No clock is compared. A missing code answers a JSON 404
+  `{ success: false, error: 'QR_NOT_FOUND', message }`; only that answer
   counts as a deletion. An edit or delete of a code deleted elsewhere closes
   the dialog with "already deleted".
 
 ### Route dialog
 
-- **Edits send only what changed.** An untouched field (a target saved before
-  today's 8,192-character limit) is no longer re-sent and refused, and an
-  unchanged save makes no request. A field the stored route lacks counts as the
-  router's default (a missing bucket is `files`); Force Download stays unset
-  for a route saved without it ("decided by the file type") until it is
-  switched; clearing a stored Cache-Control or Host header now clears it.
-- **UTM tracking.** Redirect and proxy routes get a **UTM tracking** section:
-  source, medium, campaign, term and content, each with a short explanation.
-  Values are lowercased as you type and capitals already in the target are
-  converted; kebab-case is recommended. An edited tag replaces every
-  occurrence of its key, a cleared one removes them, and the rest of the target
-  is kept byte for byte. **Final target** shows what is saved, and the link
-  preview and duplicate-target check use it. Dashboard only: the API and MCP
-  keep the case they are sent.
+- **Edits send only what changed.** The dialog compares each field with what
+  it showed when it opened, so an untouched field (a target saved before
+  today's 8,192-character limit, an unset Force Download, a missing bucket) is
+  never re-sent and refused, a switch turned on and off again sends nothing,
+  and an unchanged save makes no request. Clearing a Cache-Control or Host
+  header that was shown clears it. Changing the type sends every field the
+  new type uses, so a redirect or proxy converted to R2 sends its bucket and
+  Force Download explicitly. A route stored with a status code or bucket no
+  write accepts today opens and edits like any other.
+- **A path change keeps the other changes.** Confirmed as a migration, it
+  moves the route first and then saves the rest of the edit on the new path;
+  if that second step fails, or its credential confirmation is cancelled, the
+  message says the route moved but its other changes were not saved. A route
+  whose stored target is not a URL can still be moved: the target is only
+  sent when it is edited.
+- **UTM tracking.** Redirect routes get a **UTM tracking** section: source,
+  medium, campaign, term and content, each with a short explanation (a proxy
+  replaces the target's query with the visitor's, so it has none). Values are
+  lowercased as you type and capitals already in the target are converted
+  once you edit the target or a UTM field; an untouched stored target is never
+  rewritten by another change. Kebab-case is recommended. An edited tag
+  replaces every occurrence of its key, a cleared one removes them, and the
+  rest of the target is kept byte for byte. **Final target** shows what is
+  saved, and the link preview and duplicate-target check use it. Dashboard
+  only: the API and MCP keep the case they are sent.
 - **Link-naming advice.** r2 links (and a new route named in the QR editor)
   show advice when the name carries a file extension, repeats the file's name,
   or holds a date or a version word (`final`, `draft`, `v2`); it never blocks
@@ -172,15 +217,24 @@ headers are no longer sent on such a hop.
   go through `readStoredJson` and `readResponseJson`. Each answers missing,
   valid or invalid and never throws a parser message; an invalid value is
   logged as one fixed line naming its category (and, for a route or QR code,
-  its key), never the value.
+  its key), never the value. Every route and QR read helper passes that answer
+  on, so no caller can mistake an unreadable record for a missing one.
 - **An invalid stored route fails closed.** It is never served, and the
   lookup no longer falls through to a broader wildcard or to the host's
-  service binding: the visitor gets a 404, and so does a preview of it.
-  `GET` answers 404 and listings leave it out. Create, update (a toggle
-  included), migrate and transfer over it answer a fixed 409
+  service binding: the visitor gets a 404, and so does a preview of it. The
+  lookup logs only the record it stopped at, never an unreadable broader
+  wildcard behind the route that serves the request. `GET ?path=`, create,
+  update (a toggle included), migrate and transfer over it answer a fixed 409
   `ROUTE_RECORD_INVALID`, and seed skips it; nothing is merged with it.
-  `DELETE` removes it, which is the recovery. The guard is as tolerant as the
-  shared `RouteSchema`, so routes stored before today's write caps still read.
+  Listings show it as a minimal row (`{ domain, path, invalid: true }`), which
+  the Routes page flags as "Unreadable record" with a Delete action only and
+  MCP `list_routes` marks. `DELETE` removes it, which is the recovery: its
+  public URL, taken from the key, is purged whatever it served, and its audit
+  row records the key with `state: invalid`. The guard, now in `shared` and
+  used by the dashboard too, is as tolerant as the shared `RouteSchema`
+  without its write rules, so routes stored before today's write caps,
+  without timestamps or with a status code or bucket no write accepts today
+  still read and list.
 - **Listings read route keys only.** Keys that are not `{domain}:/…` (QR
   records and the optional rate limiter's `ratelimit:` entries, which hold
   client IP addresses) are skipped before they are read or logged.
@@ -194,8 +248,12 @@ headers are no longer sent on such a hop.
 - **Other stored and remote values:** a malformed rate-limit entry resets its
   window; a malformed Cloudflare audit cursor restarts the first-run window; an
   audit-log entry that fails its shape is recorded in a minimal form (its id or
-  a hash, its time, `unparsed`) and never its content, at most 20 per run,
-  while pagination counts the raw page; feedback context and screenshot-key
+  a hash of its canonical JSON, the same whatever its key order), its time,
+  `unparsed`) and never its content, never twice (looked up over the last 90
+  days, far longer than an entry can be fetched again); at 20 such rows
+  a run stops before the next one, so a flood is recorded over several runs
+  and the watermark never passes an entry it did not record; pagination
+  counts the raw page; feedback context and screenshot-key
   columns read as their fallbacks; stored R2 audit details that are not a JSON
   object match no event (a stored `null` used to throw and retry the queue
   batch); a cache-purge answer that is not an object counts as a failure.
@@ -210,18 +268,33 @@ headers are no longer sent on such a hop.
   response keeps the server's `error` and `message` text even without a
   `success` flag, as the admin-host 404 sends it); the dashboard
   validates backup health, the Tailscale identity, feedback capture
-  attachments, audit details and the Routes page's navigation hand-off.
+  attachments, audit details and the Routes page's navigation hand-off. A
+  coded refusal keeps its code on the client's error, its text written once,
+  and an empty `error` or `message` reads as absent.
+  The backup health schemas and one set of plain guards live in `shared`,
+  used by the Worker, the dashboard and the client.
 - **Gate:** `scripts/check-boundary-reads.mjs` (`pnpm run boundary:check`, in
   `pnpm run check` and CI) fails on a KV read typed or asked for as `'json'`,
   `.json<T>()`, `c.req.json<T>()` or an untyped `c.req.json()`, a `.json()`
   result cast with `as`, `JSON.parse(…) as T`, and an argument-free `.json()`
   or a `JSON.parse(…)` initialising, or assigned (`=`, `??=`, `||=`, `&&=`)
   to, a binding annotated with a type other than `unknown`
-  (`unknown | null | undefined` counts as `unknown`). These patterns only; it
-  is not a proof that every read is checked. A vetted case needs a real
-  `// boundary-ok: <reason>` comment on the read's line or the line before
-  it; text that only looks like one, in a string, template literal, regular
-  expression or block comment, exempts nothing.
+  (a union with `unknown` in it counts as `unknown`, unless `any` is in it
+  too), looked for through `??`, `||`, `&&` and both branches of a
+  conditional, with a `switch`'s whole case block searched for the
+  declaration; a chain of assertions (`as unknown as T`) and a `'json'`
+  argument behind an assertion are caught too. These patterns only; it is
+  not a proof that every read is checked. A vetted case needs a real
+  `// boundary-ok: <reason>` comment on the line of the read's own token or
+  the line before it, and not inside a callback or argument of the read's
+  receiver; text that only looks like one, in a string, template literal,
+  regular expression or block comment, exempts nothing.
+- **Audit.** A route edit that only switches the route on or off records the
+  route key and `enabled` before and after.
+- **Dashboard browser baseline.** Dashboard code and the shared code it
+  bundles call no ES2023 array method (`toSorted`, `toReversed`, `toSpliced`,
+  `with`, `findLast`, `findLastIndex`), which the build target's older
+  browsers lack; a gate test fails if one reappears.
 
 ---
 

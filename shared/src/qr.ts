@@ -14,9 +14,11 @@
  */
 
 import { z } from 'zod';
+import { isOptional, isRecord } from './guards.js';
 import { MAX_ROUTE_KEY_BYTES, RoutePathSchema, routeKeyBytes } from './schemas.js';
 import {
   matchesSearchFields,
+  type ParsedSearchQuery,
   QR_SEARCH_DESCRIPTION,
   qrSearchFields,
   SEARCH_PARAM_MAX_LENGTH,
@@ -44,21 +46,25 @@ export const QR_ID_REGEX = /^[a-z0-9][a-z0-9-]{2,31}$/;
 export const QR_DESCRIPTION_MAX_LENGTH = 100;
 
 /**
- * Response header on every `/api/qr` answer (v1.38.0): the Worker's clock in
- * Unix milliseconds when it answered, after any KV write. The dashboard
- * stamps a deletion with it (validated against the `Date` header, see
- * `admin/src/lib/server-time.ts`), so a deletion is timed by the same clock
- * as every record's `updatedAt`.
- */
-export const QR_SERVER_TIME_HEADER = 'X-Server-Time';
-
-/**
  * The `error` of a 404 for a QR code that does not exist (v1.38.0):
  * `{ success: false, error: 'QR_NOT_FOUND', message }`. Only this answer
  * tells the dashboard a code is gone; any other 404 (a proxy, a wrong base
  * URL) is not a deletion.
  */
 export const QR_NOT_FOUND_ERROR = 'QR_NOT_FOUND';
+
+/**
+ * The `error` of a 409 for a QR code whose stored record cannot be read
+ * (v1.38.0): `{ success: false, error: 'QR_RECORD_INVALID', message }`, on a
+ * read, an update or a create with its id. The code exists, so this is never
+ * a deletion; the recovery is to delete it (DELETE accepts it) and create it
+ * again.
+ */
+export const QR_RECORD_INVALID_ERROR = 'QR_RECORD_INVALID';
+
+/** The fixed message of a {@link QR_RECORD_INVALID_ERROR} answer. */
+export const QR_RECORD_INVALID_MESSAGE =
+  'This QR code is stored in a shape that cannot be read. Delete it and create it again.';
 
 /** Longest id {@link normalizeQrId} will emit — the QR_ID_REGEX ceiling. */
 const QR_ID_MAX_LENGTH = 32;
@@ -440,48 +446,42 @@ const QR_PAYLOAD_KEYS: Readonly<Record<QRType, readonly string[]>> = {
 /** The design keys the renderer reads, from the design schema. */
 const QR_DESIGN_KEYS: readonly string[] = Object.keys(QRDesignSchema.shape);
 
-const isPlainObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-const isText = (value: unknown): value is string => typeof value === 'string';
-const isFiniteNumber = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isFinite(value);
-/** Absent (undefined or null) or passing `test`. */
-const absentOr = (value: unknown, test: (item: unknown) => boolean) =>
-  value === undefined || value === null || test(value);
+/** The default design (every field's default), parsed once. */
+const DEFAULT_QR_DESIGN: Readonly<QRDesign> = Object.freeze(QRDesignSchema.parse({}));
 
-/** The payload fields each type's readers need: required ones present, every field typed. */
-const PAYLOAD_SHAPES: Readonly<Record<QRType, (payload: Record<string, unknown>) => boolean>> = {
-  url: payload => isText(payload['url']),
-  text: payload => isText(payload['text']),
-  wifi: payload =>
-    isText(payload['ssid']) &&
-    ['auth', 'password', 'eapMethod', 'phase2', 'identity', 'anonymousIdentity'].every(field =>
-      absentOr(payload[field], isText),
-    ) &&
-    absentOr(payload['hidden'], item => typeof item === 'boolean'),
-  vcard: payload =>
-    isText(payload['name']) &&
-    ['phone', 'email', 'org', 'title', 'url'].every(field => absentOr(payload[field], isText)),
-};
+/**
+ * The stored design: the write schema with only the logo's decoded-size cap
+ * left out. Colours, the logo data-URI pattern, the error-correction level
+ * and the size, margin and aspect-ratio ranges are checked as on write.
+ */
+const StoredQRDesignSchema = QRDesignSchema.extend({
+  logoDataUri: z.string().regex(LOGO_DATA_URI_REGEX).optional(),
+});
 
-/** The design fields the renderer reads, each of its declared type when present. */
-function isDesignShape(design: Record<string, unknown>): boolean {
+/**
+ * The stored record: the record write schema (`QRCodeSchema`'s own fields,
+ * `createdBy` required), with the design as above and the payload checked
+ * per type on its own (the payload union cannot report a length cap as one).
+ */
+const StoredQRRecordSchema = z.object({
+  ...QRCodeSchema.shape,
+  payload: z.record(z.string(), z.unknown()),
+  design: StoredQRDesignSchema,
+});
+
+/**
+ * Whether `value` passes `schema` once length and count caps are ignored: it
+ * passes, or every issue is a string length or array size over its maximum.
+ * Anything else (a type, a format, an enum, a numeric range, a cross-field
+ * rule) still fails.
+ */
+function passesFormats(schema: z.ZodType, value: unknown): boolean {
+  const result = schema.safeParse(value);
   return (
-    ['fg', 'bg', 'errorCorrection', 'logoDataUri'].every(field =>
-      absentOr(design[field], isText),
-    ) &&
-    ['size', 'margin', 'logoAspectRatio'].every(field => absentOr(design[field], isFiniteNumber))
-  );
-}
-
-/** A stored link: `{domain, path}` with a non-empty domain and a path starting `/`. */
-function isLinkShape(link: unknown): boolean {
-  return (
-    isPlainObject(link) &&
-    isText(link['domain']) &&
-    link['domain'] !== '' &&
-    isText(link['path']) &&
-    link['path'].startsWith('/')
+    result.success ||
+    result.error.issues.every(
+      issue => issue.code === 'too_big' && (issue.origin === 'string' || issue.origin === 'array'),
+    )
   );
 }
 
@@ -501,16 +501,22 @@ function pick(source: Record<string, unknown>, keys: readonly string[]): Record<
  * the Worker on every KV read (`src/kv/qr.ts`) and by the dashboard on every
  * QR response ({@link StoredQRCodeSchema}).
  *
- * A structural check, not `QRCodeSchema`: the schema applies today's write
- * limits, which would refuse records written under earlier ones (a longer
- * description, more tags); those stay readable here, and the limits apply
- * only to the fields a write sets. It checks every field a reader consumes,
- * nested ones included: string `id` and `domain`, a known `type`, numeric
- * `createdAt`/`updatedAt`, the payload fields of that type, the design fields
- * the renderer reads, the linked route's `domain` and `path`, and the
- * optional `description`, `tags` and `createdBy`.
+ * The write schemas minus their length and count caps: a record written
+ * under earlier limits (a longer description, more or longer tags, a longer
+ * payload field, a bigger logo) stays readable, and the limits apply only to
+ * the fields a write sets. Everything else is checked as on write, from the
+ * write schemas themselves: the record's fields and their types (`createdBy`
+ * included: a record without it is not readable), the payload of its type
+ * (the URI scheme, the Wi-Fi enums and rules, required fields non-empty), the
+ * design (hex colours, the logo data-URI pattern, the error-correction level,
+ * the size, margin and aspect-ratio ranges; the renderer writes them into SVG
+ * markup), a linked route's `domain` and `path`, and a linked route only on a
+ * url code. These formats are the ones every release's write schema has
+ * enforced, unchanged since QR codes shipped, and every write went through
+ * them, so no record written through the API fails them; the renderer also
+ * escapes every attribute value.
  *
- * Normalised: only the fields a record defines are kept (an unknown
+ * Normalised first: only the fields a record defines are kept (an unknown
  * top-level field, a payload key the type does not define and an unknown
  * design key are dropped, so an update never writes them back); a missing or
  * null `design` or design field takes its default; a Wi-Fi payload without
@@ -518,47 +524,43 @@ function pick(source: Record<string, unknown>, keys: readonly string[]): Record<
  * Nothing is written back by reading.
  */
 export function parseStoredQR(value: unknown): QRCode | null {
-  if (!isPlainObject(value)) return null;
+  if (!isRecord(value)) return null;
   const { payload, design, linkedRoute, type } = value;
   if (
-    !isText(value['id']) ||
-    !isText(value['domain']) ||
     !QR_TYPE_SET.has(type) ||
-    !isFiniteNumber(value['createdAt']) ||
-    !isFiniteNumber(value['updatedAt']) ||
-    !isPlainObject(payload) ||
-    !PAYLOAD_SHAPES[type as QRType](payload) ||
-    !absentOr(design, item => isPlainObject(item) && isDesignShape(item)) ||
-    !absentOr(linkedRoute, isLinkShape) ||
-    !absentOr(value['description'], isText) ||
-    !absentOr(value['createdBy'], isText) ||
-    !absentOr(value['tags'], item => Array.isArray(item) && item.every(isText))
+    !isRecord(payload) ||
+    !isOptional(design, isRecord) ||
+    !isOptional(linkedRoute, isRecord)
   ) {
     return null;
   }
   const recordType = type as QRType;
   const normalisedPayload = pick(payload, QR_PAYLOAD_KEYS[recordType]);
-  if (recordType === 'wifi' && !isText(normalisedPayload['auth'])) {
+  if (recordType === 'wifi' && normalisedPayload['auth'] === undefined) {
     normalisedPayload['auth'] = 'WPA';
   }
   const out: Record<string, unknown> = {
-    id: value['id'],
-    domain: value['domain'],
+    ...pick(value, ['id', 'domain']),
     type: recordType,
     ...pick(value, ['description', 'tags']),
     payload: normalisedPayload,
     // Missing or null design fields take their defaults
     design: {
-      ...QRDesignSchema.parse({}),
-      ...(isPlainObject(design) ? pick(design, QR_DESIGN_KEYS) : {}),
+      ...DEFAULT_QR_DESIGN,
+      ...(isRecord(design) ? pick(design, QR_DESIGN_KEYS) : {}),
     },
-    ...(isPlainObject(linkedRoute)
+    ...(isRecord(linkedRoute)
       ? { linkedRoute: { domain: linkedRoute['domain'], path: linkedRoute['path'] } }
       : {}),
-    createdAt: value['createdAt'],
-    updatedAt: value['updatedAt'],
-    ...pick(value, ['createdBy']),
+    ...pick(value, ['createdAt', 'updatedAt', 'createdBy']),
   };
+  if (
+    !passesFormats(StoredQRRecordSchema, out) ||
+    !passesFormats(QR_PAYLOAD_SCHEMAS[recordType], normalisedPayload) ||
+    (out['linkedRoute'] !== undefined && recordType !== 'url')
+  ) {
+    return null;
+  }
   // Every field a reader consumes was checked above
   return out as unknown as QRCode;
 }
@@ -575,6 +577,35 @@ export const StoredQRCodeSchema = z.unknown().transform((value, ctx): QRCode => 
     return z.NEVER;
   }
   return record;
+});
+
+/**
+ * A listing row for a stored QR record that cannot be read (v1.38.0): its
+ * domain and id only, flagged `invalid`. Listings include these rows so an
+ * operator can find and delete the record (DELETE accepts it); nothing else
+ * can be done with one.
+ */
+export interface InvalidQRRow {
+  domain: string;
+  id: string;
+  invalid: true;
+}
+
+/** Whether a listing row is an {@link InvalidQRRow}. */
+export function isInvalidQRRow(row: unknown): row is InvalidQRRow {
+  return (
+    isRecord(row) &&
+    row['invalid'] === true &&
+    typeof row['domain'] === 'string' &&
+    typeof row['id'] === 'string'
+  );
+}
+
+/** {@link isInvalidQRRow} as a schema (dashboard response validation). */
+export const InvalidQRRowSchema = z.object({
+  domain: z.string(),
+  id: z.string(),
+  invalid: z.literal(true),
 });
 
 const createQrCommonFields = {
@@ -659,11 +690,16 @@ export type QRListQuery = z.infer<typeof QRListQuerySchema>;
  * the shared matcher (`search.ts`: case and separators ignored, words in any
  * order) over the description and the id. One predicate for the Worker's
  * listQRs and the dashboard's QR store, so a code the server would list is
- * the code the dashboard shows.
+ * the code the dashboard shows. A list parses its `search` once
+ * (`parseSearchQuery`) and passes the parsed query for every record.
  */
 export function qrMatchesListFilters(
   qr: { id: string; type: string; tags?: string[] | undefined; description?: string | undefined },
-  query: { type?: string | undefined; tag?: string | undefined; search?: string | undefined },
+  query: {
+    type?: string | undefined;
+    tag?: string | undefined;
+    search?: string | ParsedSearchQuery | null | undefined;
+  },
 ): boolean {
   if (query.type && qr.type !== query.type) return false;
   if (query.tag && !(qr.tags ?? []).includes(query.tag)) return false;

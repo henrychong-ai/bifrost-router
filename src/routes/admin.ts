@@ -18,13 +18,13 @@ import {
   createRoute,
   deleteRoute,
   findRoutesByR2Target,
-  getAllRoutes,
   getAllRoutesAllDomains,
-  getMetadata,
   getRoute,
-  getRouteState,
   InvalidStoredRouteError,
+  listAllDomainRoutes,
+  listDomainRoutes,
   migrateRoute,
+  presentRoute,
   seedRoutes,
   serializeStoredRoute,
   transferRoute,
@@ -77,7 +77,15 @@ function purgeRouteUrlIfR2(
   domain: string,
   path: string,
 ): void {
-  if (route?.type !== 'r2') return;
+  if (route?.type === 'r2') purgeRoutePublicUrl(c, domain, path);
+}
+
+/**
+ * Zone-purge a route's public URL whatever its type (best-effort, as
+ * {@link purgeRouteUrlIfR2}): for a deleted record that could not be read,
+ * whose type is unknown (v1.38.0).
+ */
+function purgeRoutePublicUrl(c: Context<AppEnv>, domain: string, path: string): void {
   // Purge the CANONICAL path — callers may pass the raw request value
   // ('/Report/'), while the cached URL and the stored route use the normalized
   // form ('/report'). Residual: mixed-case REQUEST-URL variants are separate
@@ -311,7 +319,9 @@ adminRoutes.get('/routes', async c => {
     }
 
     const domain = domainResult.domain;
-    const route = await getRoute(c.env.ROUTES, domain, pathQuery);
+    // A stored record that cannot be read is not answered as absent
+    // (v1.38.0): 409 ROUTE_RECORD_INVALID, as every write but DELETE answers
+    const route = presentRoute(await getRoute(c.env.ROUTES, domain, pathQuery));
 
     if (!route) {
       throw new HTTPException(404, {
@@ -368,41 +378,46 @@ adminRoutes.get('/routes', async c => {
     ? queryParams.data
     : { limit: undefined, offset: 0, search: undefined, type: undefined, enabled: undefined };
 
-  // Get all routes for domain(s)
-  type RouteWithDomain = KVRouteConfig & { domain?: string };
-  let allRoutes: RouteWithDomain[];
-  let version: string;
-  let updatedAt: number;
+  // Get all routes for domain(s). In a one-domain list the domain is the
+  // same for every route, so the rows carry no domain until the page is
+  // built: a search must not match it (v1.38.0). A record that cannot be read
+  // is listed as a minimal row (`{ domain, path, invalid: true }`, v1.38.0),
+  // so it can be found and deleted.
+  type ListedRow =
+    | (KVRouteConfig & { domain?: string })
+    | { path: string; domain?: string; invalid: true };
+  const listing = domain
+    ? await listDomainRoutes(c.env.ROUTES, domain)
+    : await listAllDomainRoutes(c.env.ROUTES);
+  const allRoutes: ListedRow[] = [
+    ...listing.routes,
+    ...listing.invalid.map(row =>
+      domain ? { path: row.path, invalid: true as const } : (row satisfies ListedRow),
+    ),
+  ];
 
-  if (domain) {
-    const routes = await getAllRoutes(c.env.ROUTES, domain);
-    const meta = await getMetadata(c.env.ROUTES, domain);
-    allRoutes = routes.map(r => ({ ...r, domain }));
-    version = meta?.version ?? SCHEMA_VERSION;
-    updatedAt = meta?.updatedAt ?? Date.now();
-  } else {
-    allRoutes = await getAllRoutesAllDomains(c.env.ROUTES);
-    version = SCHEMA_VERSION;
-    updatedAt = Date.now();
-  }
-
-  // Newest first (v1.38.0), so pages follow the order the dashboard shows. A
-  // search keeps only its matches, ordered by relevance (exact path, path
-  // prefix, other path matches, other fields; the domain as typed only),
-  // newest first on ties: the shared matcher (`@bifrost/shared` search.ts)
-  // the dashboard, Cmd+K and MCP `list_routes` all read through this list.
-  allRoutes.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  // Newest first (v1.38.0), so pages follow the order the dashboard shows; an
+  // unreadable record has no time and sorts last. A search keeps only its
+  // matches, ordered by relevance (exact path, path prefix, other path
+  // matches, other fields; the domain as typed only, and only in the
+  // all-domains list), newest first on ties: the shared matcher
+  // (`@bifrost/shared` search.ts) the dashboard, Cmd+K and MCP `list_routes`
+  // all read through this list. An unreadable record matches by its path
+  // (and domain) only.
+  const createdAtOf = (row: ListedRow) => ('invalid' in row ? 0 : row.createdAt || 0);
+  allRoutes.sort((a, b) => createdAtOf(b) - createdAtOf(a));
   let filteredRoutes = search ? searchAndRankRoutes(allRoutes, search) : allRoutes;
 
-  // Type filter
+  // Type and enabled filters: an unreadable record's type and state are
+  // unknown, so it matches neither
   if (typeFilter) {
-    filteredRoutes = filteredRoutes.filter(r => r.type === typeFilter);
+    filteredRoutes = filteredRoutes.filter(r => !('invalid' in r) && r.type === typeFilter);
   }
-
-  // Enabled filter
   if (enabledFilter !== undefined) {
     const isEnabled = enabledFilter === 'true';
-    filteredRoutes = filteredRoutes.filter(r => (r.enabled !== false) === isEnabled);
+    filteredRoutes = filteredRoutes.filter(
+      r => !('invalid' in r) && (r.enabled !== false) === isEnabled,
+    );
   }
 
   const total = filteredRoutes.length;
@@ -417,10 +432,10 @@ adminRoutes.get('/routes', async c => {
   return c.json({
     success: true,
     data: {
-      routes: filteredRoutes,
+      routes: domain ? filteredRoutes.map(route => ({ ...route, domain })) : filteredRoutes,
       meta: {
-        version,
-        updatedAt,
+        version: SCHEMA_VERSION,
+        updatedAt: Date.now(),
         count: filteredRoutes.length,
         total,
         offset,
@@ -477,7 +492,7 @@ adminRoutes.post('/routes', async c => {
 
   // Check if route already exists. A stored record that cannot be read is
   // present too: never overwritten, 409 ROUTE_RECORD_INVALID (v1.38.0)
-  const existing = await getRouteState(c.env.ROUTES, domain, result.data.path);
+  const existing = await getRoute(c.env.ROUTES, domain, result.data.path);
   if (existing.status === 'invalid') throw new InvalidStoredRouteError();
   if (existing.status === 'ok') {
     return c.json(
@@ -567,7 +582,7 @@ adminRoutes.put('/routes', async c => {
   // (v1.37.2), so the answer does not depend on what was sent. A stored record
   // that cannot be read is never merged with a patch (v1.38.0): 409, and the
   // operator deletes it and creates it again
-  const beforeState = await getRouteState(c.env.ROUTES, domain, path);
+  const beforeState = await getRoute(c.env.ROUTES, domain, path);
   if (beforeState.status === 'missing') {
     throw new HTTPException(404, { message: `Route not found: ${path}` });
   }
@@ -634,7 +649,17 @@ adminRoutes.put('/routes', async c => {
         actorName: actor.name,
         path,
         details: JSON.stringify({
-          ...(isToggle ? { enabled: fields['enabled'] } : { before: beforeRoute, after: route }),
+          // A toggle keeps its short row with the route key and `enabled`
+          // before and after (v1.38.0), so an edit that only switched the
+          // route keeps a before/after trail like any other update
+          ...(isToggle
+            ? {
+                enabled: fields['enabled'],
+                key: `${domain}:${route.path}`,
+                before: { enabled: beforeRoute.enabled !== false },
+                after: { enabled: route.enabled !== false },
+              }
+            : { before: beforeRoute, after: route }),
           ...(credentialParams.length > 0
             ? { credentialTargetAcknowledged: credentialParams }
             : {}),
@@ -692,14 +717,15 @@ adminRoutes.delete('/routes', async c => {
 
   const domain = domainResult.domain;
 
-  // Get route before deletion for audit log
-  const routeBeforeDelete = await getRoute(c.env.ROUTES, domain, path);
-
+  // One read: the state the delete found, for the audit row and the purge.
+  // A record that cannot be read is deleted too, which is how it is recovered
+  // (v1.38.0)
   const deleted = await deleteRoute(c.env.ROUTES, domain, path);
 
-  if (!deleted) {
+  if (deleted.status === 'missing') {
     throw new HTTPException(404, { message: `Route not found: ${path}` });
   }
+  const key = `${domain}:${normalizePath(path)}`;
 
   // Record audit log (non-blocking) - only if executionCtx is available
   try {
@@ -711,7 +737,10 @@ adminRoutes.delete('/routes', async c => {
         actorLogin: actor.login,
         actorName: actor.name,
         path,
-        details: JSON.stringify({ route: routeBeforeDelete }),
+        // An unreadable record's row names its key and state, never the value
+        details: JSON.stringify(
+          deleted.status === 'ok' ? { route: deleted.value } : { key, state: 'invalid' },
+        ),
         ipAddress: c.req.header('CF-Connecting-IP') || null,
       }),
     );
@@ -719,8 +748,12 @@ adminRoutes.delete('/routes', async c => {
     // executionCtx not available (e.g., in tests) - skip audit logging
   }
 
-  // The route is gone from KV but the edge still serves the file it pointed at.
-  purgeRouteUrlIfR2(c, routeBeforeDelete, domain, path);
+  // The route is gone from KV but the edge still serves the file it pointed
+  // at. An unreadable record's type is unknown, so its public URL (from the
+  // key: domain and normalised path) is purged whatever it served; purging a
+  // URL that was not cached is harmless.
+  if (deleted.status === 'ok') purgeRouteUrlIfR2(c, deleted.value, domain, path);
+  else purgeRoutePublicUrl(c, domain, path);
 
   return c.json({
     success: true,
@@ -1137,7 +1170,8 @@ adminRoutes.post('/routes/transfer', async c => {
   // A transfer cannot CHANGE a target, but it re-publishes it on a different
   // host with a different audience — a link acknowledged for one brand's domain
   // was never acknowledged for another's.
-  const existingForTransfer = await getRoute(c.env.ROUTES, fromDomain, path);
+  // An unreadable record is refused here already (409 ROUTE_RECORD_INVALID)
+  const existingForTransfer = presentRoute(await getRoute(c.env.ROUTES, fromDomain, path));
   const transferCredentialParams = existingForTransfer
     ? credentialTargetParameters(existingForTransfer)
     : [];

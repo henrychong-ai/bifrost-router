@@ -54,11 +54,20 @@ paths:
         - $ref: '#/components/parameters/OffsetQuery'
       responses:
         '200':
-          description: Success
+          description: >-
+            The route (with `path`), or the list. A stored record that cannot be
+            read is listed as a minimal row `{ domain, path, invalid: true }`,
+            after the readable routes; it matches a search by its path only and
+            no type or enabled filter. A search in a one-domain list does not
+            match the domain.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/RoutesResponse'
+        '409':
+          description: >-
+            The route asked for by `path` is stored in a shape that cannot be read
+            (`error: ROUTE_RECORD_INVALID`); delete it and create it again
     post:
       summary: Create route
       parameters:
@@ -101,7 +110,9 @@ paths:
         - $ref: '#/components/parameters/DomainQueryWrite'
       responses:
         '200':
-          description: Deleted (also a route whose stored record cannot be read)
+          description: >-
+            Deleted, also a route whose stored record cannot be read (its public
+            URL is purged and its audit row names its key with `state: invalid`)
 
   /api/routes/seed:
     post:
@@ -949,7 +960,11 @@ paths:
             type: integer
       responses:
         '200':
-          description: QR codes for the domain
+          description: >-
+            QR codes for the domain. A stored record that cannot be read is
+            listed as a minimal row `{ domain, id, invalid: true }`, after the
+            readable codes; it matches a search by its id only and no type or
+            tag filter.
     post:
       summary: Create a QR code
       tags: [QR Codes]
@@ -965,7 +980,9 @@ paths:
         '201':
           description: QR code created
         '409':
-          description: QR code already exists
+          description: >-
+            QR code already exists, or a record that cannot be read is stored
+            under the id (JSON `error: QR_RECORD_INVALID`)
 
   /api/qr/from-route:
     get:
@@ -1002,6 +1019,10 @@ paths:
                 type: string
         '404':
           description: No route at that path
+        '409':
+          description: >-
+            The route is stored in a shape that cannot be read
+            (`error: ROUTE_RECORD_INVALID`)
 
   /api/qr/{id}:
     get:
@@ -1015,6 +1036,8 @@ paths:
           description: The QR code record
         '404':
           $ref: '#/components/responses/QrNotFound'
+        '409':
+          $ref: '#/components/responses/QrRecordInvalid'
     put:
       summary: Update a QR code (type is immutable)
       tags: [QR Codes]
@@ -1032,6 +1055,8 @@ paths:
           description: QR code updated
         '404':
           $ref: '#/components/responses/QrNotFound'
+        '409':
+          $ref: '#/components/responses/QrRecordInvalid'
     delete:
       summary: Delete a QR code (hard delete; the audit log preserves the record)
       tags: [QR Codes]
@@ -1040,7 +1065,29 @@ paths:
         - $ref: '#/components/parameters/DomainQueryWrite'
       responses:
         '200':
-          description: QR code deleted
+          description: >-
+            QR code deleted: `{ success: true, data: { deleted: true, id,
+            createdAt } }`. `createdAt` is the deleted record's, naming the
+            incarnation removed (absent when the record could not be read);
+            a code re-created later with the same id has another
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    required: [deleted, id]
+                    properties:
+                      deleted:
+                        type: boolean
+                        enum: [true]
+                      id:
+                        type: string
+                      createdAt:
+                        type: number
         '404':
           $ref: '#/components/responses/QrNotFound'
 
@@ -1053,13 +1100,18 @@ paths:
         - $ref: '#/components/parameters/DomainQuery'
       responses:
         '200':
-          description: QR code SVG
+          description: >-
+            QR code SVG. A linked code encodes its short URL while the route
+            exists, also when the route's stored record cannot be read; only a
+            missing route falls back to the stored payload
           content:
             image/svg+xml:
               schema:
                 type: string
         '404':
           $ref: '#/components/responses/QrNotFound'
+        '409':
+          $ref: '#/components/responses/QrRecordInvalid'
 
 
 components:
@@ -1069,24 +1121,11 @@ components:
       in: header
       name: X-Admin-Key
 
-  headers:
-    ServerTime:
-      description: >-
-        The Worker's clock in Unix milliseconds when it answered, after any
-        write (every /api/qr answer, success or error). Exposed to
-        cross-origin callers with Date, which the dashboard checks it against.
-      schema:
-        type: string
-        pattern: '^[0-9]+$'
-
   responses:
     QrNotFound:
       description: >-
         The QR code does not exist: `{ success: false, error: QR_NOT_FOUND,
         message }`.
-      headers:
-        X-Server-Time:
-          $ref: '#/components/headers/ServerTime'
       content:
         application/json:
           schema:
@@ -1099,6 +1138,25 @@ components:
               error:
                 type: string
                 enum: [QR_NOT_FOUND]
+              message:
+                type: string
+    QrRecordInvalid:
+      description: >-
+        The QR code is stored in a shape that cannot be read: `{ success: false,
+        error: QR_RECORD_INVALID, message }`. It exists, so this is never a
+        deletion; delete it and create it again.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, error, message]
+            properties:
+              success:
+                type: boolean
+                enum: [false]
+              error:
+                type: string
+                enum: [QR_RECORD_INVALID]
               message:
                 type: string
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { QRDesignSchema } from './qr.js';
+import { type QRDesign, QRDesignSchema } from './qr.js';
 import { qrContrastRatio, renderQrSvg } from './qr-render.js';
 
 const PNG_LOGO = `data:image/png;base64,${Buffer.from('logo-bytes').toString('base64')}`;
@@ -138,6 +138,35 @@ describe('renderQrSvg', () => {
       `<rect x="199.68" y="199.68" width="112.64" height="112.64" fill="#E7D7B9"/>`,
     );
     expect(svg).not.toContain('#ffffff');
+  });
+});
+
+describe('attribute values are escaped (v1.38.0)', () => {
+  const hostile = `"><script>alert(1)</script><x a='&`;
+  it.each([
+    ['fg', { fg: hostile }],
+    ['bg', { bg: hostile, logoDataUri: 'data:image/png;base64,AAAA' }],
+    ['logoDataUri', { logoDataUri: `data:image/png;base64,AAAA${hostile}` }],
+  ])('escapes %s wherever it is written into the SVG', (_field, override) => {
+    // A design no write accepts: the renderer must not rely on validation
+    const design = { ...QRDesignSchema.parse({}), ...override } as QRDesign;
+    const svg = renderQrSvg('https://example.com', design);
+    expect(svg).not.toContain('<script>');
+    expect(svg).not.toContain('"><');
+    expect(svg).toContain('&quot;&gt;&lt;script&gt;');
+    expect(svg).toContain('&#39;&amp;');
+  });
+
+  it('renders a valid design byte for byte as before', () => {
+    const design = QRDesignSchema.parse({
+      fg: '#123456',
+      bg: '#fedcba',
+      logoDataUri: 'data:image/png;base64,AAAA',
+    });
+    const svg = renderQrSvg('https://example.com', design);
+    expect(svg).toContain('fill="#fedcba"');
+    expect(svg).toContain('href="data:image/png;base64,AAAA"');
+    expect(svg).toContain('#123456');
   });
 });
 

@@ -5,6 +5,29 @@
  */
 
 export * from './analytics-utils.js';
+// Backup health answer (v1.38.0): one definition for the Worker and the dashboard
+export {
+  type ArchiveInfo,
+  ArchiveInfoSchema,
+  type BackupAgeStatus,
+  BackupAgeStatusSchema,
+  type BackupFileStatus,
+  BackupFileStatusSchema,
+  type BackupHealthResponse,
+  BackupHealthResponseSchema,
+  type HealthChecks,
+  HealthChecksSchema,
+  type HealthIssue,
+  HealthIssueSchema,
+  type HealthStatus,
+  HealthStatusSchema,
+  type IssueSeverity,
+  IssueSeveritySchema,
+  type LastBackupInfo,
+  LastBackupInfoSchema,
+  type ManifestSummary,
+  ManifestSummarySchema,
+} from './backup-health.js';
 export type { EdgeRouterClientConfig } from './client.js';
 // Client
 export {
@@ -71,6 +94,9 @@ export {
   TriageFeedbackSchema,
   uuidv7,
 } from './feedback.js';
+// Plain type guards for values read as unknown (v1.38.0): one definition for
+// the Worker, the dashboard and the API client
+export { isFiniteNumber, isOptional, isRecord, isString } from './guards.js';
 // Link-naming advice (v1.38.0) — advisory warnings for link paths in the
 // route and QR dialogs; never blocks a write.
 export {
@@ -99,6 +125,9 @@ export {
   type GetRouteQrInput,
   GetRouteQrInputSchema,
   generateQrId,
+  type InvalidQRRow,
+  InvalidQRRowSchema,
+  isInvalidQRRow,
   type ListQrsInput,
   // MCP tool input schemas
   ListQrsInputSchema,
@@ -113,7 +142,8 @@ export {
   QR_MAX_TAGS,
   QR_NOT_FOUND_ERROR,
   QR_PAYLOAD_SCHEMAS,
-  QR_SERVER_TIME_HEADER,
+  QR_RECORD_INVALID_ERROR,
+  QR_RECORD_INVALID_MESSAGE,
   QR_TAG_MAX_LENGTH,
   QR_TYPES,
   type QRCode,
@@ -275,6 +305,19 @@ export {
   searchAndRankRoutes,
   tokeniseSearchText,
 } from './search.js';
+// Stored route records (v1.38.0): the one tolerant read shape for the Worker
+// guard and the dashboard, and the listing row of an unreadable record
+export {
+  type InvalidRouteRow,
+  InvalidRouteRowSchema,
+  isInvalidRouteRow,
+  isStoredRoute,
+  parseStoredRoute,
+  STORED_ROUTE_FIELDS,
+  STORED_ROUTE_REQUIRED,
+  type StoredRoute,
+  StoredRouteSchema,
+} from './stored-route.js';
 export type {
   JsonSchemaObject,
   JsonSchemaProperty,

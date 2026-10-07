@@ -1,21 +1,31 @@
 import { env } from 'cloudflare:test';
-import { assert, beforeEach, describe, expect, expectTypeOf, it } from 'vitest';
-import { matchRoute } from '../../src/kv/lookup';
+import { beforeEach, describe, expect, expectTypeOf, it } from 'vitest';
+import { lookupRoute } from '../../src/kv/lookup';
 import {
   createRoute,
   deleteRoute,
   getAllRoutes,
   getAllRoutesAllDomains,
-  getMetadata,
   getRoute,
-  getRouteSafe,
   migrateRoute,
   parseRouteKey,
   seedRoutes,
   updateRoute,
 } from '../../src/kv/routes';
-import { routeKey, SCHEMA_VERSION } from '../../src/kv/schema';
+import { routeKey } from '../../src/kv/schema';
 import { clearRoutes } from '../helpers';
+
+/** The record a single-route read found, else null (missing or invalid). */
+async function recordAt(...args: Parameters<typeof getRoute>) {
+  const read = await getRoute(...args);
+  return read.status === 'ok' ? read.value : null;
+}
+
+/** The route a lookup serves, else null. */
+async function served(...args: Parameters<typeof lookupRoute>) {
+  const lookup = await lookupRoute(...args);
+  return lookup.status === 'ok' ? lookup.route : null;
+}
 
 describe('routes', () => {
   const testDomain = 'test.example.com';
@@ -54,7 +64,7 @@ describe('routes', () => {
       expect(route.path).toBe('/hello world');
 
       // Retrievable with the decoded path (getRoute uses path as-is, no decoding)
-      const retrieved = await getRoute(env.ROUTES, testDomain, '/hello world');
+      const retrieved = await recordAt(env.ROUTES, testDomain, '/hello world');
       expect(retrieved).not.toBeNull();
       expect(retrieved?.path).toBe('/hello world');
     });
@@ -68,7 +78,7 @@ describe('routes', () => {
 
       expect(route.path).toBe('/double-slash');
 
-      const retrieved = await getRoute(env.ROUTES, testDomain, '/double-slash');
+      const retrieved = await recordAt(env.ROUTES, testDomain, '/double-slash');
       expect(retrieved).not.toBeNull();
     });
 
@@ -81,7 +91,7 @@ describe('routes', () => {
 
       expect(route.path).toBe('/trailing-test');
 
-      const retrieved = await getRoute(env.ROUTES, testDomain, '/trailing-test');
+      const retrieved = await recordAt(env.ROUTES, testDomain, '/trailing-test');
       expect(retrieved).not.toBeNull();
     });
 
@@ -94,7 +104,7 @@ describe('routes', () => {
 
       expect(route.path).toBe('/test-route');
 
-      const retrieved = await getRoute(env.ROUTES, testDomain, '/test-route');
+      const retrieved = await recordAt(env.ROUTES, testDomain, '/test-route');
       expect(retrieved).not.toBeNull();
     });
 
@@ -107,22 +117,22 @@ describe('routes', () => {
 
       expect(route.path).toBe('/linkedin');
 
-      const retrieved = await getRoute(env.ROUTES, testDomain, '/linkedin');
+      const retrieved = await recordAt(env.ROUTES, testDomain, '/linkedin');
       expect(retrieved).not.toBeNull();
       expect(retrieved?.path).toBe('/linkedin');
     });
 
-    it('retrieves lowercase route regardless of lookup case (via matchRoute)', async () => {
+    it('retrieves lowercase route regardless of lookup case (via lookupRoute)', async () => {
       await createRoute(env.ROUTES, testDomain, {
         path: '/GitHub',
         type: 'redirect',
         target: 'https://github.com/example',
       });
 
-      // matchRoute normalizes the request path, so all case variants should hit the same route
-      const lower = await matchRoute(env.ROUTES, testDomain, '/github');
-      const upper = await matchRoute(env.ROUTES, testDomain, '/GITHUB');
-      const mixed = await matchRoute(env.ROUTES, testDomain, '/GitHub');
+      // lookupRoute normalizes the request path, so all case variants should hit the same route
+      const lower = await served(env.ROUTES, testDomain, '/github');
+      const upper = await served(env.ROUTES, testDomain, '/GITHUB');
+      const mixed = await served(env.ROUTES, testDomain, '/GitHub');
       expect(lower).not.toBeNull();
       expect(upper).not.toBeNull();
       expect(mixed).not.toBeNull();
@@ -142,7 +152,7 @@ describe('routes', () => {
       });
 
       // Exact lookup works (getRoute does not apply normalization; the key must match exactly)
-      const route = await getRoute(env.ROUTES, testDomain, '/encoded-test');
+      const route = await recordAt(env.ROUTES, testDomain, '/encoded-test');
       expect(route).not.toBeNull();
       expect(route?.path).toBe('/encoded-test');
     });
@@ -240,10 +250,10 @@ describe('routes', () => {
 
       // deleteRoute requires the exact normalized path (it does not call normalizePath internally)
       const deleted = await deleteRoute(env.ROUTES, testDomain, '/test-route');
-      expect(deleted).toBe(true);
+      expect(deleted.status).toBe('ok');
 
       // Verify deletion
-      const route = await getRoute(env.ROUTES, testDomain, '/test-route');
+      const route = await recordAt(env.ROUTES, testDomain, '/test-route');
       expect(route).toBeNull();
     });
   });
@@ -262,7 +272,7 @@ describe('routes', () => {
       expect(result.created).toBe(1);
 
       // Should be stored with normalized path
-      const route = await getRoute(env.ROUTES, testDomain, '/seed-test');
+      const route = await recordAt(env.ROUTES, testDomain, '/seed-test');
       expect(route).not.toBeNull();
       expect(route?.path).toBe('/seed-test');
     });
@@ -281,54 +291,10 @@ describe('routes', () => {
       expect(created.path).toBe('/path/with/slashes');
 
       // Retrievable with the decoded path (getRoute uses the key as-is, no decoding)
-      const routeDecoded = await getRoute(env.ROUTES, testDomain, '/path/with/slashes');
+      const routeDecoded = await recordAt(env.ROUTES, testDomain, '/path/with/slashes');
       expect(routeDecoded).not.toBeNull();
       expect(routeDecoded?.path).toBe('/path/with/slashes');
     });
-  });
-});
-
-describe('getRouteSafe', () => {
-  const testDomain = 'safe.example.com';
-
-  beforeEach(async () => {
-    await clearRoutes(testDomain);
-  });
-
-  it('returns success with route data when found', async () => {
-    await createRoute(env.ROUTES, testDomain, {
-      path: '/existing',
-      type: 'redirect',
-      target: 'https://example.com',
-    });
-
-    const result = await getRouteSafe(env.ROUTES, testDomain, '/existing');
-    expect(result.success).toBe(true);
-    assert(result.success);
-    expect(result.data).not.toBeNull();
-    expect(result.data?.path).toBe('/existing');
-  });
-
-  it('returns success with null when route not found', async () => {
-    const result = await getRouteSafe(env.ROUTES, testDomain, '/nonexistent');
-    expect(result.success).toBe(true);
-    assert(result.success);
-    expect(result.data).toBeNull();
-  });
-
-  it('retrieves route by exact path', async () => {
-    await createRoute(env.ROUTES, testDomain, {
-      path: '/normalized',
-      type: 'redirect',
-      target: 'https://example.com',
-    });
-
-    // getRouteSafe uses the path key as-is; exact match required
-    const result = await getRouteSafe(env.ROUTES, testDomain, '/normalized');
-    expect(result.success).toBe(true);
-    assert(result.success);
-    expect(result.data).not.toBeNull();
-    expect(result.data?.path).toBe('/normalized');
   });
 });
 
@@ -425,38 +391,6 @@ describe('getAllRoutesAllDomains', () => {
   });
 });
 
-describe('getMetadata', () => {
-  const testDomain = 'metadata.example.com';
-
-  beforeEach(async () => {
-    await clearRoutes(testDomain);
-  });
-
-  it('returns metadata with zero count when no routes exist', async () => {
-    const metadata = await getMetadata(env.ROUTES, testDomain);
-    expect(metadata.version).toBe(SCHEMA_VERSION);
-    expect(metadata.count).toBe(0);
-    expect(metadata.updatedAt).toBeGreaterThan(0);
-  });
-
-  it('returns correct route count', async () => {
-    await createRoute(env.ROUTES, testDomain, {
-      path: '/one',
-      type: 'redirect',
-      target: 'https://one.example.com',
-    });
-    await createRoute(env.ROUTES, testDomain, {
-      path: '/two',
-      type: 'redirect',
-      target: 'https://two.example.com',
-    });
-
-    const metadata = await getMetadata(env.ROUTES, testDomain);
-    expect(metadata.count).toBe(2);
-    expect(metadata.version).toBe(SCHEMA_VERSION);
-  });
-});
-
 describe('migrateRoute', () => {
   const testDomain = 'migrate.example.com';
 
@@ -489,7 +423,7 @@ describe('migrateRoute', () => {
 
     await migrateRoute(env.ROUTES, testDomain, '/old-path', '/new-path');
 
-    const oldRoute = await getRoute(env.ROUTES, testDomain, '/old-path');
+    const oldRoute = await recordAt(env.ROUTES, testDomain, '/old-path');
     expect(oldRoute).toBeNull();
   });
 
@@ -624,7 +558,7 @@ describe('KV single-key discipline', () => {
   it('deletes the record it read', async () => {
     const storedPath = await plantNonIdempotentKey();
 
-    expect(await deleteRoute(env.ROUTES, singleKeyDomain, '/p%3Fx')).toBe(true);
+    expect((await deleteRoute(env.ROUTES, singleKeyDomain, '/p%3Fx')).status).toBe('ok');
     expect(await env.ROUTES.get(routeKey(singleKeyDomain, storedPath))).toBeNull();
   });
 
@@ -647,8 +581,8 @@ describe('KV single-key discipline', () => {
       target: 'https://app.example/ok',
     });
 
-    expect(await getRoute(env.ROUTES, singleKeyDomain, '/case-test')).not.toBeNull();
-    expect(await deleteRoute(env.ROUTES, singleKeyDomain, '/Case-Test/')).toBe(true);
-    expect(await getRoute(env.ROUTES, singleKeyDomain, '/case-test')).toBeNull();
+    expect(await recordAt(env.ROUTES, singleKeyDomain, '/case-test')).not.toBeNull();
+    expect((await deleteRoute(env.ROUTES, singleKeyDomain, '/Case-Test/')).status).toBe('ok');
+    expect(await recordAt(env.ROUTES, singleKeyDomain, '/case-test')).toBeNull();
   });
 });

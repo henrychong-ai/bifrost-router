@@ -81,10 +81,6 @@ export function useQrCodes(params?: QrQueryParams, options?: { enabled?: boolean
 // The option factories are exported so tests can run them without a renderer.
 // =============================================================================
 
-/** The server's clock on a QR_NOT_FOUND answer, if it carried one. */
-const serverTimeOfError = (error: unknown) =>
-  isQrNotFoundError(error) ? error.serverTime : undefined;
-
 export function createQrMutationOptions(
   queryClient: QueryClient,
   store: PendingQrStore = pendingQrs,
@@ -101,30 +97,36 @@ export function createQrMutationOptions(
   };
 }
 
+/**
+ * A write to one code. `createdAt` names the incarnation the request was made
+ * for (v1.38.0): a QR_NOT_FOUND tombstones that incarnation, so a stale row of
+ * it stays hidden and a code re-created with the same id never is. Absent
+ * only for an unreadable record, which names none.
+ */
+interface QrWrite {
+  id: string;
+  domain: string;
+  createdAt?: number | undefined;
+}
+
 export function updateQrMutationOptions(
   queryClient: QueryClient,
   store: PendingQrStore = pendingQrs,
 ) {
   return {
-    mutationFn: ({
-      id,
-      input,
-      domain,
-    }: {
-      id: string;
-      input: Record<string, unknown>;
-      domain: string;
-    }) => api.qr.update(id, input, domain),
+    mutationFn: ({ id, input, domain }: QrWrite & { input: Record<string, unknown> }) =>
+      api.qr.update(id, input, domain),
     onSuccess: async (updated: QRCode) => {
       // A listing that still holds the previous version must show the edit
       store.observeOwn(updated);
       await queryClient.invalidateQueries({ queryKey: qrKeys.all });
     },
-    onError: async (error: unknown, { id, domain }: { id: string; domain: string }) => {
+    onError: async (error: unknown, { id, domain, createdAt }: QrWrite) => {
       // Gone on the server: hide it in every listing, cached ones included,
-      // and refresh, as the delete path does
+      // and refresh, as the delete path does. A QR_RECORD_INVALID is no
+      // deletion: the code exists, and the page shows the server's message
       if (isQrNotFoundError(error)) {
-        store.markDeleted(domain, id, serverTimeOfError(error));
+        store.markDeleted(domain, id, createdAt);
         await queryClient.invalidateQueries({ queryKey: qrKeys.all });
       }
     },
@@ -136,19 +138,22 @@ export function deleteQrMutationOptions(
   store: PendingQrStore = pendingQrs,
 ) {
   return {
-    mutationFn: ({ id, domain }: { id: string; domain: string }) => api.qr.delete(id, domain),
+    mutationFn: ({ id, domain }: QrWrite) => api.qr.delete(id, domain),
     onSuccess: async (
-      result: { serverTime?: number | undefined } | undefined,
-      { id, domain }: { id: string; domain: string },
+      result: { createdAt?: number | undefined } | undefined,
+      { id, domain, createdAt }: QrWrite,
     ) => {
-      // A deleted code must not come back from a stale listing
-      store.markDeleted(domain, id, result?.serverTime);
+      // The incarnation the server removed must not come back from a stale
+      // listing: the answer names it (the dialog may have shown an older
+      // one); an answer without it (from an older Worker) falls back to the
+      // request's
+      store.markDeleted(domain, id, result?.createdAt ?? createdAt);
       await queryClient.invalidateQueries({ queryKey: qrKeys.all });
     },
-    onError: async (error: unknown, { id, domain }: { id: string; domain: string }) => {
+    onError: async (error: unknown, { id, domain, createdAt }: QrWrite) => {
       // Already deleted elsewhere: drop it and refresh, as a success would
       if (isQrNotFoundError(error)) {
-        store.markDeleted(domain, id, serverTimeOfError(error));
+        store.markDeleted(domain, id, createdAt);
         await queryClient.invalidateQueries({ queryKey: qrKeys.all });
       }
     },

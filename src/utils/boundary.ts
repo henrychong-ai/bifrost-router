@@ -109,17 +109,8 @@ export function logInvalidBoundary(category: string, key?: string): void {
   );
 }
 
-/** Whether `value` is a plain object (not null, not an array). */
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/** Whether `value` is a string. */
-export function isString(value: unknown): value is string {
-  return typeof value === 'string';
-}
-
-/** Whether `value` is absent (undefined or null) or passes `test`. */
-export function isOptional(value: unknown, test: (value: unknown) => boolean): boolean {
-  return value === undefined || value === null || test(value);
-}
+/**
+ * The plain type guards, defined once in `@bifrost/shared` (v1.38.0) for the
+ * Worker, the dashboard and the API client.
+ */
+export { isOptional, isRecord, isString } from '@bifrost/shared';

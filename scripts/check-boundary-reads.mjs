@@ -10,8 +10,9 @@
  * checked:
  *
  * - `kv-get-json`: a `.get(…)` or `.getWithMetadata(…)` whose second
- *   argument is `'json'` (also `'json' as const`, in parentheses, or a
- *   template literal) or an options object with a `type` property (named,
+ *   argument is `'json'` (also through any `as` or `<T>` assertion, such as
+ *   `'json' as const` or `'json' as 'json'`, in parentheses, or a template
+ *   literal) or an options object with a `type` property (named,
  *   quoted or computed, in any position, before or after a spread) set to
  *   `'json'`, with ANY type argument or none: KV values are read as text and
  *   parsed locally, so a parse error never quotes the value
@@ -20,7 +21,9 @@
  * - `req-json-untyped`: `c.req.json()` with no type argument (implicit any);
  *   write `c.req.json<unknown>()`
  * - `json-await-as`: `.json()` (also after `.catch(…)`, with or without
- *   `await` and parentheses) cast with `as T` or `<T>`, T not `unknown`
+ *   `await` and parentheses) cast with `as T` or `<T>`, T not `unknown`,
+ *   also through a chain of assertions (`as unknown as T`): a chain is
+ *   flagged when any assertion in it names a type other than `unknown`
  * - `json-parse-as`: `JSON.parse(…)` cast the same way
  * - `json-annotated`: an argument-free `.json()` (also after `.catch(…)`) as
  *   the initializer of a binding whose type annotation is not `unknown`
@@ -28,11 +31,17 @@
  *   field), or assigned with `=`, `??=`, `||=` or `&&=` to a variable or
  *   parameter whose nearest declaration in the same file carries such an
  *   annotation. `.json()` returns `any`, so the annotation is an unchecked
- *   cast. `c.json(body)` and other calls with arguments are not reads
+ *   cast. `c.json(body)` and other calls with arguments are not reads. The
+ *   value is looked for through parentheses, `await`, `!`, `satisfies`,
+ *   `??`, `||`, `&&` and both branches of a conditional, since each can hand
+ *   the read to the binding
  * - `json-parse-annotated`: `JSON.parse(…)` in the same positions
  *
- * `unknown`, also in a union with `null` and/or `undefined` (in any order,
- * parenthesised or not), counts as unknown. Not seen (no type checker):
+ * A union with `unknown` in it counts as `unknown` (TypeScript collapses it
+ * to `unknown`), parenthesised or not, unless `any` is in it too (then it is
+ * `any`). A declaration in a `switch` is found
+ * in its whole case block, the scope of a `let` or `const` there. Not seen
+ * (no type checker):
  * property assignments (`this.x = …`, `obj.x = …`), object literal
  * properties, a hoisted `var` declared in a nested block, a destructured
  * declaration of an assigned name, and a `return r.json()` from a function
@@ -42,9 +51,13 @@
  * out of scope, except JSON columns, which are parsed with a schema.
  *
  * A vetted case carries a `// boundary-ok: <reason>` line comment on the
- * same line as the start of the flagged read (anywhere on that line, after
- * any token) or on the line immediately before it; nothing further away
- * counts, and nothing is inherited from an enclosing statement or function.
+ * line of the read's own token, the `.json`, `JSON.parse` or KV `.get` the
+ * finding reports (anywhere on that line, after any token), or on the line
+ * immediately before it, and not inside a function or a call's argument list
+ * nested in the read's receiver: such a comment documents that nested code,
+ * never the read. Nothing further away counts, and nothing is inherited from
+ * an enclosing statement or function. A multi-line member chain is vetted by
+ * a marker on the line before its `.json<T>()`.
  * Only real comments count: they are collected from the parsed source's
  * comment trivia (the leading and trailing comment ranges of every token),
  * never by matching raw lines, so the same text inside a string, template
@@ -98,9 +111,18 @@ function unwrap(node) {
   }
 }
 
-/** Whether `node` is the string `json` (a string or template literal). */
+/** `node` without parentheses, `await`, `!`, `satisfies` and ANY `as` or `<T>` assertion. */
+function unwrapAssertions(node) {
+  let current = unwrap(node);
+  while (ts.isAsExpression(current) || ts.isTypeAssertionExpression(current)) {
+    current = unwrap(current.expression);
+  }
+  return current;
+}
+
+/** Whether `node` is the string `json` (a string or template literal), through any assertion. */
 function isJsonString(node) {
-  const value = unwrap(node);
+  const value = unwrapAssertions(node);
   return (
     (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value)) &&
     value.text === 'json'
@@ -137,30 +159,33 @@ function readsJson(argument) {
   );
 }
 
-/** Whether a type node is `null` or `undefined`. */
-const isNullish = member =>
-  member.kind === ts.SyntaxKind.UndefinedKeyword ||
-  (ts.isLiteralTypeNode(member) && member.literal.kind === ts.SyntaxKind.NullKeyword);
+/** The members of a type, through parentheses and nested unions. */
+function unionMembers(type) {
+  let current = type;
+  while (ts.isParenthesizedTypeNode(current)) current = current.type;
+  return ts.isUnionTypeNode(current) ? current.types.flatMap(unionMembers) : [current];
+}
 
 /**
- * Whether a type node reads as unknown: `unknown`, or `unknown` in a union
- * whose other members are only `null` and `undefined` (any order, nested
- * unions and parentheses included).
+ * Whether a type node reads as unknown: `unknown`, or a union with `unknown`
+ * among its members (TypeScript collapses `unknown | T` to `unknown`), nested
+ * unions and parentheses included, unless `any` is a member too: `any`
+ * absorbs `unknown`, so such a union is `any`.
  */
 function isUnknownType(type) {
-  const members = [];
-  const flatten = node => {
-    let current = node;
-    while (ts.isParenthesizedTypeNode(current)) current = current.type;
-    if (ts.isUnionTypeNode(current)) current.types.forEach(flatten);
-    else members.push(current);
-  };
-  flatten(type);
+  const members = unionMembers(type);
   return (
     members.some(member => member.kind === ts.SyntaxKind.UnknownKeyword) &&
-    members.every(member => member.kind === ts.SyntaxKind.UnknownKeyword || isNullish(member))
+    !members.some(member => member.kind === ts.SyntaxKind.AnyKeyword)
   );
 }
+
+/** Whether `node` is an `as` or `<T>` type assertion. */
+const isAssertion = node => ts.isAsExpression(node) || ts.isTypeAssertionExpression(node);
+
+/** Whether an `as` or `<T>` assertion is `as const`. */
+const isConstAssertion = node =>
+  ts.isTypeReferenceNode(node.type) && node.type.typeName.getText() === 'const';
 
 /** `x.name(…)`: the property name of a call on a member, else undefined. */
 function calledMember(call) {
@@ -206,15 +231,15 @@ function scriptKind(fileName) {
 }
 
 /**
- * The 0-based lines holding a real `// boundary-ok: <reason>` comment: every
- * comment range in the leading and trailing trivia of every token of the
- * parsed file. Text inside a token (a string, a template literal, a regular
- * expression) is never trivia, so it is never seen here.
+ * The real `// boundary-ok: <reason>` comments, as `{ pos, line }` (0-based
+ * line): every comment range in the leading and trailing trivia of every
+ * token of the parsed file. Text inside a token (a string, a template
+ * literal, a regular expression) is never trivia, so it is never seen here.
  */
-function markerLines(source) {
+function markers(source) {
   const text = source.text;
   const seen = new Set();
-  const lines = new Set();
+  const found = [];
   const collect = ranges => {
     for (const range of ranges ?? []) {
       if (seen.has(range.pos)) continue;
@@ -223,7 +248,7 @@ function markerLines(source) {
         range.kind === ts.SyntaxKind.SingleLineCommentTrivia &&
         EXEMPTION.test(text.slice(range.pos, range.end))
       ) {
-        lines.add(source.getLineAndCharacterOfPosition(range.pos).line);
+        found.push({ pos: range.pos, line: source.getLineAndCharacterOfPosition(range.pos).line });
       }
     }
   };
@@ -233,7 +258,30 @@ function markerLines(source) {
     for (const child of node.getChildren(source)) walk(child);
   };
   walk(source);
-  return lines;
+  return found;
+}
+
+/**
+ * The spans inside a read's RECEIVER that belong to other code: every
+ * function-like node and every call's argument list nested in it (the `x` of
+ * `x.json()`, the `kv` of `kv.get(…)`). A marker there documents that code,
+ * never the read.
+ */
+function foreignSpans(read) {
+  const receiver =
+    read && ts.isCallExpression(read) && ts.isPropertyAccessExpression(read.expression)
+      ? read.expression.expression
+      : undefined;
+  const spans = [];
+  const visit = node => {
+    if (ts.isFunctionLike(node)) spans.push([node.pos, node.end]);
+    if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && node.arguments) {
+      spans.push([node.arguments.pos, node.arguments.end]);
+    }
+    ts.forEachChild(node, visit);
+  };
+  if (receiver) visit(receiver);
+  return spans;
 }
 
 /** The `.json()` call `node` is, argument-free (also under a `.catch(…)`), else undefined. */
@@ -242,29 +290,48 @@ function argumentFreeJsonCall(node) {
   return json && json.arguments.length === 0 ? json : undefined;
 }
 
-/** The finding for an untyped JSON read initialising or assigned to an annotated binding. */
-function annotatedJsonRead(value) {
+/** The operators an initialiser or assignment can hand either operand through. */
+const LOGICAL = new Set([
+  ts.SyntaxKind.QuestionQuestionToken,
+  ts.SyntaxKind.BarBarToken,
+  ts.SyntaxKind.AmpersandAmpersandToken,
+]);
+
+/**
+ * The findings for untyped JSON reads initialising or assigned to an
+ * annotated binding: an argument-free `.json()` or `JSON.parse(…)`, looked
+ * for through `??`, `||`, `&&` and both branches of a conditional (and
+ * parentheses, `await`, `!`, `satisfies`), since each hands the read's value
+ * to the binding.
+ */
+function annotatedJsonReads(expression) {
+  const value = unwrap(expression);
+  if (ts.isBinaryExpression(value) && LOGICAL.has(value.operatorToken.kind)) {
+    return [...annotatedJsonReads(value.left), ...annotatedJsonReads(value.right)];
+  }
+  if (ts.isConditionalExpression(value)) {
+    return [...annotatedJsonReads(value.whenTrue), ...annotatedJsonReads(value.whenFalse)];
+  }
   const json = argumentFreeJsonCall(value);
   if (json && (json.typeArguments ?? []).length === 0) {
-    return { node: json.expression.name, pattern: 'json-annotated' };
+    return [{ node: json.expression.name, read: json, pattern: 'json-annotated' }];
   }
   if (isJsonParse(value)) {
-    return { node: unwrap(value).expression, pattern: 'json-parse-annotated' };
+    return [{ node: value.expression, read: value, pattern: 'json-parse-annotated' }];
   }
-  return undefined;
+  return [];
 }
 
-/** The statements a scope node holds directly, if it holds any. */
+/**
+ * The statements a scope node holds directly, if it holds any. A `switch`'s
+ * case block is ONE scope for `let` and `const`: a declaration in one clause
+ * is seen from every other.
+ */
 function scopeStatements(node) {
-  if (
-    ts.isSourceFile(node) ||
-    ts.isBlock(node) ||
-    ts.isModuleBlock(node) ||
-    ts.isCaseClause(node) ||
-    ts.isDefaultClause(node)
-  ) {
+  if (ts.isSourceFile(node) || ts.isBlock(node) || ts.isModuleBlock(node)) {
     return node.statements;
   }
+  if (ts.isCaseBlock(node)) return node.clauses.flatMap(clause => [...clause.statements]);
   return [];
 }
 
@@ -304,6 +371,25 @@ function declaredType(identifier) {
   return undefined;
 }
 
+/**
+ * The nearest ancestor of `node` that is not a wrapper `unwrap` looks
+ * through (parentheses, `await`, `!`, `satisfies`): what the value of `node`
+ * flows into.
+ */
+function unwrapParentsOf(node) {
+  let parent = node.parent;
+  while (
+    parent &&
+    (ts.isParenthesizedExpression(parent) ||
+      ts.isAwaitExpression(parent) ||
+      ts.isNonNullExpression(parent) ||
+      ts.isSatisfiesExpression(parent))
+  ) {
+    parent = parent.parent;
+  }
+  return parent;
+}
+
 /** Assignment operators an annotated binding can receive a read through. */
 const ASSIGNMENTS = new Set([
   ts.SyntaxKind.EqualsToken,
@@ -322,10 +408,20 @@ export function findBoundaryReads(text, fileName = 'source.ts') {
     scriptKind(fileName),
   );
   const findings = [];
-  const vetted = markerLines(source);
-  const add = (node, pattern) => {
+  let found;
+  // `node` is the read's own token (`.json`, `JSON.parse`, KV `.get`), which
+  // is reported; `read` is the read expression. A marker on the token's line
+  // or the line before vets the read, unless it sits in a function or a
+  // call's arguments inside the read's receiver
+  const add = (node, read, pattern) => {
     const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line;
-    if (vetted.has(line) || vetted.has(line - 1)) return;
+    found ??= markers(source);
+    const near = found.filter(marker => marker.line === line || marker.line === line - 1);
+    if (near.length > 0) {
+      const spans = foreignSpans(read);
+      const owns = marker => !spans.some(([start, end]) => marker.pos >= start && marker.pos < end);
+      if (near.some(owns)) return;
+    }
     findings.push({ line: line + 1, pattern });
   };
 
@@ -333,28 +429,32 @@ export function findBoundaryReads(text, fileName = 'source.ts') {
     if (ts.isCallExpression(node)) {
       const member = calledMember(node);
       if ((member === 'get' || member === 'getWithMetadata') && readsJson(node.arguments[1])) {
-        add(node.expression.name, 'kv-get-json');
+        add(node.expression.name, node, 'kv-get-json');
       }
       if (member === 'json') {
         const types = node.typeArguments ?? [];
         if (types.length > 0 && !types.every(isUnknownType)) {
-          add(node.expression.name, onRequest(node) ? 'req-json-generic' : 'json-generic');
+          add(node.expression.name, node, onRequest(node) ? 'req-json-generic' : 'json-generic');
         } else if (types.length === 0 && onRequest(node)) {
-          add(node.expression.name, 'req-json-untyped');
+          add(node.expression.name, node, 'req-json-untyped');
         }
       }
     }
-    if (
-      (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) &&
-      !isUnknownType(node.type)
-    ) {
-      const isConst = ts.isTypeReferenceNode(node.type) && node.type.typeName.getText() === 'const';
-      if (!isConst) {
-        const json = jsonCall(node.expression);
-        if (json) add(json.expression.name, 'json-await-as');
-        else if (isJsonParse(node.expression)) {
-          add(unwrap(node.expression).expression, 'json-parse-as');
-        }
+    // A chain of assertions is judged once, from its outermost one: a read
+    // under it (through parentheses, `await`, `!`, `satisfies` and every
+    // inner assertion) is flagged when any assertion in the chain names a
+    // type other than `unknown` or `const` (`as unknown as T` included)
+    if (isAssertion(node) && !isAssertion(unwrapParentsOf(node))) {
+      let typed = false;
+      let inner = node;
+      while (isAssertion(inner)) {
+        if (!isConstAssertion(inner) && !isUnknownType(inner.type)) typed = true;
+        inner = unwrap(inner.expression);
+      }
+      if (typed) {
+        const json = jsonCall(inner);
+        if (json) add(json.expression.name, json, 'json-await-as');
+        else if (isJsonParse(inner)) add(inner.expression, inner, 'json-parse-as');
       }
     }
     if (
@@ -363,8 +463,8 @@ export function findBoundaryReads(text, fileName = 'source.ts') {
       node.initializer &&
       !isUnknownType(node.type)
     ) {
-      const read = annotatedJsonRead(node.initializer);
-      if (read) add(read.node, read.pattern);
+      for (const read of annotatedJsonReads(node.initializer))
+        add(read.node, read.read, read.pattern);
     }
     if (
       ts.isBinaryExpression(node) &&
@@ -372,10 +472,12 @@ export function findBoundaryReads(text, fileName = 'source.ts') {
       ts.isIdentifier(node.left)
     ) {
       // The right-hand side first: a declaration is resolved only for a read
-      const read = annotatedJsonRead(node.right);
-      if (read) {
+      const reads = annotatedJsonReads(node.right);
+      if (reads.length > 0) {
         const type = declaredType(node.left);
-        if (type && !isUnknownType(type)) add(read.node, read.pattern);
+        if (type && !isUnknownType(type)) {
+          for (const read of reads) add(read.node, read.read, read.pattern);
+        }
       }
     }
     ts.forEachChild(node, visit);

@@ -1,3 +1,5 @@
+import { isRecord } from '@bifrost/shared';
+
 /** Navigation state the QR page accepts: open on this domain. */
 export interface QrPageNavState {
   domain?: string;
@@ -5,8 +7,7 @@ export interface QrPageNavState {
 
 /** The domain navigation state names, if it names one at all. */
 export function qrPageNavDomain(state: unknown): string | undefined {
-  const requested =
-    typeof state === 'object' && state !== null && 'domain' in state ? state.domain : undefined;
+  const requested = isRecord(state) ? state['domain'] : undefined;
   return typeof requested === 'string' ? requested : undefined;
 }
 

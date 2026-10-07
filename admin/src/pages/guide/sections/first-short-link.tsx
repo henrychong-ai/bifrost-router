@@ -23,10 +23,11 @@ export function FirstShortLinkSection() {
           another route already points at the same target.
         </Step>
         <Step n={4} title="Optional: add UTM tracking">
-          For a redirect or proxy, open <strong>UTM tracking</strong> under the target to set the
-          campaign tags (source, medium, campaign, term, content). They are written into the target
-          URL in lowercase; use kebab-case such as <FactChip>spring-launch-2026</FactChip>, never
-          underscores or spaces. <strong>Final target</strong> shows exactly what is saved.
+          For a redirect, open <strong>UTM tracking</strong> under the target to set the campaign
+          tags (source, medium, campaign, term, content). They are written into the target URL in
+          lowercase; use kebab-case such as <FactChip>spring-launch-2026</FactChip>, never
+          underscores or spaces. <strong>Final target</strong> shows exactly what is saved. (A proxy
+          passes the visitor's own query to the upstream, so it has no UTM section.)
         </Step>
         <Step n={5} title="Create">
           The route is live on every edge location within seconds — no deploy, no waiting.
@@ -44,7 +45,8 @@ export function FirstShortLinkSection() {
         the route to the new slug, keeping its config and creation date (past click history stays
         under the old slug). Pointing it somewhere new is just Edit too — the short link never has
         to change. An edit saves only the fields you changed; saving with nothing changed says “No
-        changes to save” and sends nothing.
+        changes to save” and sends nothing. Change the path together with other fields and both are
+        saved: the route moves first, then your other changes land on the new path.
       </Tip>
       <Tip>
         Naming a file link: name it after the document, not the file — no dates, versions or file

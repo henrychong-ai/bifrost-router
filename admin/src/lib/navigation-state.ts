@@ -1,3 +1,4 @@
+import { isRecord } from '@bifrost/shared';
 import { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { type Route, RouteSchema } from '@/lib/schemas';
@@ -9,8 +10,8 @@ import { type Route, RouteSchema } from '@/lib/schemas';
  * state carries no valid route.
  */
 export function navEditRoute(state: unknown): Route | undefined {
-  if (typeof state !== 'object' || state === null || !('editRoute' in state)) return undefined;
-  const parsed = RouteSchema.safeParse(state.editRoute);
+  if (!isRecord(state)) return undefined;
+  const parsed = RouteSchema.safeParse(state['editRoute']);
   return parsed.success ? parsed.data : undefined;
 }
 

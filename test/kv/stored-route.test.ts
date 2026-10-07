@@ -1,23 +1,26 @@
 /**
  * Stored route records validated on read (v1.38.0). The guard is
- * hand-written for the hot path; these tests keep it in step with the shared
- * RouteSchema and pin how an invalid record is handled: never served, never
- * a fall-through to a broader route, never listed, logged as fixed text only,
- * and still deletable.
+ * hand-written for the hot path (in `@bifrost/shared`, shared with the
+ * dashboard); these tests keep it in step with the shared RouteSchema and pin
+ * how an invalid record is handled: read as `invalid` by every helper, never
+ * served, never a fall-through to a broader route, listed as a minimal row,
+ * logged as fixed text only (by lookup, only the record it selected), and
+ * still deletable.
  */
 import { env } from 'cloudflare:test';
 import { RouteSchema } from '@bifrost/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { matchRoute } from '../../src/kv/lookup';
+import { lookupRoute } from '../../src/kv/lookup';
 import {
   deleteRoute,
   findRoutesByR2Target,
   getAllRoutes,
   getAllRoutesAllDomains,
   getRoute,
-  getRouteSafe,
-  getRouteState,
+  getRouteByNormalizedPath,
   InvalidStoredRouteError,
+  listAllDomainRoutes,
+  listDomainRoutes,
   migrateRoute,
   seedRoutes,
   transferRoute,
@@ -129,6 +132,12 @@ describe('isRouteKey', () => {
   });
 });
 
+/** The route a lookup serves, or null (missing or invalid). */
+const served = async (path: string) => {
+  const lookup = await lookupRoute(env.ROUTES, DOMAIN, path);
+  return lookup.status === 'ok' ? lookup.route : null;
+};
+
 const fixedLog = (key: string) =>
   JSON.stringify({ level: 'warn', message: 'boundary-invalid-value', category: 'route', key });
 
@@ -150,64 +159,103 @@ describe('an invalid stored route', () => {
     ['not JSON', `{"path":"/bad","target":"https://example.com/?token=${secret}"`],
     ['the wrong shape', JSON.stringify({ path: '/bad', type: 'script', target: secret })],
     ['a JSON string', JSON.stringify(secret)],
-  ])('a record that is %s is not served, not listed and not returned', async (_label, stored) => {
-    await env.ROUTES.put(routeKey(DOMAIN, '/bad'), stored);
-    const good = createMockRoute({ path: '/good' });
-    await env.ROUTES.put(routeKey(DOMAIN, '/good'), JSON.stringify(good));
+  ])(
+    'a record that is %s reads as invalid everywhere and is never served',
+    async (_label, stored) => {
+      await env.ROUTES.put(routeKey(DOMAIN, '/bad'), stored);
+      const good = createMockRoute({ path: '/good' });
+      await env.ROUTES.put(routeKey(DOMAIN, '/good'), JSON.stringify(good));
 
-    expect(await matchRoute(env.ROUTES, DOMAIN, '/bad')).toBeNull();
-    expect(await getRoute(env.ROUTES, DOMAIN, '/bad')).toBeNull();
-    expect(await getRouteSafe(env.ROUTES, DOMAIN, '/bad')).toEqual({ success: true, data: null });
-    expect(await getRouteState(env.ROUTES, DOMAIN, '/bad')).toEqual({ status: 'invalid' });
-    expect((await getAllRoutes(env.ROUTES, DOMAIN)).map(route => route.path)).toEqual(['/good']);
-    expect(
-      (await getAllRoutesAllDomains(env.ROUTES)).map(route => `${route.domain}${route.path}`),
-    ).toEqual([`${DOMAIN}/good`]);
-    expectFixedLog();
-  });
+      expect(await lookupRoute(env.ROUTES, DOMAIN, '/bad')).toEqual({ status: 'invalid' });
+      expect(await getRoute(env.ROUTES, DOMAIN, '/bad')).toEqual({ status: 'invalid' });
+      expect(await getRouteByNormalizedPath(env.ROUTES, DOMAIN, '/bad')).toEqual({
+        status: 'invalid',
+      });
+      // Readers of records take the readable ones; the listings add a minimal row
+      expect((await getAllRoutes(env.ROUTES, DOMAIN)).map(route => route.path)).toEqual(['/good']);
+      expect(
+        (await getAllRoutesAllDomains(env.ROUTES)).map(route => `${route.domain}${route.path}`),
+      ).toEqual([`${DOMAIN}/good`]);
+      expect(await listDomainRoutes(env.ROUTES, DOMAIN)).toEqual({
+        routes: [good],
+        invalid: [{ domain: DOMAIN, path: '/bad', invalid: true }],
+      });
+      expect((await listAllDomainRoutes(env.ROUTES)).invalid).toEqual([
+        { domain: DOMAIN, path: '/bad', invalid: true },
+      ]);
+      expectFixedLog();
+    },
+  );
 
   it('an invalid exact record under a public wildcard is a 404, the wildcard not served', async () => {
     await env.ROUTES.put(routeKey(DOMAIN, '/docs/private'), '{"broken"');
     const wildcard = createMockRoute({ path: '/docs/*', target: 'https://example.com/docs' });
     await env.ROUTES.put(routeKey(DOMAIN, '/docs/*'), JSON.stringify(wildcard));
-    expect(await matchRoute(env.ROUTES, DOMAIN, '/docs/private')).toBeNull();
+    expect(await lookupRoute(env.ROUTES, DOMAIN, '/docs/private')).toEqual({ status: 'invalid' });
     expectFixedLog(routeKey(DOMAIN, '/docs/private'));
     // Another path under the wildcard is still served
-    expect((await matchRoute(env.ROUTES, DOMAIN, '/docs/public'))?.path).toBe('/docs/*');
+    expect((await served('/docs/public'))?.path).toBe('/docs/*');
   });
 
   it('an invalid wildcard record is a 404 rather than a broader wildcard', async () => {
     await env.ROUTES.put(routeKey(DOMAIN, '/docs/*'), JSON.stringify({ type: 'script' }));
     const root = createMockRoute({ path: '/*', target: 'https://example.com/root' });
     await env.ROUTES.put(routeKey(DOMAIN, '/*'), JSON.stringify(root));
-    expect(await matchRoute(env.ROUTES, DOMAIN, '/docs/a')).toBeNull();
+    expect(await lookupRoute(env.ROUTES, DOMAIN, '/docs/a')).toEqual({ status: 'invalid' });
     expectFixedLog(routeKey(DOMAIN, '/docs/*'));
-    expect((await matchRoute(env.ROUTES, DOMAIN, '/other'))?.path).toBe('/*');
+    expect((await served('/other'))?.path).toBe('/*');
+  });
+
+  it('logs only the candidate the lookup selected, never a broader one behind it', async () => {
+    // An unreadable root wildcard behind a readable, more specific one
+    await env.ROUTES.put(routeKey(DOMAIN, '/*'), JSON.stringify({ type: 'script' }));
+    const docs = createMockRoute({ path: '/docs/*', target: 'https://example.com/docs' });
+    await env.ROUTES.put(routeKey(DOMAIN, '/docs/*'), JSON.stringify(docs));
+    expect((await served('/docs/a'))?.path).toBe('/docs/*');
+    expect(warn).not.toHaveBeenCalled();
+    // A readable exact match never reads as anything else either
+    const exact = createMockRoute({ path: '/docs/exact' });
+    await env.ROUTES.put(routeKey(DOMAIN, '/docs/exact'), JSON.stringify(exact));
+    expect(await served('/docs/exact')).toEqual(exact);
+    expect(warn).not.toHaveBeenCalled();
+    // A disabled more specific route is skipped, so the unreadable root is
+    // the candidate selected: logged once
+    await env.ROUTES.put(routeKey(DOMAIN, '/docs/*'), JSON.stringify({ ...docs, enabled: false }));
+    expect(await lookupRoute(env.ROUTES, DOMAIN, '/docs/a')).toEqual({ status: 'invalid' });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expectFixedLog(routeKey(DOMAIN, '/*'));
   });
 
   it('a request path whose exact key is over 512 bytes reads as absent, never a KV error', async () => {
     const root = createMockRoute({ path: '/*', target: 'https://example.com/root' });
     await env.ROUTES.put(routeKey(DOMAIN, '/*'), JSON.stringify(root));
     const long = `/${'a'.repeat(600)}`;
-    expect((await matchRoute(env.ROUTES, DOMAIN, long))?.path).toBe('/*');
+    expect((await served(long))?.path).toBe('/*');
     await env.ROUTES.delete(routeKey(DOMAIN, '/*'));
-    expect(await matchRoute(env.ROUTES, DOMAIN, long)).toBeNull();
-    expect(await getRoute(env.ROUTES, DOMAIN, long)).toBeNull();
+    expect(await lookupRoute(env.ROUTES, DOMAIN, long)).toEqual({ status: 'missing' });
+    expect(await getRoute(env.ROUTES, DOMAIN, long)).toEqual({ status: 'missing' });
     expect(warn).not.toHaveBeenCalled();
   });
 
   it('valid records are served without any log', async () => {
     const route = createMockRoute({ path: '/ok' });
     await env.ROUTES.put(routeKey(DOMAIN, '/ok'), JSON.stringify(route));
-    expect(await matchRoute(env.ROUTES, DOMAIN, '/ok')).toEqual(route);
+    expect(await lookupRoute(env.ROUTES, DOMAIN, '/ok')).toEqual({ status: 'ok', route });
     expect(warn).not.toHaveBeenCalled();
   });
 
   it('can still be deleted, which is the recovery', async () => {
     await env.ROUTES.put(routeKey(DOMAIN, '/bad'), '{"broken"');
-    expect(await deleteRoute(env.ROUTES, DOMAIN, '/bad')).toBe(true);
+    const get = vi.spyOn(env.ROUTES, 'get');
+    try {
+      // One read, and the state it found
+      expect(await deleteRoute(env.ROUTES, DOMAIN, '/bad')).toEqual({ status: 'invalid' });
+      expect(get).toHaveBeenCalledTimes(1);
+    } finally {
+      get.mockRestore();
+    }
     expect(await env.ROUTES.get(routeKey(DOMAIN, '/bad'))).toBeNull();
-    expect(await deleteRoute(env.ROUTES, DOMAIN, '/bad')).toBe(false);
+    expect(await deleteRoute(env.ROUTES, DOMAIN, '/bad')).toEqual({ status: 'missing' });
   });
 
   it('is never merged with an update, migrated, transferred or overwritten', async () => {

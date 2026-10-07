@@ -1,0 +1,71 @@
+import { describe, expect, it } from 'vitest';
+import { RouteSchema } from './schemas.js';
+import {
+  InvalidRouteRowSchema,
+  isInvalidRouteRow,
+  isStoredRoute,
+  parseStoredRoute,
+  STORED_ROUTE_FIELDS,
+  STORED_ROUTE_REQUIRED,
+  StoredRouteSchema,
+} from './stored-route.js';
+
+describe('stored routes: one tolerant read shape for the Worker and the dashboard (v1.38.0)', () => {
+  it('classifies every RouteSchema field, and nothing else', () => {
+    const classified = [
+      'type',
+      ...STORED_ROUTE_REQUIRED,
+      ...Object.values(STORED_ROUTE_FIELDS).flat(),
+    ].toSorted();
+    expect(classified).toEqual(Object.keys(RouteSchema.shape).toSorted());
+  });
+
+  it('reads an older record no write accepts today, null optionals dropped', () => {
+    const legacy = {
+      path: '/legacy',
+      type: 'redirect',
+      target: 'https://example.com/',
+      statusCode: 303,
+      bucket: 'retired-bucket',
+      cacheControl: null,
+      enabled: null,
+      extra: 'kept',
+    };
+    expect(isStoredRoute(legacy)).toBe(true);
+    expect(parseStoredRoute(legacy)).toEqual({
+      path: '/legacy',
+      type: 'redirect',
+      target: 'https://example.com/',
+      statusCode: 303,
+      bucket: 'retired-bucket',
+      extra: 'kept',
+    });
+    expect(StoredRouteSchema.parse(legacy)).toMatchObject({ statusCode: 303 });
+    // No timestamps at all
+    expect(parseStoredRoute({ path: '/a', type: 'r2', target: 'a.pdf' })).toEqual({
+      path: '/a',
+      type: 'r2',
+      target: 'a.pdf',
+    });
+  });
+
+  it.each([
+    ['null', null],
+    ['an unknown type', { path: '/a', type: 'script', target: 'x' }],
+    ['a missing target', { path: '/a', type: 'redirect' }],
+    ['a string status code', { path: '/a', type: 'redirect', target: 'x', statusCode: '301' }],
+  ])('refuses %s with one fixed message', (_label, value) => {
+    expect(parseStoredRoute(value)).toBeNull();
+    const result = StoredRouteSchema.safeParse(value);
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toBe('Not a route record');
+  });
+
+  it('recognises a listing row for an unreadable record', () => {
+    const row = { domain: 'links.example.com', path: '/bad', invalid: true };
+    expect(isInvalidRouteRow(row)).toBe(true);
+    expect(InvalidRouteRowSchema.parse(row)).toEqual(row);
+    expect(isInvalidRouteRow({ ...row, invalid: 'yes' })).toBe(false);
+    expect(isInvalidRouteRow({ path: '/a', type: 'redirect', target: 'x' })).toBe(false);
+  });
+});

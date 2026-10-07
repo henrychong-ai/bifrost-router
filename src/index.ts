@@ -541,7 +541,10 @@ async function handleRoute(
 // ============================================
 
 app.onError((err, c) => {
-  // Let HTTPException return its intended status code (401, 404, etc.)
+  // Let HTTPException return its intended status code (401, 404, etc.). A
+  // coded refusal (CodedHTTPException: ROUTE_RECORD_INVALID, QR_NOT_FOUND,
+  // QR_RECORD_INVALID) carries its JSON body as its own response, so it is
+  // answered here like any other
   if (err instanceof HTTPException) {
     return err.getResponse();
   }

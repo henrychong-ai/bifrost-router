@@ -1,5 +1,5 @@
 import { bench, describe } from 'vitest';
-import { matchRoute } from '../../src/kv/lookup';
+import { lookupRoute } from '../../src/kv/lookup';
 import { routeKey } from '../../src/kv/schema';
 import type { KVRouteConfig } from '../../src/types';
 
@@ -47,7 +47,7 @@ describe(`route lookup with ${READ_LATENCY_MS} ms per KV read`, () => {
   bench(
     'deep exact hit',
     async () => {
-      await matchRoute(exactHitKv, DOMAIN, DEEP_PATH);
+      await lookupRoute(exactHitKv, DOMAIN, DEEP_PATH);
     },
     BENCH_OPTIONS,
   );
@@ -55,7 +55,7 @@ describe(`route lookup with ${READ_LATENCY_MS} ms per KV read`, () => {
   bench(
     'deep root-wildcard hit',
     async () => {
-      await matchRoute(rootWildcardHitKv, DOMAIN, DEEP_PATH);
+      await lookupRoute(rootWildcardHitKv, DOMAIN, DEEP_PATH);
     },
     BENCH_OPTIONS,
   );
@@ -63,7 +63,7 @@ describe(`route lookup with ${READ_LATENCY_MS} ms per KV read`, () => {
   bench(
     'deep miss',
     async () => {
-      await matchRoute(missKv, DOMAIN, DEEP_PATH);
+      await lookupRoute(missKv, DOMAIN, DEEP_PATH);
     },
     BENCH_OPTIONS,
   );

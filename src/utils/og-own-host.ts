@@ -15,7 +15,8 @@
  *   host policy, and in process again if it lands on an own host. A non-web
  *   destination (`tel:`, `mailto:`) gives the minimal result.
  * - proxy route: the upstream URL, which the parser fetches as a proxied hop
- *   (each redirect checked as a proxy target, same cap and timeouts), reported
+ *   (each redirect checked as a proxy target, under the preview's own 5-hop
+ *   cap and timeouts, not the proxy handler's 20), reported
  *   under the public URL, and no error names the upstream (the page's own
  *   og:image may still be an absolute upstream URL). A Host override (fetch cannot send
  *   it, so the page would not be the one a visitor gets) or a refused target

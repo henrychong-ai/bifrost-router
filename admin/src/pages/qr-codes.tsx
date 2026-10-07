@@ -10,6 +10,7 @@ import {
   CreateQRInputSchema,
   deriveBrandForDomain,
   generateQrId,
+  type InvalidQRRow,
   NEUTRAL_QR_DESIGN,
   normalizeQrId,
   normalizeQrIdInput,
@@ -207,10 +208,16 @@ interface QrFormProps {
   submitting: boolean;
   /**
    * Save the code. A create receives the full input; an edit only the fields
-   * that changed (`qrEditPatch`, v1.38.0), `{}` when nothing did.
+   * that changed (`qrEditPatch`, v1.38.0), `{}` when nothing did. Resolves
+   * `'saved'`, or `'not-saved'` when the dialog closed without saving (the
+   * code was deleted elsewhere): a route this form created for the save is
+   * then reported as kept. Rejects on any other failure.
    */
-  onSubmit: (input: Record<string, unknown>) => Promise<void>;
+  onSubmit: (input: Record<string, unknown>) => Promise<QrSaveOutcome>;
 }
+
+/** How a save ended when it did not throw (see {@link QrFormProps.onSubmit}). */
+type QrSaveOutcome = 'saved' | 'not-saved';
 
 /** A save in progress: the code's input, and the route to create first, if any. */
 interface QrSubmission {
@@ -435,7 +442,9 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
         input = { ...input, payload: { url: linkedRouteUrl(linked) }, linkedRoute: linked };
       }
       setCredentialConfirm(null);
-      await onSubmit(input);
+      // The code was gone (deleted elsewhere): the dialog closed without a
+      // save, so a route created for it is reported as kept, with View route
+      if ((await onSubmit(input)) === 'not-saved' && retained) reportRetainedRoute(retained);
     } catch (error) {
       const parameters = credentialTargetParametersFromError(error);
       if (submission.route && !retained && parameters && !acknowledgeCredentialTarget) {
@@ -956,6 +965,8 @@ export function QrCodesPage() {
 
   const { data, isLoading, error } = useQrCodes(queryParams);
   const items = data?.items ?? [];
+  // Records that cannot be read (v1.38.0): listed flagged, Delete only
+  const invalidItems = data?.invalid ?? [];
   const meta = data?.meta;
 
   const createQr = useCreateQr();
@@ -964,43 +975,57 @@ export function QrCodesPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editQr, setEditQr] = useState<QRCode | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<QRCode | null>(null);
+  // The code to delete: a readable code or an unreadable record's row
+  const [deleteTarget, setDeleteTarget] = useState<QRCode | InvalidQRRow | null>(null);
 
-  const onCreate = async (input: Record<string, unknown>) => {
+  const onCreate = async (input: Record<string, unknown>): Promise<QrSaveOutcome> => {
     const qr = await createQr.mutateAsync({ input, domain });
     toast.success(`QR code created: ${qr.id}`);
     setCreateOpen(false);
+    return 'saved';
   };
 
-  const onUpdate = async (input: Record<string, unknown>) => {
-    if (!editQr) return;
+  const onUpdate = async (input: Record<string, unknown>): Promise<QrSaveOutcome> => {
+    if (!editQr) return 'not-saved';
     // Nothing changed: no request, no audit row, no new updatedAt (v1.38.0)
     if (Object.keys(input).length === 0) {
       toast.success('No changes to save');
       setEditQr(null);
-      return;
+      return 'saved';
     }
     let qr: QRCode;
     try {
-      qr = await updateQr.mutateAsync({ id: editQr.id, input, domain: editQr.domain });
+      qr = await updateQr.mutateAsync({
+        id: editQr.id,
+        input,
+        domain: editQr.domain,
+        createdAt: editQr.createdAt,
+      });
     } catch (e) {
       // Deleted elsewhere while the dialog was open: nothing left to edit, as
-      // on delete. The hook has already hidden it in every listing.
+      // on delete. The hook has already hidden it in every listing. Not a
+      // save: the form reports a route it created for it as kept
       if (isQrNotFoundError(e)) {
         toast.info(`QR code ${editQr.id} was already deleted`);
         setEditQr(null);
-        return;
+        return 'not-saved';
       }
       throw e;
     }
     toast.success(`QR code updated: ${qr.id}`);
     setEditQr(null);
+    return 'saved';
   };
 
   const onDelete = () => {
     if (!deleteTarget) return;
     deleteQr.mutate(
-      { id: deleteTarget.id, domain: deleteTarget.domain },
+      {
+        id: deleteTarget.id,
+        domain: deleteTarget.domain,
+        // The incarnation deleted; unknown for an unreadable record
+        createdAt: 'createdAt' in deleteTarget ? deleteTarget.createdAt : undefined,
+      },
       {
         onSuccess: () => {
           toast.success(`QR code deleted: ${deleteTarget.id}`);
@@ -1117,7 +1142,7 @@ export function QrCodesPage() {
             </p>
           ) : isLoading ? (
             <Skeleton className="h-40 w-full" />
-          ) : items.length === 0 ? (
+          ) : items.length === 0 && invalidItems.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
               No QR codes yet{debouncedSearch ? ' matching your search' : ''}.
             </p>
@@ -1195,6 +1220,39 @@ export function QrCodesPage() {
                           </>
                         )}
                       </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {invalidItems.map(row => (
+                  <TableRow
+                    key={`invalid:${row.id}`}
+                    data-testid="unreadable-qr"
+                    className="bg-destructive/5"
+                  >
+                    <TableCell />
+                    <TableCell>
+                      <div className="font-mono text-sm">{row.id}</div>
+                    </TableCell>
+                    <TableCell colSpan={4}>
+                      <span className="inline-flex items-center rounded-full border border-destructive/30 bg-destructive/10 px-2.5 py-0.5 font-inter text-tiny font-medium text-destructive">
+                        Unreadable record
+                      </span>
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        Stored in a shape that cannot be read. Delete it and create it again.
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {!readOnly && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Delete"
+                          aria-label={`Delete unreadable record ${row.id}`}
+                          onClick={() => setDeleteTarget(row)}
+                        >
+                          <Trash2 className="size-4 text-destructive" />
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

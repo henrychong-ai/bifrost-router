@@ -1,15 +1,17 @@
 /**
  * Stored QR values read as text and validated (v1.38.0): every field a reader
- * consumes is checked, nested ones included (payload, design, linkedRoute);
- * a record that fails is not found, logged as fixed text naming its key, and
- * never quoted; supported legacy forms are normalised; an unreadable record
- * is present for delete (the recovery) and for create (never overwritten).
+ * consumes is checked, nested ones included (payload, design, linkedRoute),
+ * formats as on write; a record that fails reads as `invalid` (never as
+ * absent), is logged as fixed text naming its key, and never quoted;
+ * supported legacy forms are normalised. An unreadable record answers 409
+ * QR_RECORD_INVALID on a read, an image, an update and a create with its id,
+ * is listed as a minimal row, and can be deleted (the recovery).
  */
 import { env, SELF } from 'cloudflare:test';
-import { type QRCode, QRCodeSchema, QRDesignSchema } from '@bifrost/shared';
+import { parseStoredQR, type QRCode, QRCodeSchema, QRDesignSchema } from '@bifrost/shared';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getQR, getQRSafe, isStoredQR, listQRs, putQR } from '../../src/kv/qr';
+import { getQR, listQRs, putQR } from '../../src/kv/qr';
 import { qrKey } from '../../src/kv/schema';
 import { adminRoutes } from '../../src/routes/admin';
 import type { AppEnv } from '../../src/types';
@@ -34,6 +36,10 @@ function makeQR(overrides: Partial<QRCode> = {}): QRCode {
     ...overrides,
   });
 }
+
+/** The record of a read that found one, else null. */
+const valueOf = <T>(read: { status: string; value?: T }) =>
+  read.status === 'ok' ? (read.value ?? null) : null;
 
 async function clearQrs(): Promise<void> {
   const listed = await env.ROUTES.list({ prefix: `qr:${DOMAIN}:` });
@@ -107,21 +113,41 @@ describe('stored QR values that are not valid records', () => {
       }),
     ],
     ['tags that are not strings', JSON.stringify({ ...makeQR({ id: 'broken' }), tags: [1] })],
-  ])('treats %s as not found, quoting nothing', async (_label, stored) => {
+    [
+      'markup in a design colour',
+      JSON.stringify({ ...makeQR({ id: 'broken' }), design: { bg: `"><x>${secret}` } }),
+    ],
+    [
+      'a record without createdBy',
+      JSON.stringify({ ...makeQR({ id: 'broken' }), createdBy: undefined, note: secret }),
+    ],
+  ])('reads %s as invalid, never absent, quoting nothing', async (_label, stored) => {
     await env.ROUTES.put(qrKey(DOMAIN, 'broken'), stored);
-    expect(await getQR(env.ROUTES, DOMAIN, 'broken')).toBeNull();
-    expect(await getQRSafe(env.ROUTES, DOMAIN, 'broken')).toEqual({ success: true, data: null });
+    expect(await getQR(env.ROUTES, DOMAIN, 'broken')).toEqual({ status: 'invalid' });
     expectFixedLog();
   });
 
-  it('listQRs skips an invalid record and lists the rest', async () => {
+  it('listQRs lists an invalid record as a minimal row, after the readable ones', async () => {
     await env.ROUTES.put(qrKey(DOMAIN, 'broken'), `{"password":"${secret}"`);
     const record = makeQR({ id: 'fine-code' });
     await putQR(env.ROUTES, record);
     const result = await listQRs(env.ROUTES, DOMAIN);
-    expect(result.items).toEqual([record]);
-    expect(result.total).toBe(1);
+    expect(result.items).toEqual([record, { domain: DOMAIN, id: 'broken', invalid: true }]);
+    expect(result.total).toBe(2);
+    expect(JSON.stringify(result)).not.toContain(secret);
     expectFixedLog();
+  });
+
+  it('an invalid row matches a search by its id only, and no type or tag filter', async () => {
+    await env.ROUTES.put(qrKey(DOMAIN, 'broken-code'), `{"password":"${secret}"`);
+    await putQR(env.ROUTES, makeQR({ id: 'fine-code', tags: ['a'] }));
+    const ids = async (query: Parameters<typeof listQRs>[2]) =>
+      (await listQRs(env.ROUTES, DOMAIN, query)).items.map(item => item.id);
+    expect(await ids({ offset: 0, search: 'broken' })).toEqual(['broken-code']);
+    expect(await ids({ offset: 0, search: 'password' })).toEqual([]);
+    expect(await ids({ offset: 0, type: 'url' })).toEqual(['fine-code']);
+    expect(await ids({ offset: 0, tag: 'a' })).toEqual(['fine-code']);
+    expect(await ids({ offset: 1, limit: 1 })).toEqual(['broken-code']);
   });
 
   it('accepts every record the write schema produces', () => {
@@ -141,7 +167,7 @@ describe('stored QR values that are not valid records', () => {
         design: QRDesignSchema.parse({ logoAspectRatio: 2 }),
       }),
     ]) {
-      expect(isStoredQR(JSON.parse(JSON.stringify(record)))).toBe(true);
+      expect(parseStoredQR(JSON.parse(JSON.stringify(record)))).toEqual(record);
     }
   });
 
@@ -154,14 +180,14 @@ describe('stored QR values that are not valid records', () => {
         design: { fg: null, bg: '#ffeedd', size: null, logoDataUri: null },
       }),
     );
-    const read = await getQR(env.ROUTES, DOMAIN, 'nulls');
+    const read = valueOf(await getQR(env.ROUTES, DOMAIN, 'nulls'));
     expect(read?.design).toEqual({ ...QRDesignSchema.parse({}), bg: '#ffeedd' });
     expect(read).not.toHaveProperty('description');
     await env.ROUTES.put(
       qrKey(DOMAIN, 'no-design'),
       JSON.stringify({ ...makeQR({ id: 'no-design' }), design: null }),
     );
-    expect((await getQR(env.ROUTES, DOMAIN, 'no-design'))?.design).toEqual(
+    expect(valueOf(await getQR(env.ROUTES, DOMAIN, 'no-design'))?.design).toEqual(
       QRDesignSchema.parse({}),
     );
     await env.ROUTES.put(
@@ -172,7 +198,7 @@ describe('stored QR values that are not valid records', () => {
         payload: { ssid: 'Office', password: 'pw' },
       }),
     );
-    expect((await getQR(env.ROUTES, DOMAIN, 'wifi-legacy'))?.payload).toEqual({
+    expect(valueOf(await getQR(env.ROUTES, DOMAIN, 'wifi-legacy'))?.payload).toEqual({
       ssid: 'Office',
       password: 'pw',
       auth: 'WPA',
@@ -188,7 +214,7 @@ describe('stored QR values that are not valid records', () => {
         linkedRoute: { domain: DOMAIN, path: '/x', extra: 'dropped' },
       }),
     );
-    expect((await getQR(env.ROUTES, DOMAIN, 'linked'))?.linkedRoute).toEqual({
+    expect(valueOf(await getQR(env.ROUTES, DOMAIN, 'linked'))?.linkedRoute).toEqual({
       domain: DOMAIN,
       path: '/x',
     });
@@ -211,9 +237,8 @@ describe('stored QR values that are not valid records', () => {
     });
     const record = makeQR({ id: 'fine-code' });
     await putQR(env.ROUTES, record);
-    expect(await getQR(kv, DOMAIN, 'fine-code')).toEqual(record);
-    expect(await getQR(kv, DOMAIN, 'missing-code')).toBeNull();
-    expect(await getQRSafe(kv, DOMAIN, 'fine-code')).toEqual({ success: true, data: record });
+    expect(await getQR(kv, DOMAIN, 'fine-code')).toEqual({ status: 'ok', value: record });
+    expect(await getQR(kv, DOMAIN, 'missing-code')).toEqual({ status: 'missing' });
     expect((await listQRs(kv, DOMAIN)).items).toEqual([record]);
     expect(new Set(types)).toEqual(new Set(['text']));
   });
@@ -251,8 +276,34 @@ describe('an unreadable QR record through the API', () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  it('GET answers 404', async () => {
-    expect((await call('GET', `/broken?domain=${DOMAIN}`)).status).toBe(404);
+  const REFUSAL = {
+    success: false,
+    error: 'QR_RECORD_INVALID',
+    message:
+      'This QR code is stored in a shape that cannot be read. Delete it and create it again.',
+  };
+
+  it('GET, the image and an update answer a JSON 409 QR_RECORD_INVALID, never QR_NOT_FOUND', async () => {
+    for (const [method, url, body] of [
+      ['GET', `/broken?domain=${DOMAIN}`, undefined],
+      ['GET', `/broken/image?domain=${DOMAIN}`, undefined],
+      ['PUT', `/broken?domain=${DOMAIN}`, { description: 'x' }],
+    ] as const) {
+      const response = await call(method, url, body);
+      expect(response.status, `${method} ${url}`).toBe(409);
+      expect(response.headers.get('Content-Type')).toContain('application/json');
+      expect(await response.json()).toEqual(REFUSAL);
+    }
+    expect(await env.ROUTES.get(qrKey(DOMAIN, 'broken'))).toBe(BROKEN);
+  });
+
+  it('the listing shows it as a minimal row', async () => {
+    const response = await call('GET', `?domain=${DOMAIN}`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      data: [{ domain: DOMAIN, id: 'broken', invalid: true }],
+      meta: { total: 1 },
+    });
   });
 
   it('DELETE removes it, then answers 404', async () => {
@@ -262,7 +313,7 @@ describe('an unreadable QR record through the API', () => {
     expect((await call('DELETE', `/broken?domain=${DOMAIN}`)).status).toBe(404);
   });
 
-  it('a create with its id is a 409 and never overwrites it', async () => {
+  it('a create with its id is a JSON 409 QR_RECORD_INVALID and never overwrites it', async () => {
     const response = await call('POST', `?domain=${DOMAIN}`, {
       type: 'url',
       id: 'broken',
@@ -270,7 +321,7 @@ describe('an unreadable QR record through the API', () => {
     });
     expect(response.status).toBe(409);
     const text = await response.text();
-    expect(text).toContain('Delete it and create it again');
+    expect(JSON.parse(text)).toEqual(REFUSAL);
     expect(text).not.toContain('never-quoted');
     expect(await env.ROUTES.get(qrKey(DOMAIN, 'broken'))).toBe(BROKEN);
   });

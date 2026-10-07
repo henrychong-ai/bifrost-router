@@ -1,43 +1,69 @@
-import type { Route, UpdateRouteInput } from './schemas';
+import type { R2BucketName, RedirectStatusCode, Route, UpdateRouteInput } from './schemas';
+import { isR2BucketName, isRedirectStatusCode } from './schemas';
 
 /**
- * What the router does when a stored route lacks the field (`src/handlers`):
- * an absent value means this, so sending it changes nothing. A missing
- * `bucket` is the default bucket (`route.bucket ?? 'files'` in the R2
- * handler). `forceDownload` is not here: absent means "decide by content
- * type", which `false` does not.
+ * The route edit form's values as it displays them (v1.38.0): an unset Force
+ * Download shows as off, an unset or unknown bucket as `files`, an unset or
+ * unknown status code as 302, cleared text fields as `''`.
  */
-const ABSENT_MEANS: Readonly<Partial<Record<keyof Route, unknown>>> = {
-  enabled: true,
-  statusCode: 302,
-  preserveQuery: true,
-  preservePath: false,
-  bucket: 'files',
-};
-
-/** A stored value as the comparison sees it: an empty string is absent. */
-function normalised(value: unknown): unknown {
-  return value === '' ? undefined : value;
+export interface RouteFormValues {
+  type: Route['type'];
+  target: string;
+  statusCode: RedirectStatusCode;
+  preserveQuery: boolean;
+  preservePath: boolean;
+  cacheControl: string;
+  hostHeader: string;
+  forceDownload: boolean;
+  bucket: R2BucketName;
+  enabled: boolean;
 }
 
+/** The form's values for a stored route, as the edit dialog shows them when it opens. */
+export function routeFormValues(route: Route): RouteFormValues {
+  return {
+    type: route.type,
+    target: route.target,
+    statusCode: isRedirectStatusCode(route.statusCode) ? route.statusCode : 302,
+    preserveQuery: route.preserveQuery ?? true,
+    preservePath: route.preservePath ?? false,
+    cacheControl: route.cacheControl ?? '',
+    hostHeader: route.hostHeader ?? '',
+    forceDownload: route.forceDownload ?? false,
+    bucket: isR2BucketName(route.bucket) ? route.bucket : 'files',
+    enabled: route.enabled ?? true,
+  };
+}
+
+/** Fields every route uses. */
+const COMMON_FIELDS = ['type', 'enabled', 'cacheControl'] as const;
+
+/** Fields each route type uses, all sent when the type changes. */
+const TYPE_FIELDS = {
+  redirect: ['target', 'statusCode', 'preserveQuery', 'preservePath'],
+  proxy: ['target', 'preserveQuery', 'hostHeader'],
+  r2: ['target', 'bucket', 'forceDownload'],
+} as const satisfies Record<Route['type'], ReadonlyArray<keyof RouteFormValues>>;
+
 /**
- * The update the route edit dialog sends (v1.38.0): only the fields whose
- * submitted value differs from the route as loaded, so the request is a true
- * patch. The Worker applies today's field limits to the fields a patch sets
- * only, so an edit that does not touch a field written under older limits (a
- * target longer than today's cap) is not refused because the form re-sent
- * it. A field the form leaves undefined is not sent (JSON drops it); an
- * empty string counts as equal to an absent value, and is still sent when it
- * clears a stored one (`''` clears a Cache-Control or Host header); a field
- * the stored route lacks compares as the router's default for it
- * (ABSENT_MEANS). An unchanged form gives `{}`.
+ * The update the route edit dialog sends (v1.38.0): only DIRTY fields, each
+ * final form value compared with the value the form showed when the dialog
+ * opened, never with the stored record and copied server defaults. So an
+ * untouched field (a target written under older limits, an unset Force
+ * Download, a missing bucket) is never sent; a switch toggled on and off
+ * again is not dirty; a cleared text field that showed a value sends `''`,
+ * which clears it. When the type changes, every field the new type uses is
+ * sent as the form has it, the bucket explicitly. Fields the final type does
+ * not use are never sent. `{}` means nothing changed (no request).
  */
-export function routeEditPatch(route: Route, desired: UpdateRouteInput): UpdateRouteInput {
-  const patch: Record<string, unknown> = {};
-  for (const [field, value] of Object.entries(desired)) {
-    if (value === undefined) continue;
-    const key = field as keyof Route;
-    if (normalised(value) !== normalised(route[key] ?? ABSENT_MEANS[key])) patch[field] = value;
+export function routeEditPatch(opened: RouteFormValues, final: RouteFormValues): UpdateRouteInput {
+  const typeChanged = final.type !== opened.type;
+  const uses: ReadonlyArray<keyof RouteFormValues> = TYPE_FIELDS[final.type];
+  const patch: Partial<RouteFormValues> = {};
+  for (const field of [...COMMON_FIELDS, ...uses]) {
+    if ((typeChanged && uses.includes(field)) || final[field] !== opened[field]) {
+      Object.assign(patch, { [field]: final[field] });
+    }
   }
   return patch;
 }

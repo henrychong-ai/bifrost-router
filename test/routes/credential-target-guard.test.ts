@@ -11,6 +11,12 @@ import {
   seedRoute,
 } from '../helpers';
 
+/** The record a single-route read found, else null (missing or invalid). */
+async function recordAt(...args: Parameters<typeof getRoute>) {
+  const read = await getRoute(...args);
+  return read.status === 'ok' ? read.value : null;
+}
+
 const redirectRoute = (overrides: Record<string, unknown> = {}) => ({
   path: '/cred',
   type: 'redirect',
@@ -57,7 +63,7 @@ describe('route target credential guard', () => {
       expect(data.details.parameters).toEqual(['token']);
       // The refusal must never echo the value back.
       expect(JSON.stringify(data)).not.toContain('LIVE-GRANT');
-      expect(await getRoute(env.ROUTES, 'links.example.com', '/cred')).toBeNull();
+      expect(await recordAt(env.ROUTES, 'links.example.com', '/cred')).toBeNull();
     });
 
     it('errs WIDE: an ambiguous name is flagged whatever its value', async () => {
@@ -91,7 +97,7 @@ describe('route target credential guard', () => {
       });
 
       expect(response.status).toBe(201);
-      const stored = await getRoute(env.ROUTES, 'links.example.com', '/cred');
+      const stored = await recordAt(env.ROUTES, 'links.example.com', '/cred');
       expect(stored?.target).toBe('https://app.example/verify?token=LIVE-GRANT');
       expect(stored).not.toHaveProperty('acknowledgeCredentialTarget');
       const raw = await env.ROUTES.get('links.example.com:/cred');
@@ -180,7 +186,7 @@ describe('route target credential guard', () => {
       const data = await response.json();
       expect(data.error).toBe('ROUTE_TARGET_CREDENTIAL');
       expect(data.details.parameters).toEqual(['token']);
-      const stored = await getRoute(env.ROUTES, 'links.example.com', '/stored');
+      const stored = await recordAt(env.ROUTES, 'links.example.com', '/stored');
       expect(stored?.enabled).toBe(false);
     });
 
@@ -224,7 +230,7 @@ describe('route target credential guard', () => {
       expect(data.details.parameters).toEqual(['token']);
       expect(data.details.paths).toEqual(['/dirty']);
       // Nothing is written when the batch is refused.
-      expect(await getRoute(env.ROUTES, 'links.example.com', '/clean')).toBeNull();
+      expect(await recordAt(env.ROUTES, 'links.example.com', '/clean')).toBeNull();
     });
 
     it('reports malformed routes BEFORE the acknowledgement loop', async () => {
@@ -247,7 +253,7 @@ describe('route target credential guard', () => {
       });
 
       expect(response.status).toBe(200);
-      expect(await getRoute(env.ROUTES, 'links.example.com', '/dirty')).not.toBeNull();
+      expect(await recordAt(env.ROUTES, 'links.example.com', '/dirty')).not.toBeNull();
     });
   });
 
@@ -277,7 +283,7 @@ describe('route target credential guard', () => {
       const data = await response.json();
       expect(data.error).toBe('ROUTE_TARGET_CREDENTIAL');
       // The source route is untouched by a refusal.
-      expect(await getRoute(env.ROUTES, 'links.example.com', '/moving')).not.toBeNull();
+      expect(await recordAt(env.ROUTES, 'links.example.com', '/moving')).not.toBeNull();
     });
 
     it('proceeds once acknowledged', async () => {
@@ -289,7 +295,7 @@ describe('route target credential guard', () => {
       });
 
       expect(response.status).toBe(200);
-      expect(await getRoute(env.ROUTES, 'secondary.example.net', '/moving')).not.toBeNull();
+      expect(await recordAt(env.ROUTES, 'secondary.example.net', '/moving')).not.toBeNull();
     });
   });
 
@@ -315,7 +321,7 @@ describe('route target credential guard', () => {
       const data = await response.json();
       expect(data.error).toMatch(/must not contain \? or #/);
       // The original route is untouched.
-      expect(await getRoute(env.ROUTES, 'links.example.com', '/old')).not.toBeNull();
+      expect(await recordAt(env.ROUTES, 'links.example.com', '/old')).not.toBeNull();
     });
   });
 });
@@ -383,7 +389,7 @@ describe('admin pre-reads resolve the stored record through an alias', () => {
     const data = await response.json();
     expect(data.error).toBe('ROUTE_TARGET_CREDENTIAL');
     // The route stays disabled — the mutation must not have run.
-    const stored = await getRoute(env.ROUTES, domain, '/promo');
+    const stored = await recordAt(env.ROUTES, domain, '/promo');
     expect(stored?.enabled).toBe(false);
   });
 
@@ -410,8 +416,8 @@ describe('admin pre-reads resolve the stored record through an alias', () => {
     const data = await response.json();
     expect(data.error).toBe('ROUTE_TARGET_CREDENTIAL');
     // Both domains are unchanged by a refusal.
-    expect(await getRoute(env.ROUTES, domain, '/promo')).not.toBeNull();
-    expect(await getRoute(env.ROUTES, 'secondary.example.net', '/promo')).toBeNull();
+    expect(await recordAt(env.ROUTES, domain, '/promo')).not.toBeNull();
+    expect(await recordAt(env.ROUTES, 'secondary.example.net', '/promo')).toBeNull();
   });
 
   it.each(ALIASES)('returns 409 rather than overwriting through %s', async alias => {
@@ -435,7 +441,7 @@ describe('admin pre-reads resolve the stored record through an alias', () => {
 
     expect(response.status).toBe(409);
     // The stored record is untouched, timestamps included.
-    const stored = await getRoute(env.ROUTES, domain, '/promo');
+    const stored = await recordAt(env.ROUTES, domain, '/promo');
     expect(stored?.target).toBe('https://app.example/original');
     expect(stored?.createdAt).toBe(111);
   });
@@ -456,7 +462,7 @@ describe('admin pre-reads resolve the stored record through an alias', () => {
     const response = await call(`/api/routes?path=/Promo&domain=${domain}`, 'DELETE');
 
     expect(response.status).toBe(200);
-    expect(await getRoute(env.ROUTES, domain, '/promo')).toBeNull();
+    expect(await recordAt(env.ROUTES, domain, '/promo')).toBeNull();
   });
 
   it('skips an existing route when seed quotes an alias', async () => {
@@ -479,7 +485,7 @@ describe('admin pre-reads resolve the stored record through an alias', () => {
     expect(response.status).toBe(200);
     const data = await response.json();
     expect(data.data).toMatchObject({ created: 0, skipped: 1 });
-    const stored = await getRoute(env.ROUTES, domain, '/promo');
+    const stored = await recordAt(env.ROUTES, domain, '/promo');
     expect(stored?.target).toBe('https://app.example/original');
     expect(stored?.createdAt).toBe(222);
   });
@@ -652,6 +658,32 @@ describe('audit rows record credentialTargetAcknowledged', () => {
     });
   });
 
+  it('an enabled-only edit records the route key and enabled before and after', async () => {
+    await seedRoute(
+      {
+        path: '/switched',
+        type: 'redirect',
+        target: 'https://app.example/ok',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+      domain,
+    );
+    expect(
+      (
+        await callWithAudit(`/api/routes?path=/Switched/&domain=${domain}`, 'PUT', {
+          enabled: false,
+        })
+      ).status,
+    ).toBe(200);
+    expect(await auditDetails('toggle')).toEqual({
+      enabled: false,
+      key: `${domain}:/switched`,
+      before: { enabled: true },
+      after: { enabled: false },
+    });
+  });
+
   it('records the names on an acknowledged transfer', async () => {
     await seedRoute(
       {
@@ -800,6 +832,6 @@ describe('route-path schema on every write path', () => {
     );
 
     expect(response.status).toBe(400);
-    expect(await getRoute(env.ROUTES, domain, '/old')).not.toBeNull();
+    expect(await recordAt(env.ROUTES, domain, '/old')).not.toBeNull();
   });
 });

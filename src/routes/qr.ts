@@ -30,7 +30,8 @@ import {
   QR_ID_REGEX,
   QR_NOT_FOUND_ERROR,
   QR_PAYLOAD_SCHEMAS,
-  QR_SERVER_TIME_HEADER,
+  QR_RECORD_INVALID_ERROR,
+  QR_RECORD_INVALID_MESSAGE,
   type QRCode,
   QRCodeSchema,
   type QRDesign,
@@ -46,9 +47,12 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import { type AuditAction, recordAuditLog } from '../db/analytics';
-import { deleteQR, getQR, getQRState, listQRs, parseStoredQR, putQR } from '../kv/qr';
-import { getRoute } from '../kv/routes';
+import { normalizePath } from '../kv/lookup';
+import { deleteQR, getQR, listQRs, parseStoredQR, putQR } from '../kv/qr';
+import { getRoute, InvalidStoredRouteError } from '../kv/routes';
+import { qrKey } from '../kv/schema';
 import type { AppEnv } from '../types';
+import { CodedHTTPException } from '../utils/coded-http-exception';
 import {
   getActorInfo,
   getDomainOrDefaultFromRequest,
@@ -58,29 +62,23 @@ import {
 export const qrRoutes = new Hono<AppEnv>();
 
 /**
- * Every QR answer, success or error, carries the Worker's clock in Unix
- * milliseconds (v1.38.0, `X-Server-Time`), read after the handler ran, so it
- * is at or after any KV write the request made. The dashboard times a
- * deletion (or a `QR_NOT_FOUND`) with it, on the same clock as every
- * record's `updatedAt`, instead of the one-second `Date` header. The CORS
- * middleware exposes it, and `Date`, to the dashboard's origin.
- */
-qrRoutes.use('*', async (c, next) => {
-  await next();
-  c.header(QR_SERVER_TIME_HEADER, String(Date.now()));
-});
-
-/**
  * The 404 for a QR code that does not exist (v1.38.0): a fixed JSON body
  * `{ success: false, error: 'QR_NOT_FOUND', message }`, so the dashboard can
  * tell the server's own "not found" (the code is gone) from any other 404.
  */
 function qrNotFound(id: string): HTTPException {
-  const message = `QR code not found: ${id}`;
-  return new HTTPException(404, {
-    message,
-    res: Response.json({ success: false, error: QR_NOT_FOUND_ERROR, message }, { status: 404 }),
-  });
+  return new CodedHTTPException(404, QR_NOT_FOUND_ERROR, `QR code not found: ${id}`);
+}
+
+/**
+ * The 409 for a QR code whose stored record cannot be read (v1.38.0): a fixed
+ * JSON body `{ success: false, error: 'QR_RECORD_INVALID', message }` on a
+ * read, an image, an update and a create with its id. The code exists, so it
+ * is never answered as `QR_NOT_FOUND` (which the dashboard takes as a
+ * deletion); the recovery is to delete it and create it again.
+ */
+function qrRecordInvalid(): HTTPException {
+  return new CodedHTTPException(409, QR_RECORD_INVALID_ERROR, QR_RECORD_INVALID_MESSAGE);
 }
 
 // =============================================================================
@@ -108,13 +106,12 @@ function requireDomain(c: Context<AppEnv>): string {
   return result.domain;
 }
 
-/** Fetch a record or throw 404. */
+/** Fetch a record, or throw 404 QR_NOT_FOUND (absent) or 409 QR_RECORD_INVALID (unreadable). */
 async function requireQR(c: Context<AppEnv>, domain: string, id: string): Promise<QRCode> {
-  const record = await getQR(c.env.ROUTES, domain, id);
-  if (!record) {
-    throw qrNotFound(id);
-  }
-  return record;
+  const state = await getQR(c.env.ROUTES, domain, id);
+  if (state.status === 'missing') throw qrNotFound(id);
+  if (state.status === 'invalid') throw qrRecordInvalid();
+  return state.value;
 }
 
 /**
@@ -149,15 +146,18 @@ function assertPayloadSize(type: QRCode['type'], payload: QRCode['payload']): st
 
 /**
  * The string a QR image encodes. A route-linked QR encodes its short URL when
- * the route still exists (the dynamic-QR contract: re-point the route, never
- * reprint); a missing route falls back to the stored payload.
+ * the route exists (the dynamic-QR contract: re-point the route, never
+ * reprint), also when its stored record cannot be read (v1.38.0): the route
+ * is still there, and its URL is what was printed. Only a missing route falls
+ * back to the stored payload.
  */
 async function resolveQrContent(c: Context<AppEnv>, record: QRCode): Promise<string> {
   if (record.linkedRoute) {
-    const route = await getRoute(c.env.ROUTES, record.linkedRoute.domain, record.linkedRoute.path);
-    if (route) {
-      return `https://${record.linkedRoute.domain}${route.path}`;
-    }
+    const { domain, path } = record.linkedRoute;
+    const route = await getRoute(c.env.ROUTES, domain, path);
+    if (route.status === 'ok') return `https://${domain}${route.value.path}`;
+    // The key's own path, as the lookup normalised it
+    if (route.status === 'invalid') return `https://${domain}${normalizePath(path)}`;
   }
   return serializePayload(record.type, record.payload);
 }
@@ -221,7 +221,10 @@ function auditQr(
   }
 }
 
-/** The audit row of a deleted record that could not be read: its id only. */
+/**
+ * The audit row of a deleted record that could not be read: its id, its KV
+ * key and `state: 'invalid'`, never the unreadable value.
+ */
 function auditInvalidQrDelete(c: Context<AppEnv>, domain: string, id: string): void {
   try {
     const actor = getActorInfo(c);
@@ -232,7 +235,7 @@ function auditInvalidQrDelete(c: Context<AppEnv>, domain: string, id: string): v
         actorLogin: actor.login,
         actorName: actor.name,
         path: `/qr/${id}`,
-        details: JSON.stringify({ id, unreadableRecord: true }),
+        details: JSON.stringify({ id, key: qrKey(domain, id), state: 'invalid' }),
         ipAddress: c.req.header('CF-Connecting-IP') || null,
       }),
     );
@@ -277,11 +280,13 @@ qrRoutes.get('/from-route', async c => {
   }
 
   const route = await getRoute(c.env.ROUTES, domain, parsed.data.path);
-  if (!route) {
+  if (route.status === 'missing') {
     throw new HTTPException(404, {
       message: `No route at ${domain}${parsed.data.path} to encode`,
     });
   }
+  // A route that cannot be read is refused as every route read refuses it
+  if (route.status === 'invalid') throw new InvalidStoredRouteError();
 
   const design: QRDesign = QRDesignSchema.parse({
     ...(parsed.data.fg ? { fg: parsed.data.fg } : {}),
@@ -291,7 +296,7 @@ qrRoutes.get('/from-route', async c => {
 
   // Ephemeral: renders inline, writes nothing to KV — "Save as QR Code"
   // persists via POST /api/qr instead.
-  return svgResponse(c, renderQrSvg(`https://${domain}${route.path}`, design));
+  return svgResponse(c, renderQrSvg(`https://${domain}${route.value.path}`, design));
 });
 
 qrRoutes.get('/:id/image', async c => {
@@ -378,14 +383,10 @@ qrRoutes.post('/', async c => {
   }
 
   // An unreadable stored record is present too (v1.38.0): never overwritten
-  const existing = await getQRState(c.env.ROUTES, domain, id);
-  if (existing.status !== 'missing') {
-    throw new HTTPException(409, {
-      message:
-        existing.status === 'invalid'
-          ? `QR code ${id} is stored in a shape that cannot be read. Delete it and create it again.`
-          : `QR code already exists: ${id}`,
-    });
+  const existing = await getQR(c.env.ROUTES, domain, id);
+  if (existing.status === 'invalid') throw qrRecordInvalid();
+  if (existing.status === 'ok') {
+    throw new HTTPException(409, { message: `QR code already exists: ${id}` });
   }
 
   assertPayloadSize(input.type, input.payload);
@@ -505,19 +506,28 @@ qrRoutes.put('/:id', async c => {
 qrRoutes.delete('/:id', async c => {
   const domain = requireDomain(c);
   const id = c.req.param('id');
-  const state = await getQRState(c.env.ROUTES, domain, id);
+  // One read: the state the delete found (v1.38.0). An unreadable record is
+  // deleted too, which is how it is recovered; its audit row names the id and
+  // key with `state: 'invalid'`, never the unreadable value.
+  const state = await deleteQR(c.env.ROUTES, domain, id);
   if (state.status === 'missing') {
     throw qrNotFound(id);
   }
-
-  // An unreadable record is deleted too: that is how it is recovered
-  // (v1.38.0). Its audit row names the id only, never the unreadable value.
-  await deleteQR(c.env.ROUTES, domain, id);
   if (state.status === 'ok') {
     auditQr(c, 'qr_delete', domain, state.value, { qr: redactQrForAudit(state.value) });
   } else {
     auditInvalidQrDelete(c, domain, id);
   }
 
-  return c.json({ success: true as const, data: { deleted: true as const, id } });
+  // The deleted record's createdAt names the incarnation removed (v1.38.0):
+  // the dashboard hides exactly that one, and never a code re-created later
+  // with the same id. An unreadable record has none to name.
+  return c.json({
+    success: true as const,
+    data: {
+      deleted: true as const,
+      id,
+      ...(state.status === 'ok' ? { createdAt: state.value.createdAt } : {}),
+    },
+  });
 });

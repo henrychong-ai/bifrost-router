@@ -1596,6 +1596,26 @@ describe('admin routes', () => {
       expect(await listSearch(app, `?search=${encodeURIComponent('example com')}`)).toEqual([]);
     });
 
+    it('a one-domain list never matches its own domain, which every route shares', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+      await createSearchRoute(app, '/a');
+      await createSearchRoute(app, '/example-guide');
+      expect(await listSearch(app, '?domain=example.com&search=example.com')).toEqual([]);
+      expect(await listSearch(app, '?domain=example.com&search=com')).toEqual([]);
+      // The all-domains list still matches the domain as typed
+      expect(await listSearch(app, '?search=com')).toEqual(['/example-guide', '/a']);
+      // The page still carries each route's domain
+      const response = await app.fetch(
+        new Request('http://example.com/api/routes?domain=example.com&search=guide', {
+          headers: { 'X-Admin-Key': SEARCH_API_KEY },
+        }),
+        searchEnv,
+      );
+      expect(await response.json()).toMatchObject({
+        data: { routes: [{ path: '/example-guide', domain: 'example.com' }] },
+      });
+    });
+
     it('refuses a search over 2,048 characters instead of listing everything', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
       await createSearchRoute(app, '/a');

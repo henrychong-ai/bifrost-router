@@ -12,7 +12,12 @@
  */
 
 import type { EdgeRouterClient, QRCode } from '@bifrost/shared';
+import { isInvalidQRRow } from '@bifrost/shared';
 import { NO_DOMAIN_ERROR, requireDomain } from './routes.js';
+
+/** A listed QR record that cannot be read (v1.38.0): marked, with the one thing to do. */
+export const UNREADABLE_QR_NOTE =
+  'UNREADABLE RECORD: stored in a shape that cannot be read. Delete it and create it again.';
 
 function formatQr(qr: QRCode): string {
   const lines = [
@@ -57,9 +62,11 @@ export async function listQrs(
     const { items, meta } = await client.listQrs({ ...args, domain });
     if (items.length === 0) return 'No QR codes found.';
 
-    const rows = items.map(
-      qr =>
-        `- ${qr.id} (${qr.type})${qr.description ? ` — ${qr.description}` : ''}${qr.linkedRoute ? ` → ${qr.linkedRoute.path}` : ''}`,
+    // A record that cannot be read is listed and marked (v1.38.0)
+    const rows = items.map(qr =>
+      isInvalidQRRow(qr)
+        ? `- ${qr.id} — ${UNREADABLE_QR_NOTE}`
+        : `- ${qr.id} (${qr.type})${qr.description ? ` — ${qr.description}` : ''}${qr.linkedRoute ? ` → ${qr.linkedRoute.path}` : ''}`,
     );
     return [
       `${meta.total} QR code(s) (showing ${meta.count}, offset ${meta.offset}):`,
@@ -156,7 +163,13 @@ export async function deleteQr(
 
   try {
     const result = await client.deleteQr(args.id, domain);
-    return `QR code deleted: ${result.id} (hard delete; the audit log preserves the record).`;
+    // The deleted record's creation time names the code removed: a code
+    // re-created later with the id is another one
+    const created =
+      typeof result.createdAt === 'number'
+        ? ` Created ${new Date(result.createdAt).toISOString()}.`
+        : ' Its stored record could not be read.';
+    return `QR code deleted: ${result.id} (hard delete; the audit log preserves the record).${created}`;
   } catch (error) {
     return formatError(error);
   }

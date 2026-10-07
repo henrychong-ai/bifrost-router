@@ -1,12 +1,15 @@
 /**
- * The route edit dialog sends only what changed (v1.38.0): an untouched field
- * written under older limits is never re-sent, a field the stored route lacks
- * compares as the router's default, and clearing a stored text field sends ''.
+ * The route edit dialog sends only DIRTY fields (v1.38.0): each final form
+ * value is compared with the value the form showed when the dialog opened,
+ * never with the stored record and copied server defaults. An untouched field
+ * written under older limits is never re-sent, a switch toggled on and off is
+ * not dirty, clearing a field that showed a value sends '', and a type change
+ * sends every field the new type uses.
  */
 import { MAX_ROUTE_TARGET_LENGTH } from '@bifrost/shared';
 import { describe, expect, it } from 'vitest';
-import { routeEditPatch } from './route-patch';
-import type { Route, UpdateRouteInput } from './schemas';
+import { type RouteFormValues, routeEditPatch, routeFormValues } from './route-patch';
+import type { Route } from './schemas';
 
 const legacy: Route = {
   path: '/legacy',
@@ -22,102 +25,76 @@ const legacy: Route = {
   updatedAt: 1,
 };
 
-/** What the edit form submits for a redirect route when nothing is changed. */
-const untouched = (route: Route): UpdateRouteInput => ({
-  type: route.type,
-  target: route.target,
-  statusCode: route.statusCode ?? 302,
-  preserveQuery: route.preserveQuery ?? true,
-  preservePath: route.preservePath ?? false,
-  cacheControl: route.cacheControl || undefined,
-  hostHeader: undefined,
-  forceDownload: undefined,
-  bucket: undefined,
-  enabled: route.enabled ?? true,
-});
-
-/** What the edit form submits for an r2 route stored without forceDownload or bucket. */
-const r2Form = (patch: Partial<UpdateRouteInput> = {}): UpdateRouteInput => ({
-  type: 'r2',
-  target: 'docs/brochure.pdf',
-  preserveQuery: true,
-  preservePath: false,
-  // The form keeps "unset" for a route stored without forceDownload
-  forceDownload: undefined,
-  // The edit form defaults to the stored bucket, else the router default
-  bucket: 'files',
-  enabled: true,
-  ...patch,
-});
+/** The dialog opened on `route`, then `edit` applied by the user. */
+const edited = (route: Route, edit: Partial<RouteFormValues> = {}) => {
+  const opened = routeFormValues(route);
+  return routeEditPatch(opened, { ...opened, ...edit });
+};
 
 describe('routeEditPatch', () => {
   it('sends nothing when nothing changed', () => {
-    expect(routeEditPatch(legacy, untouched(legacy))).toEqual({});
+    expect(edited(legacy)).toEqual({});
   });
 
   it('sends only the changed field, never an untouched over-cap target', () => {
-    expect(routeEditPatch(legacy, { ...untouched(legacy), statusCode: 301 })).toEqual({
-      statusCode: 301,
-    });
-    expect(routeEditPatch(legacy, { ...untouched(legacy), enabled: false })).toEqual({
-      enabled: false,
-    });
+    expect(edited(legacy, { statusCode: 301 })).toEqual({ statusCode: 301 });
+    expect(edited(legacy, { enabled: false })).toEqual({ enabled: false });
+    expect(edited(legacy, { cacheControl: 'no-store' })).toEqual({ cacheControl: 'no-store' });
   });
 
   it('sends a changed target', () => {
-    expect(
-      routeEditPatch(legacy, { ...untouched(legacy), target: 'https://example.com/short' }),
-    ).toEqual({ target: 'https://example.com/short' });
+    expect(edited(legacy, { target: 'https://example.com/short' })).toEqual({
+      target: 'https://example.com/short',
+    });
   });
 
-  it('compares a field the route lacks with the router default for it', () => {
-    const bare: Route = {
-      path: '/bare',
-      type: 'redirect',
-      target: 'https://example.com/',
-      createdAt: 1,
-      updatedAt: 1,
-    };
-    expect(routeEditPatch(bare, untouched(bare))).toEqual({});
-    expect(
-      routeEditPatch(bare, { ...untouched(bare), preserveQuery: false, enabled: false }),
-    ).toEqual({
+  it('never sends a field the stored route lacks unless the user changes it', () => {
+    const bare: Route = { path: '/bare', type: 'redirect', target: 'https://example.com/' };
+    expect(edited(bare)).toEqual({});
+    expect(edited(bare, { preserveQuery: false, enabled: false })).toEqual({
       preserveQuery: false,
       enabled: false,
     });
   });
 
-  describe('R2 routes stored without forceDownload or bucket', () => {
-    const file: Route = {
-      path: '/brochure',
-      type: 'r2',
-      target: 'docs/brochure.pdf',
-      createdAt: 1,
-      updatedAt: 1,
+  it('shows a status code or bucket no write accepts today as the default, and never sends it', () => {
+    const older: Route = {
+      path: '/older',
+      type: 'redirect',
+      target: 'https://example.com/',
+      statusCode: 303,
     };
+    expect(routeFormValues(older).statusCode).toBe(302);
+    expect(edited(older)).toEqual({});
+    expect(edited(older, { enabled: false })).toEqual({ enabled: false });
+    const file: Route = { path: '/f', type: 'r2', target: 'a.pdf', bucket: 'retired-bucket' };
+    expect(routeFormValues(file).bucket).toBe('files');
+    expect(edited(file)).toEqual({});
+  });
 
-    it('sends nothing for an unchanged save', () => {
-      expect(routeEditPatch(file, r2Form())).toEqual({});
+  describe('R2 routes stored without forceDownload or bucket', () => {
+    const file: Route = { path: '/brochure', type: 'r2', target: 'docs/brochure.pdf' };
+
+    it('sends nothing for an unchanged save: an unset Force Download stays unset', () => {
+      expect(edited(file)).toEqual({});
     });
 
-    it('sends an explicit forceDownload, false included (absent means "by content type")', () => {
-      expect(routeEditPatch(file, r2Form({ forceDownload: false }))).toEqual({
-        forceDownload: false,
-      });
-      expect(routeEditPatch(file, r2Form({ forceDownload: true }))).toEqual({
-        forceDownload: true,
-      });
+    it('a Force Download switched on and off again is not dirty', () => {
+      const opened = routeFormValues(file);
+      const on = { ...opened, forceDownload: true };
+      expect(routeEditPatch(opened, on)).toEqual({ forceDownload: true });
+      expect(routeEditPatch(opened, { ...on, forceDownload: false })).toEqual({});
     });
 
-    it('treats a missing bucket as the default bucket, and sends another one', () => {
-      expect(routeEditPatch(file, r2Form({ bucket: 'assets' }))).toEqual({ bucket: 'assets' });
-      expect(routeEditPatch({ ...file, bucket: 'assets' }, r2Form({ bucket: 'files' }))).toEqual({
+    it('shows a missing bucket as the default bucket, and sends another one', () => {
+      expect(edited(file, { bucket: 'assets' })).toEqual({ bucket: 'assets' });
+      expect(edited({ ...file, bucket: 'assets' }, { bucket: 'files' })).toEqual({
         bucket: 'files',
       });
     });
   });
 
-  it('sends an empty string when a stored Cache-Control or Host header is cleared', () => {
+  it('sends an empty string when a shown Cache-Control or Host header is cleared', () => {
     const proxied: Route = {
       ...legacy,
       type: 'proxy',
@@ -125,36 +102,33 @@ describe('routeEditPatch', () => {
       cacheControl: 'max-age=60',
       hostHeader: 'origin.example.com',
     };
-    const form: UpdateRouteInput = {
-      type: 'proxy',
-      target: proxied.target,
-      preserveQuery: true,
-      preservePath: false,
-      cacheControl: 'max-age=60',
-      hostHeader: 'origin.example.com',
-      enabled: true,
-    };
-    expect(routeEditPatch(proxied, form)).toEqual({});
-    expect(routeEditPatch(proxied, { ...form, cacheControl: '', hostHeader: '' })).toEqual({
+    expect(edited(proxied)).toEqual({});
+    expect(edited(proxied, { cacheControl: '', hostHeader: '' })).toEqual({
       cacheControl: '',
       hostHeader: '',
     });
-    // Nothing stored and nothing typed: nothing sent
-    expect(
-      routeEditPatch({ ...proxied, cacheControl: undefined }, { ...form, cacheControl: '' }),
-    ).toEqual({});
+    // Nothing shown and nothing typed: nothing sent
+    expect(edited({ ...proxied, cacheControl: undefined }, { cacheControl: '' })).toEqual({});
   });
 
-  it('sends a type switch with the new type fields; undefined fields stay unsent', () => {
-    expect(
-      routeEditPatch(legacy, {
-        type: 'proxy',
-        target: legacy.target,
-        statusCode: undefined,
-        preserveQuery: true,
-        hostHeader: 'origin.example.com',
-        enabled: true,
-      }),
-    ).toEqual({ type: 'proxy', hostHeader: 'origin.example.com' });
+  it('a type change sends every field the new type uses, and none it does not', () => {
+    expect(edited(legacy, { type: 'proxy', hostHeader: 'origin.example.com' })).toEqual({
+      type: 'proxy',
+      target: legacy.target,
+      preserveQuery: true,
+      hostHeader: 'origin.example.com',
+    });
+  });
+
+  it('a redirect or proxy converted to R2 sends the bucket and Force Download explicitly', () => {
+    for (const type of ['redirect', 'proxy'] as const) {
+      const route: Route = { path: '/doc', type, target: 'https://example.com/' };
+      expect(edited(route, { type: 'r2', target: 'docs/a.pdf' })).toEqual({
+        type: 'r2',
+        target: 'docs/a.pdf',
+        bucket: 'files',
+        forceDownload: false,
+      });
+    }
   });
 });

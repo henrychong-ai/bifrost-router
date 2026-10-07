@@ -1,4 +1,23 @@
-import { capSearchParam, StoredQRCodeSchema } from '@bifrost/shared';
+import {
+  type BackupFileStatus,
+  type BackupHealthResponse,
+  BackupHealthResponseSchema,
+  capSearchParam,
+  type FeedbackItem,
+  type FeedbackListParams,
+  type HealthChecks,
+  type HealthIssue,
+  type InvalidQRRow,
+  InvalidQRRowSchema,
+  type InvalidRouteRow,
+  isInvalidQRRow,
+  isInvalidRouteRow,
+  isRecord,
+  type LastBackupInfo,
+  type ManifestSummary,
+  StoredQRCodeSchema,
+  type TriageFeedbackInput,
+} from '@bifrost/shared';
 import { z } from 'zod';
 import { env } from '@/env';
 import { ApiError } from './api-error';
@@ -35,7 +54,6 @@ import {
   type UpdateRouteInput,
   ViewsListResponseSchema,
 } from './schemas';
-import { serverTimeOf } from './server-time';
 
 // =============================================================================
 // API Client Configuration
@@ -61,24 +79,24 @@ async function readErrorBody(
   response: Response,
 ): Promise<{ error?: string; code?: string; details?: unknown }> {
   const body: unknown = await response.json().catch(() => ({ error: 'Unknown error' }));
-  if (typeof body !== 'object' || body === null) return {};
-  const { error, message, details } = body as {
-    error?: unknown;
-    message?: unknown;
-    details?: unknown;
-  };
+  if (!isRecord(body)) return {};
+  const { error, message, details, code } = body;
+  // An explicit `code` field names the machine code beside the sentence
+  if (typeof code === 'string' && typeof message === 'string') {
+    return { error: message, code, details };
+  }
   if (typeof error === 'string' && ERROR_CODE.test(error) && typeof message === 'string') {
     return { error: message, code: error, details };
   }
   return { error: typeof error === 'string' ? error : undefined, details };
 }
 
-/** A response as JSON and its headers, or the ApiError a failed one carries. */
-async function fetchApiResponse<T>(
+/** A response as JSON, validated, or the ApiError a failed one carries. */
+async function fetchApi<T>(
   path: string,
   schema: z.ZodSchema<T>,
   options: RequestInit = {},
-): Promise<{ data: T; headers: Headers }> {
+): Promise<T> {
   const url = new URL(path, API_BASE);
 
   const headers = new Headers({ 'X-Admin-Key': API_KEY, 'Content-Type': 'application/json' });
@@ -91,20 +109,11 @@ async function fetchApiResponse<T>(
     const error = await readErrorBody(response);
     throw new ApiError(response.status, error.error || `HTTP ${response.status}`, error.details, {
       code: error.code,
-      serverTime: serverTimeOf(response.headers),
     });
   }
 
   const data: unknown = await response.json();
-  return { data: schema.parse(data), headers: response.headers };
-}
-
-async function fetchApi<T>(
-  path: string,
-  schema: z.ZodSchema<T>,
-  options: RequestInit = {},
-): Promise<T> {
-  return (await fetchApiResponse(path, schema, options)).data;
+  return schema.parse(data);
 }
 
 function buildQueryString(params: Record<string, string | number | boolean | undefined>): string {
@@ -130,6 +139,12 @@ export const routesApi = {
     options?: { search?: string; limit?: number; offset?: number },
   ): Promise<{
     routes: Route[];
+    /**
+     * The page's rows for stored records that cannot be read (v1.38.0): only
+     * the Routes page shows them (flagged, Delete only); every other reader
+     * of `routes` never sees one.
+     */
+    invalidRoutes: InvalidRouteRow[];
     total: number;
     offset: number;
     hasMore: boolean;
@@ -149,8 +164,15 @@ export const routesApi = {
     const meta = (response.data as Record<string, unknown>)['meta'] as
       | { total?: number; offset?: number; hasMore?: boolean }
       | undefined;
+    const routes: Route[] = [];
+    const invalidRoutes: InvalidRouteRow[] = [];
+    for (const row of response.data.routes) {
+      if (isInvalidRouteRow(row)) invalidRoutes.push(row);
+      else routes.push(row);
+    }
     return {
-      routes: response.data.routes,
+      routes,
+      invalidRoutes,
       total: meta?.total ?? response.data.routes.length,
       offset: meta?.offset ?? 0,
       hasMore: meta?.hasMore ?? false,
@@ -492,60 +514,18 @@ export const backupApi = {
 };
 
 // =============================================================================
-// Backup Health Types (matching backend schemas)
+// Backup Health Types: one definition in `@bifrost/shared` (v1.38.0), the
+// schemas the Worker builds the answer with
 // =============================================================================
 
-export const BackupFileStatusSchema = z.object({
-  key: z.string(),
-  size: z.number(),
-  exists: z.boolean(),
-});
-export type BackupFileStatus = z.infer<typeof BackupFileStatusSchema>;
-
-export const ManifestSummarySchema = z.object({
-  version: z.string(),
-  kv: z.object({ totalRoutes: z.number(), domains: z.array(z.string()) }),
-});
-export type ManifestSummary = z.infer<typeof ManifestSummarySchema>;
-
-export const LastBackupInfoSchema = z.object({
-  date: z.string(),
-  timestamp: z.string(),
-  ageHours: z.number(),
-  manifest: ManifestSummarySchema.nullable(),
-  files: z.array(BackupFileStatusSchema),
-  /** The latest archive as verified; null when it was not or could not be. */
-  archive: z.object({ records: z.number(), inflatedBytes: z.number() }).nullable().optional(),
-});
-export type LastBackupInfo = z.infer<typeof LastBackupInfoSchema>;
-
-export const HealthIssueSchema = z.object({
-  severity: z.enum(['warning', 'critical']),
-  message: z.string(),
-});
-export type HealthIssue = z.infer<typeof HealthIssueSchema>;
-
-export const HealthChecksSchema = z.object({
-  backupExists: z.boolean(),
-  backupAge: z.enum(['ok', 'warning', 'critical']),
-  manifestValid: z.boolean(),
-  filesComplete: z.boolean(),
-  routeCountOk: z.boolean(),
-});
-export type HealthChecks = z.infer<typeof HealthChecksSchema>;
-
-/**
- * The backup health answer (matching the Worker's `src/backup/health-schemas.ts`),
- * read as unknown and validated (v1.38.0).
- */
-export const BackupHealthResponseSchema = z.object({
-  status: z.enum(['healthy', 'warning', 'critical']),
-  timestamp: z.string(),
-  lastBackup: LastBackupInfoSchema.nullable(),
-  issues: z.array(HealthIssueSchema),
-  checks: HealthChecksSchema,
-});
-export type BackupHealthResponse = z.infer<typeof BackupHealthResponseSchema>;
+export type {
+  BackupFileStatus,
+  BackupHealthResponse,
+  HealthChecks,
+  HealthIssue,
+  LastBackupInfo,
+  ManifestSummary,
+};
 
 // =============================================================================
 // Metadata API
@@ -993,8 +973,6 @@ export const storageApi = {
 // Feedback API
 // =============================================================================
 
-import type { FeedbackItem, FeedbackListParams, TriageFeedbackInput } from '@bifrost/shared';
-
 // FeedbackItem is a plain TS interface in @bifrost/shared (not a zod schema), so
 // the response is validated structurally (success/error) and the data passed
 // through — the same pattern storageApi uses for its R2 payloads.
@@ -1096,7 +1074,8 @@ export const QRItemResponseSchema = z.object({
 
 export const QRListResponseSchema = z.object({
   success: z.boolean(),
-  data: z.array(StoredQRCodeSchema).optional(),
+  // A record that cannot be read is listed as a minimal row (v1.38.0)
+  data: z.array(z.union([InvalidQRRowSchema, StoredQRCodeSchema])).optional(),
   error: z.string().optional(),
   meta: z
     .object({
@@ -1127,7 +1106,13 @@ export interface QRListMeta {
 }
 
 export const qrApi = {
-  async list(params: QrQueryParams = {}): Promise<{ items: QRCode[]; meta: QRListMeta }> {
+  /**
+   * One list page: the readable codes, the rows for stored records that
+   * cannot be read (v1.38.0: shown flagged, Delete only), and the meta.
+   */
+  async list(
+    params: QrQueryParams = {},
+  ): Promise<{ items: QRCode[]; invalid?: InvalidQRRow[]; meta: QRListMeta }> {
     const query = {
       ...params,
       search: params.search === undefined ? undefined : capSearchParam(params.search),
@@ -1136,7 +1121,13 @@ export const qrApi = {
     if (!response.success || !response.data || !response.meta) {
       throw new ApiError(500, response.error || 'Failed to fetch QR codes');
     }
-    return { items: response.data, meta: response.meta };
+    const items: QRCode[] = [];
+    const invalid: InvalidQRRow[] = [];
+    for (const row of response.data) {
+      if (isInvalidQRRow(row)) invalid.push(row);
+      else items.push(row);
+    }
+    return { items, invalid, meta: response.meta };
   },
 
   async get(id: string, domain?: string): Promise<QRCode> {
@@ -1181,16 +1172,22 @@ export const qrApi = {
   },
 
   /**
-   * Delete a code. Resolves with the server's clock on the answer
-   * (`serverTimeOf`, v1.38.0), which times the dashboard's tombstone.
+   * Delete a code. Resolves with the deleted record's `createdAt` (v1.38.0),
+   * naming the incarnation removed, for the dashboard's tombstone; absent
+   * when the record could not be read.
    */
-  async delete(id: string, domain: string): Promise<{ serverTime?: number | undefined }> {
-    const { headers } = await fetchApiResponse(
+  async delete(id: string, domain: string): Promise<{ createdAt?: number | undefined }> {
+    const response = await fetchApi(
       `/api/qr/${encodeURIComponent(id)}${buildQueryString({ domain })}`,
-      z.object({ success: z.boolean() }),
+      z.object({
+        success: z.boolean(),
+        data: z
+          .object({ deleted: z.literal(true), id: z.string(), createdAt: z.number().optional() })
+          .optional(),
+      }),
       { method: 'DELETE' },
     );
-    return { serverTime: serverTimeOf(headers) };
+    return { createdAt: response.data?.createdAt };
   },
 };
 

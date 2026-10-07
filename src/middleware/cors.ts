@@ -66,17 +66,7 @@ const DEFAULT_CONFIG: CorsConfig = {
   origins: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   headers: ['Content-Type', 'X-Admin-Key', 'Authorization'],
-  // X-Server-Time: the QR answers' millisecond clock, and Date, which the
-  // dashboard checks it against (v1.38.0). Date is not a CORS-safelisted
-  // response header, so a dashboard on another origin cannot read it unless
-  // it is exposed.
-  exposeHeaders: [
-    'X-RateLimit-Limit',
-    'X-RateLimit-Remaining',
-    'X-RateLimit-Reset',
-    'X-Server-Time',
-    'Date',
-  ],
+  exposeHeaders: ['X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset'],
   credentials: false,
   maxAge: 86400, // 24 hours
 };

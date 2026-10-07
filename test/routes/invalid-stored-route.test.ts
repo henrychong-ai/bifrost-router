@@ -1,18 +1,24 @@
 /**
  * An invalid stored route through the admin API and the router (v1.38.0):
- * GET answers 404, a visitor gets a 404 rather than a broader wildcard, every
- * write except DELETE answers a fixed 409 ROUTE_RECORD_INVALID, and DELETE
- * removes it (the recovery). Nothing quotes the stored value.
+ * GET and every write except DELETE answer a fixed 409 ROUTE_RECORD_INVALID,
+ * the listing shows it as a minimal row, a visitor gets a 404 rather than a
+ * broader wildcard, and DELETE removes it (the recovery), purging its public
+ * URL and auditing its key. Nothing quotes the stored value.
  */
 import { env, SELF } from 'cloudflare:test';
 import { Hono } from 'hono';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import worker from '../../src/index';
 import { routeKey } from '../../src/kv/schema';
 import { adminRoutes } from '../../src/routes/admin';
-import type { AppEnv, Bindings } from '../../src/types';
+import { type AppEnv, type Bindings, CLOUDFLARE_ZONE_IDS } from '../../src/types';
 import { ownHostResolver } from '../../src/utils/og-own-host';
-import { clearAllRoutes } from '../helpers';
+import {
+  clearAllRoutes,
+  createAuditLogsTable,
+  createSettlingExecutionContext,
+  requestBodyText,
+} from '../helpers';
 
 const ADMIN_HOST = 'example.com';
 const DOMAIN = 'links.example.com';
@@ -36,6 +42,14 @@ const call = (method: string, path: string, body?: unknown) =>
     env,
   );
 
+/** The paths a one-domain route listing answers with. */
+const listedPaths = async (query: string) =>
+  (
+    (await (await call('GET', `/routes?domain=${DOMAIN}${query}`)).json()) as {
+      data: { routes: Array<{ path: string }> };
+    }
+  ).data.routes.map(route => route.path);
+
 describe('an invalid stored route through the API', () => {
   let warn: ReturnType<typeof vi.spyOn>;
   beforeEach(async () => {
@@ -45,14 +59,34 @@ describe('an invalid stored route through the API', () => {
   });
   afterEach(() => warn.mockRestore());
 
-  it('GET answers 404 and the listing leaves it out', async () => {
+  it('GET answers 409 ROUTE_RECORD_INVALID, never 404', async () => {
     const one = await call('GET', `/routes?path=/bad&domain=${DOMAIN}`);
-    expect(one.status).toBe(404);
-    const list = await call('GET', `/routes?domain=${DOMAIN}`);
-    expect(list.status).toBe(200);
-    const body = await list.text();
-    expect(body).not.toContain(secret);
-    expect(JSON.parse(body)).toMatchObject({ data: { routes: [] } });
+    expect(one.status).toBe(409);
+    expect(await one.json()).toEqual(REFUSAL);
+  });
+
+  it('the listings show it as a minimal row, after the readable routes', async () => {
+    await env.ROUTES.put(
+      routeKey(DOMAIN, '/good'),
+      JSON.stringify({ path: '/good', type: 'redirect', target: 'https://example.com/g' }),
+    );
+    for (const query of [`?domain=${DOMAIN}`, '']) {
+      const list = await call('GET', `/routes${query}`);
+      expect(list.status).toBe(200);
+      const body = await list.text();
+      expect(body).not.toContain(secret);
+      const { routes } = (JSON.parse(body) as { data: { routes: Array<Record<string, unknown>> } })
+        .data;
+      expect(routes.map(route => route['path'])).toEqual(['/good', '/bad']);
+      expect(routes[1]).toEqual({ domain: DOMAIN, path: '/bad', invalid: true });
+    }
+  });
+
+  it('an invalid row matches a search by its path, and no type or enabled filter', async () => {
+    expect(await listedPaths('&search=bad')).toEqual(['/bad']);
+    expect(await listedPaths('&search=secret')).toEqual([]);
+    expect(await listedPaths('&type=redirect')).toEqual([]);
+    expect(await listedPaths('&enabled=true')).toEqual([]);
   });
 
   it('create over it answers 409 ROUTE_RECORD_INVALID and writes nothing', async () => {
@@ -108,6 +142,79 @@ describe('an invalid stored route through the API', () => {
     expect(response.status).toBe(200);
     expect(await env.ROUTES.get(routeKey(DOMAIN, '/bad'))).toBeNull();
     expect(JSON.stringify(warn.mock.calls)).not.toContain(secret);
+  });
+});
+
+describe('deleting an invalid stored route purges its URL and audits its key', () => {
+  let purged: string[] = [];
+  beforeAll(() => {
+    CLOUDFLARE_ZONE_IDS['example.com'] = 'test-zone-id';
+  });
+  afterAll(() => {
+    delete CLOUDFLARE_ZONE_IDS['example.com'];
+  });
+  beforeEach(async () => {
+    await clearAllRoutes();
+    await createAuditLogsTable();
+    await env.DB.prepare('DELETE FROM audit_logs').run();
+    purged = [];
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input instanceof Request ? input.url : String(input);
+        if (url.includes('/purge_cache')) {
+          purged.push(...(JSON.parse(requestBodyText(init)) as { files: string[] }).files);
+        }
+        return Response.json({ success: true });
+      }),
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('purges the public URL from the key, whatever the record served, and audits the key', async () => {
+    await env.ROUTES.put(routeKey(DOMAIN, '/report'), BAD);
+    const { ctx, settled } = createSettlingExecutionContext();
+    const response = await app.fetch(
+      new Request(`https://${ADMIN_HOST}/api/routes?path=/Report/&domain=${DOMAIN}`, {
+        method: 'DELETE',
+        headers,
+      }),
+      { ...env, CLOUDFLARE_API_TOKEN: 'test-cloudflare-api-token' },
+      ctx,
+    );
+    await settled();
+    expect(response.status).toBe(200);
+    expect(purged).toEqual([`https://${DOMAIN}/report`]);
+    const row = await env.DB.prepare(
+      "SELECT details FROM audit_logs WHERE action = 'delete' ORDER BY id DESC LIMIT 1",
+    ).first<{ details: string }>();
+    expect(JSON.parse(row?.details ?? '{}')).toEqual({
+      key: `${DOMAIN}:/report`,
+      state: 'invalid',
+    });
+    expect(row?.details).not.toContain(secret);
+  });
+
+  it('a readable redirect route is still not purged on delete', async () => {
+    await env.ROUTES.put(
+      routeKey(DOMAIN, '/plain'),
+      JSON.stringify({ path: '/plain', type: 'redirect', target: 'https://example.com/p' }),
+    );
+    const { ctx, settled } = createSettlingExecutionContext();
+    await app.fetch(
+      new Request(`https://${ADMIN_HOST}/api/routes?path=/plain&domain=${DOMAIN}`, {
+        method: 'DELETE',
+        headers,
+      }),
+      { ...env, CLOUDFLARE_API_TOKEN: 'test-cloudflare-api-token' },
+      ctx,
+    );
+    await settled();
+    expect(purged).toEqual([]);
   });
 });
 

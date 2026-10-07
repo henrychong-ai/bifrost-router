@@ -5,7 +5,9 @@
  * the MCP server and the Slackbot Worker.
  */
 
-import type { QRCode } from './qr.js';
+import { isRecord, isString } from './guards.js';
+import type { InvalidQRRow, QRCode } from './qr.js';
+import type { InvalidRouteRow } from './stored-route.js';
 import type {
   AnalyticsQueryOptions,
   AnalyticsSummary,
@@ -39,34 +41,63 @@ interface ResponseEnvelope {
   meta: Record<string, unknown> | undefined;
   error: string | undefined;
   message: string | undefined;
+  code: string | undefined;
   details: unknown;
 }
 
+/** A non-empty string, else undefined. */
+const nonEmpty = (value: unknown): string | undefined =>
+  isString(value) && value !== '' ? value : undefined;
+
 /** `body` as a {@link ResponseEnvelope}, or null when it is not a JSON object. */
 function readEnvelope(body: unknown): ResponseEnvelope | null {
-  if (typeof body !== 'object' || body === null || Array.isArray(body)) return null;
-  const field = (name: string): unknown => (name in body ? Reflect.get(body, name) : undefined);
+  if (!isRecord(body)) return null;
+  const field = (name: string): unknown => (Object.hasOwn(body, name) ? body[name] : undefined);
   const meta = field('meta');
   const error = field('error');
   const message = field('message');
+  const code = field('code');
   return {
     success: field('success') === true,
     data: field('data'),
-    meta:
-      typeof meta === 'object' && meta !== null && !Array.isArray(meta)
-        ? Object.fromEntries(Object.entries(meta))
-        : undefined,
-    error: typeof error === 'string' ? error : undefined,
-    message: typeof message === 'string' ? message : undefined,
+    meta: isRecord(meta) ? Object.fromEntries(Object.entries(meta)) : undefined,
+    // An empty string says nothing: it reads as absent, so the status text stands in
+    error: nonEmpty(error),
+    message: nonEmpty(message),
+    code: nonEmpty(code),
     details: field('details'),
   };
 }
 
+/**
+ * The error a failed answer's envelope describes (v1.38.0). A handler that
+ * sends a `message` beside `error` is using `error` as a machine code
+ * (`QR_NOT_FOUND`, `QR_RECORD_INVALID`, `ROUTE_RECORD_INVALID`,
+ * `ROUTE_TARGET_CREDENTIAL`); an explicit `code` field wins over it. The code
+ * is kept on the error (`EdgeRouterError.code`) and the text is
+ * `code: message`, or the message alone when the two are the same, so a
+ * human or MCP caller reads the sentence once. A body with `error` only keeps
+ * it as the text.
+ */
+function envelopeError(
+  data: ResponseEnvelope | null,
+  response: Response,
+): { message: string; code: string | undefined } {
+  const fallback = `Request failed: ${response.statusText}`;
+  if (data === null) return { message: fallback, code: undefined };
+  const code = data.code ?? (data.message === undefined ? undefined : data.error);
+  const text = data.message ?? data.error ?? fallback;
+  return {
+    message: code === undefined || code === text ? text : `${code}: ${text}`,
+    code,
+  };
+}
+
 /** A response body read as unknown: null when it is not JSON (the parser's message is dropped). */
-async function readBody(response: Response): Promise<{ parsed: true; value: unknown } | null> {
+async function readBody(response: Response): Promise<{ value: unknown } | null> {
   try {
     const value: unknown = await response.json();
-    return { parsed: true, value };
+    return { value };
   } catch {
     return null;
   }
@@ -108,6 +139,8 @@ export class EdgeRouterError extends Error {
     message: string,
     public readonly status: number,
     public readonly details?: unknown,
+    /** The server's machine code, when it sent one (`QR_NOT_FOUND`, …). */
+    public readonly code?: string,
   ) {
     super(message);
     this.name = 'EdgeRouterError';
@@ -190,19 +223,10 @@ export class EdgeRouterClient {
       );
     }
 
-    // Handle errors
+    // Handle errors: the code and the sentence (envelopeError)
     if (!response.ok || !data.success) {
-      // The central error envelope carries only `error`. A handler that ALSO
-      // sends `message` is using `error` as a machine CODE
-      // (`ROUTE_TARGET_CREDENTIAL`, `ROUTE_RECORD_INVALID`), and the sentence
-      // is the part a human or an MCP caller needs — so carry both. Bodies
-      // without `message` are byte-identical to before.
-      const code = data.error ?? `Request failed: ${response.statusText}`;
-      throw new EdgeRouterError(
-        data.message ? `${code}: ${data.message}` : code,
-        response.status,
-        data.details,
-      );
+      const error = envelopeError(data, response);
+      throw new EdgeRouterError(error.message, response.status, data.details, error.code);
     }
 
     // Return data (handle both ApiResponse and PaginatedApiResponse); the
@@ -236,11 +260,8 @@ export class EdgeRouterClient {
     }
 
     if (!response.ok || !data.success) {
-      throw new EdgeRouterError(
-        data.error ?? `Request failed: ${response.statusText}`,
-        response.status,
-        data.details,
-      );
+      const error = envelopeError(data, response);
+      throw new EdgeRouterError(error.message, response.status, data.details, error.code);
     }
 
     return data.data as T;
@@ -271,17 +292,13 @@ export class EdgeRouterClient {
     });
 
     if (!response.ok) {
-      let errorMessage = `Request failed: ${response.statusText}`;
-      // Same `code: sentence` merge as request(): a handler that sends both is
-      // using `error` as a machine CODE, and the sentence is the part a human
-      // or an MCP caller needs. The markdown and SVG paths come through here.
-      // A body that is not JSON, or not an object, keeps the default.
+      // As request() (envelopeError): the markdown and SVG paths come through
+      // here, a QR image of a deleted code included. A body that is not JSON,
+      // or not an object, keeps the default text.
       const read = await readBody(response);
       const data = read === null ? null : readEnvelope(read.value);
-      if (data?.error) {
-        errorMessage = data.message ? `${data.error}: ${data.message}` : data.error;
-      }
-      throw new EdgeRouterError(errorMessage, response.status);
+      const error = envelopeError(data, response);
+      throw new EdgeRouterError(error.message, response.status, data?.details, error.code);
     }
 
     return response;
@@ -296,12 +313,15 @@ export class EdgeRouterClient {
    * @param domain - Domain whose routes are listed (required; never defaulted)
    * @param search - Optional search term to filter routes (case-insensitive)
    */
-  async listRoutes(domain: string, search?: string): Promise<Route[]> {
+  async listRoutes(domain: string, search?: string): Promise<Array<Route | InvalidRouteRow>> {
     const params: Record<string, string> = { domain };
     if (search) params['search'] = search;
-    const response = await this.request<{ routes: Route[]; total: number }>('GET', '/api/routes', {
-      params,
-    });
+    // A stored record that cannot be read is listed as an InvalidRouteRow
+    // (v1.38.0): its domain and path, flagged `invalid`
+    const response = await this.request<{
+      routes: Array<Route | InvalidRouteRow>;
+      total: number;
+    }>('GET', '/api/routes', { params });
     return response.routes;
   }
 
@@ -657,17 +677,23 @@ export class EdgeRouterClient {
     search?: string;
     limit?: number;
     offset?: number;
-  }): Promise<{ items: QRCode[]; meta: QRListMeta }> {
-    return this.request<{ items: QRCode[]; meta: QRListMeta }>('GET', '/api/qr', {
-      params: {
-        domain: options.domain,
-        type: options.type,
-        tag: options.tag,
-        search: options.search,
-        limit: options.limit,
-        offset: options.offset,
+  }): Promise<{ items: Array<QRCode | InvalidQRRow>; meta: QRListMeta }> {
+    // A stored record that cannot be read is listed as an InvalidQRRow
+    // (v1.38.0): its domain and id, flagged `invalid`
+    return this.request<{ items: Array<QRCode | InvalidQRRow>; meta: QRListMeta }>(
+      'GET',
+      '/api/qr',
+      {
+        params: {
+          domain: options.domain,
+          type: options.type,
+          tag: options.tag,
+          search: options.search,
+          limit: options.limit,
+          offset: options.offset,
+        },
       },
-    });
+    );
   }
 
   /** Get a single QR code record. */
@@ -693,9 +719,16 @@ export class EdgeRouterClient {
     });
   }
 
-  /** Delete a QR code (hard delete; the audit log preserves the record). */
-  async deleteQr(id: string, domain: string): Promise<{ deleted: true; id: string }> {
-    return this.request<{ deleted: true; id: string }>(
+  /**
+   * Delete a QR code (hard delete; the audit log preserves the record). The
+   * answer names the deleted record's `createdAt` (v1.38.0; absent for a
+   * record that could not be read).
+   */
+  async deleteQr(
+    id: string,
+    domain: string,
+  ): Promise<{ deleted: true; id: string; createdAt?: number }> {
+    return this.request<{ deleted: true; id: string; createdAt?: number }>(
       'DELETE',
       `/api/qr/${encodeURIComponent(id)}`,
       { params: { domain } },

@@ -44,6 +44,20 @@ describe('QR MCP tool handlers', () => {
     expect(result).toContain('office-wifi (wifi) — Office wifi');
   });
 
+  it('listQrs marks a record that cannot be read, with the one thing to do', async () => {
+    const client = mockClient({
+      listQrs: vi.fn<EdgeRouterClient['listQrs']>().mockResolvedValue({
+        items: [sampleQr, { domain: 'links.example.com', id: 'broken-code', invalid: true }],
+        meta: { total: 2, count: 2, offset: 0, limit: 2, hasMore: false },
+      }),
+    });
+    const result = await listQrs(client, { domain: 'links.example.com' });
+    expect(result).toContain('office-wifi (wifi)');
+    expect(result).toContain(
+      '- broken-code — UNREADABLE RECORD: stored in a shape that cannot be read. Delete it and create it again.',
+    );
+  });
+
   it('listQrs reports an empty catalogue plainly', async () => {
     const client = mockClient({
       listQrs: vi.fn<EdgeRouterClient['listQrs']>().mockResolvedValue({
@@ -94,6 +108,15 @@ describe('QR MCP tool handlers', () => {
       domain: 'links.example.com',
     });
     expect(result).toContain('QR code deleted: office-wifi');
+    expect(result).toContain('Its stored record could not be read.');
+    const client = mockClient({
+      deleteQr: vi
+        .fn<EdgeRouterClient['deleteQr']>()
+        .mockResolvedValue({ deleted: true, id: 'office-wifi', createdAt: 1_700_000_000_000 }),
+    });
+    expect(await deleteQr(client, { id: 'office-wifi', domain: 'links.example.com' })).toContain(
+      'Created 2023-11-14T22:13:20.000Z.',
+    );
   });
 
   it('getRouteQr returns the SVG source with the ephemeral note', async () => {

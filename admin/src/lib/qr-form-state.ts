@@ -196,8 +196,9 @@ const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringif
  * applies today's limits only to the fields it is sent, so a code saved under
  * earlier limits stays editable. An unchanged form gives `{}`.
  *
- * `linkedRoute` is sent when the link changed: the new link, or `null` when a
- * url code is no longer linked.
+ * Tags are compared as the field's text, as the user sees it. `linkedRoute`
+ * is sent when the link changed: the new link, or `null` when a url code is
+ * no longer linked.
  */
 export function qrEditPatch(
   initial: QRCode,
@@ -212,8 +213,10 @@ export function qrEditPatch(
   if (!sameJson(design, designFromState(before))) patch['design'] = design;
   const description = s.description.trim();
   if (description !== before.description.trim()) patch['description'] = description;
-  const tags = tagsFromState(s);
-  if (!sameJson(tags, tagsFromState(before))) patch['tags'] = tags;
+  // Tags as the user sees them: the field's text. Unchanged text is never
+  // sent, so stored tags the field cannot show as they are (one holding a
+  // comma, more than today's count cap) are never rewritten
+  if (s.tags !== before.tags) patch['tags'] = tagsFromState(s);
   if (s.type === 'url') {
     const link = linkedRouteFromState(s, domain) ?? null;
     // The stored link as it is, so clearing a link the form cannot show as

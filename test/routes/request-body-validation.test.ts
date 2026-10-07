@@ -6,6 +6,12 @@ import { adminRoutes } from '../../src/routes/admin';
 import type { AppEnv, Bindings } from '../../src/types';
 import { clearAllRoutes } from '../helpers';
 
+/** The record a single-route read found, else null (missing or invalid). */
+async function recordAt(...args: Parameters<typeof getRoute>) {
+  const read = await getRoute(...args);
+  return read.status === 'ok' ? read.value : null;
+}
+
 /**
  * Request-body validation for the write endpoints that used to read their JSON
  * body through a type cast or without a JSON guard: storage rename / move /
@@ -222,7 +228,7 @@ describe('request-body validation (storage and route write endpoints)', () => {
       const response = await send(realEnv, 'PUT', ENDPOINTS.update.path, body);
       expect(response.status).toBe(404);
     }
-    expect(await getRoute(env.ROUTES, ADMIN_HOST, '/validation')).toBeNull();
+    expect(await recordAt(env.ROUTES, ADMIN_HOST, '/validation')).toBeNull();
   });
 
   it('control: the recording bindings do see a well-formed request on every endpoint', async () => {
@@ -377,7 +383,7 @@ describe('request-body validation (storage and route write endpoints)', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await getRoute(env.ROUTES, TRANSFER_TARGET_DOMAIN, '/validation')).not.toBeNull();
-    expect(await getRoute(env.ROUTES, ADMIN_HOST, '/validation')).toBeNull();
+    expect(await recordAt(env.ROUTES, TRANSFER_TARGET_DOMAIN, '/validation')).not.toBeNull();
+    expect(await recordAt(env.ROUTES, ADMIN_HOST, '/validation')).toBeNull();
   });
 });

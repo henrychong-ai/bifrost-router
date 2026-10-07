@@ -687,6 +687,91 @@ describe('EdgeRouterClient credential-target acknowledgement and changelog', () 
     });
   });
 
+  it('keeps the machine code on the error, and an explicit code field wins', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+      json: async () => ({
+        success: false,
+        error: 'QR_NOT_FOUND',
+        message: 'QR code not found: office-wifi',
+      }),
+    });
+    await expect(client.getQr('office-wifi', 'links.example.com')).rejects.toMatchObject({
+      message: 'QR_NOT_FOUND: QR code not found: office-wifi',
+      status: 404,
+      code: 'QR_NOT_FOUND',
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      statusText: 'Conflict',
+      json: async () => ({ success: false, code: 'SOME_CODE', error: 'Something failed' }),
+    });
+    await expect(client.getRoute('/x', 'links.example.com')).rejects.toMatchObject({
+      message: 'SOME_CODE: Something failed',
+      code: 'SOME_CODE',
+    });
+  });
+
+  it('treats an empty error, message or code as absent: the status text stands in', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      json: async () => ({ success: false, error: '', message: '', code: '' }),
+    });
+    await expect(client.getRoute('/x', 'links.example.com')).rejects.toMatchObject({
+      message: 'Request failed: Internal Server Error',
+      code: undefined,
+    });
+  });
+
+  it('never repeats a message that is the code itself', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      statusText: 'Conflict',
+      json: async () => ({ success: false, error: 'SAME', message: 'SAME' }),
+    });
+    await expect(client.getRoute('/x', 'links.example.com')).rejects.toMatchObject({
+      message: 'SAME',
+      code: 'SAME',
+    });
+  });
+
+  it('carries the code from a raw (SVG or markdown) request too', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+      json: async () => ({
+        success: false,
+        error: 'QR_NOT_FOUND',
+        message: 'QR code not found: gone',
+      }),
+    });
+    await expect(client.getQrImageSvg('gone', 'links.example.com')).rejects.toMatchObject({
+      message: 'QR_NOT_FOUND: QR code not found: gone',
+      status: 404,
+      code: 'QR_NOT_FOUND',
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 502,
+      statusText: 'Bad Gateway',
+      json: async () => {
+        throw new SyntaxError('Unexpected token < in JSON');
+      },
+    });
+    await expect(client.getChangelogMarkdown()).rejects.toMatchObject({
+      message: 'Request failed: Bad Gateway',
+      code: undefined,
+    });
+  });
+
   it('leaves an ordinary error body byte-identical', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,

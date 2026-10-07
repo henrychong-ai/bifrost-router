@@ -846,6 +846,87 @@ describe('parseStoredQR and StoredQRCodeSchema (v1.38.0)', () => {
       expect(result.error?.issues[0]?.message).toBe('Not a QR code record');
     }
   });
+
+  describe('formats are checked as on write; only length and count caps are not', () => {
+    const url = {
+      id: 'url-code',
+      domain: 'example.com',
+      type: 'url',
+      payload: { url: 'https://example.com/a' },
+      createdAt: 1,
+      updatedAt: 2,
+      createdBy: 'test',
+    };
+    const at = (overrides: Record<string, unknown>) => ({ ...url, ...overrides });
+
+    it.each([
+      ['a quote and an angle bracket in the background', { design: { bg: '#fff"><x' } }],
+      ['markup in the foreground', { design: { fg: '<script>' } }],
+      ['a logo with markup', { design: { logoDataUri: 'data:image/png;base64,AA"><x' } }],
+      ['a logo that is not a data URI', { design: { logoDataUri: 'https://example.com/a.png' } }],
+      ['error correction Z', { design: { errorCorrection: 'Z' } }],
+      ['a negative size', { design: { size: -5 } }],
+      ['a size past 2048', { design: { size: 99999 } }],
+      ['a margin past 16', { design: { margin: 99 } }],
+      ['a logo aspect ratio past 12', { design: { logoAspectRatio: 50 } }],
+      ['a URL without a scheme', { payload: { url: 'example.com/x' } }],
+      ['an empty URL', { payload: { url: '' } }],
+      [
+        'a linked route on a text code',
+        {
+          type: 'text',
+          payload: { text: 'x' },
+          linkedRoute: { domain: 'example.com', path: '/x' },
+        },
+      ],
+      [
+        'a linked route path without a slash',
+        { linkedRoute: { domain: 'example.com', path: 'x' } },
+      ],
+      ['an unknown Wi-Fi auth', { type: 'wifi', payload: { ssid: 'S', auth: 'XYZ' } }],
+      [
+        'an unknown EAP method',
+        {
+          type: 'wifi',
+          payload: { ssid: 'S', auth: 'WPA2-EAP', eapMethod: 'FOO', identity: 'i', password: 'p' },
+        },
+      ],
+      ['a password-protected network without a password', { type: 'wifi', payload: { ssid: 'S' } }],
+      ['a missing createdBy', { createdBy: undefined }],
+      ['a createdBy that is not text', { createdBy: 7 }],
+      ['an empty id', { id: '' }],
+      ['an empty domain', { domain: '' }],
+      ['a createdAt that is not a number', { createdAt: '1' }],
+      ['tags that are not a list', { tags: 'a,b' }],
+    ])('refuses %s', (_label, overrides) => {
+      expect(parseStoredQR(at(overrides))).toBeNull();
+    });
+
+    it('accepts a record over every length and count cap', () => {
+      for (const overrides of [
+        { payload: { url: `https://example.com/${'p'.repeat(3000)}` } },
+        { type: 'text', payload: { text: 't'.repeat(5000) } },
+        {
+          type: 'wifi',
+          payload: { ssid: 's'.repeat(100), auth: 'WPA', password: 'p'.repeat(300) },
+        },
+        { type: 'vcard', payload: { name: 'n'.repeat(500), org: 'o'.repeat(500) } },
+        { tags: Array.from({ length: 30 }, (_, i) => `tag-${'x'.repeat(40)}-${i}`) },
+        { description: 'd'.repeat(500) },
+        { design: { logoDataUri: logoDataUri(QR_LOGO_MAX_BYTES + 1) } },
+      ]) {
+        expect(parseStoredQR(at(overrides))).not.toBeNull();
+      }
+    });
+
+    it('accepts a valid record of each shape unchanged', () => {
+      const linked = at({ linkedRoute: { domain: 'retired.example', path: '/x' } });
+      expect(parseStoredQR(linked)?.linkedRoute).toEqual({ domain: 'retired.example', path: '/x' });
+      expect(
+        parseStoredQR(at({ type: 'wifi', payload: { ssid: 'S', auth: 'nopass' } }))?.payload,
+      ).toEqual({ ssid: 'S', auth: 'nopass' });
+    });
+  });
 });
 
 describe('linked route domain: enumerated on input, tolerant when stored', () => {

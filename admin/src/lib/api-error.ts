@@ -18,24 +18,18 @@ export class ApiError extends Error {
    * message (`{ error: 'QR_NOT_FOUND', message }`, v1.38.0).
    */
   code?: string | undefined;
-  /**
-   * The server's clock on the answer (`serverTimeOf`, v1.38.0), used to time
-   * a QR deletion learnt from a `QR_NOT_FOUND`.
-   */
-  serverTime?: number | undefined;
 
   constructor(
     status: number,
     message: string,
     details?: unknown,
-    extra: { code?: string | undefined; serverTime?: number | undefined } = {},
+    extra: { code?: string | undefined } = {},
   ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.details = details;
     this.code = extra.code;
-    this.serverTime = extra.serverTime;
   }
 }
 

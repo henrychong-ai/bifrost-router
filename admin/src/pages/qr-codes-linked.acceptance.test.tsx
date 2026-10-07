@@ -18,13 +18,20 @@ const DOMAIN = 'example.com';
 
 const state = vi.hoisted(() => ({
   items: [] as QRCode[],
+  invalid: [] as Array<{ domain: string; id: string; invalid: true }>,
   routes: [] as Route[],
   createQr:
     vi.fn<(variables: { input: Record<string, unknown>; domain: string }) => Promise<QRCode>>(),
   updateQr:
     vi.fn<
-      (variables: { id: string; input: Record<string, unknown>; domain: string }) => Promise<QRCode>
+      (variables: {
+        id: string;
+        input: Record<string, unknown>;
+        domain: string;
+        createdAt?: number;
+      }) => Promise<QRCode>
     >(),
+  deleteQr: vi.fn<(variables: { id: string; domain: string; createdAt?: number }) => void>(),
   createRoute:
     vi.fn<(variables: { data: Record<string, unknown>; domain: string }) => Promise<Route>>(),
 }));
@@ -39,6 +46,7 @@ vi.mock('@/hooks', () => ({
   useQrCodes: () => ({
     data: {
       items: state.items,
+      invalid: state.invalid,
       meta: {
         total: state.items.length,
         count: state.items.length,
@@ -52,7 +60,7 @@ vi.mock('@/hooks', () => ({
   }),
   useCreateQr: () => ({ mutateAsync: state.createQr, isPending: false }),
   useUpdateQr: () => ({ mutateAsync: state.updateQr, isPending: false }),
-  useDeleteQr: () => ({ mutate: vi.fn<() => void>(), isPending: false }),
+  useDeleteQr: () => ({ mutate: state.deleteQr, isPending: false }),
   useDebounce: <T,>(value: T) => value,
   useRoutes: () => ({
     data: { routes: state.routes },
@@ -150,6 +158,8 @@ async function render() {
 
 beforeEach(() => {
   state.items = [];
+  state.invalid = [];
+  state.deleteQr.mockReset();
   state.routes = [route('/summer-sale'), route('/winter-offer')];
   state.createQr
     .mockReset()
@@ -282,6 +292,8 @@ describe('editing a QR code', () => {
       id: 'saved-code',
       domain: DOMAIN,
       input: { payload: { url: 'https://example.net/new' } },
+      // The incarnation the dialog edited, for a QR_NOT_FOUND tombstone
+      createdAt: 1,
     });
   });
 
@@ -302,5 +314,102 @@ describe('editing a QR code', () => {
     await click(button('Save changes'));
     expect(toasts.info).toHaveBeenCalledWith('QR code saved-code was already deleted');
     expect(() => button('Save changes')).toThrow('no button Save changes');
+  });
+
+  it('shows the server message for an unreadable record and keeps the dialog open', async () => {
+    state.updateQr.mockRejectedValueOnce(
+      new ApiError(
+        409,
+        'This QR code is stored in a shape that cannot be read. Delete it and create it again.',
+        undefined,
+        { code: 'QR_RECORD_INVALID' },
+      ),
+    );
+    await openEdit();
+    await typeInto(input('qr-description'), 'Front desk');
+    await click(button('Save changes'));
+    expect(toasts.error).toHaveBeenCalledWith(
+      'This QR code is stored in a shape that cannot be read. Delete it and create it again.',
+    );
+    expect(toasts.info).not.toHaveBeenCalled();
+    expect(button('Save changes')).toBeTruthy();
+  });
+
+  it('never rewrites stored tags it cannot show as they are, on a description edit', async () => {
+    state.items = [code({ tags: ['a,b', 'c'] })];
+    await act(async () => root?.unmount());
+    await render();
+    await openEdit();
+    await typeInto(input('qr-description'), 'Front desk');
+    await click(button('Save changes'));
+    expect(state.updateQr.mock.calls[0]?.[0].input).toEqual({ description: 'Front desk' });
+  });
+});
+
+describe('a linked code whose route the picker does not hold', () => {
+  it.each([
+    ['deleted, or beyond the newest routes loaded', () => [route('/winter-offer')]],
+    ['while the routes have not loaded', () => []],
+  ])('edits other fields when its route is %s', async (_label, routes) => {
+    state.routes = routes();
+    state.items = [
+      code({
+        payload: { url: `https://${DOMAIN}/gone` },
+        linkedRoute: { domain: DOMAIN, path: '/gone' },
+      }),
+    ];
+    await render();
+    await openEdit();
+    await typeInto(input('qr-description'), 'Front desk');
+    await click(button('Save changes'));
+    expect(toasts.error).not.toHaveBeenCalled();
+    expect(state.updateQr.mock.calls[0]?.[0].input).toEqual({ description: 'Front desk' });
+  });
+});
+
+describe('a new linked route kept when the code is gone', () => {
+  it('reports the created route with View route when the edit finds the code deleted', async () => {
+    state.items = [code()];
+    await render();
+    await openEdit();
+    const toggle = document.getElementById('qr-link-route');
+    if (!toggle) throw new Error('no link switch');
+    await click(toggle);
+    await click(button('New route'));
+    await typeInto(input('qr-route-path'), '/autumn');
+    await typeInto(input('qr-route-target'), 'https://example.net/autumn');
+    state.updateQr.mockRejectedValueOnce(
+      new ApiError(404, 'QR code not found: saved-code', undefined, { code: 'QR_NOT_FOUND' }),
+    );
+    await click(button('Save changes'));
+    expect(state.createRoute).toHaveBeenCalledTimes(1);
+    expect(toasts.info).toHaveBeenCalledWith('QR code saved-code was already deleted');
+    const [message, options] = (toasts.error.mock.calls.at(-1) ?? []) as unknown as [
+      string,
+      { action?: { label?: string } } | undefined,
+    ];
+    expect(message).toContain(`Route https://${DOMAIN}/autumn was created`);
+    expect(options?.action?.label).toBe('View route');
+  });
+});
+
+describe('unreadable QR records', () => {
+  it('are listed flagged, with a Delete action and nothing else', async () => {
+    state.invalid = [{ domain: DOMAIN, id: 'broken-code', invalid: true }];
+    await render();
+    const row = document.body.querySelector('[data-testid="unreadable-qr"]');
+    expect(row?.textContent).toContain('broken-code');
+    expect(row?.textContent).toContain('Unreadable record');
+    const buttons = [...(row?.querySelectorAll('button') ?? [])];
+    expect(buttons.map(item => item.getAttribute('aria-label'))).toEqual([
+      'Delete unreadable record broken-code',
+    ]);
+    await click(buttons[0] as HTMLButtonElement);
+    await click(button('Delete'));
+    expect(state.deleteQr.mock.calls[0]?.[0]).toEqual({
+      id: 'broken-code',
+      domain: DOMAIN,
+      createdAt: undefined,
+    });
   });
 });

@@ -9,13 +9,20 @@
  */
 
 import { env } from 'cloudflare:test';
-import { MAX_QR_RECORD_BYTES, MAX_ROUTE_RECORD_BYTES, type QRCode } from '@bifrost/shared';
+import {
+  MAX_QR_RECORD_BYTES,
+  MAX_ROUTE_RECORD_BYTES,
+  type QRCode,
+  QRDesignSchema,
+  renderQrSvg,
+} from '@bifrost/shared';
 import { Hono } from 'hono';
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MAX_RECORD_LINE_BYTES } from '../../src/backup/integrity';
 import { backupKV } from '../../src/backup/kv';
 import { putQR } from '../../src/kv/qr';
 import { createRoute, getAllRoutesAllDomains } from '../../src/kv/routes';
+import { qrKey, routeKey } from '../../src/kv/schema';
 import { adminRoutes } from '../../src/routes/admin';
 import type { AppEnv } from '../../src/types';
 
@@ -437,34 +444,28 @@ describe('QR API (v1.30.0 port seams)', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // v1.38.0: server time, QR_NOT_FOUND, patch-only limits, unknown fields
+  // v1.38.0: deleted incarnations, QR_NOT_FOUND, patch-only limits, unknown fields
   // ---------------------------------------------------------------------------
 
-  it('stamps every QR answer with X-Server-Time, success and error alike', async () => {
-    const before = Date.now();
+  it('answers a delete with the deleted code: its id and createdAt, the incarnation it removed', async () => {
     const created = await fetchSettled(
       authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
         type: 'text',
-        id: 'test-clock',
+        id: 'test-incarnation',
         payload: { text: 'tick' },
       }),
     );
-    expect(created.status).toBe(201);
-    const stamp = Number(created.headers.get('X-Server-Time'));
     const record = ((await created.json()) as { data: QRCode }).data;
-    expect(Number.isSafeInteger(stamp)).toBe(true);
-    // Read after the write: at or after the record's own clock
-    expect(stamp).toBeGreaterThanOrEqual(record.updatedAt);
-    expect(stamp).toBeGreaterThanOrEqual(before);
-    for (const [method, url] of [
-      ['GET', `${BASE}?domain=${DOMAIN}`],
-      ['GET', `${BASE}/test-clock?domain=${DOMAIN}`],
-      ['DELETE', `${BASE}/test-clock?domain=${DOMAIN}`],
-      ['GET', `${BASE}/test-clock?domain=${DOMAIN}`],
-    ] as const) {
-      const response = await fetchSettled(authedJson(method, url));
-      expect(response.headers.get('X-Server-Time'), `${method} ${url}`).toMatch(/^\d+$/);
-    }
+    const deleted = await fetchSettled(
+      authedJson('DELETE', `${BASE}/test-incarnation?domain=${DOMAIN}`),
+    );
+    expect(deleted.status).toBe(200);
+    expect(await deleted.json()).toEqual({
+      success: true,
+      data: { deleted: true, id: 'test-incarnation', createdAt: record.createdAt },
+    });
+    // No clock header: deletions are named by incarnation, never timed
+    expect(deleted.headers.get('X-Server-Time')).toBeNull();
   });
 
   it('answers a missing code with a JSON QR_NOT_FOUND on read, update and delete', async () => {
@@ -477,24 +478,12 @@ describe('QR API (v1.30.0 port seams)', () => {
         authedJson(method, `${BASE}/test-never-made?domain=${DOMAIN}`, body),
       );
       expect(response.status).toBe(404);
-      expect(response.headers.get('X-Server-Time')).toMatch(/^\d+$/);
       expect(await response.json()).toEqual({
         success: false,
         error: 'QR_NOT_FOUND',
         message: 'QR code not found: test-never-made',
       });
     }
-  });
-
-  it('exposes X-Server-Time and Date to the dashboard origin', async () => {
-    const response = await fetchSettled(
-      new Request(`${BASE}/test-never-made?domain=${DOMAIN}`, {
-        headers: { 'X-Admin-Key': VALID_KEY, Origin: 'http://localhost:3001' },
-      }),
-    );
-    const exposed = response.headers.get('Access-Control-Expose-Headers') ?? '';
-    expect(exposed).toContain('X-Server-Time');
-    expect(exposed).toContain('Date');
   });
 
   it("applies today's limits to the fields an update sets, never to the ones it keeps", async () => {
@@ -589,5 +578,97 @@ describe('QR API (v1.30.0 port seams)', () => {
       authedJson('GET', `${BASE}?domain=${DOMAIN}&search=${'x'.repeat(2049)}`),
     );
     expect(tooLong.status).toBe(400);
+  });
+
+  it('encodes the short URL while the linked route exists, also when it cannot be read', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await fetchSettled(
+        authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
+          type: 'url',
+          id: 'test-linked-img',
+          payload: { url: 'https://example.net/fallback' },
+          linkedRoute: { domain: DOMAIN, path: '/linked-img' },
+        }),
+      );
+      const design = QRDesignSchema.parse({});
+      const image = async () =>
+        (await fetchSettled(authedJson('GET', `${BASE}/test-linked-img/image`))).text();
+      // No route: the stored payload
+      expect(await image()).toBe(renderQrSvg('https://example.net/fallback', design));
+      // An unreadable route is still a route: its short URL, never the payload
+      await env.ROUTES.put(routeKey(DOMAIN, '/linked-img'), '{"broken"');
+      expect(await image()).toBe(renderQrSvg(`https://${DOMAIN}/linked-img`, design));
+      // A readable route: its short URL
+      await env.ROUTES.delete(routeKey(DOMAIN, '/linked-img'));
+      await createRoute(env.ROUTES, DOMAIN, {
+        path: '/linked-img',
+        type: 'redirect',
+        target: 'https://example.com/t',
+      });
+      expect(await image()).toBe(renderQrSvg(`https://${DOMAIN}/linked-img`, design));
+      // from-route refuses an unreadable route as every route read does
+      await env.ROUTES.put(routeKey(DOMAIN, '/linked-img'), '{"broken"');
+      const fromRoute = await fetchSettled(
+        authedJson('GET', `${BASE}/from-route?path=/linked-img`),
+      );
+      expect(fromRoute.status).toBe(409);
+      expect(await fromRoute.json()).toMatchObject({ error: 'ROUTE_RECORD_INVALID' });
+    } finally {
+      await env.ROUTES.delete(routeKey(DOMAIN, '/linked-img'));
+      warn.mockRestore();
+    }
+  });
+
+  it('deletes an unreadable code with one read, auditing its key and state only', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const key = qrKey(DOMAIN, 'test-unreadable');
+    await env.ROUTES.put(key, '{"payload":{"password":"never-quoted"}');
+    const get = vi.spyOn(env.ROUTES, 'get');
+    try {
+      const response = await fetchSettled(
+        authedJson('DELETE', `${BASE}/test-unreadable?domain=${DOMAIN}`),
+      );
+      expect(response.status).toBe(200);
+      // No createdAt: the record that was deleted could not be read
+      expect(await response.json()).toEqual({
+        success: true,
+        data: { deleted: true, id: 'test-unreadable' },
+      });
+      expect(get.mock.calls.filter(call => call[0] === key)).toHaveLength(1);
+    } finally {
+      get.mockRestore();
+      warn.mockRestore();
+    }
+    expect(await env.ROUTES.get(key)).toBeNull();
+    const audit = await env.DB.prepare(
+      `SELECT details FROM audit_logs WHERE action = 'qr_delete' AND path = '/qr/test-unreadable' ORDER BY id DESC LIMIT 1`,
+    ).first<{ details: string }>();
+    expect(JSON.parse(audit?.details ?? '{}')).toEqual({
+      id: 'test-unreadable',
+      key,
+      state: 'invalid',
+    });
+  });
+
+  it('deletes a readable code with one read', async () => {
+    await fetchSettled(
+      authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
+        type: 'text',
+        id: 'test-one-read',
+        payload: { text: 'x' },
+      }),
+    );
+    const key = qrKey(DOMAIN, 'test-one-read');
+    const get = vi.spyOn(env.ROUTES, 'get');
+    try {
+      const response = await fetchSettled(
+        authedJson('DELETE', `${BASE}/test-one-read?domain=${DOMAIN}`),
+      );
+      expect(response.status).toBe(200);
+      expect(get.mock.calls.filter(call => call[0] === key)).toHaveLength(1);
+    } finally {
+      get.mockRestore();
+    }
   });
 });

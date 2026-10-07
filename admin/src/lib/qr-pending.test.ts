@@ -2,7 +2,6 @@ import { type QRCode, QRDesignSchema, qrMatchesListFilters } from '@bifrost/shar
 import { describe, expect, it, vi } from 'vitest';
 import type { QRListMeta, QrQueryParams } from './api-client';
 import { createPendingQrStore, PENDING_QR_TTL_MS, type QrListPage } from './qr-pending';
-import { TOMBSTONE_SKEW_MARGIN_MS } from './server-time';
 
 function qr(id: string, overrides: Partial<QRCode> = {}): QRCode {
   return {
@@ -57,6 +56,12 @@ function clockedStore() {
   return { store, advance: (ms: number) => (time += ms), now: () => time };
 }
 
+/** Two incarnations of one code: A, deleted, and B, re-created with its id. */
+const A = (overrides: Partial<QRCode> = {}) =>
+  qr('a', { createdAt: 5_000, updatedAt: 5_000, description: 'A', ...overrides });
+const B = (overrides: Partial<QRCode> = {}) =>
+  qr('a', { createdAt: 10_100, updatedAt: 10_100, description: 'B', ...overrides });
+
 describe('pending QR store', () => {
   it('keeps both codes of successive creates through stale refetches', () => {
     const { store } = clockedStore();
@@ -96,7 +101,7 @@ describe('pending QR store', () => {
     const { store } = clockedStore();
     const a = qr('a', { tags: ['print'] });
     store.remember(a);
-    store.markDeleted('example.com', 'a');
+    store.markDeleted('example.com', 'a', 1);
     for (const params of [
       firstPage,
       { ...firstPage, type: 'url' },
@@ -111,93 +116,59 @@ describe('pending QR store', () => {
     }
   });
 
-  it('a deletion keeps the known version of an entry past its TTL', () => {
+  it('a deletion of a known incarnation hides it past the entry TTL, whatever the clocks', () => {
     const { store, advance, now } = clockedStore();
     // The server's clock is ahead of the dashboard's: the edit is stamped later than now
     const edited = qr('a', { updatedAt: now() + 10 * 60_000 });
     store.observeOwn(edited);
     advance(PENDING_QR_TTL_MS + 1);
-    store.markDeleted('example.com', 'a');
-    // A stale listing that still holds the edit must not bring it back
+    store.markDeleted('example.com', 'a', edited.createdAt);
+    // A stale listing that still holds the edit must not bring it back, nor
+    // any later row of the same incarnation
     expect(ids(store.merge(firstPage, page([edited])))).toEqual([]);
-    // A version later than the one the session saw is a re-creation
-    const recreated = qr('a', { updatedAt: edited.updatedAt + 1 });
+    expect(
+      ids(store.merge(firstPage, page([{ ...edited, updatedAt: edited.updatedAt + 1 }]))),
+    ).toEqual([]);
+    // Another incarnation (a later createdAt) is a re-creation
+    const recreated = qr('a', { createdAt: 2, updatedAt: 2 });
     expect(ids(store.merge(firstPage, page([recreated])))).toEqual(['a']);
-  });
-
-  it('stamps a tombstone with the server clock, not the dashboard clock', () => {
-    // The dashboard clock is an hour AHEAD of the server's
-    const ahead = clockedStore();
-    ahead.advance(60 * 60 * 1000);
-    ahead.store.markDeleted('example.com', 'a', 5_999);
-    // Re-created on the server a second after the deletion: shown
-    expect(ids(ahead.store.merge(firstPage, page([qr('a', { updatedAt: 7_000 })])))).toEqual(['a']);
-    // The dashboard clock is BEHIND: a stale row up to the deletion stays hidden
-    const behind = clockedStore();
-    behind.store.markDeleted('example.com', 'b', 50_999);
-    expect(ids(behind.store.merge(firstPage, page([qr('b', { updatedAt: 50_000 })])))).toEqual([]);
-    // With no server time the dashboard clock stands in, as before
-    const local = clockedStore();
-    local.store.markDeleted('example.com', 'c');
-    expect(ids(local.store.merge(firstPage, page([qr('c', { updatedAt: local.now() })])))).toEqual(
-      [],
-    );
   });
 
   it('keeps a tombstone until its TTL, then lets listings through again', () => {
     const { store, advance } = clockedStore();
     const a = qr('a');
-    store.markDeleted('example.com', 'a');
+    store.markDeleted('example.com', 'a', 1);
     advance(PENDING_QR_TTL_MS);
     expect(ids(store.merge(firstPage, page([a])))).toEqual([]);
     advance(1);
     expect(ids(store.merge(firstPage, page([a])))).toEqual(['a']);
   });
 
-  it("supersedes a tombstone with this session's own create or update, whatever the clocks", () => {
+  it("never hides another incarnation, this session's own included, whatever the clocks", () => {
     const { store } = clockedStore();
-    store.markDeleted('example.com', 'a', 10_000);
-    // The server answered the update, so the code exists again: its row shows
-    store.observeOwn(qr('a', { description: 'updated', updatedAt: 5 }));
-    expect(descriptions(store.merge(firstPage, page([qr('a', { updatedAt: 4 })])))).toEqual([
-      'updated',
-    ]);
+    // Incarnation 1 deleted at 10,000 on the server's clock
+    store.markDeleted('example.com', 'a', 1);
+    // A later incarnation stamped BEFORE the deletion (a slower clock): shown
+    store.observeOwn(qr('a', { description: 'updated', createdAt: 5, updatedAt: 6 }));
+    expect(
+      descriptions(store.merge(firstPage, page([qr('a', { createdAt: 5, updatedAt: 5 })]))),
+    ).toEqual(['updated']);
     // Only a create adds a code to page 1
     expect(ids(store.merge(firstPage, page([])))).toEqual([]);
-    store.markDeleted('example.com', 'b', 10_000);
-    store.remember(qr('b', { updatedAt: 6 }));
+    store.markDeleted('example.com', 'b', 1);
+    store.remember(qr('b', { createdAt: 6, updatedAt: 6 }));
     expect(ids(store.merge(firstPage, page([])))).toEqual(['b']);
   });
 
   it('re-created in the same second as its deletion, in this session: shown at once', () => {
     const { store } = clockedStore();
-    store.markDeleted('example.com', 'a', 10_100);
-    store.remember(qr('a', { description: 'again', updatedAt: 10_400 }));
+    store.markDeleted('example.com', 'a', 1);
+    store.remember(qr('a', { description: 'again', createdAt: 10_050, updatedAt: 10_050 }));
     expect(descriptions(store.merge(firstPage, page([])))).toEqual(['again']);
-    // A stale listing of the deleted version shows the re-created one
+    // A stale listing of the deleted incarnation shows the re-created one
     expect(descriptions(store.merge(firstPage, page([qr('a', { updatedAt: 9_000 })])))).toEqual([
       'again',
     ]);
-  });
-
-  it("hides another session's row stamped just after the deletion, within the skew margin", () => {
-    const { store } = clockedStore();
-    store.markDeleted('example.com', 'a', 10_000);
-    expect(ids(store.merge(firstPage, page([qr('a', { updatedAt: 10_005 })])))).toEqual([]);
-    expect(
-      ids(
-        store.merge(firstPage, page([qr('a', { updatedAt: 10_000 + TOMBSTONE_SKEW_MARGIN_MS })])),
-      ),
-    ).toEqual([]);
-    expect(
-      ids(
-        store.merge(
-          firstPage,
-          page([qr('a', { updatedAt: 10_000 + TOMBSTONE_SKEW_MARGIN_MS + 1 })]),
-        ),
-      ),
-    ).toEqual(['a']);
-    expect(TOMBSTONE_SKEW_MARGIN_MS).toBeGreaterThanOrEqual(1000);
   });
 
   it('expires an entry the server never lists after the TTL', () => {
@@ -401,7 +372,7 @@ describe('pending QR store', () => {
   it('forgets everything on clear', () => {
     const { store } = clockedStore();
     store.remember(qr('a'));
-    store.markDeleted('example.com', 'b');
+    store.markDeleted('example.com', 'b', 1);
     store.merge(firstPage, page([qr('c')]));
     expect(store.size()).toBe(3);
     store.clear();
@@ -484,14 +455,14 @@ describe('pending QR store', () => {
       const { store } = clockedStore();
       const cached = page([qr('a'), qr('b')]);
       store.ingest(cached);
-      store.markDeleted('example.com', 'a');
+      store.markDeleted('example.com', 'a', 1);
       expect(ids(store.project({ ...firstPage, offset: 50 }, cached))).toEqual(['b']);
     });
 
     it('is pure: a read changes neither the entries nor the snapshot', () => {
       const { store, advance } = clockedStore();
       store.remember(qr('a'));
-      store.markDeleted('example.com', 'b');
+      store.markDeleted('example.com', 'b', 1);
       const snapshot = store.getSnapshot();
       advance(PENDING_QR_TTL_MS + 1);
       // Expired entries are ignored at read time, but only a write prunes them
@@ -523,7 +494,7 @@ describe('pending QR store', () => {
 
       store.observeOwn(qr('a', { updatedAt: 6 }));
       store.remember(qr('b'));
-      store.markDeleted('example.com', 'a');
+      store.markDeleted('example.com', 'a', 1);
       store.clear();
       expect(listener).toHaveBeenCalledTimes(5);
       expect(store.getSnapshot().version).toBe(5);
@@ -536,7 +507,7 @@ describe('pending QR store', () => {
     it('projects through any snapshot with the store as it is now', () => {
       const { store } = clockedStore();
       const view = store.getSnapshot();
-      store.markDeleted('example.com', 'a');
+      store.markDeleted('example.com', 'a', 1);
       expect(ids(view.project(firstPage, page([qr('a'), qr('b')])))).toEqual(['b']);
     });
 
@@ -550,40 +521,130 @@ describe('pending QR store', () => {
     });
   });
 
-  describe('versioned tombstones', () => {
-    it('shows a code re-created elsewhere after the deletion, and hides older rows of it', () => {
-      const { store, now } = clockedStore();
+  describe('incarnations (a deleted code and a code re-created with its id)', () => {
+    it('a re-create on a slower clock survives a stale row of the deleted code stamped later', () => {
+      const { store } = clockedStore();
+      store.ingest(page([A()]));
+      // Deleted at 10,123 on the server's clock
+      store.markDeleted('example.com', 'a', 5_000);
+      // Re-created in this session, stamped 10,100 by a slower clock
+      store.remember(B());
+      // A stale row of the deleted code, stamped 10,128 (after the deletion)
+      expect(descriptions(store.merge(firstPage, page([A({ updatedAt: 10_128 })])))).toEqual(['B']);
+      expect(descriptions(store.merge(firstPage, page([])))).toEqual(['B']);
+    });
+
+    it('keeps every deleted incarnation hidden: delete A, re-create B, delete B', () => {
+      const { store } = clockedStore();
+      store.remember(A());
+      store.markDeleted('example.com', 'a', 5_000);
+      store.remember(B());
+      store.markDeleted('example.com', 'a', 10_100);
+      // A stale listing of A, then of B: both stay hidden
+      expect(ids(store.merge(firstPage, page([A({ updatedAt: 7_000 })])))).toEqual([]);
+      expect(ids(store.merge(firstPage, page([B({ updatedAt: 10_900 })])))).toEqual([]);
+      // A third incarnation is shown
+      const C = qr('a', { createdAt: 12_000, updatedAt: 12_000, description: 'C' });
+      expect(descriptions(store.merge(firstPage, page([C])))).toEqual(['C']);
+    });
+
+    it('drops a delayed answer to an update issued before the deletion', () => {
+      const { store } = clockedStore();
+      store.remember(A());
+      store.markDeleted('example.com', 'a', 5_000);
+      // The update was sent before the delete; its answer arrives after it
+      store.observeOwn(A({ updatedAt: 5_500, description: 'late edit' }));
+      expect(ids(store.merge(firstPage, page([])))).toEqual([]);
+      expect(ids(store.merge(firstPage, page([A({ updatedAt: 5_500 })])))).toEqual([]);
+    });
+
+    it('keeps both tombstones when the delete callbacks arrive out of order', () => {
+      const { store } = clockedStore();
+      store.remember(B());
+      // B's deletion lands first, A's (an older incarnation) last
+      store.markDeleted('example.com', 'a', 10_100);
+      store.markDeleted('example.com', 'a', 5_000);
+      expect(ids(store.merge(firstPage, page([B()])))).toEqual([]);
+      expect(ids(store.merge(firstPage, page([A()])))).toEqual([]);
+      expect(store.size()).toBe(2);
+    });
+
+    it('tombstones the incarnation the request deleted, never the one the store knows now', () => {
+      const { store } = clockedStore();
+      store.ingest(page([A()]));
+      // The delete of A is sent; before its reply, B is re-created and listed
+      store.remember(B());
+      store.ingest(page([B()]));
+      // The delayed reply names A, the incarnation the request deleted
+      store.markDeleted('example.com', 'a', 5_000);
+      expect(descriptions(store.merge(firstPage, page([B()])))).toEqual(['B']);
+      expect(descriptions(store.merge(firstPage, page([A()])))).toEqual(['B']);
+      // A reply that names no incarnation (an unreadable record was deleted)
+      // never takes one from the store, and hides no readable version
       store.markDeleted('example.com', 'a');
-      const deletedAt = now();
+      expect(descriptions(store.merge(firstPage, page([B()])))).toEqual(['B']);
+    });
+
+    it("shows another session's re-create, whatever its clock says", () => {
+      const { store } = clockedStore();
+      store.markDeleted('example.com', 'a', 5_000);
+      // Re-created elsewhere, stamped before the deletion by its clock
+      const other = qr('a', { createdAt: 19_000, updatedAt: 19_000, description: 'elsewhere' });
+      expect(descriptions(store.merge(firstPage, page([other])))).toEqual(['elsewhere']);
+    });
+
+    it('expires each tombstone on its own TTL', () => {
+      const { store, advance } = clockedStore();
+      store.markDeleted('example.com', 'a', 5_000);
+      advance(PENDING_QR_TTL_MS / 2);
+      store.markDeleted('example.com', 'a', 10_100);
+      advance(PENDING_QR_TTL_MS / 2 + 1);
+      // A's tombstone has expired, B's has not
+      expect(ids(store.merge(firstPage, page([A()])))).toEqual(['a']);
+      expect(ids(store.merge(firstPage, page([B()])))).toEqual([]);
+    });
+
+    it('hides the row of an unreadable record while a deletion of its code is known', () => {
+      const { store, advance } = clockedStore();
+      const invalid = [{ domain: 'example.com', id: 'a', invalid: true as const }];
+      const raw = { ...page([]), invalid };
+      expect(store.project(firstPage, raw)).toBe(raw);
+      // Deleting it: the answer names no incarnation
+      store.markDeleted('example.com', 'a');
+      expect(store.project(firstPage, raw).invalid).toEqual([]);
+      advance(PENDING_QR_TTL_MS + 1);
+      expect(store.project(firstPage, raw).invalid).toEqual(invalid);
+    });
+  });
+
+  describe('versions across incarnations', () => {
+    it('shows a code re-created elsewhere after the deletion, and hides older rows of it', () => {
+      const { store } = clockedStore();
+      store.markDeleted('example.com', 'a', 1);
       // A stale listing of the deleted code: hidden
-      expect(ids(store.merge(firstPage, page([qr('a', { updatedAt: deletedAt })])))).toEqual([]);
-      // Re-created elsewhere: a later version beats the tombstone, in this
-      // listing and in every later read
-      const recreated = qr('a', {
-        description: 'again',
-        updatedAt: deletedAt + TOMBSTONE_SKEW_MARGIN_MS + 1,
-      });
+      expect(ids(store.merge(firstPage, page([qr('a', { updatedAt: 50 })])))).toEqual([]);
+      // Re-created elsewhere: another incarnation, shown in this listing and,
+      // in place of a stale row of the deleted one, in every later read
+      const recreated = qr('a', { description: 'again', createdAt: 60, updatedAt: 60 });
       expect(store.merge(firstPage, page([recreated])).items).toEqual([recreated]);
-      expect(store.project(firstPage, page([qr('a', { updatedAt: deletedAt })])).items).toEqual([
+      expect(store.project(firstPage, page([qr('a', { updatedAt: 50 })])).items).toEqual([
         recreated,
       ]);
     });
 
     it('shows a re-created row even in a page read before it was ingested', () => {
-      const { store, now } = clockedStore();
-      store.markDeleted('example.com', 'a');
-      const recreated = qr('a', { updatedAt: now() + TOMBSTONE_SKEW_MARGIN_MS + 5 });
+      const { store } = clockedStore();
+      store.markDeleted('example.com', 'a', 1);
+      const recreated = qr('a', { createdAt: 2, updatedAt: 2 });
       expect(store.project(firstPage, page([recreated])).items).toEqual([recreated]);
     });
 
-    it("lets another session's row later than the deletion and its margin revive the code", () => {
-      const { store, now } = clockedStore();
-      store.markDeleted('example.com', 'a');
-      store.ingest(page([qr('a', { description: 'old', updatedAt: now() })]));
-      expect(ids(store.project(firstPage, page([qr('a', { updatedAt: now() })])))).toEqual([]);
-      store.ingest(
-        page([qr('a', { description: 'new', updatedAt: now() + TOMBSTONE_SKEW_MARGIN_MS + 1 })]),
-      );
+    it("lets another session's re-create revive the code, without adding it to page 1", () => {
+      const { store } = clockedStore();
+      store.markDeleted('example.com', 'a', 1);
+      store.ingest(page([qr('a', { description: 'old', updatedAt: 9_999 })]));
+      expect(ids(store.project(firstPage, page([qr('a', { updatedAt: 9_999 })])))).toEqual([]);
+      store.ingest(page([qr('a', { description: 'new', createdAt: 5, updatedAt: 5 })]));
       // Known again, though not added to page 1: only a create adds a code
       expect(descriptions(store.project(firstPage, page([qr('a', { updatedAt: 1 })])))).toEqual([
         'new',
@@ -591,20 +652,16 @@ describe('pending QR store', () => {
       expect(ids(store.project(firstPage, page([])))).toEqual([]);
     });
 
-    it('stamps the deletion no earlier than the last known version (a clock behind the server)', () => {
-      const { store, now } = clockedStore();
-      // This session edited `a`; the server's clock is ahead of the dashboard's
-      const edited = now() + 60_000;
-      store.observeOwn(qr('a', { updatedAt: edited }));
-      store.markDeleted('example.com', 'a');
-      // A stale listing of the edit must not beat the deletion
-      expect(ids(store.merge(firstPage, page([qr('a', { updatedAt: edited })])))).toEqual([]);
-      // A second deletion keeps the later stamp
-      store.markDeleted('example.com', 'a');
-      expect(ids(store.merge(firstPage, page([qr('a', { updatedAt: edited })])))).toEqual([]);
-      expect(ids(store.merge(firstPage, page([qr('a', { updatedAt: edited + 1 })])))).toEqual([
-        'a',
-      ]);
+    it('compares createdAt before updatedAt: a later incarnation wins, whatever its updatedAt', () => {
+      const { store } = clockedStore();
+      const older = qr('a', { description: 'A', createdAt: 900, updatedAt: 1_000 });
+      const later = qr('a', { description: 'B', createdAt: 950, updatedAt: 998 });
+      store.ingest(page([older]));
+      store.ingest(page([later]));
+      expect(descriptions(store.project(firstPage, page([older])))).toEqual(['B']);
+      // An older incarnation's later edit never replaces B
+      store.observeOwn({ ...older, updatedAt: 2_000 });
+      expect(descriptions(store.project(firstPage, page([older])))).toEqual(['B']);
     });
   });
 });

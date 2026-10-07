@@ -4,6 +4,9 @@ import {
   AuditLogSchema,
   type AuditSource,
   AuditSourceSchema,
+  InvalidRouteRowSchema,
+  isRecord,
+  parseStoredRoute,
   type QRCode,
   QRCodeSchema,
   R2_BUCKETS,
@@ -11,6 +14,7 @@ import {
   RouteCacheControlSchema,
   RouteHostHeaderSchema,
   RouteTargetSchema,
+  type StoredRoute,
   SUPPORTED_DOMAINS,
   type SupportedDomain,
 } from '@bifrost/shared';
@@ -41,33 +45,54 @@ export const RedirectStatusCodeSchema = z.union([
 ]);
 export type RedirectStatusCode = z.infer<typeof RedirectStatusCodeSchema>;
 
-export const RouteSchema = z.object({
-  path: z.string().min(1),
-  type: RouteTypeSchema,
-  target: z.string().min(1),
-  statusCode: RedirectStatusCodeSchema.optional(),
-  preserveQuery: z.boolean().optional(),
-  preservePath: z.boolean().optional(),
-  cacheControl: z.string().optional(),
-  hostHeader: z.string().optional(),
-  forceDownload: z.boolean().optional(),
-  bucket: R2BucketSchema.optional(),
-  enabled: z.boolean().optional(),
-  createdAt: z.number(),
-  updatedAt: z.number(),
-  // Domain field is included when fetching routes from all domains
-  domain: z.string().optional(),
-});
-export type Route = z.infer<typeof RouteSchema>;
+/**
+ * A route as the dashboard receives it (v1.38.0): the Worker's own tolerant
+ * stored shape (`parseStoredRoute` in `@bifrost/shared`, the guard every KV
+ * read uses), plus the `domain` a listing adds. A route stored before
+ * today's rules (no timestamps, a status code or bucket name no write accepts
+ * today, null optional fields) therefore lists and opens instead of failing
+ * the whole list; the write schemas below still apply to what is sent.
+ */
+export type Route = StoredRoute & { domain?: string | undefined };
+
+/** A {@link Route} with the domain every by-target answer carries. */
+export type RouteWithDomain = Route & { domain: string };
+
+const routeOf = (requireDomain: boolean) =>
+  z.unknown().transform((value, ctx): Route => {
+    const route = parseStoredRoute(value);
+    const domain = isRecord(value) ? value['domain'] : undefined;
+    if (
+      route === null ||
+      (domain !== undefined && typeof domain !== 'string') ||
+      (requireDomain && typeof domain !== 'string')
+    ) {
+      ctx.addIssue({ code: 'custom', message: 'Not a route record' });
+      return z.NEVER;
+    }
+    return route;
+  });
+
+export const RouteSchema = routeOf(false);
+
+/** Route with required domain field — used for by-target responses. */
+export const RouteWithDomainSchema = routeOf(true).transform(route => route as RouteWithDomain);
 
 /**
- * Route with required domain field — used for by-target responses
- * where routes always include their domain
+ * A listed record that cannot be read (v1.38.0): its domain and path only.
+ * The Routes page shows it flagged, with a Delete action and nothing else.
  */
-export const RouteWithDomainSchema = RouteSchema.extend({
-  domain: z.string(),
-});
-export type RouteWithDomain = z.infer<typeof RouteWithDomainSchema>;
+export type { InvalidRouteRow } from '@bifrost/shared';
+
+/** The status codes a redirect is written with, for narrowing a stored one. */
+export function isRedirectStatusCode(value: unknown): value is RedirectStatusCode {
+  return RedirectStatusCodeSchema.safeParse(value).success;
+}
+
+/** Whether a stored bucket name is one the dashboard offers. */
+export function isR2BucketName(value: unknown): value is R2BucketName {
+  return R2BucketSchema.safeParse(value).success;
+}
 
 // The shared write schemas for the capped fields (v1.37.2). The dashboard
 // uses this schema for its types only; the server enforces the caps, and the
@@ -354,7 +379,8 @@ export const ApiResponseSchema = <T extends z.ZodTypeAny>(dataSchema: T) =>
 
 export const RoutesListResponseSchema = ApiResponseSchema(
   z.object({
-    routes: z.array(RouteSchema),
+    // A record that cannot be read is listed as a minimal row (v1.38.0)
+    routes: z.array(z.union([InvalidRouteRowSchema, RouteSchema])),
     meta: z
       .object({
         version: z.string().optional(),

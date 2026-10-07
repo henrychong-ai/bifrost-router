@@ -22,7 +22,6 @@ vi.mock('@/lib/api-client', () => ({
 import { api } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-error';
 import { createPendingQrStore, type PendingQrStore, type QrListPage } from '@/lib/qr-pending';
-import { TOMBSTONE_SKEW_MARGIN_MS } from '@/lib/server-time';
 import {
   createQrMutationOptions,
   deleteQrMutationOptions,
@@ -55,8 +54,8 @@ const emptyPage = () => ({
   meta: { total: 0, count: 0, offset: 0, limit: 50, hasMore: false },
 });
 const params = { domain: 'example.com', limit: 50, offset: 0 };
-const notFound = (serverTime?: number) =>
-  new ApiError(404, 'QR code not found: a', undefined, { code: 'QR_NOT_FOUND', serverTime });
+const notFound = () =>
+  new ApiError(404, 'QR code not found: a', undefined, { code: 'QR_NOT_FOUND' });
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -132,7 +131,8 @@ describe('QR list and mutation wiring', () => {
     const store = createPendingQrStore();
     store.remember(qr('a', { description: 'first' }));
     update.mockResolvedValueOnce(qr('a', { description: 'second', updatedAt: 2 }));
-    remove.mockResolvedValueOnce({});
+    // The answer names the deleted record's createdAt
+    remove.mockResolvedValueOnce({ createdAt: 1 });
     list.mockResolvedValue(emptyPage());
 
     await new MutationObserver(client, updateQrMutationOptions(client, store)).mutate({
@@ -153,37 +153,79 @@ describe('QR list and mutation wiring', () => {
     expect((await read(params, store)).items).toEqual([]);
   });
 
-  it('times a deletion with the server clock from the answer, plus the skew margin', async () => {
+  it('tombstones the incarnation the delete answer names, not the one the dialog showed', async () => {
     const client = new QueryClient();
     const store = createPendingQrStore();
-    remove.mockResolvedValueOnce({ serverTime: 10_123 });
+    // The dialog shows A (createdAt 1); the server had B (createdAt 50), and deletes B
+    remove.mockResolvedValueOnce({ createdAt: 50 });
     await new MutationObserver(client, deleteQrMutationOptions(client, store)).mutate({
       id: 'a',
       domain: 'example.com',
+      createdAt: 1,
     });
     const project = (row: QRCode) =>
       store.getSnapshot().project(params, { ...emptyPage(), items: [row] }).items.length;
-    // Another session's row 5 ms after the stamp stays hidden
-    expect(project(qr('a', { updatedAt: 10_128 }))).toBe(0);
-    expect(project(qr('a', { updatedAt: 10_123 + TOMBSTONE_SKEW_MARGIN_MS }))).toBe(0);
-    expect(project(qr('a', { updatedAt: 10_123 + TOMBSTONE_SKEW_MARGIN_MS + 1 }))).toBe(1);
+    expect(project(qr('a', { createdAt: 50, updatedAt: 60 }))).toBe(0);
+    // Another incarnation is never hidden, whatever its clock
+    expect(project(qr('a', { createdAt: 70, updatedAt: 70 }))).toBe(1);
+    // An answer without a createdAt (an older Worker) falls back to the request's
+    remove.mockResolvedValueOnce({});
+    await new MutationObserver(client, deleteQrMutationOptions(client, store)).mutate({
+      id: 'c',
+      domain: 'example.com',
+      createdAt: 9,
+    });
+    expect(project(qr('c', { createdAt: 9, updatedAt: 99 }))).toBe(0);
   });
 
   it('shows a code this session re-creates in the same second as its deletion, at once', async () => {
     const client = new QueryClient();
     const store = createPendingQrStore();
-    remove.mockResolvedValueOnce({ serverTime: 10_123 });
+    remove.mockResolvedValueOnce({ createdAt: 1 });
     await new MutationObserver(client, deleteQrMutationOptions(client, store)).mutate({
       id: 'a',
       domain: 'example.com',
+      createdAt: 1,
     });
-    create.mockResolvedValueOnce(qr('a', { description: 'again', updatedAt: 10_456 }));
+    // A new incarnation, stamped before the deletion by a slower clock
+    create.mockResolvedValueOnce(
+      qr('a', { description: 'again', createdAt: 10_100, updatedAt: 10_100 }),
+    );
     await new MutationObserver(client, createQrMutationOptions(client, store)).mutate({
       input: {},
       domain: 'example.com',
     });
-    list.mockResolvedValueOnce(emptyPage());
+    list.mockResolvedValueOnce({ ...emptyPage(), items: [qr('a', { updatedAt: 10_128 })] });
     expect((await read(params, store)).items.map(item => item.description)).toEqual(['again']);
+  });
+
+  it('tombstones the incarnation a delayed delete reply names, never the re-created one', async () => {
+    const client = new QueryClient();
+    const store = createPendingQrStore();
+    let reply: ((value: { createdAt?: number }) => void) | undefined;
+    remove.mockReturnValueOnce(
+      new Promise(resolve => {
+        reply = resolve;
+      }),
+    );
+    const deleting = new MutationObserver(client, deleteQrMutationOptions(client, store)).mutate({
+      id: 'a',
+      domain: 'example.com',
+      createdAt: 1,
+    });
+    // Before the reply: re-created and listed
+    const recreated = qr('a', { description: 'B', createdAt: 20_000, updatedAt: 20_000 });
+    create.mockResolvedValueOnce(recreated);
+    await new MutationObserver(client, createQrMutationOptions(client, store)).mutate({
+      input: {},
+      domain: 'example.com',
+    });
+    list.mockResolvedValueOnce({ ...emptyPage(), items: [recreated] });
+    await read(params, store);
+    reply?.({ createdAt: 1 });
+    await deleting;
+    list.mockResolvedValueOnce({ ...emptyPage(), items: [recreated] });
+    expect((await read(params, store)).items.map(item => item.description)).toEqual(['B']);
   });
 
   it('fetches through the module store by default', async () => {
@@ -220,12 +262,14 @@ describe('QR list and mutation wiring', () => {
       await vi.waitFor(() => expect(list$.shown()).toEqual(['a', 'b']));
       expect(list).toHaveBeenCalledTimes(1);
 
-      (call as ReturnType<typeof vi.fn>).mockRejectedValueOnce(notFound(5_000));
+      (call as ReturnType<typeof vi.fn>).mockRejectedValueOnce(notFound());
       await expect(
         new MutationObserver(client, factory(client, store) as never).mutate({
           id: 'a',
           input: {},
           domain: 'example.com',
+          // The incarnation the request was made for
+          createdAt: 1,
         } as never),
       ).rejects.toBeInstanceOf(ApiError);
 

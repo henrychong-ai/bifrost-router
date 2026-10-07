@@ -22,7 +22,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { CredentialTargetDialog } from '@/components/credential-target-dialog';
@@ -97,9 +97,16 @@ import { getPersistedPageSize, getR2ObjectUrl, persistPageSize } from '@/lib/con
 import { credentialTargetParametersFromError } from '@/lib/credential-target';
 import { navEditRoute, useClearNavigationState } from '@/lib/navigation-state';
 import type { QrPageNavState } from '@/lib/qr-page-domain';
-import { routeEditPatch } from '@/lib/route-patch';
+import { type RouteFormValues, routeEditPatch, routeFormValues } from '@/lib/route-patch';
 import { requireWriteDomain } from '@/lib/route-write-domain';
-import type { CreateRouteInput, R2BucketName, Route, UpdateRouteInput } from '@/lib/schemas';
+import type {
+  CreateRouteInput,
+  InvalidRouteRow,
+  R2BucketName,
+  RedirectStatusCode,
+  Route,
+  UpdateRouteInput,
+} from '@/lib/schemas';
 import { R2_BUCKETS } from '@/lib/schemas';
 import { downloadPng, downloadSvg } from '@/lib/svg-to-png';
 import { copyToClipboard } from '@/lib/utils';
@@ -112,15 +119,6 @@ import {
   type UtmValues,
   uppercaseUtmKeys,
 } from '@/lib/utm';
-
-/**
- * A text field as an update sends it: clearing a stored Cache-Control or Host
- * header sends '' (v1.38.0), so the clear takes effect; with nothing stored,
- * an empty field sends nothing.
- */
-function clearedField(value: string, stored: string | undefined): string | undefined {
-  return value || (stored ? '' : undefined);
-}
 
 function RouteTypeBadge({ type }: { type: Route['type'] }) {
   const styles: Record<Route['type'], string> = {
@@ -164,38 +162,56 @@ function RouteForm(props: RouteFormProps) {
   const allowedDomains = mode === 'edit' ? (props.allowedDomains ?? []) : [];
   const navigate = useNavigate();
 
+  // What the form shows when it opens (v1.38.0): a stored route's values as
+  // displayed (an unset Force Download off, an unset or unknown bucket
+  // `files`, an unknown status code 302), else the create defaults. An edit
+  // sends only the fields whose final value differs from these
+  // (routeEditPatch), so an untouched field is never sent, whatever the
+  // stored record holds.
+  const [opened] = useState<RouteFormValues>(() =>
+    route
+      ? routeFormValues(route)
+      : {
+          type: 'redirect',
+          target: '',
+          statusCode: 302,
+          preserveQuery: true,
+          preservePath: false,
+          cacheControl: '',
+          hostHeader: '',
+          forceDownload: false,
+          bucket: 'files',
+          enabled: true,
+        },
+  );
   const [formData, setFormData] = useState({
+    ...opened,
     path: route?.path || '',
-    type: route?.type || 'redirect',
-    target: route?.target || '',
-    statusCode: route?.statusCode || 302,
-    preserveQuery: route?.preserveQuery ?? true,
-    preservePath: route?.preservePath ?? false,
-    cacheControl: route?.cacheControl || '',
-    hostHeader: route?.hostHeader || '',
-    // Unset stays unset (v1.38.0): an absent forceDownload means "decide by
-    // the file's type", which false does not, so it is never sent unasked
-    forceDownload: route?.forceDownload,
-    // The stored bucket, else the router's default bucket
-    bucket: route?.bucket || 'files',
-    enabled: route?.enabled ?? true,
     domain: 'example.com' as SupportedDomain, // Default to example.com
   });
 
-  // UTM tracking (v1.38.0, redirect and proxy targets; dashboard only).
-  // Overrides survive target edits; untouched values always derive from the
-  // current URL.
+  // UTM tracking (v1.38.0; redirect targets only, dashboard only). A proxy
+  // replaces the target's query with the visitor's whenever the visitor sends
+  // one, so tags in a proxy target would not reliably reach the upstream; an
+  // r2 target is an object key. Overrides survive target edits; untouched
+  // values always derive from the current URL.
   const [utmEdits, setUtmEdits] = useState<UtmValues>({});
   const parsedUtm = useMemo(() => parseUtm(formData.target), [formData.target]);
   // Target keys with capitals: applyUtm saves them lowercased, like an edit.
   const convertedUtmKeys = useMemo(() => uppercaseUtmKeys(formData.target), [formData.target]);
+  // The target as the user left it: the text changed, or a UTM field was
+  // edited. Only then is the composed target saved; an untouched stored
+  // target (capitals in its UTM values included) is never rewritten.
+  const targetTouched =
+    mode === 'create' || formData.target !== route.target || Object.keys(utmEdits).length > 0;
   const finalTarget = useMemo(() => {
     if (formData.type === 'r2') return formData.target;
-    if (parsedUtm) return applyUtm(formData.target, utmEdits);
-    // An untouched stored target that is not a URL is never sent by an edit
-    // (routeEditPatch), so it does not block editing other fields
-    return mode === 'edit' && formData.target === route.target ? formData.target : null;
-  }, [formData.type, formData.target, parsedUtm, utmEdits, mode, route]);
+    // An untouched stored target is saved as it is, so one that is not a URL
+    // does not block editing other fields
+    if (!targetTouched) return route?.target ?? formData.target;
+    if (!parsedUtm) return null;
+    return formData.type === 'redirect' ? applyUtm(formData.target, utmEdits) : formData.target;
+  }, [formData.type, formData.target, parsedUtm, utmEdits, targetTouched, route]);
   // Keys that will carry a value in the saved target (edited or kept from it).
   const activeUtmKeys = UTM_KEYS.filter(key => (utmEdits[key] ?? parsedUtm?.[key] ?? '').trim());
   const utmFieldStatus = (key: UtmKey) => {
@@ -206,7 +222,7 @@ function RouteForm(props: RouteFormProps) {
         : 'Cleared: removes every occurrence of this key from the target.';
     }
     return convertedUtmKeys.includes(key)
-      ? 'Converted to lowercase from the target: replaces every occurrence of this key.'
+      ? 'Converted to lowercase once you edit the target or a UTM field: then replaces every occurrence of this key.'
       : 'From the target: left byte-identical unless you edit this field.';
   };
 
@@ -243,31 +259,33 @@ function RouteForm(props: RouteFormProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // An unparseable redirect or proxy target: nothing is saved, the alert says why
     if (finalTarget === null) return;
-    const baseData = {
-      type: formData.type,
-      target: finalTarget,
-      statusCode: formData.type === 'redirect' ? formData.statusCode : undefined,
-      preserveQuery: formData.preserveQuery,
-      preservePath: formData.preservePath,
-      cacheControl: clearedField(formData.cacheControl, route?.cacheControl),
-      hostHeader:
-        formData.type === 'proxy'
-          ? clearedField(formData.hostHeader, route?.hostHeader)
-          : undefined,
-      forceDownload: formData.type === 'r2' ? formData.forceDownload : undefined,
-      bucket: formData.type === 'r2' ? formData.bucket : undefined,
-      enabled: formData.enabled,
-    };
 
     if (mode === 'create') {
-      onSubmit({ ...baseData, path: formData.path }, formData.domain);
+      onSubmit(
+        {
+          path: formData.path,
+          type: formData.type,
+          target: finalTarget,
+          statusCode: formData.type === 'redirect' ? formData.statusCode : undefined,
+          preserveQuery: formData.preserveQuery,
+          preservePath: formData.preservePath,
+          cacheControl: formData.cacheControl || undefined,
+          hostHeader: formData.type === 'proxy' ? formData.hostHeader || undefined : undefined,
+          forceDownload: formData.type === 'r2' ? formData.forceDownload : undefined,
+          bucket: formData.type === 'r2' ? formData.bucket : undefined,
+          enabled: formData.enabled,
+        },
+        formData.domain,
+      );
     } else {
       const pathChanged = formData.path !== route.path;
-      // Only the fields that changed (v1.38.0): an untouched field written
-      // under older limits (an over-cap target) is never re-sent and refused
+      // Only the fields that changed since the dialog opened (v1.38.0): an
+      // untouched field written under older limits (an over-cap target) is
+      // never re-sent and refused
       onSubmit(
-        routeEditPatch(route, baseData),
+        routeEditPatch(opened, { ...formData, target: finalTarget }),
         pathChanged,
         pathChanged ? formData.path : undefined,
       );
@@ -521,10 +539,10 @@ function RouteForm(props: RouteFormProps) {
           placeholder={formData.type === 'r2' ? 'bio.pdf' : 'https://example.com'}
           required
           aria-invalid={formData.type !== 'r2' && !!formData.target && finalTarget === null}
-          aria-describedby={formData.type !== 'r2' ? 'target-utm-help' : undefined}
+          aria-describedby={formData.type === 'redirect' ? 'target-utm-help' : undefined}
           className="font-mono"
         />
-        {formData.type !== 'r2' && (
+        {formData.type === 'redirect' && (
           <p id="target-utm-help" className="text-xs text-muted-foreground">
             Changing the target refreshes untouched UTM fields. Edited fields keep overriding the
             new target until you choose “Reset to target URL's values”.
@@ -532,7 +550,8 @@ function RouteForm(props: RouteFormProps) {
         )}
         {formData.type !== 'r2' && !!formData.target && finalTarget === null && (
           <p role="alert" className="text-sm text-destructive">
-            Enter a valid absolute target URL before saving. Your UTM edits are kept.
+            Enter a valid absolute target URL before saving.
+            {formData.type === 'redirect' && ' Your UTM edits are kept.'}
           </p>
         )}
         {duplicateTargets.length > 0 && (
@@ -559,7 +578,7 @@ function RouteForm(props: RouteFormProps) {
         )}
       </div>
 
-      {formData.type !== 'r2' && (
+      {formData.type === 'redirect' && (
         <details className="group rounded-lg border border-charcoal-200">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg p-3 [&::-webkit-details-marker]:hidden">
             <div className="space-y-0.5">
@@ -655,7 +674,7 @@ function RouteForm(props: RouteFormProps) {
               onValueChange={value =>
                 setFormData({
                   ...formData,
-                  statusCode: Number(value) as 301 | 302 | 307 | 308,
+                  statusCode: Number(value) as RedirectStatusCode,
                 })
               }
             >
@@ -746,12 +765,15 @@ function RouteForm(props: RouteFormProps) {
               </Label>
               <p className="text-tiny text-muted-foreground font-inter">
                 Force browser to download file instead of displaying inline
-                {formData.forceDownload === undefined && ' (not set: decided by the file type)'}
+                {mode === 'edit' &&
+                  route.forceDownload === undefined &&
+                  !formData.forceDownload &&
+                  ' (not set: decided by the file type)'}
               </p>
             </div>
             <Switch
               id="forceDownload"
-              checked={formData.forceDownload ?? false}
+              checked={formData.forceDownload}
               onCheckedChange={checked => setFormData({ ...formData, forceDownload: checked })}
             />
           </div>
@@ -872,6 +894,10 @@ export function RoutesPage() {
   });
 
   const routes = data?.routes;
+  // Records that cannot be read (v1.38.0): listed flagged, Delete only. Their
+  // type and state are unknown, so a type or status filter shows none
+  const invalidRoutes: InvalidRouteRow[] =
+    filters.type || filters.enabled !== undefined ? [] : (data?.invalidRoutes ?? []);
   const total = data?.total ?? 0;
   const hasMore = data?.hasMore ?? false;
 
@@ -904,7 +930,11 @@ export function RoutesPage() {
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editRoute, setEditRoute] = useState<Route | null>(null);
-  const [deleteConfirmRoute, setDeleteConfirmRoute] = useState<Route | null>(null);
+  // The route to delete: a readable route or an unreadable record's row
+  const [deleteConfirmRoute, setDeleteConfirmRoute] = useState<{
+    path: string;
+    domain?: string | undefined;
+  } | null>(null);
   // A route write refused because its TARGET carries a credential-named
   // parameter. The retry closes over the original submission and re-sends it
   // with the acknowledgement, so the operator confirms the exact write they
@@ -913,8 +943,13 @@ export function RoutesPage() {
     parameters: string[];
     verb: string;
     retry: () => Promise<void>;
+    /** What cancelling leaves undone, said when the operator cancels. */
+    cancelled?: () => void;
   } | null>(null);
   const [credentialConfirmPending, setCredentialConfirmPending] = useState(false);
+  // Set while a confirmation runs: closing the dialog then is not a cancel
+  // (the dialog's confirm button also closes it)
+  const credentialConfirming = useRef(false);
   const [transferTarget, setTransferTarget] = useState<{
     path: string;
     fromDomain: string;
@@ -1110,35 +1145,83 @@ export function RoutesPage() {
   /** Re-send the refused write with the operator's acknowledgement. */
   const handleConfirmCredentialTarget = async () => {
     if (!credentialConfirm) return;
+    credentialConfirming.current = true;
     setCredentialConfirmPending(true);
     try {
       await credentialConfirm.retry();
     } finally {
+      credentialConfirming.current = false;
       setCredentialConfirmPending(false);
+    }
+  };
+
+  /**
+   * The rest of an edit whose path change was confirmed as a migration
+   * (v1.38.0): applied to the route at its new path once it has moved. A
+   * failure here is reported as such (the route HAS moved); a credential
+   * refusal asks for the confirmation as any update does.
+   */
+  const applyAfterMigration = async (
+    migrated: { oldPath: string; newPath: string; domain: string },
+    updates: UpdateRouteInput,
+    acknowledgeCredentialTarget?: boolean,
+  ) => {
+    try {
+      await updateRoute.mutateAsync({
+        path: migrated.newPath,
+        data: updates,
+        domain: migrated.domain,
+        acknowledgeCredentialTarget,
+      });
+      setCredentialConfirm(null);
+      toast.success(`Route migrated from ${migrated.oldPath} to ${migrated.newPath} and updated`);
+    } catch (err) {
+      const parameters = credentialTargetParametersFromError(err);
+      if (parameters && !acknowledgeCredentialTarget) {
+        setCredentialConfirm({
+          parameters,
+          verb: 'Save',
+          retry: () => applyAfterMigration(migrated, updates, true),
+          // The route has moved either way: cancelling leaves the rest unsaved
+          cancelled: () =>
+            toast.error(
+              `Route migrated from ${migrated.oldPath} to ${migrated.newPath}, but its other changes were not saved`,
+            ),
+        });
+        return;
+      }
+      setCredentialConfirm(null);
+      toast.error(
+        `Route migrated from ${migrated.oldPath} to ${migrated.newPath}, but its other changes were not saved: ${err instanceof Error ? err.message : 'Unknown error'}`,
+      );
     }
   };
 
   const handleConfirmMigration = async () => {
     if (!migrationConfirm) return;
 
-    const { route, newPath } = migrationConfirm;
+    const { route, newPath, updates } = migrationConfirm;
+    const domain = requireWriteDomain(route.domain, filters.domain);
 
+    let moved: Route;
     try {
       // Migrate the route to new path (preserves all config)
-      await migrateRoute.mutateAsync({
-        oldPath: route.path,
-        newPath,
-        domain: requireWriteDomain(route.domain, filters.domain),
-      });
-
-      setMigrationConfirm(null);
-      setEditRoute(null);
-      toast.success(`Route migrated from ${route.path} to ${newPath}`);
+      moved = await migrateRoute.mutateAsync({ oldPath: route.path, newPath, domain });
     } catch (err) {
       toast.error(
         `Failed to migrate route: ${err instanceof Error ? err.message : 'Unknown error'}`,
       );
+      return;
     }
+
+    setMigrationConfirm(null);
+    setEditRoute(null);
+    // The other fields the dialog changed, on the route at its new path
+    if (Object.keys(updates).length === 0) {
+      toast.success(`Route migrated from ${route.path} to ${moved.path}`);
+      return;
+    }
+    await applyAfterMigration({ oldPath: route.path, newPath: moved.path, domain }, updates);
   };
 
   const handleTransferConfirm = async (acknowledgeCredentialTarget?: boolean) => {
@@ -1499,7 +1582,43 @@ export function RoutesPage() {
                     </TableCell>
                   </TableRow>
                 ))}
-                {filteredRoutes.length === 0 && (
+                {invalidRoutes.map(row => (
+                  <TableRow
+                    key={`invalid:${row.domain}:${row.path}`}
+                    data-testid="unreadable-route"
+                    className="bg-destructive/5"
+                  >
+                    {!filters.domain && (
+                      <TableCell className="font-mono text-small text-charcoal-600">
+                        {row.domain}
+                      </TableCell>
+                    )}
+                    <TableCell className="font-mono text-small font-medium text-charcoal-700">
+                      {row.path}
+                    </TableCell>
+                    <TableCell colSpan={3}>
+                      <span className="inline-flex items-center rounded-full border border-destructive/30 bg-destructive/10 px-2.5 py-0.5 font-inter text-tiny font-medium text-destructive">
+                        Unreadable record
+                      </span>
+                      <span className="ml-2 font-inter text-tiny text-muted-foreground">
+                        Stored in a shape that cannot be read and never served. Delete it and create
+                        it again.
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:bg-destructive/10"
+                        aria-label={`Delete unreadable record ${row.path}`}
+                        onClick={() => setDeleteConfirmRoute(row)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {filteredRoutes.length === 0 && invalidRoutes.length === 0 && (
                   <TableRow>
                     <TableCell
                       colSpan={filters.domain ? 5 : 6}
@@ -1723,7 +1842,10 @@ export function RoutesPage() {
         verb={credentialConfirm?.verb ?? 'Save'}
         pending={credentialConfirmPending}
         onConfirm={() => void handleConfirmCredentialTarget()}
-        onCancel={() => setCredentialConfirm(null)}
+        onCancel={() => {
+          if (!credentialConfirming.current) credentialConfirm?.cancelled?.();
+          setCredentialConfirm(null);
+        }}
       />
 
       {/* Migration Confirmation Dialog */}
@@ -1751,6 +1873,9 @@ export function RoutesPage() {
                     </li>
                     <li>Any existing bookmarks or links will break</li>
                     <li>The route's creation date and settings will be preserved</li>
+                    {migrationConfirm && Object.keys(migrationConfirm.updates).length > 0 && (
+                      <li>Your other changes are saved on the new path once it has moved</li>
+                    )}
                   </ul>
                 </div>
               </div>

@@ -146,8 +146,10 @@ async function writeCursor(db: ReturnType<typeof createDb>, cursor: PollCursor):
 /**
  * A malformed audit entry, kept in a minimal shape (v1.38.0) so it is
  * recorded instead of lost behind an advancing watermark: its own `id` when
- * that is a string, else `unparsed:` and a SHA-256 of the entry (stable, so a
- * re-fetched entry is recognised), and `when` when that is a string.
+ * that is a string, else `unparsed:` and a SHA-256 of the entry's canonical
+ * JSON (object keys sorted at every level, so the id is the same however the
+ * API orders the keys of a re-fetched entry), and `when` when that is a
+ * string.
  */
 interface UnparsedAuditEntry {
   id: string;
@@ -164,6 +166,23 @@ function looseString(value: unknown, field: string): string | undefined {
   if (!isRecord(value)) return undefined;
   const item = value[field];
   return isString(item) ? item : undefined;
+}
+
+/**
+ * `value` as JSON with every object's keys in sorted order: the same text for
+ * the same entry whatever order its keys arrive in. A value JSON cannot hold
+ * (undefined, a function) is written as `null`, as in an array.
+ */
+export function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (isRecord(value)) {
+    const fields = Object.keys(value)
+      .toSorted()
+      .filter(key => value[key] !== undefined && typeof value[key] !== 'function')
+      .map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`);
+    return `{${fields.join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
 }
 
 async function unparsedEntry(raw: unknown): Promise<UnparsedAuditEntry> {
@@ -183,7 +202,7 @@ async function unparsedEntry(raw: unknown): Promise<UnparsedAuditEntry> {
   if (isString(id) && id !== '') return { id, when, inScope };
   const digest = await crypto.subtle.digest(
     'SHA-256',
-    new TextEncoder().encode(JSON.stringify(raw) ?? 'undefined'),
+    new TextEncoder().encode(canonicalJson(raw)),
   );
   const hex = [...new Uint8Array(digest)]
     .slice(0, 16)
@@ -192,17 +211,23 @@ async function unparsedEntry(raw: unknown): Promise<UnparsedAuditEntry> {
   return { id: `unparsed:${hex}`, when, inScope };
 }
 
+/** One entry of a page, in the page's (ascending) order: validated, or malformed. */
+type PageItem =
+  | { kind: 'entry'; entry: CfAuditEntry }
+  | { kind: 'unparsed'; entry: UnparsedAuditEntry };
+
 /**
- * One page of account audit logs (since → now, ascending): the validated
- * entries, the malformed ones in their minimal shape, and how many the page
- * held before validation, so pagination runs on what Cloudflare returned (a
- * full page with one malformed entry still has a next page).
+ * One page of account audit logs (since → now, ascending): every entry in the
+ * page's order, validated or (malformed) in its minimal shape, and how many
+ * the page held, so pagination runs on what Cloudflare returned (a full page
+ * with one malformed entry still has a next page). Keeping the order lets the
+ * poller stop at an entry and never move the watermark past it.
  */
 async function fetchAuditPage(
   credentials: { accountId: string; token: string },
   since: string,
   page: number,
-): Promise<{ entries: CfAuditEntry[]; unparsed: UnparsedAuditEntry[]; rawCount: number }> {
+): Promise<{ items: PageItem[]; rawCount: number }> {
   const params = new URLSearchParams({
     since,
     per_page: String(PAGE_SIZE),
@@ -222,14 +247,51 @@ async function fetchAuditPage(
   if (read.status !== 'ok') throw new Error('CF audit_logs API returned an invalid body');
   if (read.value.success === false) throw new Error('CF audit_logs API returned success=false');
   const raw = read.value.result ?? [];
-  const entries = raw.filter(isCfAuditEntry);
   // A malformed entry is never recorded half-read; it is kept in a minimal
   // shape and recorded as unparsed, not dropped
-  const unparsed = await Promise.all(
-    raw.filter(entry => !isCfAuditEntry(entry)).map(unparsedEntry),
+  const items = await Promise.all(
+    raw.map(
+      async (entry): Promise<PageItem> =>
+        isCfAuditEntry(entry)
+          ? { kind: 'entry', entry }
+          : { kind: 'unparsed', entry: await unparsedEntry(entry) },
+    ),
   );
-  if (unparsed.length > 0) logInvalidBoundary('cf-audit-entry');
-  return { entries, unparsed, rawCount: raw.length };
+  if (items.some(item => item.kind === 'unparsed')) logInvalidBoundary('cf-audit-entry');
+  return { items, rawCount: raw.length };
+}
+
+/**
+ * How far back an unparsed entry's id is looked for (v1.38.0): 90 days. An
+ * entry is fetched again only while the cursor is within a minute of it (the
+ * query overlap), or after a lost or unreadable cursor restarts the 24-hour
+ * first-run window, so a re-fetched entry was recorded far less than 90 days
+ * ago; the bound keeps the lookup on the `(source, created_at)` index.
+ */
+export const UNPARSED_DEDUPE_WINDOW_SECS = 90 * 24 * 60 * 60;
+
+/**
+ * Has this unparsed entry's id already been recorded (v1.38.0)? Its time may
+ * be unknown, so the check is not tied to the entry's own time: any row in
+ * the last {@link UNPARSED_DEDUPE_WINDOW_SECS} counts, so a re-fetched entry
+ * recorded more than a day ago is still recognised.
+ */
+async function unparsedAlreadyRecorded(
+  db: ReturnType<typeof createDb>,
+  cfId: string,
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: auditLogs.id })
+    .from(auditLogs)
+    .where(
+      and(
+        eq(auditLogs.source, 'cf_audit'),
+        gte(auditLogs.createdAt, Math.floor(Date.now() / 1000) - UNPARSED_DEDUPE_WINDOW_SECS),
+        sql`json_extract(${auditLogs.details}, '$.cf_audit_id') = ${cfId}`,
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
 }
 
 /**
@@ -295,7 +357,6 @@ export async function pollCfAuditLogs(env: Bindings): Promise<void> {
 
     let recorded = 0;
     let unparsedRecorded = 0;
-    let unparsedCapped = false;
 
     // Watermark state. Timestamps are compared NUMERICALLY (epoch ms) — the
     // cursor seed comes from toISOString() ('…00.000Z') while CF `when` values
@@ -318,58 +379,59 @@ export async function pollCfAuditLogs(env: Bindings): Promise<void> {
       if (id) newestIds.add(id);
     };
 
-    for (let page = 1; page <= MAX_PAGES_PER_RUN; page++) {
-      const { entries, unparsed, rawCount } = await fetchAuditPage(credentials, queryFrom, page);
+    // Entries are handled in the page's ascending order. Malformed entries in
+    // scope (R2/queue, or scope unreadable) are recorded minimally (id, time,
+    // "unparsed"), never their content, never twice, and at most
+    // MAX_UNPARSED_PER_RUN per run. At the cap the run STOPS (v1.38.0): the
+    // watermark stays before the first entry not recorded, so the next run
+    // fetches it again and the flood is recorded over several runs, never
+    // skipped. One fixed warning per capped run.
+    pages: for (let page = 1; page <= MAX_PAGES_PER_RUN; page++) {
+      const { items, rawCount } = await fetchAuditPage(credentials, queryFrom, page);
       if (rawCount === 0) break;
 
-      // Malformed entries in scope (R2/queue, or scope unreadable) are
-      // recorded minimally (id, time, "unparsed"), never their content, never
-      // twice, and at most MAX_UNPARSED_PER_RUN per run (a shape change floods
-      // once, with one fixed warning)
-      for (const entry of unparsed) {
-        if (boundaryIds.has(entry.id) || !entry.inScope) {
-          advanceWatermark(entry.id, entry.when);
-          continue;
-        }
-        if (unparsedRecorded >= MAX_UNPARSED_PER_RUN) {
-          if (!unparsedCapped) {
-            unparsedCapped = true;
-            console.warn(
-              JSON.stringify({
-                level: 'warn',
-                message: 'cf-audit-unparsed-cap',
-                cap: MAX_UNPARSED_PER_RUN,
+      for (const item of items) {
+        if (item.kind === 'unparsed') {
+          const entry = item.entry;
+          if (boundaryIds.has(entry.id) || !entry.inScope) {
+            advanceWatermark(entry.id, entry.when);
+            continue;
+          }
+          if (!(await unparsedAlreadyRecorded(db, entry.id))) {
+            if (unparsedRecorded >= MAX_UNPARSED_PER_RUN) {
+              console.warn(
+                JSON.stringify({
+                  level: 'warn',
+                  message: 'cf-audit-unparsed-cap',
+                  cap: MAX_UNPARSED_PER_RUN,
+                }),
+              );
+              break pages;
+            }
+            const whenMs = entry.when ? Date.parse(entry.when) : Number.NaN;
+            // STRICT insert, as below
+            await insertAuditLog(env.DB, {
+              domain: 'storage',
+              action: 'cf_config_change',
+              actorLogin: 'cloudflare-unknown',
+              actorName: null,
+              path: 'unknown/unparsed',
+              ipAddress: null,
+              details: JSON.stringify({
+                cf_audit_id: entry.id,
+                unparsed: true,
+                ...(Number.isNaN(whenMs) ? {} : { when: entry.when }),
               }),
-            );
+              source: 'cf_audit',
+            });
+            recorded++;
+            unparsedRecorded++;
           }
           advanceWatermark(entry.id, entry.when);
           continue;
         }
-        const whenMs = entry.when ? Date.parse(entry.when) : Number.NaN;
-        const whenSecs = Math.floor((Number.isNaN(whenMs) ? Date.now() : whenMs) / 1000);
-        if (!(await alreadyRecorded(db, entry.id, whenSecs - 24 * 60 * 60))) {
-          // STRICT insert, as below
-          await insertAuditLog(env.DB, {
-            domain: 'storage',
-            action: 'cf_config_change',
-            actorLogin: 'cloudflare-unknown',
-            actorName: null,
-            path: 'unknown/unparsed',
-            ipAddress: null,
-            details: JSON.stringify({
-              cf_audit_id: entry.id,
-              unparsed: true,
-              ...(Number.isNaN(whenMs) ? {} : { when: entry.when }),
-            }),
-            source: 'cf_audit',
-          });
-          recorded++;
-          unparsedRecorded++;
-        }
-        advanceWatermark(entry.id, entry.when);
-      }
 
-      for (const entry of entries) {
+        const entry = item.entry;
         const id = entry.id ?? '';
         if (!id || boundaryIds.has(id) || !isR2Scoped(entry)) {
           // Still advance the watermark over skipped entries.

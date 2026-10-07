@@ -503,6 +503,64 @@ describe('handleProxy redirects (v1.38.0)', () => {
     expect(cancelled).toBe(2);
   });
 
+  it('carries the five conditional headers to another origin by exact name, never another If- header', async () => {
+    const conditional = {
+      'If-Match': '"a"',
+      'If-None-Match': '"b"',
+      'If-Modified-Since': 'Tue, 06 Oct 2026 00:00:00 GMT',
+      'If-Unmodified-Since': 'Wed, 07 Oct 2026 00:00:00 GMT',
+      'If-Range': '"c"',
+    };
+    const { response, sent } = await proxyThrough(
+      [redirectTo('https://other.example.org/x'), ok()],
+      new Request('https://links.example.com/svc', {
+        headers: { ...conditional, 'If-Api-Key': 'secret', 'If-Custom': 'x' },
+      }),
+    );
+    expect(response.status).toBe(200);
+    const [first, otherOrigin] = sent;
+    expect(first?.headers.get('if-api-key')).toBe('secret');
+    expect(otherOrigin?.headers.get('if-api-key')).toBeNull();
+    expect(otherOrigin?.headers.get('if-custom')).toBeNull();
+    for (const [name, value] of Object.entries(conditional)) {
+      expect(otherOrigin?.headers.get(name)).toBe(value);
+    }
+  });
+
+  it('answers a failed upstream connection with fixed text, never the runtime message', async () => {
+    const spy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValue(
+        new TypeError('connect ECONNREFUSED 192.0.2.7:443 upstream.example.com secret-detail'),
+      );
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const app = new Hono<AppEnv>();
+      app.all('/svc', c =>
+        handleProxy(c, {
+          path: '/svc',
+          type: 'proxy',
+          target: 'https://upstream.example.com/base',
+          createdAt: 0,
+          updatedAt: 0,
+        }),
+      );
+      const response = await app.fetch(new Request('https://links.example.com/svc'), env);
+      expect(response.status).toBe(502);
+      const body = await response.text();
+      expect(JSON.parse(body)).toEqual({
+        error: 'Bad Gateway',
+        message: 'Failed to connect to upstream server.',
+        type: 'network_error',
+      });
+      expect(body).not.toContain('secret-detail');
+      expect(JSON.stringify(error.mock.calls)).not.toContain('secret-detail');
+    } finally {
+      spy.mockRestore();
+      error.mockRestore();
+    }
+  });
+
   it('carries only allowlisted headers to another origin', async () => {
     const { response, sent } = await proxyThrough(
       [redirectTo('/same'), redirectTo('https://other.example.org/x'), redirectTo('/y'), ok()],

@@ -12,11 +12,16 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '@/lib/api-error';
 import type { Route } from '@/lib/schemas';
 
 const state = vi.hoisted(() => ({
   update: vi.fn<(variables: Record<string, unknown>) => Promise<unknown>>(),
   create: vi.fn<(variables: Record<string, unknown>) => Promise<unknown>>(),
+  migrate: vi.fn<(variables: Record<string, unknown>) => Promise<unknown>>(),
+  remove: vi.fn<(variables: Record<string, unknown>) => Promise<unknown>>(),
+  invalidRoutes: [] as Array<{ domain: string; path: string; invalid: true }>,
+  filters: { domain: 'example.com' } as Record<string, unknown>,
 }));
 const toasts = vi.hoisted(() => ({
   success: vi.fn<(message: string) => void>(),
@@ -26,14 +31,20 @@ const toasts = vi.hoisted(() => ({
 vi.mock('@/hooks', () => ({
   routeKeys: { list: (...args: unknown[]) => ['routes', ...args] },
   useRoutes: () => ({
-    data: { routes: [], total: 0, offset: 0, hasMore: false },
+    data: {
+      routes: [],
+      invalidRoutes: state.invalidRoutes,
+      total: state.invalidRoutes.length,
+      offset: 0,
+      hasMore: false,
+    },
     isLoading: false,
   }),
   useCreateRoute: () => ({ mutateAsync: state.create, isPending: false }),
   useUpdateRoute: () => ({ mutateAsync: state.update, isPending: false }),
-  useDeleteRoute: () => ({ mutateAsync: vi.fn<() => Promise<void>>(), isPending: false }),
+  useDeleteRoute: () => ({ mutateAsync: state.remove, isPending: false }),
   useToggleRoute: () => ({ mutateAsync: vi.fn<() => Promise<void>>(), isPending: false }),
-  useMigrateRoute: () => ({ mutateAsync: vi.fn<() => Promise<void>>(), isPending: false }),
+  useMigrateRoute: () => ({ mutateAsync: state.migrate, isPending: false }),
   useTransferRoute: () => ({ mutateAsync: vi.fn<() => Promise<void>>(), isPending: false }),
   useCreateQr: () => ({ mutateAsync: vi.fn<() => Promise<void>>(), isPending: false }),
   useQrCodes: () => ({ data: undefined }),
@@ -42,7 +53,7 @@ vi.mock('@/hooks', () => ({
 }));
 vi.mock('@/context', () => ({
   SUPPORTED_DOMAINS: ['example.com'],
-  useRoutesFilters: () => ({ filters: { domain: 'example.com' }, setFilters: vi.fn<() => void>() }),
+  useRoutesFilters: () => ({ filters: state.filters, setFilters: vi.fn<() => void>() }),
 }));
 vi.mock('@/components/link-preview', () => ({ LinkPreview: () => null }));
 vi.mock('sonner', () => ({ toast: toasts }));
@@ -100,11 +111,42 @@ async function save() {
   await act(async () => button('Update').click());
 }
 
+async function click(element: HTMLElement | null) {
+  if (!element) throw new Error('nothing to click');
+  await act(async () => element.click());
+}
+
+/** Pick an option in the open dialog's Radix select labelled `label`. */
+async function choose(label: string, option: string) {
+  const dialog = document.querySelector('[role="dialog"]');
+  const labelNode = [...(dialog?.querySelectorAll('label') ?? [])].find(
+    node => node.textContent?.trim() === label,
+  );
+  const trigger = labelNode?.parentElement?.querySelector<HTMLElement>('[role="combobox"]');
+  expect(trigger, `select ${label}`).not.toBeNull();
+  await act(async () =>
+    trigger?.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }),
+    ),
+  );
+  const item = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    node => node.textContent?.trim() === option,
+  );
+  expect(item, `option ${option}`).toBeDefined();
+  await click(item ?? null);
+}
+
 const sentData = () => state.update.mock.calls[0]?.[0]?.['data'];
 
 beforeEach(() => {
   state.update.mockReset().mockResolvedValue({});
   state.create.mockReset().mockResolvedValue({});
+  state.migrate
+    .mockReset()
+    .mockImplementation(async ({ newPath }) => ({ path: String(newPath), type: 'redirect' }));
+  state.remove.mockReset().mockResolvedValue(undefined);
+  state.invalidRoutes = [];
+  state.filters = { domain: 'example.com' };
   toasts.success.mockReset();
   toasts.error.mockReset();
 });
@@ -175,7 +217,9 @@ describe('UTM tracking in the route dialog', () => {
   it('shows the target’s tags in lowercase and saves edits into the target', async () => {
     await editing(tagged);
     expect(input('utm_source').value).toBe('news');
-    expect(document.body.textContent).toContain('Converted to lowercase from the target');
+    expect(document.body.textContent).toContain(
+      'Converted to lowercase once you edit the target or a UTM field',
+    );
     await typeInto(input('utm_campaign'), 'Spring-Launch');
     expect(input('utm_campaign').value).toBe('spring-launch');
     expect(document.getElementById('utm-preview')?.textContent).toBe(
@@ -185,6 +229,72 @@ describe('UTM tracking in the route dialog', () => {
     expect(sentData()).toEqual({
       target: 'https://example.net/landing?ref=a&utm_source=news&utm_campaign=spring-launch#top',
     });
+  });
+
+  it('never rewrites an untouched target with capitals when other fields change', async () => {
+    await editing(tagged);
+    await typeInto(input('cacheControl'), 'max-age=60');
+    await save();
+    expect(sentData()).toEqual({ cacheControl: 'max-age=60' });
+    await act(async () => root?.unmount());
+    state.update.mockClear();
+    await editing(tagged);
+    await click(document.getElementById('preserveQuery'));
+    await save();
+    expect(sentData()).toEqual({ preserveQuery: false });
+  });
+
+  it('is offered for redirect routes only: a proxy replaces the target query', async () => {
+    await editing({
+      ...base,
+      path: '/svc',
+      type: 'proxy',
+      target: 'https://origin.example.com/?utm_source=News',
+    });
+    expect(document.getElementById('utm_source')).toBeNull();
+    expect(document.body.textContent).not.toContain('UTM tracking');
+    await typeInto(input('hostHeader'), 'origin.example.com');
+    await save();
+    // The proxy target is never recomposed
+    expect(sentData()).toEqual({ hostHeader: 'origin.example.com' });
+  });
+
+  it('a path change confirmed as a migration also saves the other changes, on the new path', async () => {
+    await editing(tagged);
+    await typeInto(input('path'), '/promo-2');
+    await typeInto(input('utm_campaign'), 'spring');
+    await save();
+    expect(state.update).not.toHaveBeenCalled();
+    await click(button('Migrate Route'));
+    expect(state.migrate).toHaveBeenCalledWith({
+      oldPath: '/promo',
+      newPath: '/promo-2',
+      domain: DOMAIN,
+    });
+    expect(state.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: '/promo-2',
+        domain: DOMAIN,
+        data: {
+          target: 'https://example.net/landing?ref=a&utm_source=news&utm_campaign=spring#top',
+        },
+      }),
+    );
+    expect(toasts.success).toHaveBeenCalledWith(
+      'Route migrated from /promo to /promo-2 and updated',
+    );
+  });
+
+  it('reports a migration whose other changes failed as moved but not updated', async () => {
+    state.update.mockRejectedValueOnce(new Error('network down'));
+    await editing(tagged);
+    await typeInto(input('path'), '/promo-2');
+    await typeInto(input('cacheControl'), 'no-store');
+    await save();
+    await click(button('Migrate Route'));
+    expect(toasts.error).toHaveBeenCalledWith(
+      'Route migrated from /promo to /promo-2, but its other changes were not saved: network down',
+    );
   });
 
   it('refuses to save a target that is not an absolute URL', async () => {
@@ -213,5 +323,143 @@ describe('link-naming advice', () => {
       target: 'https://example.net/',
     });
     expect(document.body.querySelector('[aria-label="Link naming suggestions"]')).toBeNull();
+  });
+});
+
+describe('a path change on a route whose stored target is not a URL', () => {
+  const legacy: Route = { ...base, path: '/legacy-x', type: 'redirect', target: 'not a url' };
+
+  it('migrates on a path-only change, and sends no target', async () => {
+    await editing(legacy);
+    await typeInto(input('path'), '/renamed');
+    await save();
+    await click(button('Migrate Route'));
+    expect(state.migrate).toHaveBeenCalledWith({
+      oldPath: '/legacy-x',
+      newPath: '/renamed',
+      domain: DOMAIN,
+    });
+    expect(state.update).not.toHaveBeenCalled();
+    expect(toasts.success).toHaveBeenCalledWith('Route migrated from /legacy-x to /renamed');
+  });
+
+  it('saves other changes after the move without the target', async () => {
+    await editing(legacy);
+    await typeInto(input('path'), '/renamed');
+    await typeInto(input('cacheControl'), 'no-store');
+    await save();
+    await click(button('Migrate Route'));
+    expect(sentData()).toEqual({ cacheControl: 'no-store' });
+  });
+});
+
+/** The credential guard's refusal of a route write. */
+const refused = () =>
+  new ApiError(
+    400,
+    'This route target carries credential-named parameters',
+    {
+      parameters: ['token'],
+    },
+    { code: 'ROUTE_TARGET_CREDENTIAL' },
+  );
+
+describe('a migration whose other changes need the credential confirmation', () => {
+  const tokenTarget: Route = {
+    ...base,
+    path: '/promo',
+    type: 'redirect',
+    target: 'https://example.net/landing?token=x',
+  };
+  it('cancelling reports that the route moved but its other changes were not saved', async () => {
+    state.update.mockRejectedValueOnce(refused());
+    await editing(tokenTarget);
+    await typeInto(input('path'), '/promo-2');
+    await typeInto(input('cacheControl'), 'no-store');
+    await save();
+    await click(button('Migrate Route'));
+    await click(button('Cancel'));
+    expect(toasts.error).toHaveBeenCalledWith(
+      'Route migrated from /promo to /promo-2, but its other changes were not saved',
+    );
+  });
+
+  it('confirming saves them, and says nothing about unsaved changes', async () => {
+    state.update.mockRejectedValueOnce(refused());
+    await editing(tokenTarget);
+    await typeInto(input('path'), '/promo-2');
+    await typeInto(input('cacheControl'), 'no-store');
+    await save();
+    await click(button('Migrate Route'));
+    await click(button('Save anyway'));
+    expect(state.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({ path: '/promo-2', acknowledgeCredentialTarget: true }),
+    );
+    expect(toasts.error).not.toHaveBeenCalled();
+    expect(toasts.success).toHaveBeenCalledWith(
+      'Route migrated from /promo to /promo-2 and updated',
+    );
+  });
+});
+
+describe('converting and toggling in the route dialog', () => {
+  it('a redirect converted to R2 sends the bucket and Force Download explicitly', async () => {
+    await editing({ ...base, path: '/doc', type: 'redirect', target: 'https://example.net/' });
+    await choose('Type', 'R2');
+    await typeInto(input('target'), 'docs/a.pdf');
+    await save();
+    expect(sentData()).toEqual({
+      type: 'r2',
+      target: 'docs/a.pdf',
+      bucket: 'files',
+      forceDownload: false,
+    });
+  });
+
+  it('a Force Download switched on and off again sends nothing', async () => {
+    await editing({ ...base, path: '/brochure', type: 'r2', target: 'docs/brochure.pdf' });
+    await click(document.getElementById('forceDownload'));
+    await click(document.getElementById('forceDownload'));
+    await save();
+    expect(state.update).not.toHaveBeenCalled();
+    expect(toasts.success).toHaveBeenCalledWith('No changes to save');
+  });
+
+  it('opens a route stored with a status code and bucket no write accepts today', async () => {
+    await editing({
+      path: '/old',
+      type: 'redirect',
+      target: 'https://example.net/',
+      statusCode: 303,
+      domain: DOMAIN,
+    });
+    await typeInto(input('cacheControl'), 'no-store');
+    await save();
+    expect(sentData()).toEqual({ cacheControl: 'no-store' });
+  });
+});
+
+describe('unreadable route records', () => {
+  it('are listed flagged, with a Delete action and nothing else', async () => {
+    state.invalidRoutes = [{ domain: DOMAIN, path: '/broken', invalid: true }];
+    await editing({ ...base, path: '/x', type: 'redirect', target: 'https://example.net/' });
+    await act(async () => button('Cancel').click());
+    const row = document.body.querySelector('[data-testid="unreadable-route"]');
+    expect(row?.textContent).toContain('/broken');
+    expect(row?.textContent).toContain('Unreadable record');
+    const buttons = [...(row?.querySelectorAll('button') ?? [])];
+    expect(buttons.map(item => item.getAttribute('aria-label'))).toEqual([
+      'Delete unreadable record /broken',
+    ]);
+    await click(buttons[0] ?? null);
+    await click(button('Delete'));
+    expect(state.remove).toHaveBeenCalledWith({ path: '/broken', domain: DOMAIN });
+  });
+
+  it('are not shown under a type or status filter: their type and state are unknown', async () => {
+    state.invalidRoutes = [{ domain: DOMAIN, path: '/broken', invalid: true }];
+    state.filters = { domain: DOMAIN, type: 'redirect' };
+    await editing({ ...base, path: '/x', type: 'redirect', target: 'https://example.net/' });
+    expect(document.body.querySelector('[data-testid="unreadable-route"]')).toBeNull();
   });
 });

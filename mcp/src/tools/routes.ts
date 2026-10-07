@@ -2,9 +2,10 @@
  * Route management tool handlers for MCP server
  */
 
-import type { EdgeRouterClient, Route } from '@bifrost/shared';
+import type { EdgeRouterClient, InvalidRouteRow, Route } from '@bifrost/shared';
 import {
   AcknowledgeCredentialTargetToolSchema,
+  isInvalidRouteRow,
   SUPPORTED_DOMAINS_LIST,
   ToggleRouteInputSchema,
 } from '@bifrost/shared';
@@ -44,7 +45,14 @@ function formatRoute(route: Route): string {
 /**
  * Format a list of routes for display
  */
-function formatRouteList(routes: Route[], domain: string): string {
+/**
+ * A listed record that cannot be read (v1.38.0): marked, with the one thing
+ * that can be done with it.
+ */
+export const UNREADABLE_ROUTE_NOTE =
+  'UNREADABLE RECORD: stored in a shape that cannot be read; never served. Delete it and create it again.';
+
+function formatRouteList(routes: Array<Route | InvalidRouteRow>, domain: string): string {
   if (routes.length === 0) {
     return `No routes configured for ${domain}`;
   }
@@ -52,7 +60,10 @@ function formatRouteList(routes: Route[], domain: string): string {
   const lines = [
     `Routes for ${domain} (${routes.length} total):`,
     '',
-    ...routes.map((r, i) => `${i + 1}. ${formatRoute(r)}`),
+    ...routes.map(
+      (r, i) =>
+        `${i + 1}. ${isInvalidRouteRow(r) ? `${r.path} — ${UNREADABLE_ROUTE_NOTE}` : formatRoute(r)}`,
+    ),
   ];
 
   return lines.join('\n');

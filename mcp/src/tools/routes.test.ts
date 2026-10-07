@@ -48,6 +48,20 @@ describe('Route tool handlers', () => {
       expect(mockClient.listRoutes).toHaveBeenCalledWith('links.example.com', undefined);
     });
 
+    it('marks a record that cannot be read, with the one thing to do', async () => {
+      vi.mocked(mockClient.listRoutes).mockResolvedValue([
+        mockRoute,
+        { domain: 'links.example.com', path: '/broken', invalid: true },
+      ]);
+
+      const result = await listRoutes(mockClient, { domain: 'links.example.com' });
+
+      expect(result).toContain('/github');
+      expect(result).toContain(
+        '2. /broken — UNREADABLE RECORD: stored in a shape that cannot be read; never served. Delete it and create it again.',
+      );
+    });
+
     it('sends exactly the domain it is given', async () => {
       vi.mocked(mockClient.listRoutes).mockResolvedValue([]);
 

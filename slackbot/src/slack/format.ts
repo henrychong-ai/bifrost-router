@@ -4,7 +4,8 @@
  * Formats responses for Slack using mrkdwn syntax
  */
 
-import type { AnalyticsSummary, Route } from '@bifrost/shared';
+import type { AnalyticsSummary, InvalidRouteRow, Route } from '@bifrost/shared';
+import { isInvalidRouteRow } from '@bifrost/shared';
 
 /**
  * Format a list of routes for Slack display
@@ -13,10 +14,16 @@ import type { AnalyticsSummary, Route } from '@bifrost/shared';
  * @param domain - Target domain
  * @returns Formatted Slack message
  */
-export function formatRouteList(routes: Route[], domain: string): string {
+export function formatRouteList(
+  listed: ReadonlyArray<Route | InvalidRouteRow>,
+  domain: string,
+): string {
   const lines = [`*Routes for ${domain}*`, ''];
+  // A record that cannot be read is listed as a minimal row (v1.38.0)
+  const unreadable = listed.filter(isInvalidRouteRow);
+  const routes = listed.filter((row): row is Route => !isInvalidRouteRow(row));
 
-  if (routes.length === 0) {
+  if (listed.length === 0) {
     lines.push('No routes configured.');
     return lines.join('\n');
   }
@@ -61,8 +68,14 @@ export function formatRouteList(routes: Route[], domain: string): string {
     }
   }
 
+  if (unreadable.length > 0) {
+    lines.push(`*Unreadable records (${unreadable.length}): delete and create again*`);
+    for (const row of unreadable.slice(0, 5)) lines.push(`:warning: \`${row.path}\``);
+    if (unreadable.length > 5) lines.push(`_...and ${unreadable.length - 5} more_`);
+  }
+
   lines.push('');
-  lines.push(`_Total: ${routes.length} routes_`);
+  lines.push(`_Total: ${listed.length} routes_`);
 
   return lines.join('\n');
 }

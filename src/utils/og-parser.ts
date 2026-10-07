@@ -60,7 +60,12 @@ export const OPEN_GRAPH_REQUEST_HEADERS: Readonly<Record<string, string>> = {
   Accept: 'text/html',
 };
 
-/** Redirect hops followed before giving up (v1.37.0). */
+/**
+ * Redirect hops a link preview follows before giving up (v1.37.0), also for
+ * a preview of a proxy route's upstream. The proxy handler serving visitors
+ * has its own loop and a higher cap (`MAX_PROXY_REDIRECTS`, 20, in
+ * `handlers/proxy.ts`); the two are separate on purpose.
+ */
 export const MAX_REDIRECTS = 5;
 
 /** The answer when there is nothing to read: every field null except `url`. */
@@ -104,8 +109,12 @@ export class UpstreamStatusError extends Error {
 }
 
 export class TooManyRedirectsError extends Error {
-  constructor(message: string) {
-    super(message);
+  /** The cap that was applied (`maxRedirects`, else {@link MAX_REDIRECTS}). */
+  readonly cap: number;
+
+  constructor(cap: number) {
+    super(`Too many redirects (max ${cap})`);
+    this.cap = cap;
     this.name = 'TooManyRedirectsError';
   }
 }
@@ -750,7 +759,7 @@ async function fetchOpenGraph(
         // A proxy upstream's redirects are its own business: past the cap
         // there is simply nothing to describe
         if (proxiedFor !== undefined) return minimalOpenGraph(reportUrl);
-        throw new TooManyRedirectsError(`Too many redirects (max ${cap})`);
+        throw new TooManyRedirectsError(cap);
       }
       const redirectUrl = response.headers.get('location');
       if (!redirectUrl) throw new UpstreamStatusError(response.status);
@@ -849,8 +858,10 @@ export function describeOpenGraphFailure(error: unknown): OpenGraphFailure {
   if (error instanceof ResponseTooLargeError) {
     return { status: 413, error: 'Response too large', details: 'The page is over the 1 MB limit' };
   }
-  if (error instanceof TooManyRedirectsError)
-    return failedFetch(`Too many redirects (max ${MAX_REDIRECTS})`);
+  // The cap actually applied, which a caller may have set below the default
+  if (error instanceof TooManyRedirectsError) {
+    return failedFetch(`Too many redirects (max ${error.cap})`);
+  }
   if (error instanceof UpstreamStatusError) return failedFetch(`HTTP ${error.status}`);
   if (isAbort(error)) return failedFetch('The page did not answer in time');
   return failedFetch('The page could not be fetched');

@@ -1,3 +1,4 @@
+import { isRecord } from '@bifrost/shared';
 import type { AuditAction, AuditLog, AuditSource } from '@/lib/schemas';
 
 export function formatDate(timestamp: number): string {
@@ -85,11 +86,6 @@ interface AuditDetailFields {
   after?: unknown;
 }
 
-/** A plain object (not null, not an array). */
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 const text = (value: unknown): string | undefined =>
   typeof value === 'string' ? value : undefined;
 const count = (value: unknown): number | undefined =>
@@ -100,9 +96,9 @@ const count = (value: unknown): number | undefined =>
  * has its declared type: the row is read as unknown, never trusted.
  */
 function readDetailFields(value: Record<string, unknown>): AuditDetailFields {
-  const resource = isPlainRecord(value['resource']) ? value['resource'] : undefined;
-  const replaced = isPlainRecord(value['replaced']) ? value['replaced'] : undefined;
-  const route = isPlainRecord(value['route']) ? value['route'] : undefined;
+  const resource = isRecord(value['resource']) ? value['resource'] : undefined;
+  const replaced = isRecord(value['replaced']) ? value['replaced'] : undefined;
+  const route = isRecord(value['route']) ? value['route'] : undefined;
   return {
     cf_audit_id: text(value['cf_audit_id']),
     actionType: text(value['actionType']),
@@ -132,7 +128,7 @@ export function parseDetails(details: string | null): string {
   try {
     // Read as unknown (v1.38.0): anything but an object keeps its raw text
     const value: unknown = JSON.parse(details);
-    if (!isPlainRecord(value)) return details.slice(0, 50);
+    if (!isRecord(value)) return details.slice(0, 50);
     const parsed = readDetailFields(value);
     const has = (field: string) => field in value;
     // CF audit-log poller entries: show the control-plane action type.
@@ -145,6 +141,10 @@ export function parseDetails(details: string | null): string {
     // R2 event consumer entries: show raw R2 action + object.
     if (has('r2Action')) {
       return `${parsed.r2Action}: ${parsed.bucket}/${parsed.key}`;
+    }
+    // A deleted record that could not be read (v1.38.0): its key and state only
+    if (value['state'] === 'invalid') {
+      return parsed.key ? `Unreadable record ${parsed.key}` : 'Unreadable record';
     }
     // For toggle actions, show enabled status
     if (has('enabled')) {
@@ -199,10 +199,7 @@ export function parseDetailsObject(details: string | null): Record<string, unkno
   if (!details) return null;
   try {
     const parsed: unknown = JSON.parse(details);
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      return null;
-    }
-    return parsed as Record<string, unknown>;
+    return isRecord(parsed) ? parsed : null;
   } catch {
     return null;
   }
