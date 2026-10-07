@@ -927,22 +927,38 @@ describe('admin routes', () => {
   });
 
   describe('CORS', () => {
-    it('responds to preflight requests from allowed origins', async () => {
+    // v1.39.0: the dashboard calls its own origin and its server calls the
+    // Worker, so no browser origin is allowed, the old dashboard ones included
+    it('approves no preflight, from any origin', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 
-      const response = await app.fetch(
-        new Request('http://example.com/api/routes', {
-          method: 'OPTIONS',
-          headers: {
-            Origin: 'https://example.com',
-            'Access-Control-Request-Method': 'POST',
-          },
+      for (const origin of [
+        'https://example.com',
+        'https://bifrost.example.com',
+        'https://bifrost.your-tailnet.ts.net',
+        'http://localhost:3001',
+      ]) {
+        const response = await app.fetch(
+          new Request('http://example.com/api/routes', {
+            method: 'OPTIONS',
+            headers: { Origin: origin, 'Access-Control-Request-Method': 'POST' },
+          }),
+          testEnv,
+        );
+        expect(response.status).toBe(204);
+        expect({ origin, allowed: response.headers.get('Access-Control-Allow-Origin') }).toEqual({
+          origin,
+          allowed: '',
+        });
+      }
+      // Nor does an answer to a real request name one
+      const answer = await app.fetch(
+        new Request('http://example.com/api/routes?domain=example.com', {
+          headers: { Origin: 'http://localhost:3001', 'X-Admin-Key': validApiKey },
         }),
         testEnv,
       );
-
-      expect(response.status).toBe(204);
-      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+      expect(answer.headers.get('Access-Control-Allow-Origin')).toBeNull();
     });
 
     it('rejects preflight requests from disallowed origins', async () => {

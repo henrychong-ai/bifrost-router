@@ -2,39 +2,15 @@ import type { Context, Next } from 'hono';
 import type { AppEnv } from '../types';
 
 /**
- * Allowed CORS origins for admin API
- * Single source of truth - used by index.ts, admin.ts, and cors middleware
+ * The browser origins allowed to call the admin API cross-origin (v1.39.0):
+ * none. The dashboard calls its own origin, and the server in front of it
+ * (nginx in the containers, the Vite dev server under `pnpm dev`) calls the
+ * Worker server to server, which CORS does not apply to; the MCP server and
+ * the scripts are not browsers either. A deployer who builds a browser
+ * client on another origin adds that origin here; the admin key is still
+ * required on every request but the preflight.
  */
-export const ALLOWED_ORIGINS = [
-  'https://bifrost.example.com',
-  'http://localhost:3001',
-  'http://localhost:5173',
-  'http://127.0.0.1:3001',
-  'http://127.0.0.1:5173',
-] as const;
-
-/**
- * Check if origin is allowed, including workers.dev for development
- * Returns the origin string if allowed, empty string if not
- * @param origin - The Origin header value
- * @param isDev - Whether to allow workers.dev origins (default: true for backwards compatibility)
- */
-export function isAllowedOrigin(origin: string | undefined, isDev = true): string {
-  if (!origin) return '';
-  if ((ALLOWED_ORIGINS as readonly string[]).includes(origin)) return origin;
-
-  // Allow workers.dev origins for development (wrangler dev --remote)
-  if (isDev) {
-    try {
-      const url = new URL(origin);
-      if (url.hostname.endsWith('.workers.dev')) return origin;
-    } catch {
-      // Invalid URL
-    }
-  }
-
-  return '';
-}
+export const ADMIN_API_CORS_ORIGINS: readonly string[] = [];
 
 /**
  * Origin checker function type

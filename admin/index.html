@@ -21,8 +21,8 @@
   </head>
   <body>
     <div id="root"></div>
-    <!-- Runtime env config injected by container startup (no-op in local dev if file absent) -->
-    <script src="/env-config.js"></script>
+    <!-- Zod jitless, set before any module runs (see public/zod-jitless.js) -->
+    <script src="/zod-jitless.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

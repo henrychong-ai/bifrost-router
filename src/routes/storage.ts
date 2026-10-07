@@ -8,7 +8,6 @@ import {
   R2UpdateCommentRequestSchema,
   R2UpdateMetadataRequestSchema,
   READ_ONLY_BUCKETS,
-  redactSensitive,
 } from '@bifrost/shared';
 import type { Context } from 'hono';
 import { Hono } from 'hono';
@@ -26,6 +25,7 @@ import {
 import type { AppEnv, Bindings } from '../types';
 import { ALL_BUCKET_BINDINGS } from '../types';
 import { purgeR2CacheForObject } from '../utils/cache';
+import { errorName } from '../utils/error-name';
 import { validateR2Key } from '../utils/path-validation';
 
 const DEFAULT_R2_COPY_SIZE_LIMIT_MB = 100;
@@ -138,7 +138,7 @@ function purgeObjectCache(c: Context<AppEnv>, bucket: string, key: string): void
             message: 'cache purge failed',
             bucket,
             key,
-            error: redactSensitive(error instanceof Error ? error.message : String(error)),
+            errorName: errorName(error),
           }),
         );
       }),
@@ -344,6 +344,12 @@ storageRoutes.get('/:bucket/objects/:key{.+}', async c => {
   // invalid, and a client echoing it back in If-None-Match makes R2 reject the
   // request outright.
   headers.set('ETag', obj.httpEtag);
+  // Always a download, never a page (v1.39.0): a stored HTML or script file
+  // fetched through the admin API must not render on the host that serves it
+  // (its Content-Type is whatever the uploader declared). The dashboard's
+  // /api proxy enforces the same; feedback attachments already did this.
+  headers.set('Content-Disposition', 'attachment');
+  headers.set('X-Content-Type-Options', 'nosniff');
 
   return new Response(obj.body, { headers });
 });
@@ -437,7 +443,7 @@ storageRoutes.post('/:bucket/upload', async c => {
         JSON.stringify({
           level: 'error',
           message: 'Failed to set file comment on upload',
-          error: err instanceof Error ? err.message : String(err),
+          errorName: errorName(err),
           bucket: bucketName,
           key: validation.sanitizedKey,
         }),

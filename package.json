@@ -1,6 +1,6 @@
 {
   "name": "bifrost",
-  "version": "1.38.0",
+  "version": "1.39.0",
   "description": "Bifrost - Edge router with Cloudflare Workers and Hono",
   "type": "module",
   "private": true,
@@ -26,6 +26,7 @@
     "changelog:check": "node scripts/generate-changelog-module.mjs --check",
     "check:changelog-bundle": "node scripts/check-changelog-not-bundled.mjs",
     "check:changelog-chunk": "node scripts/check-changelog-chunk-size.mjs",
+    "check:dashboard-container": "node scripts/check-dashboard-container.mjs",
     "benchmark:routing": "vitest bench --run test/performance/route-lookup.bench.ts",
     "benchmark:routing:gate": "node scripts/check-routing-benchmark.mjs",
     "benchmark:analytics": "node scripts/check-analytics-performance.mjs",
@@ -110,7 +111,7 @@
       "esbuild@<=0.24.2": "0.25.12",
       "esbuild@>=0.27.3 <0.28.1": "0.28.1",
       "@babel/core@<=7.29.0": "7.29.6",
-      "sharp": ">=0.35.4",
+      "sharp": ">=0.35.5",
       "source-map-js@<1.2.2": "1.2.2"
     },
     "onlyBuiltDependencies": [

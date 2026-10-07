@@ -14,6 +14,7 @@ import {
   getViews,
 } from '../db/queries';
 import type { AppEnv } from '../types';
+import { errorName } from '../utils/error-name';
 import {
   isUnifiedTrafficCaptureActive,
   parseUnifiedTrafficCutoverAt,
@@ -164,7 +165,7 @@ analyticsRoutes.get('/summary', async c => {
       JSON.stringify({
         level: 'error',
         message: 'Analytics summary query failed',
-        error: error instanceof Error ? error.message : String(error),
+        errorName: errorName(error),
       }),
     );
 
@@ -229,7 +230,7 @@ analyticsRoutes.get('/clicks', async c => {
       JSON.stringify({
         level: 'error',
         message: 'Analytics clicks query failed',
-        error: error instanceof Error ? error.message : String(error),
+        errorName: errorName(error),
       }),
     );
 
@@ -294,7 +295,7 @@ analyticsRoutes.get('/views', async c => {
       JSON.stringify({
         level: 'error',
         message: 'Analytics views query failed',
-        error: error instanceof Error ? error.message : String(error),
+        errorName: errorName(error),
       }),
     );
 
@@ -314,13 +315,18 @@ analyticsRoutes.get('/views', async c => {
  * Returns detailed statistics for a specific link slug.
  *
  * Path params:
- * - slug: The link slug (URL-encoded if contains special chars)
+ * - slug: The link slug without its leading slash, as path segments, each
+ *   percent-encoded (`pathSegments` in @bifrost/shared; v1.39.0): a
+ *   multi-segment slug keeps its slashes, which the dashboard's /api proxy
+ *   requires (it refuses `%2F`), and the root slug `/` is the empty
+ *   remainder (`/api/analytics/clicks/`). A slug sent as one segment with
+ *   `%2F` still reads the same.
  *
  * Query params:
  * - domain: Filter by domain (optional)
  * - days: Time range in days (default: 30, max: 365)
  */
-analyticsRoutes.get('/clicks/:slug', async c => {
+analyticsRoutes.get('/clicks/:slug{.*}', async c => {
   const slug = '/' + c.req.param('slug');
 
   const queryResult = SlugQuerySchema.safeParse({
@@ -362,8 +368,7 @@ analyticsRoutes.get('/clicks/:slug', async c => {
       JSON.stringify({
         level: 'error',
         message: 'Analytics slug stats query failed',
-        error: error instanceof Error ? error.message : String(error),
-        slug,
+        errorName: errorName(error),
       }),
     );
 
@@ -430,7 +435,7 @@ analyticsRoutes.get('/downloads', async c => {
       JSON.stringify({
         level: 'error',
         message: 'Analytics downloads query failed',
-        error: error instanceof Error ? error.message : String(error),
+        errorName: errorName(error),
       }),
     );
 
@@ -450,13 +455,16 @@ analyticsRoutes.get('/downloads', async c => {
  * Returns detailed statistics for a specific file download path.
  *
  * Path params:
- * - path: The download path (URL-encoded if contains special chars)
+ * - path: The download path without its leading slash, as path segments,
+ *   each percent-encoded, as for slug stats (v1.39.0): the root path `/` is
+ *   the empty remainder (`/api/analytics/downloads/`); bare
+ *   `/api/analytics/downloads` is the list
  *
  * Query params:
  * - domain: Filter by domain (optional)
  * - days: Time range in days (default: 30, max: 365)
  */
-analyticsRoutes.get('/downloads/:path{.+}', async c => {
+analyticsRoutes.get('/downloads/:path{.*}', async c => {
   const path = '/' + c.req.param('path');
 
   const queryResult = SlugQuerySchema.safeParse({
@@ -498,8 +506,7 @@ analyticsRoutes.get('/downloads/:path{.+}', async c => {
       JSON.stringify({
         level: 'error',
         message: 'Analytics download stats query failed',
-        error: error instanceof Error ? error.message : String(error),
-        path,
+        errorName: errorName(error),
       }),
     );
 
@@ -566,7 +573,7 @@ analyticsRoutes.get('/proxy', async c => {
       JSON.stringify({
         level: 'error',
         message: 'Analytics proxy query failed',
-        error: error instanceof Error ? error.message : String(error),
+        errorName: errorName(error),
       }),
     );
 
@@ -586,13 +593,16 @@ analyticsRoutes.get('/proxy', async c => {
  * Returns detailed statistics for a specific proxy path.
  *
  * Path params:
- * - path: The proxy path (URL-encoded if contains special chars)
+ * - path: The proxy path without its leading slash, as path segments, each
+ *   percent-encoded, as for slug stats (v1.39.0): the root path `/` is the
+ *   empty remainder (`/api/analytics/proxy/`); bare `/api/analytics/proxy`
+ *   is the list
  *
  * Query params:
  * - domain: Filter by domain (optional)
  * - days: Time range in days (default: 30, max: 365)
  */
-analyticsRoutes.get('/proxy/:path{.+}', async c => {
+analyticsRoutes.get('/proxy/:path{.*}', async c => {
   const path = '/' + c.req.param('path');
 
   const queryResult = SlugQuerySchema.safeParse({
@@ -634,8 +644,7 @@ analyticsRoutes.get('/proxy/:path{.+}', async c => {
       JSON.stringify({
         level: 'error',
         message: 'Analytics proxy stats query failed',
-        error: error instanceof Error ? error.message : String(error),
-        path,
+        errorName: errorName(error),
       }),
     );
 
@@ -704,7 +713,7 @@ analyticsRoutes.get('/audit', async c => {
       JSON.stringify({
         level: 'error',
         message: 'Analytics audit query failed',
-        error: error instanceof Error ? error.message : String(error),
+        errorName: errorName(error),
       }),
     );
 

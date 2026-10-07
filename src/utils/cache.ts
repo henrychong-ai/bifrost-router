@@ -1,7 +1,7 @@
-import { redactSensitive } from '@bifrost/shared';
 import { findRoutesByR2Target } from '../kv/routes';
 import { CLOUDFLARE_ZONE_IDS, getR2CustomDomainUrls, getZoneIdForDomain } from '../types';
 import { guard, isRecord, readResponseJson } from './boundary';
+import { errorName } from './error-name';
 
 /**
  * Result of a cache purge operation.
@@ -78,7 +78,7 @@ export async function purgeR2CacheForObject(
         message: ROUTE_DISCOVERY_INCOMPLETE,
         bucket,
         key,
-        error: redactSensitive(error instanceof Error ? error.message : String(error)),
+        errorName: errorName(error),
       }),
     );
   }

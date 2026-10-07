@@ -48,6 +48,7 @@ import { lookupRoute } from '../kv/lookup';
 import { isSensitivePath, queryHasTraversal } from '../middleware/sensitive-paths';
 import { type Bindings, getServiceFallback, isValidDomain } from '../types';
 import { stripTrailingDot } from './host-policy';
+import { withoutInternalHeaders } from './internal-headers';
 import { OPEN_GRAPH_REQUEST_HEADERS, type OwnHostAnswer, type OwnHostResolver } from './og-parser';
 import { safeServiceFetch } from './safe-service-fetch';
 import { validateProxyTarget } from './url-validation';
@@ -56,7 +57,8 @@ import { validateProxyTarget } from './url-validation';
  * The paths src/index.ts answers itself, before its KV catch-all, exactly as
  * it matches them (case-sensitive): `GET /.well-known/security.txt`,
  * `/health`, and `/api` and everything under `/api/` (the admin API mount
- * answers `/api` itself too: 404 off the admin host, 401 without a key).
+ * answers `/api` itself too: 404 off the admin host, 401 without a key, and
+ * the catch-all 404 with one).
  * Every other `/.well-known/*` path, and other spellings such as `/API` or
  * `/Health`, reach the routes. test/utils/og-own-host-parity.test.ts holds
  * these lists to src/index.ts and to the running Worker.
@@ -122,7 +124,9 @@ async function resolveOwnHost(
     let request: Request;
     try {
       request = new Request(requestUrl.href, {
-        headers: OPEN_GRAPH_REQUEST_HEADERS,
+        // The preview's own fixed headers; safeServiceFetch drops this
+        // deployment's internal ones whatever is passed
+        headers: withoutInternalHeaders(OPEN_GRAPH_REQUEST_HEADERS),
         redirect: 'manual',
         signal,
       });
@@ -131,7 +135,10 @@ async function resolveOwnHost(
       // binding call fails the same way, with 503
       return statusOnly(503);
     }
-    const forwarded = await safeServiceFetch(binding, request, { hostname: host, path });
+    const forwarded = await safeServiceFetch(binding, request, {
+      hostname: host,
+      adminKey: env.ADMIN_API_KEY,
+    });
     return forwarded ? { kind: 'response', response: forwarded } : statusOnly(503);
   }
 

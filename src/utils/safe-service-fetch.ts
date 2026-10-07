@@ -26,10 +26,18 @@
  * in Worker code.
  */
 
+import { errorName } from './error-name';
+import { withoutInternalHeaders } from './internal-headers';
+
 /**
- * Forward `req` to `service` and return the response.
+ * Forward `req` to `service` and return the response, without this
+ * deployment's own headers (`isInternalHeader`: the admin key, `X-Bifrost-*`,
+ * `Tailscale-User-*`; and an `Authorization` carrying `context.adminKey`;
+ * v1.39.0), which belong to the admin API and the dashboard and never to the
+ * site behind the binding.
  * Returns `null` on URL-parse error or service-binding failure (and logs at
- * `warn` level with the supplied context).
+ * `warn` level with the host and the error's class name, never the request's
+ * path, query or the error message, which can quote the URL).
  *
  * Works for any Fetcher: Worker-to-Worker service bindings, Workers Static
  * Assets bindings (`c.env.ASSETS`), or any other built-in primitive that
@@ -38,18 +46,21 @@
 export async function safeServiceFetch(
   service: Fetcher,
   req: Request,
-  context: { hostname: string; path: string },
+  context: { hostname: string; adminKey?: string | undefined },
 ): Promise<Response | null> {
   try {
-    return await service.fetch(new Request(req));
+    return await service.fetch(
+      new Request(req, { headers: withoutInternalHeaders(req.headers, context.adminKey) }),
+    );
   } catch (err) {
     console.log(
       JSON.stringify({
         level: 'warn',
         message: 'Service binding fetch failed',
         hostname: context.hostname,
-        path: context.path,
-        error: err instanceof Error ? err.message : String(err),
+        // The class only (v1.39.0): workerd's URL-parse message names the URL,
+        // and so the visitor's path and query
+        errorName: errorName(err),
       }),
     );
     return null;

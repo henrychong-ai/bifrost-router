@@ -84,11 +84,18 @@ export const ROUTE_SOURCE_CHANGED_MESSAGE =
  * and moved in place of the record the guard and the audit row examined.
  */
 export class RouteSourceChangedError extends CodedHTTPException {
-  constructor() {
-    super(409, 'ROUTE_SOURCE_CHANGED', ROUTE_SOURCE_CHANGED_MESSAGE);
+  constructor(message: string = ROUTE_SOURCE_CHANGED_MESSAGE) {
+    super(409, 'ROUTE_SOURCE_CHANGED', message);
     this.name = 'RouteSourceChangedError';
   }
 }
+
+/**
+ * The fixed message of a {@link RouteSourceChangedError} for an edit
+ * (v1.39.0); it quotes no route field.
+ */
+export const ROUTE_CHANGED_DURING_EDIT_MESSAGE =
+  'This route changed while it was being edited, so nothing was saved. Reload it and try again.';
 
 const utf8 = new TextEncoder();
 
@@ -434,18 +441,34 @@ export function mergeRoutePatch(
 /**
  * Update an existing route
  * Returns null if not found, throws KVWriteError on failure
+ *
+ * `checked` (v1.39.0, the migrate/transfer pattern) is the record the caller
+ * read and checked (its credential guard, its audit "before"): the patch is
+ * merged into IT, and a stored record that is no longer it is refused
+ * ({@link RouteSourceChangedError}, 409 `ROUTE_SOURCE_CHANGED`, nothing
+ * written), so the write never carries a record no check saw. Best effort,
+ * not a lock: KV has no compare-and-set, and the second read is usually
+ * served from the same edge cache as the first, so a concurrent change is
+ * seen only when it has reached this location; one that lands after this
+ * read is not seen at all. Without `checked`, the patch merges into whatever
+ * is stored.
  */
 export async function updateRoute(
   kv: KVNamespace,
   domain: string,
   path: string,
   updates: RoutePatch,
+  checked?: KVRouteConfig,
 ): Promise<KVRouteConfig | null> {
   const normalizedPath = normalizePath(path);
   const key = routeKey(domain, normalizedPath);
   // Never merged with a record that cannot be read: 409, delete and recreate
-  const existing = presentRoute(await readStateOrThrow(kv, key));
-  if (!existing) return null;
+  const stored = presentRoute(await readStateOrThrow(kv, key));
+  if (!stored) return null;
+  if (checked !== undefined && canonicalJson(stored) !== canonicalJson(checked)) {
+    throw new RouteSourceChangedError(ROUTE_CHANGED_DURING_EDIT_MESSAGE);
+  }
+  const existing = checked ?? stored;
 
   // Path cannot be changed. The patch's own fields against their caps; the
   // merged record as it will be stored against the key and size limits,

@@ -7,6 +7,7 @@
 
 import { type ErrorEnvelope, plainErrorText, readErrorEnvelope } from './error-envelope.js';
 import { isRecord } from './guards.js';
+import { objectKeySegments, pathSegments } from './path-segments.js';
 import type { InvalidQRRow, QRCode } from './qr.js';
 import type { InvalidRouteRow } from './stored-route.js';
 import type {
@@ -505,18 +506,14 @@ export class EdgeRouterClient {
     slug: string,
     options: AnalyticsQueryOptions & { domain: string },
   ): Promise<SlugStats> {
-    // Remove leading slash from slug for URL path
-    const cleanSlug = slug.startsWith('/') ? slug.slice(1) : slug;
-    return this.request<SlugStats>(
-      'GET',
-      `/api/analytics/clicks/${encodeURIComponent(cleanSlug)}`,
-      {
-        params: {
-          domain: options.domain,
-          days: options.days,
-        },
+    // The slug as path segments (v1.39.0), its leading slash dropped (the
+    // Worker adds it back); the root slug `/` is the empty remainder
+    return this.request<SlugStats>('GET', `/api/analytics/clicks/${pathSegments(slug)}`, {
+      params: {
+        domain: options.domain,
+        days: options.days,
       },
-    );
+    });
   }
 
   // ===========================================================================
@@ -555,7 +552,7 @@ export class EdgeRouterClient {
   async getObjectMeta(bucket: string, key: string): Promise<R2ObjectInfo> {
     return this.request<R2ObjectInfo>(
       'GET',
-      `/api/storage/${encodeURIComponent(bucket)}/meta/${encodeURIComponent(key)}`,
+      `/api/storage/${encodeURIComponent(bucket)}/meta/${objectKeySegments(key)}`,
     );
   }
 
@@ -569,7 +566,7 @@ export class EdgeRouterClient {
     const meta = await this.getObjectMeta(bucket, key);
     const response = await this.requestRaw(
       'GET',
-      `/api/storage/${encodeURIComponent(bucket)}/objects/${encodeURIComponent(key)}`,
+      `/api/storage/${encodeURIComponent(bucket)}/objects/${objectKeySegments(key)}`,
     );
     const body = await response.arrayBuffer();
     return { meta, body };
@@ -607,7 +604,7 @@ export class EdgeRouterClient {
   async deleteObject(bucket: string, key: string): Promise<void> {
     await this.request<void>(
       'DELETE',
-      `/api/storage/${encodeURIComponent(bucket)}/objects/${encodeURIComponent(key)}`,
+      `/api/storage/${encodeURIComponent(bucket)}/objects/${objectKeySegments(key)}`,
     );
   }
 
@@ -644,7 +641,7 @@ export class EdgeRouterClient {
   ): Promise<R2ObjectInfo> {
     return this.request<R2ObjectInfo>(
       'PUT',
-      `/api/storage/${encodeURIComponent(bucket)}/metadata/${encodeURIComponent(key)}`,
+      `/api/storage/${encodeURIComponent(bucket)}/metadata/${objectKeySegments(key)}`,
       {
         body: metadata,
       },
@@ -658,11 +655,9 @@ export class EdgeRouterClient {
     bucket: string,
     key: string,
   ): Promise<{ purged: number; failed: number; urls: string[] }> {
-    // Encode each path segment individually to preserve / as path separators
-    const encodedKey = key.split('/').map(encodeURIComponent).join('/');
     return this.request<{ purged: number; failed: number; urls: string[] }>(
       'POST',
-      `/api/storage/${encodeURIComponent(bucket)}/purge-cache/${encodedKey}`,
+      `/api/storage/${encodeURIComponent(bucket)}/purge-cache/${objectKeySegments(key)}`,
     );
   }
 
@@ -677,7 +672,7 @@ export class EdgeRouterClient {
   ): Promise<R2CommentUpdateResult> {
     return this.request<R2CommentUpdateResult>(
       'PUT',
-      `/api/storage/${encodeURIComponent(bucket)}/comment/${encodeURIComponent(key)}`,
+      `/api/storage/${encodeURIComponent(bucket)}/comment/${objectKeySegments(key)}`,
       {
         body: { comment },
       },

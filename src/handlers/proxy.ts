@@ -2,6 +2,8 @@ import type { Context } from 'hono';
 import { rawWildcardRemainder } from '../kv/lookup';
 import type { AppEnv, KVRouteConfig } from '../types';
 import { redactRouteTarget } from '../utils/credential-redaction';
+import { errorName } from '../utils/error-name';
+import { withoutInternalHeaders } from '../utils/internal-headers';
 import { validateProxyTarget } from '../utils/url-validation';
 
 /**
@@ -57,6 +59,25 @@ function crossOriginHeaders(headers: Headers): Headers {
     if (CROSS_ORIGIN_HEADERS.has(name)) kept.append(name, value);
   }
   return kept;
+}
+
+/**
+ * Whether a redirect from `from` to `to` leaves the origin, for what the next
+ * hop may carry (v1.39.0). A different origin does, except the one a host
+ * makes to upgrade itself: http on the default port to https on the default
+ * port, same host. That hop keeps the request headers and the route's Host
+ * override, which a CDN target redirecting http to https needs; a downgrade
+ * to http, another host or another port still leaves the origin.
+ */
+export function leavesOrigin(from: URL, to: URL): boolean {
+  if (from.origin === to.origin) return false;
+  const upgrade =
+    from.protocol === 'http:' &&
+    to.protocol === 'https:' &&
+    from.hostname === to.hostname &&
+    from.port === '' &&
+    to.port === '';
+  return !upgrade;
 }
 
 /** Headers that describe a request body, dropped when a redirect turns the request into a GET. */
@@ -301,7 +322,7 @@ export async function handleProxy(
 
   try {
     // Prepare headers, optionally overriding Host
-    let headers = filterProxyHeaders(c.req.raw.headers);
+    let headers = filterProxyHeaders(c.req.raw.headers, c.env.ADMIN_API_KEY);
     if (route.hostHeader) {
       headers.set('Host', route.hostHeader);
     }
@@ -361,7 +382,8 @@ export async function handleProxy(
           {
             path: route.path,
             target: redactRouteTarget(route.target),
-            redirect: redactRouteTarget(next.href),
+            // Never the refused Location: an upstream can build it from the
+            // visitor's remainder and query (log rule)
             validationError: hopValidation.error,
           },
         );
@@ -388,8 +410,9 @@ export async function handleProxy(
           { path: route.path, target: redactRouteTarget(route.target) },
         );
       }
-      // Leaving this hop's origin: only allow-listed headers go on
-      if (next.origin !== new URL(url).origin) {
+      // Leaving this hop's origin: only allow-listed headers go on (a
+      // same-host upgrade to https keeps them, see leavesOrigin)
+      if (leavesOrigin(new URL(url), next)) {
         headers = crossOriginHeaders(headers);
       }
       url = next.href;
@@ -439,7 +462,7 @@ export async function handleProxy(
       {
         path: route.path,
         target: redactRouteTarget(route.target),
-        errorName: error instanceof Error ? error.name : typeof error,
+        errorName: errorName(error),
       },
     );
   }
@@ -448,8 +471,10 @@ export async function handleProxy(
 /**
  * Filter headers that shouldn't be forwarded to origin
  */
-function filterProxyHeaders(headers: Headers): Headers {
-  const filtered = new Headers(headers);
+function filterProxyHeaders(headers: Headers, adminKey: string | undefined): Headers {
+  // This deployment's own headers, and an Authorization carrying the admin
+  // key, never go to an upstream, on any hop
+  const filtered = withoutInternalHeaders(headers, adminKey);
 
   // Remove Cloudflare-specific headers
   const headersToRemove = [

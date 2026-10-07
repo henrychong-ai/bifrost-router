@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Bifrost Admin API
   description: Edge router management API for route configuration and analytics
-  version: 1.38.0
+  version: 1.39.0
   contact:
     name: Bifrost Maintainers
     url: https://example.com
@@ -109,7 +109,9 @@ paths:
         '409':
           description: >-
             The stored record cannot be read (`error: ROUTE_RECORD_INVALID`); it is
-            never merged with the patch. Delete it and create it again
+            never merged with the patch. Delete it and create it again. Or
+            (`error: ROUTE_SOURCE_CHANGED`, v1.39.0) the route changed after the
+            request read and checked it; nothing was saved
     delete:
       summary: Delete route
       parameters:
@@ -403,6 +405,12 @@ paths:
         - name: slug
           in: path
           required: true
+          description: >-
+            The slug without its leading `/`, as path segments, each
+            percent-encoded (v1.39.0): `/promo/summer` is
+            `/api/analytics/clicks/promo/summer`, the root slug `/` is
+            `/api/analytics/clicks/`. A slug sent as one segment with `%2F`
+            reads the same.
           schema:
             type: string
         - $ref: '#/components/parameters/DomainQuery'
@@ -449,6 +457,11 @@ paths:
         - name: path
           in: path
           required: true
+          description: >-
+            The path without its leading `/`, as path segments, each
+            percent-encoded (v1.39.0): `/docs/a.pdf` is
+            `/api/analytics/downloads/docs/a.pdf`, the root path `/` is
+            `/api/analytics/downloads/`.
           schema:
             type: string
         - $ref: '#/components/parameters/DomainQuery'
@@ -479,6 +492,11 @@ paths:
         - name: path
           in: path
           required: true
+          description: >-
+            The path without its leading `/`, as path segments, each
+            percent-encoded (v1.39.0): `/docs/a.pdf` is
+            `/api/analytics/proxy/docs/a.pdf`, the root path `/` is
+            `/api/analytics/proxy/`.
           schema:
             type: string
         - $ref: '#/components/parameters/DomainQuery'
@@ -589,6 +607,10 @@ paths:
           description: Read-only bucket
         '400':
           description: Invalid R2 key
+        '415':
+          description: >-
+            The body is not `multipart/form-data` (`error:
+            UNSUPPORTED_MEDIA_TYPE`, v1.39.0)
 
   /api/storage/{bucket}/rename:
     post:
@@ -769,7 +791,8 @@ paths:
     post:
       summary: Submit feedback
       description: >-
-        Submit a feedback item as multipart/form-data. Optional screenshots
+        Submit a feedback item as multipart/form-data (any other body
+        answers 415 UNSUPPORTED_MEDIA_TYPE, v1.39.0). Optional screenshots
         (PNG/JPEG/WebP, up to 3, max 5 MB each) and an optional console/network
         capture bundle are stored in the isolated bifrost-feedback R2 bucket.
       tags: [Feedback]

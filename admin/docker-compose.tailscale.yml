@@ -5,9 +5,15 @@
 # 1. Generate Tailscale auth key at https://login.tailscale.com/admin/settings/keys
 #    - Reusable: Yes
 #    - Tags: tag:server (or appropriate tag)
-# 2. Create auth.env file with TAILSCALE_AUTHKEY=tskey-auth-xxx and
-#    ADMIN_API_KEY=<your admin API key> (read at container start, never baked
-#    into the image); optionally R2_PREVIEW_ORIGINS=https://files.example.com
+# 2. Create auth.env file with TAILSCALE_AUTHKEY=tskey-auth-xxx,
+#    API_PROXY_ORIGIN=https://bifrost.example.com
+#    (the Worker the dashboard's /api proxy reaches) and
+#    ADMIN_API_KEY=<your admin API key> (read at
+#    container start into a root-only nginx include; never baked into the
+#    image, never sent to the browser). Optional: CSP_MODE=report-only,
+#    CSP_REPORT_ORIGIN=https://bifrost.your-tailnet.ts.net (CSP violation
+#    reports), R2_PREVIEW_ORIGINS=https://files.example.com and
+#    API_PROXY_RESOLVER (IPv4 DNS resolvers, default 1.1.1.1 1.0.0.1).
 #
 # Deploy:
 #   docker compose -f docker-compose.tailscale.yml pull
@@ -32,7 +38,10 @@ services:
     devices:
       - /dev/net/tun:/dev/net/tun
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:3001/health"]
+      # nginx listens on a Unix socket only (v1.39.0; Tailscale Serve is the
+      # one way in). The TCP branch serves an image from before it, so a
+      # rollback to an earlier release tag with this file stays healthy.
+      test: ["CMD-SHELL", "if [ -S /run/bifrost/nginx.sock ]; then curl -fsS -o /dev/null --unix-socket /run/bifrost/nginx.sock http://localhost/health; else curl -fsS -o /dev/null http://127.0.0.1:3001/health; fi"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -10,7 +10,7 @@ import { HTTPException } from 'hono/http-exception';
  */
 export class CodedHTTPException extends HTTPException {
   constructor(
-    status: 400 | 404 | 409,
+    status: 400 | 404 | 409 | 415,
     readonly code: string,
     message: string,
   ) {

@@ -195,3 +195,164 @@ describe('a move confirms the record its handler checked', () => {
     expect(reads).toEqual([]);
   });
 });
+
+/** One admin request with the routes namespace `routes`. */
+async function call(method: string, path: string, body: unknown, routes: KVNamespace) {
+  const { ctx, settled } = createSettlingExecutionContext();
+  const bindings = { ...env, ROUTES: routes } as Bindings;
+  const response = await app.fetch(
+    new Request(`https://example.com/api${path}`, {
+      method,
+      headers,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }),
+    bindings,
+    ctx,
+  );
+  await settled();
+  return response;
+}
+
+// v1.39.0: PUT read the route for its guards and audit row, then updateRoute
+// read the key again and merged the patch into whatever was stored then. The
+// scripted namespace changes the record between the two reads; in production
+// both reads usually come from the same KV edge cache, so this is a best-effort
+// check, not a lock.
+describe('an edit writes the record its handler checked', () => {
+  const putPath = `/routes?path=/promo&domain=${DOMAIN}`;
+  const patch = { cacheControl: 'no-store' };
+
+  beforeEach(async () => {
+    await clearAllRoutes();
+    await createAuditLogsTable();
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('refuses a route replaced after the handler read it, writing nothing', async () => {
+    await env.ROUTES.put(SOURCE_KEY, JSON.stringify(STORED));
+    const { kv } = scriptedRoutes(async (key, count) => {
+      if (key === SOURCE_KEY && count === 2) {
+        await env.ROUTES.put(SOURCE_KEY, JSON.stringify(REPLACED));
+      }
+    });
+    const put = vi.spyOn(env.ROUTES, 'put');
+    const response = await call('PUT', putPath, patch, kv);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      success: false,
+      error: 'ROUTE_SOURCE_CHANGED',
+      message:
+        'This route changed while it was being edited, so nothing was saved. Reload it and try again.',
+    });
+    // Only the test's own replacement was written, and it stands unmerged
+    expect(put.mock.calls.map(([key]) => key)).toEqual([SOURCE_KEY]);
+    expect(await stored(DOMAIN, '/promo')).toEqual(REPLACED);
+  });
+
+  it('answers 404 for a route deleted after the handler read it', async () => {
+    await env.ROUTES.put(SOURCE_KEY, JSON.stringify(STORED));
+    const { kv } = scriptedRoutes(async (key, count) => {
+      if (key === SOURCE_KEY && count === 2) await env.ROUTES.delete(SOURCE_KEY);
+    });
+    const response = await call('PUT', putPath, patch, kv);
+    expect(response.status).toBe(404);
+    expect(await stored(DOMAIN, '/promo')).toBeNull();
+  });
+
+  it('merges the patch into the unchanged record it checked', async () => {
+    await env.ROUTES.put(SOURCE_KEY, JSON.stringify(STORED));
+    const { kv, reads } = scriptedRoutes(async () => {});
+    const response = await call('PUT', putPath, patch, kv);
+    expect(response.status).toBe(200);
+    expect(reads.filter(key => key === SOURCE_KEY)).toHaveLength(2);
+    expect(await stored(DOMAIN, '/promo')).toMatchObject({
+      target: STORED.target,
+      cacheControl: 'no-store',
+      createdAt: STORED.createdAt,
+    });
+  });
+});
+
+// v1.39.0: normalize-case listed every route, then wrote each mixed-case one
+// under its lowercase key and deleted the old key, so a route deleted after
+// the listing came back, and one replaced after it was overwritten by the
+// stale listed copy. It now confirms the old key first (best effort, as above).
+describe('normalize-case moves only the record it listed', () => {
+  const MIXED_KEY = routeKey(DOMAIN, '/Promo');
+  const LOWER_KEY = routeKey(DOMAIN, '/promo');
+  const MIXED = { ...STORED, path: '/Promo' };
+
+  beforeEach(async () => {
+    await clearAllRoutes();
+    await createAuditLogsTable();
+    await env.ROUTES.put(MIXED_KEY, JSON.stringify(MIXED));
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  async function normalize(onSecondRead: () => Promise<void>) {
+    const { kv } = scriptedRoutes(async (key, count) => {
+      if (key === MIXED_KEY && count === 2) await onSecondRead();
+    });
+    const response = await call('POST', '/routes/normalize-case', undefined, kv);
+    expect(response.status).toBe(200);
+    return (await response.json()) as {
+      data: { migrated: number; skipped: number; errors: string[] };
+    };
+  }
+
+  it('reports a route replaced after the listing and writes nothing', async () => {
+    const replaced = { ...MIXED, target: 'https://example.com/replaced', updatedAt: 2000 };
+    const { data } = await normalize(() => env.ROUTES.put(MIXED_KEY, JSON.stringify(replaced)));
+    expect(data.migrated).toBe(0);
+    expect(data.errors).toEqual([
+      `${MIXED_KEY}: ROUTE_SOURCE_CHANGED: changed while being moved, skipping`,
+    ]);
+    expect(await env.ROUTES.get(LOWER_KEY)).toBeNull();
+    expect(JSON.parse((await env.ROUTES.get(MIXED_KEY)) ?? 'null')).toEqual(replaced);
+  });
+
+  it('reports a route deleted after the listing and recreates nothing', async () => {
+    const { data } = await normalize(() => env.ROUTES.delete(MIXED_KEY));
+    expect(data.migrated).toBe(0);
+    expect(data.errors).toEqual([
+      `${MIXED_KEY}: ROUTE_NOT_FOUND: deleted while being moved, skipping`,
+    ]);
+    expect(await env.ROUTES.get(LOWER_KEY)).toBeNull();
+    expect(await env.ROUTES.get(MIXED_KEY)).toBeNull();
+  });
+
+  it('reports a route made unreadable after the listing and leaves it alone', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { data } = await normalize(() => env.ROUTES.put(MIXED_KEY, '{"path":'));
+    expect(data.migrated).toBe(0);
+    expect(data.errors).toEqual([
+      `${MIXED_KEY}: ROUTE_SOURCE_CHANGED: changed while being moved, skipping`,
+    ]);
+    expect(await env.ROUTES.get(LOWER_KEY)).toBeNull();
+    expect(await env.ROUTES.get(MIXED_KEY)).toBe('{"path":');
+  });
+
+  it('moves an unchanged route as before', async () => {
+    const { data } = await normalize(async () => {});
+    expect(data).toMatchObject({ migrated: 1, errors: [] });
+    expect(await env.ROUTES.get(MIXED_KEY)).toBeNull();
+    expect(JSON.parse((await env.ROUTES.get(LOWER_KEY)) ?? 'null')).toMatchObject({
+      path: '/promo',
+      target: STORED.target,
+      createdAt: STORED.createdAt,
+    });
+  });
+
+  it('moves a legacy record that stores its own domain field, without that field', async () => {
+    await env.ROUTES.put(MIXED_KEY, JSON.stringify({ ...MIXED, domain: DOMAIN }));
+    const { data } = await normalize(async () => {});
+    expect(data).toMatchObject({ migrated: 1, errors: [] });
+    expect(await env.ROUTES.get(MIXED_KEY)).toBeNull();
+    const moved = JSON.parse((await env.ROUTES.get(LOWER_KEY)) ?? 'null') as Record<
+      string,
+      unknown
+    >;
+    expect(moved).toMatchObject({ path: '/promo', target: STORED.target });
+    expect(moved).not.toHaveProperty('domain');
+  });
+});

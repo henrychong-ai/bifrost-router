@@ -1,6 +1,7 @@
 import { redactSensitive } from '@bifrost/shared';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
+import { routePath } from 'hono/route';
 import { secureHeaders } from 'hono/secure-headers';
 import { pollCfAuditLogs } from './audit/cf-audit-poll';
 import { handleScheduled } from './backup';
@@ -25,6 +26,7 @@ import { adminRoutes } from './routes/admin';
 import type { AppEnv, Bindings, KVRouteConfig } from './types';
 import { getServiceFallback, isValidDomain } from './types';
 import { redactRouteTarget } from './utils/credential-redaction';
+import { errorName } from './utils/error-name';
 import { safeServiceFetch } from './utils/safe-service-fetch';
 import {
   boundedUnifiedCacheStatus,
@@ -292,8 +294,12 @@ app.route('/api', adminRoutes);
 app.all('*', async c => {
   const path = c.req.path;
 
-  // Skip system routes
-  if (path === '/health' || path.startsWith('/api/')) {
+  // System paths are never routes (v1.39.0: bare /api too). The admin API
+  // mount answers /api first (404 off the admin host, 401 without a key), but
+  // a request WITH the key falls through to here; served as an ordinary
+  // route, a KV route or the service binding stored at /api would get the
+  // dashboard proxy's key-bearing request.
+  if (path === '/health' || path === '/api' || path.startsWith('/api/')) {
     return c.notFound();
   }
 
@@ -301,13 +307,13 @@ app.all('*', async c => {
   const url = new URL(c.req.url);
   const domain = url.hostname;
 
-  // Debug: Log KV lookup
+  // Debug: Log KV lookup. The domain only, never the visitor's request path
+  // (v1.39.0): a wildcard remainder or anything appended can carry a secret.
   console.log(
     JSON.stringify({
       level: 'debug',
       message: 'KV lookup',
       domain,
-      path,
       domainSupported: isValidDomain(domain),
     }),
   );
@@ -333,7 +339,6 @@ app.all('*', async c => {
           level: 'info',
           message: 'Forwarding to service binding',
           hostname: url.hostname,
-          path,
         }),
       );
       // Forward the request to the service binding via safeServiceFetch,
@@ -344,7 +349,7 @@ app.all('*', async c => {
       // (Inner-Worker exceptions resolve as 5xx Responses and pass through.)
       const serviceResponse = await safeServiceFetch(serviceFallback, c.req.raw, {
         hostname: url.hostname,
-        path,
+        adminKey: c.env.ADMIN_API_KEY,
       });
       if (!serviceResponse) {
         // 503: signals an upstream availability problem (binding misconfig,
@@ -401,12 +406,15 @@ app.all('*', async c => {
 
   c.set('unifiedEventType', route.type);
 
-  // Log matched route
+  // Log matched route: the host and the matched route KEY, never the
+  // visitor's request path (v1.39.0). A wildcard or proxy remainder, or
+  // anything a visitor appends, can carry a secret (a magic-link token), and
+  // this line is written on every hit.
   console.log(
     JSON.stringify({
       level: 'info',
       message: 'Route matched',
-      path,
+      host: url.hostname,
       routePath: route.path,
       routeType: route.type,
     }),
@@ -551,19 +559,20 @@ app.onError((err, c) => {
 
   // Handle unexpected errors as 500.
   //
-  // A thrown Error's message and stack are attacker-influenceable and routinely
-  // carry whatever credential the failing call was holding (an Authorization
-  // header echoed by a fetch failure, a token in a URL). Both the log line and
-  // the development-only diagnostic in the response body go through the shared
-  // credential redactor first.
+  // The log line names the error's class only (v1.39.0), never its message
+  // or stack: those are attacker-influenceable and routinely quote what the
+  // failing call held, a credential (an Authorization header echoed by a
+  // fetch failure) or the visitor's path and query (a KV read names the
+  // `domain:path` key it read, a URL parse the URL), which the redactor
+  // cannot know to remove. The development-only diagnostic in the response
+  // body still goes through the shared credential redactor.
   console.error(
     JSON.stringify({
       level: 'error',
       message: 'Unhandled error',
-      error: redactSensitive(err.message),
-      stack:
-        c.env.ENVIRONMENT === 'development' && err.stack ? redactSensitive(err.stack) : undefined,
-      path: c.req.path,
+      errorName: errorName(err),
+      // The route pattern that failed, never the request path (v1.39.0)
+      route: routePath(c),
       method: c.req.method,
     }),
   );

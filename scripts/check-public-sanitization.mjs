@@ -249,10 +249,12 @@ function hasHomePath(form) {
   );
 }
 
-// Token-based, so it stays linear on a long run of labels.
+// Token-based, so it stays linear on a long run of labels. The labels are
+// compared whole (`ts`, then `net`), never as a substring of the token: a
+// substring test is the shape code scanning reads as an incomplete host check
+// (v1.39.0), and a label test is the exact rule anyway.
 function hasTailnetHost(form) {
   for (const token of tokensOf(form)) {
-    if (!token.includes('ts.net')) continue;
     const labels = token.split('.');
     for (let i = 1; i + 1 < labels.length; i++) {
       const tailnet = labels[i - 1];

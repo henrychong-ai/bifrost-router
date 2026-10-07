@@ -56,6 +56,25 @@ Bifrost's in-Worker `rate-limit` middleware runs **after** authentication and
 therefore counts only authenticated requests. Pre-auth probes pass through it —
 the edge is the layer that has to catch those.
 
+**The dashboard is one client (v1.39.0).** The dashboard no longer calls the
+Worker from the browser: its container (nginx) proxies every `/api/` call and
+adds the admin key, so all of the dashboard's API traffic, from every operator
+at once, reaches this host from the **container's egress IP**. A rate limit
+counted per IP (the default characteristic) therefore counts the whole
+dashboard audience as one client, and a page load makes several calls. Either
+size the rate for all concurrent dashboard users together, or exempt the
+egress IP from this rule (`and not ip.src eq <egress-ip>`) and give it its own,
+larger limit. Pin that address (a static egress IP or NAT gateway) if you
+exempt it.
+
+**Access and IP rules on the admin host.** If the admin host sits behind
+Cloudflare Access, an IP Access rule or a WAF allow-list, let the dashboard
+container through: allow its egress IP (an Access policy with a **Bypass**
+action whose include rule is that IP range, or the IP in your allow-list). The
+container sends the admin key and nothing else; it does not present an Access
+service token or a browser's Access session, so a policy that expects either
+refuses every dashboard call.
+
 ---
 
 ## Rule 3: Block path-traversal / LFI patterns in query strings

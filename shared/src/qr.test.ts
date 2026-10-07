@@ -1,4 +1,5 @@
 import { assert, describe, expect, it } from 'vitest';
+import { allStrings } from './linear.test-support.js';
 import {
   CreateQRInputSchema,
   CreateQrToolInputSchema,
@@ -640,6 +641,15 @@ describe('qr contract', () => {
     it('produces distinct ids across calls', () => {
       const ids = new Set(Array.from({ length: 50 }, () => generateQrId()));
       expect(ids.size).toBe(50);
+    });
+  });
+
+  // v1.39.0: the trailing-hyphen trim is a linear scan, not `/-+$/`
+  describe('normalizeQrId trailing trim', () => {
+    it('equals its regex form on every short string', () => {
+      for (const value of allStrings(['-', 'a', ' ', 'B', '.'], 6)) {
+        expect(normalizeQrId(value)).toBe(normalizeQrIdInput(value).replace(/-+$/, ''));
+      }
     });
   });
 

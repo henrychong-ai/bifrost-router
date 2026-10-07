@@ -3,6 +3,7 @@
 // compatibility_date) — no import needed since the migration off
 // @cloudflare/workers-types.
 
+import { errorName } from '../utils/error-name';
 import { BACKUP_DAILY_PREFIX, backupArchiveKey, backupManifestKey } from './constants';
 import type {
   ArchiveInfo,
@@ -69,9 +70,12 @@ async function r2Call<T>(
   }
 }
 
-/** Log an R2 failure's cause and return its fixed message. */
+/**
+ * Log an R2 failure's cause by its class only (v1.39.0; never its message,
+ * which can quote a key or a stored value) and return its fixed message.
+ */
 function reportR2Failure(error: HealthR2Error | BackupReadError, what: string): string {
-  console.error(`[Backup] Health ${what} failed:`, error.cause);
+  console.error(`[Backup] Health ${what} failed: ${errorName(error.cause)}`);
   return error.message;
 }
 
@@ -257,6 +261,24 @@ export async function checkBackupHealth(
     issues.push({ severity: 'critical', message: reportR2Failure(error, 'manifest read') });
   }
   const manifestValid = manifest !== null;
+
+  // Records the backup run skipped (v1.39.0): a stored value that is not
+  // JSON cannot be archived (backupKV), so the archive lacks it. A warning,
+  // not critical: every other record is backed up, and such a record is
+  // unreadable to every reader already. The count only, never a key (the
+  // run's own log names them). A key that vanished between the listing and
+  // the read, or holds a JSON null, is not counted: that is the normal race
+  // of a record deleted mid-run, not a record the archive lacks.
+  const skippedNotJson = manifest?.kv.skippedNotJson ?? 0;
+  if (skippedNotJson > 0) {
+    issues.push({
+      severity: 'warning',
+      message:
+        skippedNotJson === 1
+          ? '1 stored record is not JSON and was not backed up'
+          : `${skippedNotJson} stored records are not JSON and were not backed up`,
+    });
+  }
 
   // Check backup age
   const backupTime = new Date(latestBackup.timestamp);

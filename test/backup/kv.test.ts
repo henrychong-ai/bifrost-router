@@ -368,6 +368,9 @@ describe('backupKV', () => {
     await env.ROUTES.put('links.example.com:/null', 'null');
     const result = await backupKV(env.ROUTES, env.BACKUP_BUCKET, '20260115');
     expect(result.totalRoutes).toBe(1);
+    // Not counted as skipped (v1.39.0): backup health warns only about values
+    // that are not JSON, never about a record that vanished or holds null
+    expect(result.skippedNotJson).toBe(0);
     expect(
       await readBackupRecords(env.BACKUP_BUCKET, {
         version: '2.0.0',

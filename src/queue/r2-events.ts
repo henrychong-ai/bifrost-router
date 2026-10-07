@@ -3,7 +3,8 @@ import { BACKUP_BUCKET_NAME, BACKUP_DAILY_PREFIX } from '../backup/constants';
 import { createDb } from '../db';
 import { auditLogs, r2EventCorrelations, r2EventSeen } from '../db/schema';
 import type { Bindings } from '../types';
-import { guard, isRecord, readStoredJson } from '../utils/boundary';
+import { guard, isOptional, isRecord, isString, readStoredJson } from '../utils/boundary';
+import { errorName } from '../utils/error-name';
 
 /**
  * R2 event notification message payload (delivered via Cloudflare Queues).
@@ -269,9 +270,7 @@ async function claimCorrelation(
         JSON.stringify({
           level: 'info',
           message: 'r2-event-correlated',
-          bucket: event.bucket,
-          key: event.object.key,
-          action: event.action,
+          ...eventLogFields(event),
           auditId: match.id,
         }),
       );
@@ -335,8 +334,16 @@ async function processFeedbackEvent(
  */
 async function processEvent(env: Bindings, event: R2EventMessage): Promise<void> {
   const kind = event?.action ? eventKindOf(event.action) : null;
-  if (!kind || !event.bucket || !event.object?.key) {
-    console.warn(JSON.stringify({ level: 'warn', message: 'r2-event-skipped-malformed', event }));
+  // One gate for every later line (v1.39.0): a known action, a valid bucket
+  // name and a string key within R2's limit, or the message is malformed
+  if (!kind || !isWellFormedEvent(event)) {
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        message: 'r2-event-skipped-malformed',
+        ...eventLogFields(event),
+      }),
+    );
     return;
   }
 
@@ -391,16 +398,66 @@ async function processEvent(env: Bindings, event: R2EventMessage): Promise<void>
   logOutcome(event, recorded ? 'r2-event-external' : 'r2-event-duplicate');
 }
 
-function logOutcome(event: R2EventMessage, message: string): void {
-  console.log(
-    JSON.stringify({
-      level: 'info',
-      message,
-      bucket: event.bucket,
-      key: event.object?.key,
-      action: event.action,
-    }),
+/** An R2 bucket name as R2 allows one: 3–63 lower-case letters, digits and hyphens. */
+const R2_BUCKET_NAME = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/;
+
+/**
+ * The validated fields of an event a log line may carry (v1.39.0), never the
+ * whole message body, whose other fields (the account, a copy source,
+ * whatever a malformed message holds) no line needs: the action only when it
+ * is one this consumer knows, the bucket only when it is a valid bucket name,
+ * and the object key (an admin object key, which operational lines may name)
+ * only when it is a string, cut to R2's 1,024-byte limit in characters.
+ */
+function eventLogFields(event: unknown): {
+  action?: string | undefined;
+  bucket?: string | undefined;
+  key?: string | undefined;
+} {
+  if (!isRecord(event)) return {};
+  const { action, bucket, object } = event;
+  const key = isRecord(object) ? object['key'] : undefined;
+  return {
+    action:
+      typeof action === 'string' && (CREATE_ACTIONS.has(action) || DELETE_ACTIONS.has(action))
+        ? action
+        : undefined,
+    bucket: typeof bucket === 'string' && R2_BUCKET_NAME.test(bucket) ? bucket : undefined,
+    key: typeof key === 'string' ? key.slice(0, 1024) : undefined,
+  };
+}
+
+/**
+ * Whether an event has every field the consumer reads in the type it reads it
+ * as (v1.39.0): the log-line fields passed {@link eventLogFields} unchanged,
+ * and the event time, the object's ETag and size and any copy source are
+ * absent or of their types. Anything else is malformed and skipped, never
+ * retried (a field that cannot be read would fail the same way every time).
+ */
+function isWellFormedEvent(event: unknown): boolean {
+  if (!isRecord(event) || !isRecord(event['object'])) return false;
+  const object = event['object'];
+  const key = object['key'];
+  const copySource = event['copySource'];
+  const fields = eventLogFields(event);
+  return (
+    fields.action !== undefined &&
+    fields.bucket !== undefined &&
+    typeof key === 'string' &&
+    key.length > 0 &&
+    key.length <= 1024 &&
+    isOptional(event['eventTime'], isString) &&
+    isOptional(object['eTag'], isString) &&
+    isOptional(object['size'], value => typeof value === 'number') &&
+    (copySource === undefined ||
+      (isRecord(copySource) &&
+        isOptional(copySource['bucket'], isString) &&
+        isOptional(copySource['object'], isString)))
   );
+}
+
+function logOutcome(event: R2EventMessage, message: string): void {
+  console.log(JSON.stringify({ level: 'info', message, ...eventLogFields(event) }));
 }
 
 /** Opportunistic per-batch prune: markers older than the retention are dead. */
@@ -417,7 +474,7 @@ async function pruneMarkers(db: ReturnType<typeof createDb>): Promise<void> {
       JSON.stringify({
         level: 'warn',
         message: 'r2-event-prune-failed',
-        error: error instanceof Error ? error.message : String(error),
+        errorName: errorName(error),
       }),
     );
   }
@@ -451,8 +508,8 @@ export async function handleR2EventBatch(
         JSON.stringify({
           level: 'error',
           message: 'r2-event-processing-failed',
-          error: error instanceof Error ? error.message : String(error),
-          body: message.body,
+          ...eventLogFields(message.body),
+          errorName: errorName(error),
         }),
       );
       message.retry();

@@ -1,8 +1,9 @@
 import { env } from 'cloudflare:test';
 import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
-import { handleProxy, MAX_PROXY_REDIRECTS } from '../../src/handlers/proxy';
+import { handleProxy, leavesOrigin, MAX_PROXY_REDIRECTS } from '../../src/handlers/proxy';
 import type { AppEnv, KVRouteConfig } from '../../src/types';
+import { isInternalHeader } from '../../src/utils/internal-headers';
 
 const capturedUrl = (route: KVRouteConfig, requestUrl: string) => {
   const app = new Hono<AppEnv>();
@@ -419,6 +420,9 @@ async function proxyThrough(
   }
 }
 
+/** A URL, for leavesOrigin. */
+const at = (href: string) => new URL(href);
+
 const redirectTo =
   (location: string, status = 302) =>
   () =>
@@ -427,6 +431,71 @@ const ok =
   (text = 'final') =>
   () =>
     new Response(text, { status: 200 });
+
+// A refused redirect hop logs the fixed refusal, the stored route pattern and
+// the configured target, never the upstream Location, which can echo the
+// visitor's remainder and query (log rule).
+describe('handleProxy refused redirect hop log', () => {
+  it("never logs the visitor's remainder or query echoed in the refused Location", async () => {
+    const remainder = 'visitor-remainder-marker';
+    const query = 'visitor-query-marker';
+    const lines: string[] = [];
+    for (const channel of ['error', 'warn', 'log', 'info', 'debug'] as const) {
+      vi.spyOn(console, channel).mockImplementation((...args: unknown[]) => {
+        lines.push(args.map(String).join(' '));
+      });
+    }
+    const fetched: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const url = new URL(
+        typeof input === 'string' ? input : input instanceof Request ? input.url : String(input),
+      );
+      fetched.push(url.href);
+      return new Response('moved', {
+        status: 302,
+        headers: { location: `http://10.0.0.1${url.pathname}${url.search}` },
+      });
+    });
+    const route: KVRouteConfig = {
+      path: '/docs/*',
+      type: 'proxy',
+      target: 'https://upstream.example.net/base',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    const app = new Hono<AppEnv>();
+    app.all('*', c => handleProxy(c, route));
+    try {
+      const response = await app.fetch(
+        new Request(`https://links.example.com/docs/${remainder}/page?q=${query}`),
+        env,
+      );
+      expect(response.status).toBe(502);
+      expect(await response.json()).toMatchObject({
+        type: 'validation_error',
+        message: 'The proxy target is not allowed.',
+      });
+    } finally {
+      fetchSpy.mockRestore();
+      vi.restoreAllMocks();
+    }
+    // The upstream did echo both, so the refused Location carried them
+    expect(fetched).toHaveLength(1);
+    expect(fetched[0]).toContain(remainder);
+    expect(fetched[0]).toContain(query);
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0] ?? '')).toMatchObject({
+      level: 'error',
+      message: 'Proxy validation_error',
+      path: '/docs/*',
+      target: 'https://upstream.example.net/base',
+    });
+    for (const line of lines) {
+      expect(line).not.toContain(remainder);
+      expect(line).not.toContain(query);
+    }
+  });
+});
 
 describe('handleProxy redirects (v1.38.0)', () => {
   it('follows an allowed redirect itself, with redirect: manual, and serves the final answer', async () => {
@@ -645,6 +714,139 @@ describe('handleProxy redirects (v1.38.0)', () => {
     for (const request of [first, sameOrigin]) {
       expect(request?.headers.get('x-custom-secret')).toBe('custom');
     }
+  });
+
+  // v1.39.0: a host redirecting itself from http to
+  // https is not another origin for forwarding, so a CDN target that upgrades
+  // keeps the route's Host override and the request headers
+  it('keeps the headers and the Host override across a same-host upgrade to https', async () => {
+    const { response, sent } = await proxyThrough(
+      [redirectTo('https://upstream.example.com/base'), ok()],
+      new Request('https://links.example.com/svc', {
+        headers: { Authorization: 'Bearer visitor-token', 'X-Custom': 'kept' },
+      }),
+      { target: 'http://upstream.example.com/base', hostHeader: 'origin.example.com' },
+    );
+    expect(response.status).toBe(200);
+    expect(sent.map(request => request.url)).toEqual([
+      'http://upstream.example.com/base',
+      'https://upstream.example.com/base',
+    ]);
+    for (const request of sent) {
+      expect(request.headers.get('host')).toBe('origin.example.com');
+      expect(request.headers.get('authorization')).toBe('Bearer visitor-token');
+      expect(request.headers.get('x-custom')).toBe('kept');
+    }
+  });
+
+  it.each([
+    [
+      'a downgrade to http',
+      'https://upstream.example.com/base',
+      'http://upstream.example.com/next',
+    ],
+    ['another host', 'http://upstream.example.com/base', 'https://cdn.example.net/next'],
+    [
+      'a port on the upgrade',
+      'http://upstream.example.com/base',
+      'https://upstream.example.com:8443/next',
+    ],
+    [
+      'an upgrade from a port',
+      'http://upstream.example.com:8080/base',
+      'https://upstream.example.com/next',
+    ],
+  ])('strips them on %s', async (_label, target, location) => {
+    const { response, sent } = await proxyThrough(
+      [redirectTo(location), ok()],
+      new Request('https://links.example.com/svc', {
+        headers: { Authorization: 'Bearer visitor-token', 'X-Custom': 'dropped' },
+      }),
+      { target, hostHeader: 'origin.example.com' },
+    );
+    expect(response.status).toBe(200);
+    const [, next] = sent;
+    expect(next?.url).toBe(location);
+    expect(next?.headers.get('host')).toBeNull();
+    expect(next?.headers.get('authorization')).toBeNull();
+    expect(next?.headers.get('x-custom')).toBeNull();
+  });
+
+  it('reads an upgrade as staying on the origin only for the same host on default ports', () => {
+    expect(leavesOrigin(at('http://a.example.com/x'), at('https://a.example.com/y'))).toBe(false);
+    expect(leavesOrigin(at('http://a.example.com:80/x'), at('https://a.example.com:443/y'))).toBe(
+      false,
+    );
+    expect(leavesOrigin(at('https://a.example.com/x'), at('https://a.example.com/y'))).toBe(false);
+    expect(leavesOrigin(at('https://a.example.com/x'), at('http://a.example.com/y'))).toBe(true);
+    expect(leavesOrigin(at('http://a.example.com/x'), at('https://b.example.com/y'))).toBe(true);
+    expect(leavesOrigin(at('http://a.example.com/x'), at('https://a.example.com:8443/y'))).toBe(
+      true,
+    );
+  });
+
+  // v1.39.0: the deployment's own credentials and identity never reach an
+  // upstream, not even on the first hop to the route's own target
+  it('never sends the admin key, X-Bifrost-* or Tailscale-User-* headers on any hop', async () => {
+    const { response, sent } = await proxyThrough(
+      [redirectTo('/same'), ok()],
+      new Request('https://links.example.com/svc', {
+        headers: {
+          'X-Admin-Key': 'admin-key-value',
+          'X-Bifrost-Dashboard': '1',
+          'X-Bifrost-Anything': 'x',
+          'Tailscale-User-Login': 'person@example.com',
+          'Tailscale-User-Name': 'A Person',
+          'Tailscale-User-Profile-Pic': 'https://example.com/pic.png',
+          Authorization: 'Bearer visitor-token',
+          'X-Custom': 'kept',
+        },
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(sent).toHaveLength(2);
+    for (const request of sent) {
+      const names = [...request.headers.keys()];
+      expect(names.filter(name => isInternalHeader(name))).toEqual([]);
+      for (const name of [
+        'x-admin-key',
+        'x-bifrost-dashboard',
+        'x-bifrost-anything',
+        'tailscale-user-login',
+        'tailscale-user-name',
+        'tailscale-user-profile-pic',
+      ]) {
+        expect({ name, value: request.headers.get(name) }).toEqual({ name, value: null });
+      }
+      // Everything else a same-origin hop carries is untouched
+      expect(request.headers.get('authorization')).toBe('Bearer visitor-token');
+      expect(request.headers.get('x-custom')).toBe('kept');
+    }
+    expect(isInternalHeader('X-ADMIN-KEY')).toBe(true);
+    expect(isInternalHeader('x-bifrostx')).toBe(false);
+    expect(isInternalHeader('tailscale-funnel-request')).toBe(false);
+  });
+
+  // v1.39.0: the admin API also takes the key as `Authorization: Bearer
+  // <key>` (or the bare key), so that header is dropped when it carries the
+  // admin key itself; a visitor's own Authorization still goes upstream
+  it('never sends an Authorization header that carries the admin key, on any hop', async () => {
+    for (const value of [`Bearer ${String(env.ADMIN_API_KEY)}`, String(env.ADMIN_API_KEY)]) {
+      const { response, sent } = await proxyThrough(
+        [redirectTo('/same'), ok()],
+        new Request('https://links.example.com/svc', { headers: { Authorization: value } }),
+      );
+      expect(response.status).toBe(200);
+      expect(sent).toHaveLength(2);
+      for (const request of sent) expect(request.headers.get('authorization')).toBeNull();
+    }
+    const { sent } = await proxyThrough(
+      [ok()],
+      new Request('https://links.example.com/svc', {
+        headers: { Authorization: `Bearer ${String(env.ADMIN_API_KEY)}x` },
+      }),
+    );
+    expect(sent[0]?.headers.get('authorization')).toBe(`Bearer ${String(env.ADMIN_API_KEY)}x`);
   });
 
   it('turns a POST into a GET without a body on 303, 301 and 302', async () => {

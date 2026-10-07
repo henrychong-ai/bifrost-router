@@ -13,6 +13,16 @@ import {
   readResponseJson,
   readStoredJson,
 } from '../utils/boundary';
+import { errorName } from '../utils/error-name';
+
+/**
+ * A poll that stopped for a reason of its own (v1.39.0): its message is fixed
+ * text (an HTTP status at most, never a response body), so it is logged as it
+ * is, unlike any other error's.
+ */
+class CfAuditPollError extends Error {
+  override name = 'CfAuditPollError';
+}
 
 /**
  * Cloudflare account audit-log poller (v1.28.0, Layer 2 of the R2 external
@@ -238,13 +248,15 @@ async function fetchAuditPage(
     { headers: { Authorization: `Bearer ${credentials.token}` } },
   );
   if (!response.ok) {
-    throw new Error(
-      `CF audit_logs API ${response.status}: ${(await response.text()).slice(0, 200)}`,
-    );
+    await response.body?.cancel();
+    throw new CfAuditPollError(`CF audit_logs API answered HTTP ${response.status}`);
   }
   const read = await readResponseJson(response, auditPageBody);
-  if (read.status !== 'ok') throw new Error('CF audit_logs API returned an invalid body');
-  if (read.value.success === false) throw new Error('CF audit_logs API returned success=false');
+  if (read.status !== 'ok')
+    throw new CfAuditPollError('CF audit_logs API returned an invalid body');
+  if (read.value.success === false) {
+    throw new CfAuditPollError('CF audit_logs API returned success=false');
+  }
   const raw = read.value.result ?? [];
   // A malformed entry is never recorded half-read; it is kept in a minimal
   // shape and recorded as unparsed, not dropped
@@ -499,7 +511,11 @@ export async function pollCfAuditLogs(env: Bindings): Promise<void> {
       JSON.stringify({
         level: 'error',
         message: 'cf-audit-poll-failed',
-        error: error instanceof Error ? error.message : String(error),
+        // The class only (v1.39.0): a D1 failure's message quotes the audit
+        // entry being recorded (actors, addresses). The poller's own fixed
+        // reasons are kept.
+        errorName: errorName(error),
+        reason: error instanceof CfAuditPollError ? error.message : undefined,
       }),
     );
   }

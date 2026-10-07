@@ -2,23 +2,42 @@ services:
   admin:
     build:
       # The Dockerfile copies the workspace (shared/, admin/, lockfile), so the
-      # context is the repository root.
+      # context is the repository root. The image takes no build argument.
       context: ..
       dockerfile: admin/Dockerfile
-      args:
-        VITE_API_URL: https://example.com
     environment:
-      # ADMIN_API_KEY is injected at runtime (not baked into the image).
-      # Set via a .env file or shell export before running docker compose up.
+      # Required. The Worker the dashboard's /api proxy reaches (https://host,
+      # no port), e.g. https://bifrost.example.com.
+      API_PROXY_ORIGIN: ${API_PROXY_ORIGIN}
+      # Required, injected at runtime (never baked into the image): nginx adds
+      # it to every /api call it proxies, and the container refuses to start
+      # without it. The browser never receives it. Set via a .env file or a
+      # shell export before running docker compose up.
       ADMIN_API_KEY: ${ADMIN_API_KEY}
+      # Optional: enforce (default) or report-only, and the dashboard's own
+      # https origin to turn on CSP violation reports (e.g.
+      # "https://dashboard.example.com"). See the root README.md.
+      CSP_MODE: ${CSP_MODE:-}
+      CSP_REPORT_ORIGIN: ${CSP_REPORT_ORIGIN:-}
       # Optional: R2 custom-domain origins the dashboard previews PDFs from,
-      # space-separated (e.g. "https://files.example.com"). See the root README.md.
+      # space-separated (e.g. "https://files.example.com").
       R2_PREVIEW_ORIGINS: ${R2_PREVIEW_ORIGINS:-}
+      # Optional: IPv4 DNS resolvers for the Worker host (default 1.1.1.1 1.0.0.1).
+      API_PROXY_RESOLVER: ${API_PROXY_RESOLVER:-}
+      # Optional: host names the browser opens the dashboard by besides
+      # localhost and 127.0.0.1, e.g. "dashboard.example.com" behind your front
+      # door, which must pass the browser's Host through unchanged; any other
+      # Host gets no answer (/health aside).
+      DASHBOARD_HOSTNAMES: ${DASHBOARD_HOSTNAMES:-}
     ports:
       - "127.0.0.1:3001:3001"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3001/health"]
+      # nginx listens on DASHBOARD_LISTEN_ADDRESS when it is set (127.0.0.1 is
+      # reachable whenever it is the default 0.0.0.0)
+      test:
+        - CMD-SHELL
+        - wget -q --spider "http://$${DASHBOARD_LISTEN_ADDRESS:-127.0.0.1}:3001/health"
       interval: 30s
       timeout: 10s
       retries: 3

@@ -13,6 +13,8 @@
  * ADVISORY ONLY: nothing here blocks a write. The server never calls it.
  */
 
+import { trimTrailingSlashes } from './r2-key.js';
+
 export type LinkNamingIssueCode = 'file-extension' | 'file-name' | 'date' | 'version';
 
 export interface LinkNamingIssue {
@@ -83,11 +85,25 @@ const TOKEN_PATTERNS: ReadonlyArray<{
 /** Lowercase letters and digits only — "ignoring case and separators". */
 const squash = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-/** `report.pdf` → `report`; a dotless or dot-leading name is returned unchanged. */
-const stem = (name: string) => name.replace(/(.)\.[^.]*$/, '$1');
+/** The line terminators `.` does not match in a regular expression. */
+const LINE_TERMINATORS = new Set(['\n', '\r', '\u2028', '\u2029']);
 
-function lastSegment(value: string): string {
-  return value.replace(/\/+$/, '').split('/').pop() ?? '';
+/**
+ * `report.pdf` → `report`; a dotless or dot-leading name is returned
+ * unchanged. A linear scan (v1.39.0) with exactly the result of
+ * `name.replace(/(.)\.[^.]*$/, '$1')`, which code scanning flags as
+ * polynomial: the LAST dot is cut with everything after it, when a character
+ * other than a line terminator comes before it.
+ */
+export function stem(name: string): string {
+  const dot = name.lastIndexOf('.');
+  if (dot < 1 || LINE_TERMINATORS.has(name.charAt(dot - 1))) return name;
+  return name.slice(0, dot);
+}
+
+/** The last `/` segment of a path, trailing slashes ignored (exported for tests). */
+export function lastSegment(value: string): string {
+  return trimTrailingSlashes(value).split('/').pop() ?? '';
 }
 
 /**

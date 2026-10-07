@@ -17,6 +17,7 @@
 
 import { sanitizeComment } from '@bifrost/shared';
 import { and, eq, inArray, sql } from 'drizzle-orm';
+import { errorName } from '../utils/error-name';
 import { createDb } from './index';
 import { fileComments } from './schema';
 
@@ -29,14 +30,20 @@ export interface FileCommentRecord {
   updatedAt: number;
 }
 
-function logCommentError(message: string, error: unknown, bucket: string, key?: string): void {
+/**
+ * A failed comment read or write, by the error's class and the bucket only
+ * (v1.39.0): Drizzle's message quotes the statement's parameters (the key and
+ * the comment text). The comment text never reaches a log line; an admin
+ * object key may, in other operational lines (AGENTS.md → Worker logs), but
+ * this one needs only the bucket.
+ */
+function logCommentError(message: string, error: unknown, bucket: string): void {
   console.error(
     JSON.stringify({
       level: 'error',
       message,
-      error: error instanceof Error ? error.message : String(error),
+      errorName: errorName(error),
       bucket,
-      key,
     }),
   );
 }
@@ -59,7 +66,7 @@ export async function getFileComment(
     if (!row) return null;
     return { comment: row.comment, updatedBy: row.updatedBy, updatedAt: row.updatedAt };
   } catch (error) {
-    logCommentError('Failed to read file comment', error, bucket, key);
+    logCommentError('Failed to read file comment', error, bucket);
     return null;
   }
 }
@@ -192,7 +199,7 @@ export async function deleteFileComment(
       .delete(fileComments)
       .where(and(eq(fileComments.bucket, bucket), eq(fileComments.key, key)));
   } catch (error) {
-    logCommentError('Failed to delete file comment', error, bucket, key);
+    logCommentError('Failed to delete file comment', error, bucket);
   }
 }
 
@@ -221,6 +228,6 @@ export async function carryFileComment(
       .delete(fileComments)
       .where(and(eq(fileComments.bucket, params.fromBucket), eq(fileComments.key, params.fromKey)));
   } catch (error) {
-    logCommentError('Failed to carry file comment', error, params.fromBucket, params.fromKey);
+    logCommentError('Failed to carry file comment', error, params.fromBucket);
   }
 }

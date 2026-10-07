@@ -38,6 +38,28 @@ describe('getR2ObjectUrl', () => {
     expect(getR2ObjectUrl('nonexistent', 'file.txt')).toBeNull();
     expect(getR2ObjectUrl('bifrost-backups', 'backup.gz')).toBeNull();
   });
+
+  describe('with a custom domain', () => {
+    beforeEach(() => {
+      R2_BUCKET_CUSTOM_DOMAINS['files'] = 'files.example.com';
+      return () => {
+        delete R2_BUCKET_CUSTOM_DOMAINS['files'];
+      };
+    });
+
+    test('encodes each segment of a normal key', () => {
+      expect(getR2ObjectUrl('files', 'docs/a b#1.pdf')).toBe(
+        'https://files.example.com/docs/a%20b%231.pdf',
+      );
+    });
+
+    // URL parsers resolve dot segments, so the link would open another object
+    test('refuses a key with a dot segment, a leading slash or an empty segment', () => {
+      for (const key of ['a/../b', './a', 'a/.', '/report.pdf', 'a//b', 'dir/']) {
+        expect({ key, url: getR2ObjectUrl('files', key) }).toEqual({ key, url: null });
+      }
+    });
+  });
 });
 
 // =============================================================================

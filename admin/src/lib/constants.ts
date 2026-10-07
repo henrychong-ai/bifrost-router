@@ -1,3 +1,5 @@
+import { objectKeySegments } from '@bifrost/shared';
+
 export const DEFAULT_PAGE_SIZE = 50;
 export const PAGE_SIZE_OPTIONS = [50, 100, 250] as const;
 export const PAGE_SIZE_STORAGE_KEY = 'bifrost-page-size';
@@ -33,12 +35,21 @@ export const R2_BUCKET_CUSTOM_DOMAINS: Record<string, string> = {
   // Example: files: 'files.example.com',
 };
 
-/** Build public URL for an R2 object. Returns null if bucket has no custom domain. */
+/**
+ * Build the public URL for an R2 object on its bucket's custom domain. Returns
+ * null if the bucket has no custom domain, or if the key cannot be addressed
+ * in a URL (a leading slash, an empty segment or a `.` or `..` segment, which
+ * would open another object): the same rule as the API calls,
+ * `objectKeySegments` (`@bifrost/shared`).
+ */
 export function getR2ObjectUrl(bucket: string, key: string): string | null {
   const domain = R2_BUCKET_CUSTOM_DOMAINS[bucket];
   if (!domain) return null;
-  const encodedPath = key.split('/').map(encodeURIComponent).join('/');
-  return `https://${domain}/${encodedPath}`;
+  try {
+    return `https://${domain}/${objectKeySegments(key)}`;
+  } catch {
+    return null;
+  }
 }
 
 // -----------------------------------------------------------------------------

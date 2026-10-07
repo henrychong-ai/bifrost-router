@@ -296,11 +296,10 @@ describe('handleScheduled', () => {
     } as unknown as Bindings);
 
     expect(second.success).toBe(false);
-    // v1.37.1: the result is fixed text; the platform error is logged once
+    // v1.37.1: the result is fixed text; the platform error is logged once,
+    // by its class only (v1.39.0)
     expect(second.error).toBe('Storage or platform error');
-    expect(errorLog).toHaveBeenCalledOnce();
-    expect(errorLog.mock.calls[0]?.[0]).toBe('[Backup] Platform error:');
-    expect(errorLog.mock.calls[0]?.[1]).toMatchObject({ message: 'R2 refused the put' });
+    expect(errorLog.mock.calls).toEqual([['[Backup] Platform error: Error']]);
     expect(calls.map(c => `${c.op} ${c.name}`)).toEqual(['put kv-routes.ndjson.gz']);
     expect({
       archive: await readBytes(`daily/${date}/kv-routes.ndjson.gz`),

@@ -2,7 +2,7 @@ import { MutationObserver, QueryClient } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/env', () => ({
-  env: { VITE_API_URL: 'https://api.example.test', ADMIN_API_KEY: 'test-admin-key' },
+  env: { API_ORIGIN: 'https://api.example.test' },
 }));
 
 // `vi.mock` is hoisted above every top-level binding, so the spies are created

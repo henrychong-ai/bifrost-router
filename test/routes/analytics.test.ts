@@ -371,6 +371,68 @@ describe('analytics routes', () => {
       expect([200, 404]).toContain(response.status);
     });
 
+    // v1.39.0: the slug arrives as path segments (the dashboard's /api proxy
+    // refuses %2F), the root slug as the empty remainder; the one-segment
+    // %2F spelling of older clients still reads the same
+    it('reads a multi-segment, an encoded and the root slug', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+      const now = Math.floor(Date.now() / 1000);
+      for (const slug of ['/promo/summer sale', '/', '/a#b']) {
+        await env.DB.prepare(
+          'INSERT INTO link_clicks (domain, slug, target_url, created_at) VALUES (?, ?, ?, ?)',
+        )
+          .bind('example.com', slug, 'https://example.net/', now)
+          .run();
+      }
+      for (const [target, slug] of [
+        ['/api/analytics/clicks/promo/summer%20sale', '/promo/summer sale'],
+        ['/api/analytics/clicks/promo%2Fsummer%20sale', '/promo/summer sale'],
+        ['/api/analytics/clicks/', '/'],
+        ['/api/analytics/clicks/a%23b', '/a#b'],
+      ] as const) {
+        const response = await makeRequest(app, `${target}?domain=example.com`);
+        expect({ target, status: response.status }).toEqual({ target, status: 200 });
+        const data = (await response.json()) as { data: { slug: string; totalClicks: number } };
+        expect(data.data.slug).toBe(slug);
+        expect(data.data.totalClicks).toBeGreaterThan(0);
+      }
+    });
+
+    // v1.39.0: download and proxy stats take the path as slug stats do, so
+    // the root path `/` is the empty remainder, not the list endpoint
+    it.each([
+      ['downloads', 'file_downloads', 'r2_key', 'totalDownloads'],
+      ['proxy', 'proxy_requests', 'target_url', 'totalRequests'],
+    ] as const)('%s stats read the root and a nested path', async (kind, table, column, total) => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+      const now = Math.floor(Date.now() / 1000);
+      for (const [path, count] of [
+        ['/', 2],
+        ['/docs/a b.pdf', 1],
+      ] as const) {
+        for (let i = 0; i < count; i += 1) {
+          await env.DB.prepare(
+            `INSERT INTO ${table} (domain, path, ${column}, created_at) VALUES (?, ?, ?, ?)`,
+          )
+            .bind('example.com', path, 'x', now)
+            .run();
+        }
+      }
+      for (const [target, path, count] of [
+        [`/api/analytics/${kind}/`, '/', 2],
+        [`/api/analytics/${kind}/docs/a%20b.pdf`, '/docs/a b.pdf', 1],
+      ] as const) {
+        const response = await makeRequest(app, `${target}?domain=example.com`);
+        expect({ target, status: response.status }).toEqual({ target, status: 200 });
+        const data = (await response.json()) as { data: Record<string, unknown> };
+        expect(data.data).toMatchObject({ path, [total]: count });
+      }
+      // Without the trailing slash it is still the list
+      const list = await makeRequest(app, `/api/analytics/${kind}?domain=example.com`);
+      expect(list.status).toBe(200);
+      expect(((await list.json()) as { meta?: unknown }).meta).toBeDefined();
+    });
+
     it('validates days parameter', async () => {
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
 

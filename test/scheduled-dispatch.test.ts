@@ -122,7 +122,7 @@ describe('scheduled backup cron', () => {
     }
   });
 
-  it('rejects a platform error with the generic text and logs the error itself once', async () => {
+  it('rejects a platform error with the generic text and logs its class once', async () => {
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     const failingKv = {
       list: async () => {
@@ -138,15 +138,13 @@ describe('scheduled backup cron', () => {
     expect(((backup as PromiseRejectedResult).reason as Error).message).toBe(
       'Backup failed: Storage or platform error',
     );
-    const lines = errorLog.mock.calls.map(args => String(args[0]));
-    expect(lines).toEqual([
-      '[Backup] Platform error:',
-      '[Scheduled] Backup failed: Storage or platform error',
+    // The platform error is logged once, by its class only (v1.39.0): a
+    // message can quote a key or a stored value
+    expect(errorLog.mock.calls).toEqual([
+      ['[Backup] Platform error: Error'],
+      ['[Scheduled] Backup failed: Storage or platform error'],
     ]);
-    // The platform error is logged once, as it is, for diagnosis
-    expect(errorLog.mock.calls[0]?.[1]).toMatchObject({
-      message: 'KV list unavailable: internal detail',
-    });
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain('internal detail');
   });
 
   // A SyntaxError's message can quote the text it failed to parse, so a
@@ -168,7 +166,7 @@ describe('scheduled backup cron', () => {
       'Backup failed: Storage or platform error',
     );
     expect(errorLog.mock.calls).toEqual([
-      ['[Backup] Platform error:', 'SyntaxError'],
+      ['[Backup] Platform error: SyntaxError'],
       ['[Scheduled] Backup failed: Storage or platform error'],
     ]);
   });

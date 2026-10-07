@@ -10,7 +10,7 @@ import { qrApi, routesApi } from './api-client';
 import { ApiError, isQrAlreadyExistsError, isQrNotFoundError } from './api-error';
 
 vi.mock('@/env', () => ({
-  env: { VITE_API_URL: 'https://api.example.test', ADMIN_API_KEY: 'test-admin-key' },
+  env: { API_ORIGIN: 'https://api.example.test' },
 }));
 
 /** A record saved under earlier limits: a 120-character description, 12 tags. */

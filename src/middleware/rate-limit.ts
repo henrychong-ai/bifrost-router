@@ -1,6 +1,7 @@
 import type { Context, Next } from 'hono';
 import type { AppEnv } from '../types';
 import { guard, isRecord, logInvalidBoundary, readKvJson } from '../utils/boundary';
+import { errorName } from '../utils/error-name';
 
 /**
  * Rate limit configuration
@@ -149,8 +150,7 @@ export function rateLimit(config: Partial<RateLimitConfig> = {}) {
         JSON.stringify({
           level: 'error',
           message: 'Rate limiting error (failing open)',
-          error: error instanceof Error ? error.message : String(error),
-          clientIP,
+          errorName: errorName(error),
         }),
       );
 
@@ -230,8 +230,7 @@ export function rateLimitStrict(config: Partial<RateLimitConfig> = {}) {
         JSON.stringify({
           level: 'error',
           message: 'Rate limiting error (failing closed)',
-          error: error instanceof Error ? error.message : String(error),
-          clientIP,
+          errorName: errorName(error),
         }),
       );
 

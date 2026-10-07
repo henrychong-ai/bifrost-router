@@ -29,6 +29,7 @@ import {
   qrSearchFields,
   SEARCH_PARAM_MAX_LENGTH,
 } from './search.js';
+import { trimEndChars } from './trim-chars.js';
 import { SUPPORTED_DOMAINS, SUPPORTED_DOMAINS_LIST } from './types.js';
 
 // ---------------------------------------------------------------------------
@@ -97,7 +98,8 @@ const QR_ID_MAX_LENGTH = 32;
  * rather than this function inventing padding.
  */
 export function normalizeQrId(input: string): string {
-  return normalizeQrIdInput(input).replace(/-+$/, '');
+  // A linear trim (v1.39.0), not the polynomial `/-+$/`
+  return trimEndChars(normalizeQrIdInput(input), '-');
 }
 
 /**

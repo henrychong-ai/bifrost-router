@@ -57,7 +57,9 @@ describe('own-host preview parity with src/index.ts', () => {
     expect(WORKER_ANSWERED_EXACT_PATHS).toEqual(['/.well-known/security.txt', '/health', '/api']);
     expect(WORKER_ANSWERED_PREFIXES).toEqual(['/api/']);
     // The catch-all's own early exit, which the lists above mirror
-    expect(indexSource).toContain("if (path === '/health' || path.startsWith('/api/')) {");
+    expect(indexSource).toContain(
+      "if (path === '/health' || path === '/api' || path.startsWith('/api/')) {",
+    );
     // Global middleware: denySensitivePaths is the one that answers before
     // routing (isSensitivePath); a new app.use must be reviewed here
     expect(indexSource.match(/^app\.use\(/gm)).toHaveLength(5);

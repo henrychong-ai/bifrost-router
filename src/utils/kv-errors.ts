@@ -4,6 +4,8 @@
  * Provides typed error handling for KV failures
  */
 
+import { errorName } from './error-name';
+
 /**
  * Base class for KV-related errors
  */
@@ -81,13 +83,15 @@ export async function withKVErrorHandling<T>(
   } catch (error) {
     const kvError = errorFactory(error instanceof Error ? error : new Error(String(error)));
 
+    // The operation and the cause's class only (v1.39.0): the message names
+    // the key, a `domain:path` that can be a visitor's path, and the cause's
+    // message can quote it too
     console.error(
       JSON.stringify({
         level: 'error',
-        message: kvError.message,
+        message: 'KV operation failed',
         operation: kvError.operation,
-        key: kvError.key,
-        cause: kvError.cause?.message,
+        errorName: errorName(kvError.cause),
       }),
     );
 

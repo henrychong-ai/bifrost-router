@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { LINK_NAMING_HINT, type LinkNamingIssueCode, linkNamingIssues } from './link-naming.js';
+import { allStrings, growthRatio, LINEAR_GROWTH_LIMIT } from './linear.test-support.js';
+import {
+  LINK_NAMING_HINT,
+  type LinkNamingIssueCode,
+  lastSegment,
+  linkNamingIssues,
+  stem,
+} from './link-naming.js';
 
 const codes = (path: string, fileKey?: string) =>
   linkNamingIssues(path, fileKey).map(issue => `${issue.code}:${issue.token}`);
@@ -127,5 +134,38 @@ describe('linkNamingIssues', () => {
     expect(LINK_NAMING_HINT).toBe(
       'Name the link after the document, not the file — no dates, versions or file extensions. The link stays the same when you swap the file later.',
     );
+  });
+});
+
+// v1.39.0: code scanning flagged the stem regex `(.)\.[^.]*$` (alert #6) and
+// the trailing-slash regex in lastSegment as polynomial; both are linear
+// scans now, with identical results.
+describe('stem and lastSegment', () => {
+  it('equal the regexes they replace on every short string', () => {
+    for (const value of allStrings(['.', 'a', '/', '\n', '\u2028'], 6)) {
+      expect(stem(value)).toBe(value.replace(/(.)\.[^.]*$/, '$1'));
+      expect(lastSegment(value)).toBe(value.replace(/\/+$/, '').split('/').pop() ?? '');
+    }
+    expect(stem('report.pdf')).toBe('report');
+    expect(stem('.env')).toBe('.env');
+    expect(stem('a.b.c')).toBe('a.b');
+    expect(stem('\n.pdf')).toBe('\n.pdf');
+  });
+
+  it('are linear on long runs of dots and slashes (growth ratio, not wall-clock)', () => {
+    expect(stem('.'.repeat(1000))).toBe('.'.repeat(999));
+    expect(stem(`x${'.a'.repeat(500)}`)).toBe(`x${'.a'.repeat(499)}`);
+    expect(lastSegment(`${'/'.repeat(1000)}x`)).toBe('x');
+    expect(lastSegment(`x${'/'.repeat(1000)}`)).toBe('x');
+    // About 8 for a linear scan when the input grows 8 times, about 64 for a
+    // quadratic one
+    for (const [fn, input] of [
+      [stem, (n: number) => `x${'.a'.repeat(n / 2)}`],
+      [stem, (n: number) => '.'.repeat(n)],
+      [lastSegment, (n: number) => `${'/'.repeat(n)}x`],
+      [lastSegment, (n: number) => `x${'/'.repeat(n)}`],
+    ] as const) {
+      expect(growthRatio(fn, input)).toBeLessThan(LINEAR_GROWTH_LIMIT);
+    }
   });
 });

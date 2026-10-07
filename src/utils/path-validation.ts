@@ -44,8 +44,6 @@ export function validateR2Key(key: string, opts?: { normalize?: boolean }): R2Ke
       JSON.stringify({
         level: 'warn',
         message: 'R2 key rejected — contains invalid characters or path components',
-        original: key,
-        sanitized: sanitizedKey,
       }),
     );
     return {

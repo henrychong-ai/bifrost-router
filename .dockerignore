@@ -50,8 +50,8 @@ admin/dist
 shared/dist
 
 # Credential files: never in the build context. COPY admin/ would otherwise put
-# admin/.env.local (VITE_ADMIN_API_KEY) into the builder, and Vite would inline
-# it. The examples stay, as they hold no secrets.
+# admin/.env.local (DASHBOARD_DEV_ADMIN_API_KEY) into the builder, its layers
+# and the build cache. The examples stay, as they hold no secrets.
 **/.env
 **/.env.*
 !**/.env.example

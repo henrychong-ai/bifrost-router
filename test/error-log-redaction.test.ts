@@ -42,49 +42,42 @@ async function serveThrowingRoute(message: string): Promise<{ lines: string[]; b
 }
 
 /**
- * Unhandled-error logs must not persist credentials.
+ * Unhandled-error logs must not persist credentials or request paths.
  *
  * A thrown Error's message and stack are attacker-influenceable and routinely
- * carry whatever credential the failing call was holding — an Authorization
- * header echoed back by a fetch failure, a token in a URL. Both the structured
- * log line and the development-only diagnostic echoed in the response body
- * carried them verbatim; both now pass through the shared redactor.
+ * carry whatever the failing call was holding: a credential (an Authorization
+ * header echoed back by a fetch failure, a token in a URL) or the visitor's
+ * path and query (a KV read names the `domain:path` key it read). The log line
+ * names the error's class only (v1.39.0); the development-only diagnostic
+ * echoed in the response body passes through the shared redactor.
  */
-describe('unhandled-error log redaction', () => {
+describe('unhandled-error logs', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('redacts a Bearer token from the logged message and stack', async () => {
-    const { lines } = await serveThrowingRoute(
+  it('log the error class, never the message or stack', async () => {
+    for (const message of [
       'upstream rejected Authorization: Bearer sk-live-abcdef123456',
-    );
-
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).not.toContain('sk-live-abcdef123456');
-    expect(lines[0]).toContain('[REDACTED]');
-    // The rest of the diagnostic survives — this is redaction, not suppression.
-    expect(lines[0]).toContain('upstream rejected');
-    expect(lines[0]).toContain('"path":"/boom"');
-  });
-
-  it('redacts a JWT-shaped string', async () => {
-    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJlLXZhbHVl';
-    const { lines } = await serveThrowingRoute(`session invalid: ${jwt}`);
-
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).not.toContain(jwt);
-    expect(lines[0]).toContain('[REDACTED]');
-  });
-
-  it('leaves a credential-free message byte-identical', async () => {
-    const { lines, body } = await serveThrowingRoute('R2 bucket temporarily unavailable');
-
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain('R2 bucket temporarily unavailable');
-    expect(lines[0]).not.toContain('[REDACTED]');
-    // The development diagnostic still reaches the developer intact.
-    expect(body).toContain('R2 bucket temporarily unavailable');
+      'session invalid: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJlLXZhbHVl',
+      'KV GET failed: example.com:/boom/secret-token-123?code=abc',
+      'R2 bucket temporarily unavailable',
+    ]) {
+      const { lines } = await serveThrowingRoute(message);
+      expect(lines).toHaveLength(1);
+      const logged = JSON.parse(lines[0] ?? '{}') as Record<string, unknown>;
+      expect(logged).toEqual({
+        level: 'error',
+        message: 'Unhandled error',
+        errorName: 'Error',
+        // The route pattern, never the request path (v1.39.0)
+        route: '/*',
+        method: 'GET',
+      });
+      for (const word of message.split(/[\s:]+/).filter(part => part.length > 4)) {
+        expect(lines[0]).not.toContain(word);
+      }
+    }
   });
 
   it('redacts the development-only diagnostic echoed in the RESPONSE body', async () => {

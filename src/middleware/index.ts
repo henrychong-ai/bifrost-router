@@ -7,4 +7,4 @@ export {
   rateLimit,
   rateLimitStrict,
 } from './rate-limit';
-export { privacySafeRequestLogger, privacySafeRequestPath } from './request-logger';
+export { privacySafeRequestLogger } from './request-logger';

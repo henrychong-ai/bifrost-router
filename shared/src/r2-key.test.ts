@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { isNormalizedR2Key, isServableR2Key, normalizeR2Key } from './r2-key.js';
+import { allStrings, growthRatio, LINEAR_GROWTH_LIMIT } from './linear.test-support.js';
+import {
+  dropDashesAroundDots,
+  isNormalizedR2Key,
+  isServableR2Key,
+  normalizeR2Key,
+  sanitizeR2Key,
+  trimTrailingSlashes,
+} from './r2-key.js';
 
 describe('normalizeR2Key', () => {
   it('lowercases', () => {
@@ -110,6 +118,100 @@ describe('isServableR2Key: the Worker rule for an r2 route target (v1.38.0)', ()
       'a?b.pdf',
     ]) {
       expect({ key, servable: isServableR2Key(key) }).toEqual({ key, servable: false });
+    }
+  });
+});
+
+// The pre-v1.39.0 body, verbatim, as the reference
+function reference(key: string): string {
+  let sanitized = key;
+  // oxlint-disable-next-line no-control-regex -- the reference copies the original
+  sanitized = sanitized.replace(/\x00/g, '');
+  // oxlint-disable-next-line no-control-regex -- the reference copies the original
+  sanitized = sanitized.replace(/[\x00-\x1f]/g, '');
+  sanitized = sanitized.replace(/[<>:"|?*]/g, '');
+  sanitized = sanitized.replace(/\\/g, '/');
+  while (sanitized.includes('..')) sanitized = sanitized.replace(/\.\./g, '');
+  sanitized = sanitized.replace(/^\/+/, '');
+  sanitized = sanitized.replace(/\/+/g, '/');
+  sanitized = sanitized.replace(/\/+$/, '');
+  sanitized = sanitized.replace(/(?:^|\/)\.(?!\.)[^/]*/g, '');
+  sanitized = sanitized.replace(/^\/+/, '');
+  sanitized = sanitized.replace(/\/+/g, '/');
+  return sanitized.replace(/\/+$/, '');
+}
+
+// v1.39.0: code scanning flagged `/\/+$/` as polynomial (alert #7)
+describe('trimTrailingSlashes', () => {
+  it('equals the regex it replaces on every short string', () => {
+    for (const value of allStrings(['/', 'a', '.', '\n'], 6)) {
+      expect(trimTrailingSlashes(value)).toBe(value.replace(/\/+$/, ''));
+    }
+  });
+
+  it('is linear on a long run of slashes that does not end the string', () => {
+    // The regex took about a second on 50,000 slashes and a letter
+    expect(trimTrailingSlashes(`${'/'.repeat(1000)}x`)).toBe(`${'/'.repeat(1000)}x`);
+    expect(trimTrailingSlashes(`x${'/'.repeat(1000)}`)).toBe('x');
+    for (const input of [(n: number) => `${'/'.repeat(n)}x`, (n: number) => `x${'/'.repeat(n)}`]) {
+      expect(growthRatio(trimTrailingSlashes, input)).toBeLessThan(LINEAR_GROWTH_LIMIT);
+    }
+  });
+
+  it('leaves sanitizeR2Key equal to its regex form, and linear', () => {
+    for (const key of allStrings(['/', 'a', '.', '\\', ':', '\u0001'], 6)) {
+      expect(sanitizeR2Key(key)).toBe(reference(key));
+    }
+    expect(sanitizeR2Key(`a${'/'.repeat(1000)}b`)).toBe('a/b');
+    expect(growthRatio(sanitizeR2Key, n => `a${'/'.repeat(n)}b`)).toBeLessThan(LINEAR_GROWTH_LIMIT);
+  });
+});
+
+/** normalizeR2Key as it was before v1.39.0, with the regexes code scanning flagged. */
+function normalizeR2KeyReference(key: string): string {
+  return key
+    .split('/')
+    .map(segment =>
+      segment
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]+/g, '-')
+        .replace(/-*\.-*/g, '.')
+        .replace(/-+/g, '-')
+        .replace(/\.+/g, '.')
+        .replace(/^[-.]+|[-.]+$/g, ''),
+    )
+    .filter(segment => segment.length > 0)
+    .join('/');
+}
+
+// v1.39.0: `/-*\.-*/g` and `/^[-.]+|[-.]+$/g` in the segment normaliser are
+// polynomial; both are linear scans now, with identical results
+describe('normalizeR2Key linear scans', () => {
+  it('dropDashesAroundDots equals the regex it replaces on every short string', () => {
+    for (const value of allStrings(['-', '.', 'a'], 8)) {
+      expect(dropDashesAroundDots(value)).toBe(value.replace(/-*\.-*/g, '.'));
+    }
+  });
+
+  it('normalizeR2Key equals its regex form on every short string', () => {
+    for (const key of allStrings(['-', '.', 'a', ' ', '/', '\u00c9'], 6)) {
+      expect(normalizeR2Key(key)).toBe(normalizeR2KeyReference(key));
+    }
+    expect(normalizeR2Key('My Report -- Final .. v2 .PDF')).toBe(
+      normalizeR2KeyReference('My Report -- Final .. v2 .PDF'),
+    );
+  });
+
+  it('is linear on long runs of dashes and dots (growth ratio, not wall-clock)', () => {
+    expect(normalizeR2Key(`${'-'.repeat(1000)}a`)).toBe('a');
+    for (const input of [
+      (n: number) => `${'-'.repeat(n)}a`,
+      (n: number) => `a${'-.'.repeat(n / 2)}a`,
+      (n: number) => `a${'.-'.repeat(n / 2)}`,
+    ]) {
+      expect(growthRatio(normalizeR2Key, input)).toBeLessThan(LINEAR_GROWTH_LIMIT);
     }
   });
 });

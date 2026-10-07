@@ -14,6 +14,8 @@ import {
   isInvalidRouteRow,
   type LastBackupInfo,
   type ManifestSummary,
+  objectKeySegments,
+  pathSegments,
   plainErrorText,
   readErrorEnvelope,
   StoredQRCodeSchema,
@@ -22,6 +24,7 @@ import {
 import { z } from 'zod';
 import { env } from '@/env';
 import { ApiError } from './api-error';
+import { DASHBOARD_REQUEST_HEADER, DASHBOARD_REQUEST_VALUE } from './dashboard-request';
 import {
   type AnalyticsQueryParams,
   type AnalyticsSummary,
@@ -60,12 +63,25 @@ import {
 // API Client Configuration
 // =============================================================================
 
-const API_BASE = env.VITE_API_URL;
-const API_KEY = env.ADMIN_API_KEY;
+// Every call goes to the dashboard's own origin; nginx (or the Vite dev
+// server) adds the admin key there. The dashboard never holds it (v1.39.0).
+const API_BASE = env.API_ORIGIN;
 
 // =============================================================================
 // Base Fetch Functions
 // =============================================================================
+
+/**
+ * Every API request the dashboard makes (v1.39.0): the caller's request with
+ * the dashboard header set last, so no caller can drop it. The server in
+ * front of the dashboard adds the admin key only to requests that carry it
+ * (`./dashboard-request`), so a request without it is refused there with 403.
+ */
+function apiFetch(url: URL, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  headers.set(DASHBOARD_REQUEST_HEADER, DASHBOARD_REQUEST_VALUE);
+  return fetch(url.toString(), { ...init, headers });
+}
 
 /**
  * A failed response's error, through the ONE envelope reader the shared
@@ -100,11 +116,11 @@ async function fetchApi<T>(
 ): Promise<T> {
   const url = new URL(path, API_BASE);
 
-  const headers = new Headers({ 'X-Admin-Key': API_KEY, 'Content-Type': 'application/json' });
+  const headers = new Headers({ 'Content-Type': 'application/json' });
   // Caller headers win, in any HeadersInit form (a spread would drop a Headers
   // instance or an entry list).
   new Headers(options.headers).forEach((value, name) => headers.set(name, value));
-  const response = await fetch(url.toString(), { ...options, headers });
+  const response = await apiFetch(url, { ...options, headers });
 
   if (!response.ok) {
     const error = await readErrorBody(response);
@@ -116,6 +132,18 @@ async function fetchApi<T>(
   const data: unknown = await response.json();
   return schema.parse(data);
 }
+
+/**
+ * A route path or slug (`pathSegments`) or an object key (`objectKeySegments`)
+ * as URL path segments (v1.39.0): the shared rules (`@bifrost/shared`), also
+ * the API client's. Every key or path in a URL goes through one of them: a raw
+ * key's `#`, `?`, backslash or `%2e` would address another object, and a whole
+ * value through `encodeURIComponent` carries `%2F`, which the dashboard's /api
+ * proxy refuses. An object key is sent exactly or not at all: one with a
+ * leading slash, an empty segment or a segment of only dots throws
+ * (`UNADDRESSABLE_OBJECT_KEY`), and the page reports that message.
+ */
+export { objectKeySegments, pathSegments };
 
 function buildQueryString(params: Record<string, string | number | boolean | undefined>): string {
   const filtered = Object.entries(params).filter(
@@ -413,7 +441,7 @@ export const analyticsApi = {
   async slugStats(slug: string, params: AnalyticsQueryParams = {}): Promise<SlugStats> {
     const query = buildQueryString(params as Record<string, string | number | undefined>);
     const response = await fetchApi(
-      `/api/analytics/clicks/${encodeURIComponent(slug)}${query}`,
+      `/api/analytics/clicks/${pathSegments(slug)}${query}`,
       SlugStatsResponseSchema,
     );
     if (!response.success || !response.data) {
@@ -449,7 +477,7 @@ export const analyticsApi = {
   async downloadStats(path: string, params: AnalyticsQueryParams = {}): Promise<DownloadStats> {
     const query = buildQueryString(params as Record<string, string | number | undefined>);
     const response = await fetchApi(
-      `/api/analytics/downloads/${encodeURIComponent(path)}${query}`,
+      `/api/analytics/downloads/${pathSegments(path)}${query}`,
       DownloadStatsResponseSchema,
     );
     if (!response.success || !response.data) {
@@ -485,7 +513,7 @@ export const analyticsApi = {
   async proxyStats(path: string, params: AnalyticsQueryParams = {}): Promise<ProxyStats> {
     const query = buildQueryString(params as Record<string, string | number | undefined>);
     const response = await fetchApi(
-      `/api/analytics/proxy/${encodeURIComponent(path)}${query}`,
+      `/api/analytics/proxy/${pathSegments(path)}${query}`,
       ProxyStatsResponseSchema,
     );
     if (!response.success || !response.data) {
@@ -525,11 +553,8 @@ export const backupApi = {
   async health(): Promise<BackupHealthResponse> {
     const url = new URL('/api/backups/health', API_BASE);
 
-    const response = await fetch(url.toString(), {
-      headers: {
-        'X-Admin-Key': API_KEY,
-        'Content-Type': 'application/json',
-      },
+    const response = await apiFetch(url, {
+      headers: { 'Content-Type': 'application/json' },
     });
 
     if (!response.ok) {
@@ -745,7 +770,7 @@ export const storageApi = {
    */
   async getObjectMeta(bucket: string, key: string): Promise<R2ObjectInfo> {
     const response = await fetchApi(
-      `/api/storage/${encodeURIComponent(bucket)}/meta/${key}`,
+      `/api/storage/${encodeURIComponent(bucket)}/meta/${objectKeySegments(key)}`,
       z.object({
         success: z.boolean(),
         data: z.object({
@@ -776,13 +801,12 @@ export const storageApi = {
    * Download an object as a blob
    */
   async downloadObject(bucket: string, key: string): Promise<Blob> {
-    const url = new URL(`/api/storage/${encodeURIComponent(bucket)}/objects/${key}`, API_BASE);
+    const url = new URL(
+      `/api/storage/${encodeURIComponent(bucket)}/objects/${objectKeySegments(key)}`,
+      API_BASE,
+    );
 
-    const response = await fetch(url.toString(), {
-      headers: {
-        'X-Admin-Key': API_KEY,
-      },
-    });
+    const response = await apiFetch(url);
 
     if (!response.ok) {
       const error = await readErrorBody(response);
@@ -810,11 +834,8 @@ export const storageApi = {
       formData.append('overwrite', 'true');
     }
 
-    const response = await fetch(url.toString(), {
+    const response = await apiFetch(url, {
       method: 'POST',
-      headers: {
-        'X-Admin-Key': API_KEY,
-      },
       body: formData,
     });
 
@@ -832,7 +853,7 @@ export const storageApi = {
    */
   async deleteObject(bucket: string, key: string): Promise<void> {
     await fetchApi(
-      `/api/storage/${encodeURIComponent(bucket)}/objects/${key}`,
+      `/api/storage/${encodeURIComponent(bucket)}/objects/${objectKeySegments(key)}`,
       z.object({
         success: z.boolean(),
         message: z.string().optional(),
@@ -908,7 +929,7 @@ export const storageApi = {
     metadata: R2MetadataUpdate,
   ): Promise<R2ObjectInfo> {
     const response = await fetchApi(
-      `/api/storage/${encodeURIComponent(bucket)}/metadata/${key}`,
+      `/api/storage/${encodeURIComponent(bucket)}/metadata/${objectKeySegments(key)}`,
       z.object({
         success: z.boolean(),
         data: z
@@ -944,7 +965,7 @@ export const storageApi = {
     commentUpdatedAt: number | null;
   }> {
     const response = await fetchApi(
-      `/api/storage/${encodeURIComponent(bucket)}/comment/${key}`,
+      `/api/storage/${encodeURIComponent(bucket)}/comment/${objectKeySegments(key)}`,
       z.object({
         success: z.boolean(),
         data: z
@@ -977,7 +998,7 @@ export const storageApi = {
    */
   async purgeCache(bucket: string, key: string): Promise<PurgeCacheResult> {
     const response = await fetchApi(
-      `/api/storage/${encodeURIComponent(bucket)}/purge-cache/${encodeURIComponent(key)}`,
+      `/api/storage/${encodeURIComponent(bucket)}/purge-cache/${objectKeySegments(key)}`,
       z.object({
         success: z.boolean(),
         data: z
@@ -1055,9 +1076,8 @@ export const feedbackApi = {
   /** Submit feedback (multipart — screenshots + capture bundle + fields). */
   async submit(formData: FormData): Promise<FeedbackItem> {
     const url = new URL('/api/feedback', API_BASE);
-    const response = await fetch(url.toString(), {
+    const response = await apiFetch(url, {
       method: 'POST',
-      headers: { 'X-Admin-Key': API_KEY },
       body: formData,
     });
     if (!response.ok) {
@@ -1092,10 +1112,11 @@ export const feedbackApi = {
 
   /** Download an item-owned attachment (screenshot or capture bundle) as a blob. */
   async attachment(id: string, key: string): Promise<Blob> {
-    const url = new URL(`/api/feedback/${encodeURIComponent(id)}/attachment/${key}`, API_BASE);
-    const response = await fetch(url.toString(), {
-      headers: { 'X-Admin-Key': API_KEY },
-    });
+    const url = new URL(
+      `/api/feedback/${encodeURIComponent(id)}/attachment/${objectKeySegments(key)}`,
+      API_BASE,
+    );
+    const response = await apiFetch(url);
     if (!response.ok) {
       const error = await readErrorBody(response);
       throw new ApiError(response.status, error.error || `HTTP ${response.status}`);
@@ -1259,9 +1280,7 @@ export const qrApi = {
 export const changelogApi = {
   async get(): Promise<string> {
     const url = new URL('/api/changelog', API_BASE);
-    const response = await fetch(url.toString(), {
-      headers: { 'X-Admin-Key': API_KEY },
-    });
+    const response = await apiFetch(url);
     if (!response.ok) {
       const error = await readErrorBody(response);
       throw new ApiError(response.status, error.error || `HTTP ${response.status}`);

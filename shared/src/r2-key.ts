@@ -35,27 +35,53 @@
  * **Idempotent:** `normalizeR2Key(normalizeR2Key(k)) === normalizeR2Key(k)`.
  */
 
+import { trimEndChars, trimStartChars } from './trim-chars.js';
+
 /** Normalize a single path segment (no `/`). */
 function normalizeSegment(segment: string): string {
-  return (
-    segment
-      // Transliterate accented Latin to ASCII so European filenames stay
-      // readable: `café` → `cafe`, `résumé` → `resume`, `Übersicht` → `ubersicht`
-      // (NFKD splits the base letter from its combining mark, which we then
-      // strip). Non-Latin scripts (CJK, etc.) have no ASCII decomposition and
-      // fall through to the `-` rule below — see the module note on that limit.
-      // Safe: this runs per-segment AFTER `split('/')`, and the rules below
-      // re-collapse any ASCII `.`/`/` a fullwidth char might decompose to, so it
-      // cannot synthesise `..`, a leading `.`, or a path separator.
-      .normalize('NFKD')
-      .replace(/[\u0300-\u036f]/g, '') // strip combining diacritical marks
-      .toLowerCase()
-      .replace(/[^a-z0-9._-]+/g, '-') // whitespace + URL-noisy specials → '-'
-      .replace(/-*\.-*/g, '.') // a '.' (optionally wrapped in '-') → a clean '.'
-      .replace(/-+/g, '-') // collapse repeated '-'
-      .replace(/\.+/g, '.') // collapse repeated '.'
-      .replace(/^[-.]+|[-.]+$/g, '')
-  ); // trim leading/trailing '-' and '.'
+  const kebab = segment
+    // Transliterate accented Latin to ASCII so European filenames stay
+    // readable: `café` → `cafe`, `résumé` → `resume`, `Übersicht` → `ubersicht`
+    // (NFKD splits the base letter from its combining mark, which we then
+    // strip). Non-Latin scripts (CJK, etc.) have no ASCII decomposition and
+    // fall through to the `-` rule below — see the module note on that limit.
+    // Safe: this runs per-segment AFTER `split('/')`, and the rules below
+    // re-collapse any ASCII `.`/`/` a fullwidth char might decompose to, so it
+    // cannot synthesise `..`, a leading `.`, or a path separator.
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '') // strip combining diacritical marks
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-'); // whitespace + URL-noisy specials → '-'
+  // a '.' (optionally wrapped in '-') → a clean '.'; then repeated '-' and
+  // '.' collapsed; then leading/trailing '-' and '.' trimmed. Linear scans
+  // (v1.39.0), not the polynomial `/-*\.-*/g` and `/^[-.]+|[-.]+$/g`.
+  const collapsed = dropDashesAroundDots(kebab).replace(/-+/g, '-').replace(/\.+/g, '.');
+  return trimEndChars(trimStartChars(collapsed, '-.'), '-.');
+}
+
+/**
+ * `value` with every run of `-` that touches a `.` removed (`a-.-b` →
+ * `a.b`), in one pass: the same result as replacing every match of the
+ * global regex `-*\.-*` with `.`, which code scanning flags as polynomial (a
+ * long run of `-` with no `.` is retried from each of its characters).
+ * Exported for its equality test.
+ */
+export function dropDashesAroundDots(value: string): string {
+  let out = '';
+  let index = 0;
+  while (index < value.length) {
+    if (value.charAt(index) !== '-') {
+      out += value.charAt(index);
+      index += 1;
+      continue;
+    }
+    let end = index;
+    while (end < value.length && value.charAt(end) === '-') end += 1;
+    const touchesDot = value.charAt(index - 1) === '.' || value.charAt(end) === '.';
+    if (!touchesDot) out += value.slice(index, end);
+    index = end;
+  }
+  return out;
 }
 
 /**
@@ -73,6 +99,17 @@ export function normalizeR2Key(key: string): string {
 /** True when `key` is already in normalized form (no transform would change it). */
 export function isNormalizedR2Key(key: string): boolean {
   return normalizeR2Key(key) === key;
+}
+
+/**
+ * `value` without its trailing `/` characters, in one backward scan (v1.39.0).
+ * The same result as `value.replace(/\/+$/, '')`, which code scanning flags
+ * as polynomial: on a long run of `/` that does not end the string, it tries
+ * the run again from every starting slash (50,000 slashes and a letter took a
+ * second).
+ */
+export function trimTrailingSlashes(value: string): string {
+  return trimEndChars(value, '/');
 }
 
 /**
@@ -96,11 +133,11 @@ export function sanitizeR2Key(key: string): string {
   }
   sanitized = sanitized.replace(/^\/+/, '');
   sanitized = sanitized.replace(/\/+/g, '/');
-  sanitized = sanitized.replace(/\/+$/, '');
+  sanitized = trimTrailingSlashes(sanitized);
   sanitized = sanitized.replace(/(?:^|\/)\.(?!\.)[^/]*/g, '');
   sanitized = sanitized.replace(/^\/+/, '');
   sanitized = sanitized.replace(/\/+/g, '/');
-  sanitized = sanitized.replace(/\/+$/, '');
+  sanitized = trimTrailingSlashes(sanitized);
   return sanitized;
 }
 

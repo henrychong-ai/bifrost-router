@@ -1,4 +1,5 @@
 import type { Bindings } from '../types';
+import { errorName } from '../utils/error-name';
 import { BACKUP_BUCKET_NOT_CONFIGURED, backupManifestKey } from './constants';
 import { BACKUP_FAILED_GENERIC, fixedBackupFailure } from './integrity';
 import { backupKV } from './kv';
@@ -73,11 +74,12 @@ export async function handleScheduled(env: Bindings): Promise<BackupResult> {
     // The result carries fixed text only (v1.37.1): it becomes the cron's
     // rejection and log line in src/index.ts, and a raw error can quote a
     // stored value. Any other error (a KV or R2 API failure, say) becomes
-    // BACKUP_FAILED_GENERIC and is logged here, once, as it is; a SyntaxError,
-    // whose message can quote the text it failed to parse, is logged by name.
+    // BACKUP_FAILED_GENERIC and is logged here, once, by its class only
+    // (v1.39.0): a message can quote a key, a stored value or the text a
+    // parser failed on.
     const failure = fixedBackupFailure(error);
     if (failure === BACKUP_FAILED_GENERIC) {
-      console.error('[Backup] Platform error:', error instanceof SyntaxError ? error.name : error);
+      console.error(`[Backup] Platform error: ${errorName(error)}`);
     }
     return {
       success: false,

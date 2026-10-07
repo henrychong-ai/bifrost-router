@@ -371,6 +371,32 @@ describe('storage routes', () => {
       expect(downloadedContent).toBe(content);
     });
 
+    // v1.39.0: a stored file is always a download, never a page on the host
+    // that serves the admin API, whatever type its uploader declared
+    it('sends a stored HTML file as a nosniff attachment', async () => {
+      const app = createApp();
+      const upload = await uploadFile(
+        app,
+        'files',
+        'page.html',
+        '<script>document.title = "ran"</script>',
+        'text/html',
+      );
+      expect(upload.status).toBe(201);
+
+      const response = await app.fetch(
+        new Request('http://example.com/api/storage/files/objects/page.html', {
+          headers: authHeaders,
+        }),
+        testEnv,
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Type')).toBe('text/html');
+      expect(response.headers.get('Content-Disposition')).toBe('attachment');
+      expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+      await response.text();
+    });
+
     it('rejects upload to read-only bucket (bifrost-backups)', async () => {
       const app = createApp();
 

@@ -1,7 +1,8 @@
-import { getContentTypeFromKey, redactSensitive } from '@bifrost/shared';
+import { getContentTypeFromKey } from '@bifrost/shared';
 import type { Context } from 'hono';
 import type { AppEnv, Bindings, KVRouteConfig } from '../types';
 import { BUCKET_BINDINGS, isValidR2Bucket } from '../types';
+import { errorName } from '../utils/error-name';
 import { validateR2Key } from '../utils/path-validation';
 
 /**
@@ -333,14 +334,18 @@ export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promis
         level: 'warn',
         message:
           'R2 read failed with request options present (malformed options or transient fault) — degrading to a plainer read',
+        // The matched route key and the stored target as the object key, as on
+        // every serve line here: both are configuration, never the visitor's
+        // path (an R2 route serves its target whatever remainder matched it)
         path: route.path,
         key: validation.sanitizedKey,
         bucket: bucketName,
         // Both values are attacker-supplied or attacker-influenced: the Range
         // is echoed straight from the request, and an R2 error message can
-        // quote the rejected header back. Clamp the one and redact the other.
+        // quote the rejected header back. The Range is clamped; the error is
+        // logged by class only.
         range: requestHeaders.get('range')?.slice(0, 256),
-        error: redactSensitive(error instanceof Error ? error.message : String(error)),
+        errorName: errorName(error),
       }),
     );
     try {
@@ -517,6 +522,8 @@ export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promis
       JSON.stringify({
         level: 'info',
         message: 'R2 uncached serve',
+        // The matched route key and the stored target (configuration, as on
+        // every serve line here), never the visitor's path
         path: route.path,
         key: validation.sanitizedKey,
         bucket: bucketName,

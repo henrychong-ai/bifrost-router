@@ -39,6 +39,11 @@ function textual(stub: StubFetch): typeof fetch {
 describe('EdgeRouterClient', () => {
   const mockFetch = vi.fn<StubFetch>();
   let client: EdgeRouterClient;
+  /** The path of the first request the client made. */
+  const pathOf = () => {
+    const input = mockFetch.mock.calls[0]?.[0];
+    return new URL(input instanceof Request ? input.url : String(input)).pathname;
+  };
 
   beforeEach(() => {
     mockFetch.mockReset();
@@ -292,6 +297,75 @@ describe('EdgeRouterClient', () => {
       expect(url).toContain('limit=10');
       expect(url).toContain('offset=5');
       expect(url).toContain('slug=%2Flinkedin');
+    });
+  });
+
+  // v1.39.0: every key goes through objectKeySegments and every slug through
+  // pathSegments, the dashboard's rules: a raw `#`, `?`, backslash or `%2e`
+  // would address another object
+  describe('object keys and slugs in URLs', () => {
+    const KEY = 'dir/a#b?c\\d%2e e.txt';
+    const SEGMENTS = 'dir/a%23b%3Fc%5Cd%252e%20e.txt';
+    it.each([
+      ['getObjectMeta', '/api/storage/files/meta/', () => client.getObjectMeta('files', KEY)],
+      ['deleteObject', '/api/storage/files/objects/', () => client.deleteObject('files', KEY)],
+      [
+        'updateObjectMetadata',
+        '/api/storage/files/metadata/',
+        () => client.updateObjectMetadata('files', KEY, { contentType: 'text/plain' }),
+      ],
+      [
+        'updateObjectComment',
+        '/api/storage/files/comment/',
+        () => client.updateObjectComment('files', KEY, 'note'),
+      ],
+      ['purgeCache', '/api/storage/files/purge-cache/', () => client.purgeCache('files', KEY)],
+    ])('%s sends the key as path segments', async (_name, prefix, call) => {
+      mockFetch.mockResolvedValue(okJson({}));
+      await call().catch(() => undefined);
+      expect(pathOf()).toBe(`${prefix}${SEGMENTS}`);
+    });
+
+    // A leading slash used to be dropped, so `/report.pdf` deleted `report.pdf`
+    it.each([
+      ['getObjectMeta', (key: string) => client.getObjectMeta('files', key)],
+      ['downloadObject', (key: string) => client.downloadObject('files', key)],
+      ['deleteObject', (key: string) => client.deleteObject('files', key)],
+      [
+        'updateObjectMetadata',
+        (key: string) => client.updateObjectMetadata('files', key, { contentType: 'text/plain' }),
+      ],
+      ['updateObjectComment', (key: string) => client.updateObjectComment('files', key, 'note')],
+      ['purgeCache', (key: string) => client.purgeCache('files', key)],
+    ])('%s refuses a key it cannot send exactly, and sends nothing', async (_name, call) => {
+      mockFetch.mockResolvedValue(okJson({}));
+      for (const key of ['/report.pdf', 'a//b', 'a/./b', 'a/']) {
+        await expect(call(key)).rejects.toThrow(RangeError);
+      }
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('downloadObject sends a normal key exactly to meta and to the download', async () => {
+      mockFetch
+        .mockResolvedValueOnce(okJson({ key: 'docs/report.pdf' }))
+        .mockResolvedValueOnce({ ok: true, arrayBuffer: async () => new ArrayBuffer(0) });
+      await client.downloadObject('files', 'docs/report.pdf');
+      const paths = mockFetch.mock.calls.map(
+        ([input]) => new URL(input instanceof Request ? input.url : String(input)).pathname,
+      );
+      expect(paths).toEqual([
+        '/api/storage/files/meta/docs/report.pdf',
+        '/api/storage/files/objects/docs/report.pdf',
+      ]);
+    });
+
+    it('getSlugStats sends a multi-segment slug as segments, the root as empty', async () => {
+      mockFetch.mockResolvedValue(okJson({ slug: '/', totalClicks: 1 }));
+      await client.getSlugStats('/promo/summer sale', { domain: 'links.example.com' });
+      expect(pathOf()).toBe('/api/analytics/clicks/promo/summer%20sale');
+      mockFetch.mockClear();
+      await client.getSlugStats('/', { domain: 'links.example.com' });
+      expect(pathOf()).toBe('/api/analytics/clicks/');
     });
   });
 

@@ -119,6 +119,9 @@ export {
 } from './link-naming.js';
 // MIME detection
 export { EXTENSION_MIME_MAP, getContentTypeFromKey } from './mime.js';
+// A route path, slug or object key as URL path segments (v1.39.0), for the
+// dashboard and the API client alike
+export { objectKeySegments, pathSegments, UNADDRESSABLE_OBJECT_KEY } from './path-segments.js';
 // QR codes (v1.30.0) — the QR contract shared
 // by the Worker backend, the MCP server, and the admin dashboard: the type
 // enum, per-type payload schemas, design schema, stored-record +

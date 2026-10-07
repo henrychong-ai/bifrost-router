@@ -30,7 +30,6 @@ describe('safeServiceFetch', () => {
 
       const res = await safeServiceFetch(fetcher, req, {
         hostname: 'example.com',
-        path: '/about',
       });
 
       expect(res).not.toBeNull();
@@ -45,7 +44,6 @@ describe('safeServiceFetch', () => {
 
       const res = await safeServiceFetch(fetcher, req, {
         hostname: 'example.com',
-        path: '/path',
       });
 
       expect(res).not.toBeNull();
@@ -60,7 +58,6 @@ describe('safeServiceFetch', () => {
 
       const res = await safeServiceFetch(fetcher, req, {
         hostname: 'example.com',
-        path: '/missing',
       });
 
       expect(res?.status).toBe(404);
@@ -77,18 +74,16 @@ describe('safeServiceFetch', () => {
 
       const res = await safeServiceFetch(fetcher, req, {
         hostname: 'example.com',
-        path: '/x',
       });
 
       expect(res).toBeNull();
       expect(consoleLogSpy).toHaveBeenCalledTimes(1);
       const logged = JSON.parse(consoleLogSpy.mock.calls[0][0] as string);
-      expect(logged).toMatchObject({
+      expect(logged).toEqual({
         level: 'warn',
         message: 'Service binding fetch failed',
         hostname: 'example.com',
-        path: '/x',
-        error: 'binding unavailable',
+        errorName: 'Error',
       });
     });
 
@@ -100,13 +95,14 @@ describe('safeServiceFetch', () => {
 
       const res = await safeServiceFetch(fetcher, req, {
         hostname: 'example.com',
-        path: '/path',
       });
 
       expect(res).toBeNull();
       expect(consoleLogSpy).toHaveBeenCalledTimes(1);
       const logged = JSON.parse(consoleLogSpy.mock.calls[0][0] as string);
-      expect(logged.error).toBe('Invalid URL');
+      // The error's class only (v1.39.0): workerd's message can quote the URL
+      expect(logged.errorName).toBe('TypeError');
+      expect(JSON.stringify(logged)).not.toContain('Invalid URL');
     });
 
     it('returns null and logs string-form when a non-Error is thrown', async () => {
@@ -117,28 +113,28 @@ describe('safeServiceFetch', () => {
 
       const res = await safeServiceFetch(fetcher, req, {
         hostname: 'example.com',
-        path: '/path',
       });
 
       expect(res).toBeNull();
       const logged = JSON.parse(consoleLogSpy.mock.calls[0][0] as string);
-      expect(logged.error).toBe('just a string');
+      expect(logged.errorName).toBe('string');
+      expect(JSON.stringify(logged)).not.toContain('just a string');
     });
 
-    it('logs include the hostname and path supplied in context', async () => {
+    it('logs the hostname supplied in context, never the request path or URL', async () => {
       const fetcher = mockFetcher(async () => {
         throw new Error('failed');
       });
-      const req = new Request('https://anything.example.com/foo');
+      const req = new Request('https://anything.example.com/magic/SECRET-TOKEN?q=QUERY-SECRET');
 
       await safeServiceFetch(fetcher, req, {
         hostname: 'anything.example.com',
-        path: '/diagnostic-context-path',
       });
 
       const logged = JSON.parse(consoleLogSpy.mock.calls[0][0] as string);
       expect(logged.hostname).toBe('anything.example.com');
-      expect(logged.path).toBe('/diagnostic-context-path');
+      expect(logged).not.toHaveProperty('path');
+      expect(JSON.stringify(logged)).not.toContain('SECRET');
     });
   });
 
@@ -153,7 +149,6 @@ describe('safeServiceFetch', () => {
 
       await safeServiceFetch(fetcher, original, {
         hostname: 'example.com',
-        path: '/x',
       });
 
       expect(received).toBeDefined();

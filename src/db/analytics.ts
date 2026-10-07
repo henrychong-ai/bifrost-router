@@ -1,5 +1,6 @@
 import type { AuditAction, AuditSource } from '@bifrost/shared';
 import { redactAuditDetails, redactRouteTarget } from '../utils/credential-redaction';
+import { errorName } from '../utils/error-name';
 import { createDb } from './index';
 import {
   auditLogs,
@@ -134,7 +135,6 @@ export async function recordClick(db: D1Database, data: LinkClickData): Promise<
         level: 'info',
         message: 'Link click recorded',
         domain: data.domain,
-        slug: data.slug,
       }),
     );
   } catch (error) {
@@ -143,9 +143,8 @@ export async function recordClick(db: D1Database, data: LinkClickData): Promise<
       JSON.stringify({
         level: 'error',
         message: 'Failed to record link click',
-        error: error instanceof Error ? error.message : String(error),
+        errorName: errorName(error),
         domain: data.domain,
-        slug: data.slug,
       }),
     );
   }
@@ -185,7 +184,6 @@ export async function recordPageView(db: D1Database, data: PageViewData): Promis
         level: 'info',
         message: 'Page view recorded',
         domain: data.domain,
-        path: data.path,
       }),
     );
   } catch (error) {
@@ -194,9 +192,8 @@ export async function recordPageView(db: D1Database, data: PageViewData): Promis
       JSON.stringify({
         level: 'error',
         message: 'Failed to record page view',
-        error: error instanceof Error ? error.message : String(error),
+        errorName: errorName(error),
         domain: data.domain,
-        path: data.path,
       }),
     );
   }
@@ -283,8 +280,6 @@ export async function recordFileDownload(db: D1Database, data: FileDownloadData)
         level: 'info',
         message: 'File download recorded',
         domain: data.domain,
-        path: data.path,
-        r2Key: data.r2Key,
       }),
     );
   } catch (error) {
@@ -293,10 +288,8 @@ export async function recordFileDownload(db: D1Database, data: FileDownloadData)
       JSON.stringify({
         level: 'error',
         message: 'Failed to record file download',
-        error: error instanceof Error ? error.message : String(error),
+        errorName: errorName(error),
         domain: data.domain,
-        path: data.path,
-        r2Key: data.r2Key,
       }),
     );
   }
@@ -378,8 +371,6 @@ export async function recordProxyRequest(db: D1Database, data: ProxyRequestData)
         level: 'info',
         message: 'Proxy request recorded',
         domain: data.domain,
-        path: data.path,
-        targetUrl: redactRouteTarget(data.targetUrl),
       }),
     );
   } catch (error) {
@@ -388,10 +379,8 @@ export async function recordProxyRequest(db: D1Database, data: ProxyRequestData)
       JSON.stringify({
         level: 'error',
         message: 'Failed to record proxy request',
-        error: error instanceof Error ? error.message : String(error),
+        errorName: errorName(error),
         domain: data.domain,
-        path: data.path,
-        targetUrl: redactRouteTarget(data.targetUrl),
       }),
     );
   }
@@ -449,9 +438,8 @@ export async function recordUnifiedTrafficEvent(
       JSON.stringify({
         level: 'error',
         message: 'Failed to record unified traffic event',
-        error: error instanceof Error ? error.message : String(error),
+        errorName: errorName(error),
         domain: data.domain,
-        path: data.path,
         eventType: data.eventType,
       }),
     );
@@ -476,7 +464,9 @@ export async function pruneUnifiedTrafficEvents(
       JSON.stringify({
         level: 'error',
         message: 'Failed to prune unified traffic events',
-        error: error instanceof Error ? error.message : String(error),
+        // The class only (v1.39.0): the D1 driver's message quotes the
+        // statement's parameters, a visitor's path and query among them
+        errorName: errorName(error),
         retentionDays,
       }),
     );
@@ -533,13 +523,16 @@ export async function insertAuditLog(db: D1Database, data: AuditLogData): Promis
     source: data.source ?? 'bifrost',
   });
 
+  // Whether an actor was recorded, never who (v1.39.0): the login is an
+  // identity (an email behind Tailscale Serve), which D1 keeps and no log
+  // line carries. The path is the configured route path or admin object key.
   console.log(
     JSON.stringify({
       level: 'info',
       message: 'Audit log recorded',
       domain: data.domain,
       action: data.action,
-      actor: data.actorLogin,
+      hasActor: typeof data.actorLogin === 'string' && data.actorLogin !== '',
       path: data.path,
     }),
   );
@@ -564,7 +557,9 @@ export async function recordAuditLog(db: D1Database, data: AuditLogData): Promis
       JSON.stringify({
         level: 'error',
         message: 'Failed to record audit log',
-        error: error instanceof Error ? error.message : String(error),
+        // The class only (v1.39.0): the D1 driver's message quotes the
+        // statement's parameters, a visitor's path and query among them
+        errorName: errorName(error),
         domain: data.domain,
         action: data.action,
         path: data.path,

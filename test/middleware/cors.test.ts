@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:test';
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
-import { ALLOWED_ORIGINS, cors, isAllowedOrigin } from '../../src/middleware/cors';
+import { ADMIN_API_CORS_ORIGINS, cors } from '../../src/middleware/cors';
 import type { AppEnv } from '../../src/types';
 
 describe('cors middleware', () => {
@@ -177,50 +177,10 @@ describe('cors middleware', () => {
   });
 });
 
-describe('isAllowedOrigin', () => {
-  it('returns origin for allowed origins in ALLOWED_ORIGINS', () => {
-    expect(isAllowedOrigin('https://bifrost.example.com')).toBe('https://bifrost.example.com');
-    expect(isAllowedOrigin('http://localhost:3001')).toBe('http://localhost:3001');
-    expect(isAllowedOrigin('http://localhost:5173')).toBe('http://localhost:5173');
-    expect(isAllowedOrigin('http://127.0.0.1:3001')).toBe('http://127.0.0.1:3001');
-  });
-
-  it('returns empty string for disallowed origins', () => {
-    expect(isAllowedOrigin('https://evil.com')).toBe('');
-    expect(isAllowedOrigin('https://notallowed.com')).toBe('');
-  });
-
-  it('returns empty string for undefined origin', () => {
-    expect(isAllowedOrigin(undefined)).toBe('');
-  });
-
-  it('allows workers.dev origins in dev mode', () => {
-    expect(isAllowedOrigin('https://my-worker.workers.dev', true)).toBe(
-      'https://my-worker.workers.dev',
-    );
-    expect(isAllowedOrigin('https://test.my-worker.workers.dev', true)).toBe(
-      'https://test.my-worker.workers.dev',
-    );
-  });
-
-  it('blocks workers.dev origins when dev mode is false', () => {
-    expect(isAllowedOrigin('https://my-worker.workers.dev', false)).toBe('');
-  });
-
-  it('handles invalid URLs gracefully', () => {
-    expect(isAllowedOrigin('not-a-url', true)).toBe('');
-  });
-});
-
-describe('ALLOWED_ORIGINS', () => {
-  it('contains expected origins', () => {
-    expect(ALLOWED_ORIGINS).toContain('https://bifrost.example.com');
-    expect(ALLOWED_ORIGINS).toContain('http://localhost:3001');
-    expect(ALLOWED_ORIGINS).toContain('http://localhost:5173');
-  });
-
-  it('is readonly array', () => {
-    expect(Array.isArray(ALLOWED_ORIGINS)).toBe(true);
-    expect(ALLOWED_ORIGINS.length).toBeGreaterThan(0);
+// v1.39.0: the dashboard is same-origin (its server calls the Worker), so
+// no browser origin needs the admin API cross-origin
+describe('ADMIN_API_CORS_ORIGINS', () => {
+  it('allows no origin', () => {
+    expect(ADMIN_API_CORS_ORIGINS).toEqual([]);
   });
 });

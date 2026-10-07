@@ -35,15 +35,14 @@ RUN pnpm run build
 
 WORKDIR /app/admin
 
-# Build args for environment variables
-# Note: ADMIN_API_KEY is NOT a build arg — it is injected at runtime by start-with-tailscale.sh
-# via env-config.js, keeping it out of the image layers and build cache entirely.
-ARG VITE_API_URL=https://yourdomain.com
-
-# Build the application. Vite's dependency pre-bundling cache lives at
-# node_modules/.vite — mounted here so it survives across builds.
+# The bundle takes no environment: it calls its own origin, and the runtime
+# nginx proxies /api to the Worker with the key (v1.39.0). ADMIN_API_KEY is a
+# runtime env var of the container, never a build arg, so it stays out of the
+# image layers and build cache entirely.
+# Vite's dependency pre-bundling cache lives at node_modules/.vite — mounted
+# here so it survives across builds.
 RUN --mount=type=cache,id=vite-deps,target=/app/admin/node_modules/.vite \
-    VITE_API_URL=$VITE_API_URL pnpm run build
+    pnpm run build
 
 # Production stage with Tailscale
 FROM nginx:alpine
@@ -62,15 +61,26 @@ RUN --mount=type=cache,id=apk-cache,target=/var/cache/apk \
 # Copy built assets
 COPY --link --from=builder /app/admin/dist /usr/share/nginx/html
 
-# Copy the nginx config template (listen on localhost:3001 for internal use) and
-# its renderer; start.sh renders it into conf.d (the CSP takes R2_PREVIEW_ORIGINS).
+# The nginx config template and its renderer; the start script renders it
+# into conf.d at container start from the container's environment (see the
+# renderer).
 COPY --link admin/nginx.conf.template /etc/nginx/bifrost/default.conf.template
 COPY --link admin/scripts/render-nginx-conf.sh /usr/local/bin/render-nginx-conf.sh
-COPY --link admin/scripts/write-env-config.sh /usr/local/bin/write-env-config.sh
+
+# Tailscale Serve, in this container, is the one way in: nginx listens only on
+# a Unix socket in a root-only directory (no TCP port; tailscaled's userspace
+# networking hands a tailnet connection to any port of the node to
+# 127.0.0.1:<port>, so even a loopback listener was reachable around Serve),
+# and trusts the identity headers Serve sets (admin/scripts/render-nginx-conf.sh).
+ENV DASHBOARD_TAILSCALE_SERVE=on
 
 # Copy startup script
 COPY --link admin/scripts/start-with-tailscale.sh /start.sh
-RUN chmod +x /start.sh /usr/local/bin/render-nginx-conf.sh /usr/local/bin/write-env-config.sh
+RUN chmod +x /start.sh /usr/local/bin/render-nginx-conf.sh
+
+# The /api proxy verifies the Worker's certificate against this CA bundle
+# (proxy_ssl_trusted_certificate): the build stops if it is missing.
+RUN test -s /etc/ssl/certs/ca-certificates.crt
 
 # Remove the stock nginx site: it serves the same files without the dashboard's
 # CSP and security headers, so a launch that bypasses the start script must
@@ -80,8 +90,8 @@ RUN rm -f /etc/nginx/conf.d/default.conf
 # Tailscale state directory (mount as volume for persistence)
 VOLUME /var/lib/tailscale
 
-# Expose nginx port (internal) - Tailscale Serve handles external HTTPS
-EXPOSE 3001
+# No EXPOSE: nginx has no TCP port here; Tailscale Serve handles HTTPS on the
+# tailnet and proxies to nginx's Unix socket.
 
 # Start with Tailscale
 CMD ["/start.sh"]

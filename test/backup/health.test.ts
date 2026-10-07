@@ -88,6 +88,20 @@ function bucketWithGet(get: (key: string, real: R2Bucket['get']) => Promise<unkn
   return bucket;
 }
 
+/** Health of a complete, fresh backup whose manifest counts `skippedNotJson`. */
+function healthWithSkipped(skippedNotJson: number | undefined) {
+  const date = '20260123';
+  const manifest = createTestManifest({ date });
+  if (skippedNotJson !== undefined) manifest.kv.skippedNotJson = skippedNotJson;
+  return checkBackupHealth(
+    createMockBucket({
+      delimitedPrefixes: [`daily/${date}/`],
+      manifest,
+      files: createCompleteFilesMap(date),
+    }),
+  );
+}
+
 describe('checkBackupHealth', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -133,6 +147,42 @@ describe('checkBackupHealth', () => {
       expect(health.lastBackup?.date).toBe(date);
       // 20:00 yesterday to 12:00 today = 16 hours
       expect(health.lastBackup?.ageHours).toBeCloseTo(16, 1);
+    });
+  });
+
+  // v1.39.0: the manifest's count of records the run skipped as not JSON was
+  // never read, so a backup missing records looked healthy
+  describe('skipped records', () => {
+    it('warns with the count, never a key, when the run skipped records', async () => {
+      const health = await healthWithSkipped(3);
+      expect(health.status).toBe('warning');
+      expect(health.issues).toEqual([
+        { severity: 'warning', message: '3 stored records are not JSON and were not backed up' },
+      ]);
+      // The other checks are unaffected
+      expect(health.checks).toEqual({
+        backupExists: true,
+        backupAge: 'ok',
+        manifestValid: true,
+        filesComplete: true,
+        routeCountOk: true,
+      });
+      expect(JSON.stringify(health)).not.toMatch(/example\.com:\//);
+    });
+
+    it('names one skipped record in the singular', async () => {
+      const health = await healthWithSkipped(1);
+      expect(health.issues).toEqual([
+        { severity: 'warning', message: '1 stored record is not JSON and was not backed up' },
+      ]);
+    });
+
+    it('stays healthy when nothing was skipped or the manifest predates the count', async () => {
+      for (const skipped of [0, undefined]) {
+        const health = await healthWithSkipped(skipped);
+        expect(health.status).toBe('healthy');
+        expect(health.issues).toEqual([]);
+      }
     });
   });
 

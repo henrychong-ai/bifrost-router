@@ -6,6 +6,299 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.39.0 (2026-10-07) — The dashboard holds no admin key; one admin body guard; edits that write what they checked
+
+**Why:** the dashboard container served `/env-config.js`, which held the full
+admin key, to anyone who could load the page, and the browser sent it on every
+API call. A key-adding server in its place had to refuse cross-site requests,
+odd paths and unverified upstreams, trust no identity a client sends, log no
+request target, and keep stored files from rendering on the dashboard origin.
+On the Worker, an admin endpoint parsed a `text/plain` body as JSON, a proxy
+route and the service-binding fallback handed the deployment's own headers
+on, and the request log, several other lines and every caught D1 error
+carried the visitor's request path or query. A route edit could merge into a
+record no check had seen, and `normalize-case` could resurrect a route
+deleted while it ran. No D1 migration.
+
+**Upgrading the dashboard container:** the image takes no build argument and
+no longer serves `/env-config.js`. Set `API_PROXY_ORIGIN` (the Worker, the URL
+you used for `VITE_API_URL`) and keep `ADMIN_API_KEY` in the container's
+environment; the container must be able to reach the Worker over HTTPS (DNS
+through `API_PROXY_RESOLVER`, default `1.1.1.1 1.0.0.1`). The dashboard's
+security boundary is whoever can reach it: keep it behind private access
+(README → Optional: Admin Dashboard).
+
+- **Plain image behind your own front door:** the front door must pass the
+  browser's `Host` header through unchanged (the cross-site check compares an
+  `Origin` with it), and `DASHBOARD_HOSTNAMES` must name the host the browser
+  uses, besides `localhost`; any other `Host` gets no answer, `/health`
+  aside, which any `Host` gets (a load balancer or Kubernetes probe by
+  address).
+- **`:tailscale` image:** nginx now listens only on the Unix socket
+  `/run/bifrost/nginx.sock` (`DASHBOARD_TAILSCALE_SERVE=on`, set by the image)
+  and Tailscale Serve proxies to it (`tailscale serve … unix:`): tailscaled's
+  userspace networking hands a tailnet connection to any port of the node to
+  `127.0.0.1`, so a loopback listener was reachable around Serve. Take the new
+  `admin/docker-compose.tailscale.yml` (its healthcheck uses the socket, and
+  falls back to TCP for an older image, so a rollback stays healthy).
+  `DASHBOARD_HOSTNAMES` is no longer needed there: Serve sends
+  `Host: localhost` and the browser's host in `X-Forwarded-Host`.
+- **Audit rows:** the actor (`Tailscale-User-Login`) is the identity
+  Tailscale Serve sets, trusted only by the `:tailscale` image; the plain
+  image drops any a client sends, so its rows say `api-key`. The audit row's
+  `ipAddress` is the dashboard container's egress address, not the viewer's.
+- **Logs:** nginx's access log records metadata only (method, a fixed scope,
+  status, sizes, timings); nginx's error log still names the request line of
+  a call that fails at the proxy. The Worker's own log lines carry no visitor
+  path or query, but Cloudflare's own request logs (Workers Logs and
+  invocation logs) still record each request's URL: restrict or turn them off
+  if your paths can carry secrets.
+- **Rate limits and Access on the admin host:** the dashboard's API calls
+  now come from the container's egress IP, not each viewer's browser, so a
+  per-IP rate limit on `/api/` counts the whole dashboard audience as one
+  client: size it for every concurrent user, or exempt the egress IP and give
+  it its own limit. Let the container through any Cloudflare Access policy,
+  IP Access rule or allow-list on the admin host (allow its egress IP; it
+  sends no Access token). See `docs/cloudflare-waf.md`.
+- **`pnpm dev`:** rename `VITE_API_URL` and `VITE_ADMIN_API_KEY` in
+  `admin/.env.local` to `DASHBOARD_DEV_API_URL` and
+  `DASHBOARD_DEV_ADMIN_API_KEY`.
+
+**API clients:** on POST, PUT, PATCH and DELETE a body must be
+`application/json`, or absent, and an upload (storage upload, feedback
+submission) `multipart/form-data` (415 otherwise); the shared client and the
+MCP server already do both. `PUT /api/routes` answers 409
+`ROUTE_SOURCE_CHANGED` when the route changed after the request read it (and
+404 when it was deleted), and saves nothing. Slug stats take the slug as path segments
+(`/api/analytics/clicks/promo/summer`; the one-segment `%2F` form still
+works), and so do download and proxy stats; for the root path `/` all three
+take the bare prefix with its trailing slash (`/api/analytics/downloads/`),
+which used to reach the list endpoint. The admin API allows no CORS origin. Bare `/api` with the key is 404.
+
+### Part 1 — Dashboard
+
+- **The admin key stays on the server.** The bundle calls only its own origin
+  (`window.location.origin`) and reads no build-time variable. The container's
+  nginx proxies `/api/` (except `/api/tailscale/identity`, still answered
+  locally) to `API_PROXY_ORIGIN` and sets `X-Admin-Key` from `ADMIN_API_KEY`
+  through a root-only include (mode 600) that the renderer writes; a key the
+  client sent is replaced, never forwarded. The container refuses to start
+  without the key or the origin, or with a key holding whitespace, `"`, `\` or
+  `$`, and no refusal prints it. `env-config.js` and `write-env-config.sh` are
+  removed. `pnpm dev` and `vite preview` do the same through a Vite proxy
+  (`admin/dev-api-proxy.ts`) whose settings are not `VITE_*`, so Vite never
+  hands them to the browser; both servers answer no CORS request, answer the
+  identity endpoint on its exact path only, warn when the dev key is unset,
+  and, as the plain image's nginx, forward no client `Tailscale-User-*` or
+  `X-Bifrost-*` header (a forged audit actor under `pnpm dev` against a real
+  Worker). A production build made with both dev settings set (and the old
+  `VITE_*` names) is searched for them in
+  `scripts/check-dashboard-security.test.mjs`.
+- **Cross-site requests are refused before the key is added.** Every
+  dashboard API call sends `X-Bifrost-Dashboard: 1`; nginx answers 403
+  `CROSS_SITE_REQUEST` to a request without it (a CORS preflight included, so
+  none is approved), with a `Sec-Fetch-Site` other than `same-origin`, or with
+  an `Origin` that is not the host the browser asked for (the `Host` header,
+  or behind Tailscale Serve its `X-Forwarded-Host`), all through maps. The
+  Vite dev and preview servers apply the same rule. A `text/plain`, form or
+  multipart POST from another site and a header-less GET are tested in config
+  and on the wire.
+- **Path hygiene.** Only `/api/` is the API (bare `/api` is the page, never
+  proxied). A raw request target that does not start with `/api/`, whose path
+  holds `%2F`, `%2E`, `%5C` or `//`, or that holds any character outside
+  RFC 3986 path and query characters (a raw `#`, which nginx's decoded path
+  stops at while the Worker resolves what follows, a backslash, `|`, `"`)
+  answers 400 `BAD_API_PATH`: nginx matches the decoded path but forwards the
+  raw one. The dashboard encodes every route path, object key and slug
+  segment by segment (`pathSegments` and `objectKeySegments`, shared with the
+  API client), never as one encoded value and never raw.
+- **Tailscale identity is trusted only behind Serve.** `Tailscale-User-*`
+  headers are read only when Serve is the one way in
+  (`DASHBOARD_TAILSCALE_SERVE=on`); otherwise the identity endpoint answers
+  unauthenticated, the CSP receiver keys on the address and the `/api` proxy
+  forwards none, so no client chooses the actor of an audit row. The
+  identity endpoint pastes the values into its JSON, so one holding `"`, `\`
+  or a control character is blanked (a blanked login answers
+  unauthenticated): the answer is always valid JSON and no value adds a key.
+- **The upstream certificate is verified** (`proxy_ssl_verify on`, the
+  image's CA bundle, depth 3, SNI and verification for `API_PROXY_ORIGIN`'s
+  host); both Dockerfiles fail the build without the bundle. A certificate for
+  another name and a self-signed one both answer 502.
+- **Stored files never run on the dashboard origin.** Every `/api` answer
+  carries an enforced `Content-Security-Policy: default-src 'none';
+  frame-ancestors 'none'; sandbox` in place of the page policy (whatever
+  `CSP_MODE` says), and one that is not JSON is `Content-Disposition:
+  attachment` with `nosniff`. No dashboard feature renders an `/api` answer
+  inline.
+- **Reach.** `DASHBOARD_HOSTNAMES` takes single-label names too (a LAN
+  host, a Docker or Kubernetes service name), and the container refuses to
+  start when one of them is `API_PROXY_ORIGIN`'s host, with or without
+  `CSP_REPORT_ORIGIN` (the `/api` proxy would call the dashboard itself).
+  Any `Host` but `localhost`, `127.0.0.1` and `DASHBOARD_HOSTNAMES`
+  gets no answer (a `default_server` returning 444), except `/health`. The
+  `:tailscale` image listens on a root-only Unix socket and no TCP port; the
+  compose files publish the plain image on `127.0.0.1`.
+- **Logs.** Both servers log metadata only (`bifrost_access`: method, a
+  fixed scope per path such as `api` or `asset`, status, bytes, timings),
+  never the request target, query, Referer or a forwarded header, in place of
+  nginx's stock format.
+- **Uploads and downloads.** `client_max_body_size 101m` on `/api` (the 100
+  MiB upload limit plus multipart framing) and `proxy_request_buffering off`;
+  `proxy_max_temp_file_size 0`, so a large download never spools to the
+  container's disk. A 5 MiB upload and a slowly read 48 MiB download are
+  checked on the wire.
+- **CSP.** `connect-src 'self'` now that the API is same-origin. `CSP_MODE`
+  (`enforce`, the default, or `report-only`) picks the page policy's header
+  name; the policy text is the same. With `CSP_REPORT_ORIGIN` set, the policy
+  reports to `/csp-report` (`report-uri`, `report-to`, `Reporting-Endpoints`)
+  and the receiver is on: POST only, 16 KiB, two reports per second per viewer
+  (the trusted Tailscale identity when present, else the address) and twenty
+  in total, the 204 produced after `limit_req`, 429s logged, metadata only.
+  Unset, there are no report directives, no `Reporting-Endpoints` and
+  `/csp-report` answers 404. `img-src https:` and `R2_PREVIEW_ORIGINS` are
+  unchanged.
+- **One Cache-Control on `/assets/`** (`public, max-age=31536000, immutable`
+  from the maps, on a 200, 206 or 304 only, so a missing chunk's 404 is not
+  cached; the `expires` that added a second header is gone).
+- **Zod runs jitless from a classic script** (`admin/public/zod-jitless.js`,
+  loaded before the module entry), so no chunk order can build a schema
+  first; the dedicated Rolldown chunk is gone. A gate test fails if a Zod
+  upgrade stops honouring the global config.
+- **Container check.** `pnpm run check:dashboard-container` (Docker; not in
+  `pnpm run check`) builds the image beside a stand-in Worker and checks the
+  headers once per response, the key on the wire, every refusal above (a raw
+  `#` on a raw socket among them), the access log, a start without the key,
+  then the `:tailscale` image's nginx on its socket (no TCP listener, Serve's
+  identity and host, the CSP limits) and the compose healthcheck, and removes
+  everything it created.
+- **The `/api` proxy forwards no browser `Cookie`, `Authorization`,
+  `Proxy-Authorization`, `Cf-Access-Jwt-Assertion` or
+  `X-Forwarded-Access-Token`** (a front door's session, credentials or token
+  are the dashboard's, not the Worker's), and
+  the `pnpm dev` proxy drops them too, besides any client `X-Admin-Key`,
+  `Tailscale-User-*` and `X-Bifrost-*`. A refused CSP report (429) is logged
+  only in its access line, never as an error line naming the client and
+  Referer.
+- **Renderer:** a `CSP_REPORT_ORIGIN` naming the Worker's host with a port is
+  refused like one without (the proxy would call the dashboard itself);
+  `DASHBOARD_HOSTNAMES` takes DNS names, with no underscore. The plain compose
+  files' healthchecks probe `DASHBOARD_LISTEN_ADDRESS` when it is set.
+
+### Part 2 — Worker and shared fixes
+
+- **One admin body guard.** Middleware after authentication and before every
+  route: on POST, PUT, PATCH and DELETE a body must be `application/json` or
+  absent, and the two uploads `multipart/form-data` only; anything else
+  answers 415 `UNSUPPORTED_MEDIA_TYPE` before a handler reads it. With no
+  `Content-Type`, a body stream that holds no byte is no body: the runtime
+  gives an HTTP/2 POST or DELETE sent with neither `Content-Length` nor
+  `Content-Type` (a plain `curl -X POST` over HTTPS, as in the README's
+  migrate and recovery examples) such a stream, so the guard reads a clone
+  of it up to its first byte.
+- **No admin CORS origin.** The dashboard reaches the API through its own
+  server, so the list that named its origins is empty.
+- **Bare `/api` is never a route.** With the key it answered as an ordinary
+  path (a KV route or the service binding stored there); it is 404 now, like
+  everything under `/api/`.
+- **The deployment's own headers never leave it:** `X-Admin-Key`, any
+  `X-Bifrost-*`, `Tailscale-User-*` and an `Authorization` that carries the
+  admin key itself (`Bearer <key>` or the bare key, which the admin API also
+  accepts; compared in constant time, never logged) are dropped by one rule
+  (`src/utils/internal-headers.ts`) on every proxy hop (the first included),
+  on the service-binding fallback and on an own-host link preview. A
+  visitor's own `Authorization` still goes upstream. A same-host upgrade from `http` to `https` on the
+  default ports keeps a proxy route's request headers and `hostHeader` (a CDN
+  target that upgrades itself); a downgrade or any host or port change still
+  strips them.
+- **No Worker log line carries the visitor's path or query.** The request
+  line names the route pattern that answered (`/*` for the router's
+  catch-all), the KV lookup line the domain only, and `Route matched` the host
+  and the matched route key. Every caught error is logged by class only
+  (`errorName`): unhandled errors, the analytics endpoints and writers, file
+  comments, feedback, the R2 event consumer, the audit poller (its own fixed
+  reasons kept), cache purges and the R2 read fallback. Drizzle wraps a
+  failed D1 statement in an error that holds every bound parameter, so a
+  message could carry a path, query, referrer or comment. The one rule: no
+  line carries a visitor's path, query or body, an identity (an email, a
+  client IP), a whole payload or an error's message; configured route targets
+  and admin object keys may appear. So the audit line says whether an actor
+  was recorded (`hasActor`), never who (D1 keeps the login); the R2 event
+  consumer logs an event, a malformed one included, by its validated
+  metadata only (a known action, a valid bucket name, the key), never the
+  message body;
+  the backup jobs log a failure's class, never the error object; the rate
+  limiter names no client IP; and the five R2 serve lines all name the route
+  key, the stored target and the bucket. Cloudflare's own request logs are
+  outside this.
+- **Storage downloads are attachments.** `GET /api/storage/:bucket/objects/…`
+  answers `Content-Disposition: attachment` and `nosniff`, as feedback
+  attachments already did.
+- **Object keys and slugs as path segments.** The dashboard put raw keys in
+  URLs, so a key's `#` or `?` ended the path, a backslash became a slash and
+  `%2e` decoded to a dot; the API client and slug stats encoded `/` as `%2F`,
+  which the dashboard proxy refuses. Route paths and slugs use `pathSegments`
+  and object keys `objectKeySegments` (`@bifrost/shared`), which sends a key
+  exactly or not at all: a key with a leading slash, an empty segment
+  (`a//b`, a trailing `/`) or a `.` or `..` segment throws instead of being
+  sent, in the dashboard (which reports it), the shared client and the MCP
+  server, and the custom-domain link builder gives no link for it. Dropping a
+  leading slash, as a route path's is dropped, made `/report.pdf` address
+  `report.pdf`. `GET /api/analytics/clicks/:slug` takes the rest of the path.
+- **Backup health warns about skipped records.** A manifest whose
+  `kv.skippedNotJson` is above zero (stored values that are not JSON, which the
+  archive cannot hold) is a warning naming the count only. A key that vanished
+  between the listing and the read, or holds a JSON `null`, is not counted.
+- **Route edits write the record they checked.** `PUT /api/routes` merges the
+  patch into the record its guards and audit row read; a second read refuses
+  a route replaced in between (409 `ROUTE_SOURCE_CHANGED`, nothing saved) and
+  answers 404 for one deleted in between, which the edit never recreates.
+  Best effort: KV has no compare-and-set and both reads usually come from one
+  edge cache; a client precondition is in TODO.md.
+- **`normalize-case` confirms each route first.** One deleted after the
+  listing is reported `ROUTE_NOT_FOUND`, one replaced or made unreadable
+  `ROUTE_SOURCE_CHANGED`, in `errors`; nothing is written or deleted for
+  either.
+- **Linear scans for the flagged regexes** (code-scanning alerts #6 and #7,
+  and three more of the same shape): the trailing-slash trim and the segment
+  normaliser's dash and trim rules in `shared/src/r2-key.ts`, the QR id trim
+  in `shared/src/qr.ts` and the file-name stem in `shared/src/link-naming.ts`,
+  with results equal to the regexes on every short string. Their tests
+  compare running time between input sizes (the median growth ratio, under a
+  generous bound), never a wall-clock budget
+  (`shared/src/linear.test-support.ts`). The public-sanitisation scanner
+  compares host labels whole (alert #5).
+- **`sharp` 0.35.5** (high-severity advisory); `pnpm audit` is clean.
+- Link-preview errors already answer fixed text per failure class
+  (`describeOpenGraphFailure`, v1.38.0); unchanged.
+- **A refused proxy redirect logs no Location.** The upstream builds it, and
+  can echo the visitor's remainder and query into it; the line keeps the
+  fixed refusal, the stored pattern and the configured target.
+- **The typeless body peek has a 5 s deadline:** a body stream with no
+  Content-Type that neither yields a byte nor ends counts as a body (415).
+- **R2 events are validated once, before any work:** a known action, a valid
+  bucket name and a string key within R2's 1,024 limit, or the message is
+  skipped as malformed; every outcome line carries those validated fields.
+- **`normalize-case` moves a legacy record that stores its own `domain`
+  field** (it compared the fresh record with one the listing had rebuilt
+  without that field, so such a route never moved), writing it without the
+  field.
+
+### Removed: the Slack bot
+
+The Slack bot Worker in `slackbot/` was built but never deployed, and nothing
+in the live Worker, dashboard or MCP server used it. It is removed with its
+workspace entry, tests, CI steps and bot-only shared types; its code stays in
+history at the annotated tag `slackbot-archive` (AGENTS.md → Removed: Slack
+bot).
+
+### Tracking
+
+Open work now lives in [TODO.md](./TODO.md), grouped by priority; the
+still-open items of earlier "Follow-ups" lists moved there. Closed by this
+release: keeping the admin key out of the browser (v1.37.0 Follow-ups).
+
+---
+
 ## v1.38.0 (2026-10-07) — Validated boundary reads; proxy redirects checked hop by hop; forgiving search; QR codes linked to routes
 
 **Why:** a type argument on a KV read or an `as` cast on parsed JSON only told

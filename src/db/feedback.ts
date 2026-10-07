@@ -24,6 +24,7 @@ import {
 } from '@bifrost/shared';
 import { and, desc, eq, gte } from 'drizzle-orm';
 import { logInvalidBoundary, readStoredJson, type Validator } from '../utils/boundary';
+import { errorName } from '../utils/error-name';
 import { createDb } from './index';
 import { type FeedbackRow, feedback } from './schema';
 
@@ -200,7 +201,7 @@ export async function listFeedback(
       JSON.stringify({
         level: 'error',
         message: 'listFeedback failed',
-        error: error instanceof Error ? error.message : String(error),
+        errorName: errorName(error),
       }),
     );
     return [];

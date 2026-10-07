@@ -1,8 +1,8 @@
 import {
+  canonicalJson,
   type InvalidRouteRow,
   RoutePathSchema,
   RoutesListQuerySchema,
-  redactSensitive,
   searchAndRankRoutes,
 } from '@bifrost/shared';
 import type { Context } from 'hono';
@@ -19,6 +19,7 @@ import {
   deleteRoute,
   findRoutesByR2Target,
   getRoute,
+  getRouteAtExactKey,
   InvalidStoredRouteError,
   listAllDomainRoutes,
   listDomainRoutes,
@@ -39,13 +40,16 @@ import {
   type UpdateRouteInput,
   UpdateRouteSchema,
 } from '../kv/schema';
-import { cors } from '../middleware/cors';
+import { ADMIN_API_CORS_ORIGINS, cors } from '../middleware/cors';
 import type { AppEnv, KVRouteConfig } from '../types';
 import { isValidDomain, SUPPORTED_DOMAINS } from '../types';
 import { isRecord } from '../utils/boundary';
 import { purgeRouteUrl } from '../utils/cache';
 import { CodedHTTPException } from '../utils/coded-http-exception';
 import { validateApiKey } from '../utils/crypto';
+import { errorName } from '../utils/error-name';
+import { adminKeyFromAuthorization } from '../utils/internal-headers';
+import { requestBodyGuard } from '../utils/json-body';
 import { ownHostResolver } from '../utils/og-own-host';
 import { describeOpenGraphFailure, parseOpenGraph } from '../utils/og-parser';
 import { findCredentialParams } from '../utils/unified-traffic';
@@ -129,7 +133,7 @@ function purgeStoredPathUrl(c: Context<AppEnv>, domain: string, storedPath: stri
             message: 'cache purge failed',
             domain,
             path: storedPath,
-            error: redactSensitive(error instanceof Error ? error.message : String(error)),
+            errorName: errorName(error),
           }),
         );
       }),
@@ -145,7 +149,7 @@ function purgeStoredPathUrl(c: Context<AppEnv>, domain: string, storedPath: stri
  *
  * A configured target is not request data — it is stored in KV and copied into
  * `link_clicks.target_url` and `proxy_requests.target_url`. (This Worker's
- * `Route matched` log line carries only the path, the route path and the route
+ * `Route matched` log line carries only the host, the route path and the route
  * type, so the target does not reach the logs here.) The recorder redaction
  * stops the analytics tables holding a credential that arrived in the REQUEST;
  * this stops one being planted in the route itself. A short link is a public
@@ -262,19 +266,10 @@ adminRoutes.use('*', async (c, next) => {
 
 /**
  * CORS middleware for cross-origin requests (SECOND - handles preflight without auth)
- * Restricted to trusted origins only
+ * No origin is allowed (v1.39.0): the dashboard reaches the API through its
+ * own server, never from the browser (ADMIN_API_CORS_ORIGINS)
  */
-adminRoutes.use(
-  '*',
-  cors({
-    origins: [
-      'https://bifrost.example.com',
-      'https://example.com',
-      'https://bifrost.your-tailnet.ts.net', // Admin dashboard on Tailscale
-      'http://localhost:3001', // Local development (API key still required)
-    ],
-  }),
-);
+adminRoutes.use('*', cors({ origins: [...ADMIN_API_CORS_ORIGINS] }));
 
 /**
  * API key authentication middleware (SECOND - after CORS handles preflight)
@@ -288,7 +283,7 @@ adminRoutes.use('*', async (c, next) => {
   }
 
   const apiKey =
-    c.req.header('X-Admin-Key') || c.req.header('Authorization')?.replace('Bearer ', '');
+    c.req.header('X-Admin-Key') || adminKeyFromAuthorization(c.req.header('Authorization'));
   const expectedKey = c.env.ADMIN_API_KEY;
 
   if (!expectedKey) {
@@ -302,6 +297,12 @@ adminRoutes.use('*', async (c, next) => {
 
   await next();
 });
+
+/**
+ * The body guard (THIRD - after auth, before every route): JSON or no body,
+ * multipart only on the upload endpoints (v1.39.0; utils/json-body.ts)
+ */
+adminRoutes.use('*', requestBodyGuard());
 
 /**
  * GET /api/routes - List all routes OR get single route
@@ -640,7 +641,11 @@ adminRoutes.put('/routes', async c => {
     );
   }
 
-  const route = await updateRoute(c.env.ROUTES, domain, path, result.data);
+  // The record checked above is the one written (v1.39.0): a route that has
+  // changed since that read is refused with 409 ROUTE_SOURCE_CHANGED, never
+  // merged, and one deleted since is 404, never recreated (best effort; see
+  // updateRoute)
+  const route = await updateRoute(c.env.ROUTES, domain, path, result.data, beforeRoute);
 
   if (!route) {
     throw new HTTPException(404, { message: `Route not found: ${path}` });
@@ -1034,6 +1039,8 @@ adminRoutes.post('/routes/migrate', async c => {
   let patch: Omit<UpdateRouteInput, 'path'> | undefined;
   let acknowledged = false;
   if (rawBody.trim() !== '') {
+    // A body is optional here; one that is sent says it is JSON (the body
+    // guard refused anything else before this handler ran)
     let body: unknown;
     try {
       body = JSON.parse(rawBody);
@@ -1444,6 +1451,29 @@ adminRoutes.post('/routes/normalize-case', async c => {
 
       // Strip the domain field (added by listAllDomainRoutes) — it's not part of the stored value
       const { domain: _domain, ...routeWithoutDomain } = route;
+
+      // The exact key must still hold the record listed above (v1.39.0, the
+      // migrate/transfer pattern): one deleted in between is not recreated
+      // under the new key, and one replaced or made unreadable in between is
+      // neither copied over (the new key would carry the stale listed copy)
+      // nor deleted. Nothing is written for any of them. Best effort: KV has
+      // no compare-and-set, and a change after this read is not seen.
+      const current = await getRouteAtExactKey(c.env.ROUTES, route.domain, route.path);
+      if (current.status === 'missing') {
+        errors.push(`${oldKey}: ROUTE_NOT_FOUND: deleted while being moved, skipping`);
+        continue;
+      }
+      if (
+        current.status === 'invalid' ||
+        // The listing replaced any stored `domain` field and stripped it, so
+        // the fresh value is compared without one too (a legacy record that
+        // stored its own `domain` would otherwise never match)
+        canonicalJson(withoutDomainField(current.value)) !== canonicalJson(routeWithoutDomain)
+      ) {
+        errors.push(`${oldKey}: ROUTE_SOURCE_CHANGED: changed while being moved, skipping`);
+        continue;
+      }
+
       const migratedRoute = { ...routeWithoutDomain, path: lowerPath, updatedAt: Date.now() };
       // The exact record, checked immediately before it is written (v1.37.2)
       await c.env.ROUTES.put(newKey, serializeStoredRoute(newKey, migratedRoute));
@@ -1457,6 +1487,12 @@ adminRoutes.post('/routes/normalize-case', async c => {
 
   return c.json({ success: true, data: { migrated, skipped, errors } });
 });
+
+/** A stored record without its own `domain` field, which the key already names. */
+function withoutDomainField(value: object): Record<string, unknown> {
+  const { domain: _domain, ...rest } = value as Record<string, unknown>;
+  return rest;
+}
 
 /**
  * GET /api/routes/by-target - Find routes by R2 target

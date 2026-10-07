@@ -5,15 +5,32 @@ services:
   admin:
     image: ghcr.io/your-username/bifrost-dashboard:latest
     environment:
-      # Read at container start and written to env-config.js; never in the image.
+      # Required: the Worker the /api proxy reaches (https://host, no port).
+      API_PROXY_ORIGIN: ${API_PROXY_ORIGIN}
+      # Required: read at container start into a root-only nginx include that
+      # adds it to every proxied /api call; never in the image or the browser.
       ADMIN_API_KEY: ${ADMIN_API_KEY}
-      # Optional: R2 custom-domain origins for PDF previews (see the root README.md).
+      # Optional (see the root README.md): enforce (default) or report-only,
+      # the dashboard's own origin for CSP reports, PDF preview origins, and
+      # IPv4 DNS resolvers for the Worker host.
+      CSP_MODE: ${CSP_MODE:-}
+      CSP_REPORT_ORIGIN: ${CSP_REPORT_ORIGIN:-}
       R2_PREVIEW_ORIGINS: ${R2_PREVIEW_ORIGINS:-}
+      API_PROXY_RESOLVER: ${API_PROXY_RESOLVER:-}
+      # Optional: host names the browser opens the dashboard by besides
+      # localhost and 127.0.0.1, e.g. "dashboard.example.com" behind your front
+      # door, which must pass the browser's Host through unchanged; any other
+      # Host gets no answer (/health aside).
+      DASHBOARD_HOSTNAMES: ${DASHBOARD_HOSTNAMES:-}
     ports:
       - "127.0.0.1:3001:3001"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3001/health"]
+      # nginx listens on DASHBOARD_LISTEN_ADDRESS when it is set (127.0.0.1 is
+      # reachable whenever it is the default 0.0.0.0)
+      test:
+        - CMD-SHELL
+        - wget -q --spider "http://$${DASHBOARD_LISTEN_ADDRESS:-127.0.0.1}:3001/health"
       interval: 30s
       timeout: 10s
       retries: 3

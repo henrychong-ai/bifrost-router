@@ -285,43 +285,92 @@ with the labelled toggle. Dashboard analytics inherit the same admin API-key
 middleware as route management.
 
 ```bash
-# Create admin/.env.local
+# Development: the Vite dev server proxies /api to your Worker and adds the key
 cat > admin/.env.local << 'EOF'
-VITE_API_URL=https://bifrost.yourdomain.com
-VITE_ADMIN_API_KEY=your-admin-api-key
+DASHBOARD_DEV_API_URL=https://bifrost.yourdomain.com
+DASHBOARD_DEV_ADMIN_API_KEY=your-admin-api-key
 EOF
-
-# Development
 pnpm --filter admin dev    # Runs on port 3001
 
-# Production (Docker): build from the repository root
-docker build \
-  --build-arg VITE_API_URL=https://bifrost.yourdomain.com \
-  -f admin/Dockerfile \
-  -t bifrost-dashboard:latest .
+# Production (Docker): build from the repository root (no build arguments)
+docker build -f admin/Dockerfile -t bifrost-dashboard:latest .
 
 docker run -p 127.0.0.1:3001:3001 \
+  -e API_PROXY_ORIGIN=https://bifrost.yourdomain.com \
   -e ADMIN_API_KEY=your-api-key \
   -e R2_PREVIEW_ORIGINS="https://files.yourdomain.com" \
   bifrost-dashboard:latest
 ```
 
-> **⚠️ Never expose the dashboard container directly to the internet.** The
-> plain image serves `/env-config.js`, which holds the full admin API key, to
-> anyone who can load the dashboard. Publish it only on a private network or
-> behind an authenticating front door: Tailscale Serve (as the `:tailscale`
-> image does), Cloudflare Access or similar. The compose files and the
-> `docker run` example above bind it to `127.0.0.1` for that reason.
+**The dashboard never holds the admin key (v1.39.0).** The browser calls only
+the dashboard's own origin. The container's nginx proxies `/api/` to your Worker
+and adds `X-Admin-Key` from the container's `ADMIN_API_KEY`, which it keeps in
+a root-only file: the key is not in the image, the bundle, any file the browser
+can load, or a log. Under `pnpm dev` the Vite dev server does the same from
+`admin/.env.local` (`DASHBOARD_DEV_*`, never `VITE_*`, which Vite hands to the
+browser).
 
-The image never contains the API key. `VITE_API_URL` is the only build argument;
-`ADMIN_API_KEY` is read from the container's environment when it starts and
-written to `env-config.js`, which the dashboard loads at runtime
-(`VITE_ADMIN_API_KEY` in `admin/.env.local` is for local development only). With
-Docker Compose, `admin/docker-compose.yml` builds the same image and passes both
-variables through from your shell or a `.env` file:
-`ADMIN_API_KEY=your-api-key docker compose -f admin/docker-compose.yml up --build`.
+| Container input | | |
+|---|---|---|
+| `API_PROXY_ORIGIN` | **required** | The Worker the `/api` proxy reaches: an https origin with no port or path, such as `https://bifrost.yourdomain.com` (your `ADMIN_API_DOMAIN`). The container must be able to reach it (outbound HTTPS and DNS); its certificate is verified. |
+| `ADMIN_API_KEY` | **required** | The Worker's admin key, read at start. The container refuses to start without it, or with whitespace, `"`, `\` or `$` in it. |
+| `DASHBOARD_HOSTNAMES` | optional | The host names the browser opens the dashboard by, besides `localhost` and `127.0.0.1` (space-separated, such as `dashboard.yourdomain.com`; a single-label LAN, Docker or Kubernetes service name is accepted; never the Worker's own host). Any other `Host` gets no answer (`/health` aside, answered for any `Host`, so a load balancer or Kubernetes probe by address works), so set it whenever the dashboard sits behind a front door with its own name, and have that front door **pass the browser's `Host` header through unchanged**: the proxy compares a request's `Origin` with it. Not needed by the `:tailscale` image. |
+| `DASHBOARD_LISTEN_ADDRESS` | optional | The IPv4 address nginx listens on, port 3001 (default `0.0.0.0`, which Docker port publishing needs). |
+| `DASHBOARD_TAILSCALE_SERVE` | optional | `off` (default) or `on`, which the `:tailscale` image sets: Tailscale Serve, in the same container, is the one way in, so nginx listens only on a root-only Unix socket and trusts the `Tailscale-User-*` identity and `X-Forwarded-Host` Serve sets. Never set it where anything else can reach nginx: off, a client's `Tailscale-User-*` headers are ignored, never forwarded. |
+| `CSP_MODE` | optional | `enforce` (default) or `report-only` for the page policy. `/api` answers always carry an enforced `default-src 'none'; sandbox` policy. |
+| `CSP_REPORT_ORIGIN` | optional | The dashboard's own https origin. Set, browsers report policy violations to `<origin>/csp-report` (a bounded, rate-limited receiver that logs metadata only); unset, no reporting. |
+| `R2_PREVIEW_ORIGINS` | optional | The R2 custom-domain origins the dashboard previews PDFs from (the hosts in `R2_BUCKET_CUSTOM_DOMAINS` in `admin/src/lib/constants.ts`), space-separated bare `https://host[:port]` origins, added to `object-src` and `frame-src`. |
+| `API_PROXY_RESOLVER` | optional | IPv4 DNS resolvers nginx resolves the Worker with (default `1.1.1.1 1.0.0.1`). |
 
-`R2_PREVIEW_ORIGINS` is optional: list the R2 custom-domain origins the dashboard previews PDFs from (the hosts you set in `R2_BUCKET_CUSTOM_DOMAINS` in `admin/src/lib/constants.ts`), separated by spaces. The container adds them to the dashboard CSP's `object-src` and `frame-src`, and refuses to start if an entry is not a bare `https://host[:port]` origin.
+The container validates every value and refuses to start on a bad or missing
+one. With Docker Compose, `admin/docker-compose.yml` builds the image and passes
+these through from your shell or a `.env` file:
+`API_PROXY_ORIGIN=https://bifrost.yourdomain.com ADMIN_API_KEY=your-api-key docker compose -f admin/docker-compose.yml up --build`.
+
+> **⚠️ The dashboard's security boundary is whoever can reach it.** It has no
+> login of its own, and its `/api` proxy authenticates every call with the admin
+> key, so anyone who can open the dashboard can use the full admin API through
+> it. Publish it only on a private network or behind an authenticating front
+> door: Tailscale Serve (as the `:tailscale` image does), Cloudflare Access or
+> similar, never directly on the internet. The compose files and the `docker
+> run` example above bind it to `127.0.0.1`. A page on another site cannot use
+> it through a visitor's browser: the proxy forwards only the dashboard's own
+> requests (its `X-Bifrost-Dashboard` header, same-origin fetch metadata and
+> `Origin`), and only for the host names above.
+
+**Audit rows and logs.** The Worker's audit rows name the actor from the
+`Tailscale-User-Login` header: behind the `:tailscale` image that is the
+viewer's Tailscale identity, set by Serve; anywhere else the proxy sends none,
+so the actor is `api-key`. The row's IP address is the dashboard container's
+egress address, not the viewer's. nginx logs request metadata only (method, a
+fixed scope, status, sizes, timings), never the URL, query, Referer or a
+forwarded header; its error log names the request line, the client address and
+the Referer of a call that fails at the proxy. The `/api` proxy never forwards
+the browser's `Cookie`, `Authorization`, `Proxy-Authorization`,
+`Cf-Access-Jwt-Assertion` or `X-Forwarded-Access-Token` header (a front door's
+session, credentials or token); a front door that adds another header should
+drop it itself. `DASHBOARD_HOSTNAMES` takes DNS names (letters, digits, hyphens
+and dots; no underscore).
+
+**Upgrading from v1.38 or earlier:** the image no longer takes the
+`VITE_API_URL` build argument and no longer serves `/env-config.js`. Set
+`API_PROXY_ORIGIN` (the URL you used for `VITE_API_URL`) and keep
+`ADMIN_API_KEY` in the container's environment. Behind your own front door,
+add `DASHBOARD_HOSTNAMES` for the name the browser uses and pass its `Host`
+through unchanged. Every dashboard API call now reaches the Worker from the
+container's egress IP: a per-IP rate limit on the admin host's `/api/` counts
+all operators as one client (size it for all of them, or exempt that IP), and
+any Cloudflare Access policy or IP rule there must let that IP through
+([Cloudflare WAF](docs/cloudflare-waf.md#rule-2-rate-limit-the-admin-api)).
+The `:tailscale` image now serves nginx on a Unix socket
+that Tailscale Serve proxies to (no TCP port: tailscaled's userspace
+networking would hand tailnet connections to a loopback port around Serve):
+take the new `admin/docker-compose.tailscale.yml`, whose healthcheck uses the
+socket and still passes on an older image, so a rollback stays healthy; it
+needs no `DASHBOARD_HOSTNAMES`. Rename `VITE_API_URL` and
+`VITE_ADMIN_API_KEY` in `admin/.env.local` to `DASHBOARD_DEV_API_URL` and
+`DASHBOARD_DEV_ADMIN_API_KEY`. The admin API now allows no CORS origin: the
+dashboard calls the Worker server-side.
 
 ### Optional: MCP Server
 
@@ -364,7 +413,7 @@ A GitHub Actions template is provided at `.github/workflows/ci-cd.yml.example`.
 2. Add repository secrets:
    - `CLOUDFLARE_API_TOKEN` — Cloudflare API token with Workers Edit scope
    - `CLOUDFLARE_ACCOUNT_ID` — Your Cloudflare account ID
-   - The dashboard image needs no API key at build time: set `ADMIN_API_KEY` in the container's environment on the server (for the Tailscale image, in `admin/auth.env`)
+   - The dashboard image takes no build argument: set `API_PROXY_ORIGIN` and `ADMIN_API_KEY` in the container's environment on the server (for the Tailscale image, in `admin/auth.env`)
 
 The active CI pipeline (`.github/workflows/ci.yml`) runs secret and public-sanitisation
 scans, lint/format/type checks, tests with locked coverage floors, the dashboard
@@ -473,6 +522,18 @@ domain in `?domain=` or the `X-Domain` header; without one, or with the two
 disagreeing, the API answers 400 and writes nothing. There is no default
 domain for writes.
 
+On POST, PUT, PATCH and DELETE a body must be sent with `Content-Type:
+application/json` (any parameters, such as `; charset=utf-8`), or not at all,
+and an upload (`POST /api/storage/:bucket/upload`, `POST /api/feedback`) as
+`multipart/form-data`; any other type answers 415 `UNSUPPORTED_MEDIA_TYPE`
+before anything is read or written (v1.39.0). An edit (`PUT /api/routes`)
+answers 409 `ROUTE_SOURCE_CHANGED` when the route changed after the request
+read it, and 404 when it was deleted, and saves nothing. A route path, object
+key or slug in a URL goes segment by segment, each percent-encoded, slashes
+kept (`pathSegments` and `objectKeySegments` in `@bifrost/shared`; a key with
+a leading slash, an empty segment or a `.` or `..` segment is refused rather
+than sent). The admin API allows no CORS origin.
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/routes` | List routes, newest first (`?search=` ranked by relevance, at most 2,048 characters; `?type=`, `?enabled=`, `?limit=`, `?offset=`, `?domain=`; an invalid value answers 400) |
@@ -482,14 +543,14 @@ domain for writes.
 | `DELETE` | `/api/routes?path=` | Delete route (`&recover=invalid`: delete an unreadable record by its exact key) |
 | `POST` | `/api/routes/migrate` | Migrate route to new path (optional update body, written in the same write) |
 | `POST` | `/api/routes/transfer` | Transfer route between domains |
-| `POST` | `/api/routes/normalize-case` | One-time migration: convert all route paths to lowercase (run after upgrading to v1.22.0+ if you have pre-existing uppercase routes) |
+| `POST` | `/api/routes/normalize-case` | One-time migration: convert all route paths to lowercase (run after upgrading to v1.22.0+ if you have pre-existing uppercase routes). A route deleted or changed while it runs is reported in `errors` (`ROUTE_NOT_FOUND`, `ROUTE_SOURCE_CHANGED`) and left alone |
 | `GET` | `/api/routes/by-target` | Find routes serving an R2 object (`?bucket=&target=`) |
 | `GET` | `/api/changelog` | The engineering changelog as Markdown (`text/markdown`, `private, max-age=300`) |
 | `POST` | `/api/routes/seed` | Bulk import routes |
 | `GET` | `/api/analytics/summary` | Domain-aware operational overview (`?domain=&days=&country=&search=&includeMonitoring=`) |
 | `GET` | `/api/analytics/clicks` | Click records (paginated) |
 | `GET` | `/api/analytics/views` | View records (paginated) |
-| `GET` | `/api/analytics/clicks/:slug` | Stats for specific link |
+| `GET` | `/api/analytics/clicks/:slug` | Stats for specific link (the slug without its leading `/`, as path segments; the root slug is `/api/analytics/clicks/`) |
 | `GET` | `/api/storage/buckets` | List all R2 buckets |
 | `GET` | `/api/storage/:bucket/objects` | List objects (`?prefix=`, `?cursor=`, `?limit=`, `?delimiter=`) |
 | `GET` | `/api/storage/:bucket/meta/:key` | Get object metadata |

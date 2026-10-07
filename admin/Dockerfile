@@ -26,12 +26,10 @@ RUN pnpm run build
 
 WORKDIR /app/admin
 
-# Build args for environment variables
-# Note: ADMIN_API_KEY is NOT a build arg — pass it as a runtime env var to the container.
-ARG VITE_API_URL=https://yourdomain.com
-
-# Build the application
-RUN VITE_API_URL=$VITE_API_URL pnpm run build
+# The bundle takes no environment: it calls its own origin, and the runtime
+# nginx proxies /api to the Worker with the key (v1.39.0). ADMIN_API_KEY is a
+# runtime env var of the container, never a build arg.
+RUN pnpm run build
 
 # Production stage
 FROM nginx:alpine
@@ -39,15 +37,20 @@ FROM nginx:alpine
 # Copy built assets
 COPY --from=builder /app/admin/dist /usr/share/nginx/html
 
-# Copy the nginx config template and its renderer; start.sh renders it into
-# conf.d at container start (the CSP takes R2_PREVIEW_ORIGINS).
+# The nginx config template and its renderer; start.sh renders it into conf.d
+# at container start from the container's environment (API_PROXY_ORIGIN,
+# ADMIN_API_KEY, CSP_MODE, CSP_REPORT_ORIGIN, R2_PREVIEW_ORIGINS,
+# API_PROXY_RESOLVER; see the renderer).
 COPY admin/nginx.conf.template /etc/nginx/bifrost/default.conf.template
 COPY admin/scripts/render-nginx-conf.sh /usr/local/bin/render-nginx-conf.sh
-COPY admin/scripts/write-env-config.sh /usr/local/bin/write-env-config.sh
 
-# Copy startup script (renders nginx config, generates env-config.js at container start)
+# Copy startup script (renders the nginx config at container start)
 COPY admin/scripts/start.sh /start.sh
-RUN chmod +x /start.sh /usr/local/bin/render-nginx-conf.sh /usr/local/bin/write-env-config.sh
+RUN chmod +x /start.sh /usr/local/bin/render-nginx-conf.sh
+
+# The /api proxy verifies the Worker's certificate against this CA bundle
+# (proxy_ssl_trusted_certificate): the build stops if the base image lacks it.
+RUN test -s /etc/ssl/certs/ca-certificates.crt
 
 # Remove the stock nginx site: it serves the same files without the dashboard's
 # CSP and security headers, so a launch that bypasses the start script must
@@ -57,5 +60,5 @@ RUN rm -f /etc/nginx/conf.d/default.conf
 # Expose port
 EXPOSE 3001
 
-# Start via script so env-config.js is written before nginx serves requests
+# Start via script so the config is rendered before nginx serves requests
 CMD ["/start.sh"]

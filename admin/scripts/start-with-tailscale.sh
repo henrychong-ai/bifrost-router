@@ -6,10 +6,21 @@ set -e
 
 echo "[startup] Starting admin dashboard with Tailscale..."
 
-# Render the nginx config first: its CSP admits the R2 preview origins
-# (R2_PREVIEW_ORIGINS), and a bad value must stop the container here.
+# Render the nginx config first (v1.39.0): its security headers take the
+# container's values, its /api proxy adds the container's ADMIN_API_KEY (the
+# browser never holds the key), and a bad or missing value must stop the
+# container here, before it joins the tailnet.
 echo "[startup] Rendering nginx config..."
-/usr/local/bin/render-nginx-conf.sh /etc/nginx/bifrost/default.conf.template /etc/nginx/conf.d/default.conf
+/usr/local/bin/render-nginx-conf.sh /etc/nginx/bifrost/default.conf.template /etc/nginx/conf.d/default.conf /etc/nginx/bifrost/admin-key.conf
+
+# nginx listens only on a Unix socket (DASHBOARD_TAILSCALE_SERVE=on in the
+# image): a root-owned 0700 directory, so only root processes in this
+# container (tailscaled for Serve, nginx's master) can connect, and no stale
+# socket from an unclean stop, which nginx could not bind over.
+mkdir -p /run/bifrost
+chown root:root /run/bifrost
+chmod 700 /run/bifrost
+rm -f /run/bifrost/nginx.sock
 
 # Start tailscaled in userspace networking mode (required for containers)
 echo "[startup] Starting tailscaled..."
@@ -40,18 +51,15 @@ sleep 2
 tailscale status
 
 # Configure Tailscale Serve for HTTPS
-# This exposes https://bifrost.your-tailnet.ts.net -> localhost:3001
+# This exposes https://bifrost.your-tailnet.ts.net -> nginx's Unix socket.
+# Serve sends `Host: localhost` to a socket, the browser's host in
+# X-Forwarded-Host and the viewer's Tailscale-User-* identity, removing any a
+# client sent; nginx trusts these only in this image.
 echo "[startup] Configuring Tailscale Serve..."
-tailscale serve --bg --https=443 http://localhost:3001
+tailscale serve --bg --https=443 unix:/run/bifrost/nginx.sock
 
 # Show serve status
 tailscale serve status
-
-# Generate runtime env config from container environment variable.
-# This keeps the API key out of the Docker image and build cache entirely.
-# The key is injected at container startup, not baked into the JS bundle.
-echo "[startup] Writing runtime env config..."
-/usr/local/bin/write-env-config.sh /usr/share/nginx/html/env-config.js
 
 # Start nginx in the background
 echo "[startup] Starting nginx..."

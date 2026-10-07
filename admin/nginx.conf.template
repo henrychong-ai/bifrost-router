@@ -1,36 +1,253 @@
-# Cache-Control per path, sent by the server-level add_header below (v1.37.1).
-# nginx drops every server-level add_header in a location that has its own,
-# so no location may use add_header: per-location headers go through a map
-# like this one. An empty value sends no header.
+# Dashboard nginx config for both images (v1.39.0). The start scripts render it
+# with admin/scripts/render-nginx-conf.sh before nginx starts; its
+# double-underscore placeholders are the container's values (see that script).
+# Never mount or copy this file as it is: its placeholders are not valid nginx
+# or CSP syntax. AGENTS.md -> Dashboard architecture.
+#
+# Tailscale identity (v1.39.0). Tailscale Serve sets Tailscale-User-Login,
+# -Name and -Profile-Pic on every request it proxies and removes any a client
+# sent, so nginx trusts them only where Serve is the one way in:
+# DASHBOARD_TAILSCALE_SERVE=on (the :tailscale image), where nginx listens on
+# a Unix socket that only Serve, in the same container, connects to. Anywhere
+# else a client could send its own, so these are empty: the identity endpoint
+# answers unauthenticated, the CSP receiver keys on the client address, and
+# the /api proxy sends none, so the Worker's audit rows never name an
+# identity a client chose.
+map "__TAILSCALE_SERVE__" $bifrost_tailscale_user_login {
+    on              $http_tailscale_user_login;
+    default         "";
+}
+map "__TAILSCALE_SERVE__" $bifrost_tailscale_user_name {
+    on              $http_tailscale_user_name;
+    default         "";
+}
+map "__TAILSCALE_SERVE__" $bifrost_tailscale_user_profile_pic {
+    on              $http_tailscale_user_profile_pic;
+    default         "";
+}
+
+# The identity values the identity endpoint pastes into its JSON answer
+# (v1.39.0): a value holding `"`, `\` or a control character is blanked,
+# never pasted (nginx has no JSON escaping), so the answer is always valid
+# JSON and no value can add a key. A login blanked this way answers
+# unauthenticated. The /api proxy forwards the trusted values above as they
+# are, as headers.
+map $bifrost_tailscale_user_login $bifrost_identity_json_login {
+    "~[\x00-\x1f\x22\x5c\x7f]"  "";
+    default                     $bifrost_tailscale_user_login;
+}
+map $bifrost_tailscale_user_name $bifrost_identity_json_name {
+    "~[\x00-\x1f\x22\x5c\x7f]"  "";
+    default                     $bifrost_tailscale_user_name;
+}
+map $bifrost_tailscale_user_profile_pic $bifrost_identity_json_profile_pic {
+    "~[\x00-\x1f\x22\x5c\x7f]"  "";
+    default                     $bifrost_tailscale_user_profile_pic;
+}
+
+# The host the browser asked for, which the cross-site check compares an
+# Origin with. Serve sends `Host: localhost` to a Unix socket and the
+# browser's host in X-Forwarded-Host, which it sets itself (a client's value
+# is replaced); any other front door must pass the browser's Host unchanged.
+map "__TAILSCALE_SERVE__" $bifrost_request_host {
+    on              $http_x_forwarded_host;
+    default         $http_host;
+}
+
+# The CSP report receiver records bounded request metadata only; report bodies
+# are not persisted, so browser URLs never become another datastore. Two
+# limits: one per viewer, keyed on the trusted Tailscale identity when there
+# is one (behind Serve every request arrives over the same socket, so an
+# address key would put the whole audience in one bucket), else on the client
+# address; and one for the whole receiver, which also bounds a client that
+# varies the identity header. A refused report is answered 429 and logged
+# with that status in the csp_report line only (limit_req logs at info, below
+# the error log's level, so no error line names the client or Referer).
+map $bifrost_tailscale_user_login $bifrost_csp_report_viewer {
+    ""              $binary_remote_addr;
+    default         $bifrost_tailscale_user_login;
+}
+limit_req_zone $bifrost_csp_report_viewer zone=csp_reports:1m rate=2r/s;
+limit_req_zone $server_name zone=csp_reports_all:64k rate=20r/s;
+log_format csp_report escape=json
+    '{"time":"$time_iso8601","status":$status,"request_length":$request_length,'
+    '"origin":"$http_origin","user_agent":"$http_user_agent"}';
+
+# Access log: metadata only (v1.39.0). nginx's stock `main` format, which the
+# image's http block sets for every server that names no access_log of its
+# own, records the request line with its query, the Referer and
+# X-Forwarded-For. Both servers here log this instead: the method, a fixed
+# scope for the path (never the path, so no object key, route path, search
+# or query an /api call carries), the status, the bytes sent and the
+# timings. The CSP receiver logs its own csp_report line instead.
+map $uri $bifrost_log_scope {
+    default                     "page";
+    ~^/assets/                  "asset";
+    ~^/api/                     "api";
+    /api/tailscale/identity     "identity";
+    /csp-report                 "csp-report";
+    /health                     "health";
+}
+log_format bifrost_access escape=json
+    '{"time":"$time_iso8601","method":"$request_method","scope":"$bifrost_log_scope",'
+    '"status":$status,"bytes_sent":$bytes_sent,"request_time":$request_time,'
+    '"upstream_time":"$upstream_response_time"}';
+
+# Cache-Control per path, sent by the server-level add_header below. nginx
+# drops every server-level add_header in a location that has its own, so no
+# location may use add_header (scripts/check-dashboard-security.test.mjs fails
+# on one): per-path headers go through a map like this one. An empty value
+# sends no header, so an /api response keeps the Worker's own Cache-Control.
 map $uri $bifrost_cache_control {
     default         "";
-    ~^/assets/      "public, immutable";
-    /env-config.js  "no-store, no-cache, must-revalidate";
+    ~^/assets/      $bifrost_asset_cache_control;
+    /csp-report     "no-store";
+    /health         "no-store";
+}
+# A hashed asset is immutable, but only the asset itself: a 404 for a file
+# that is not there (an old bundle asking for a chunk a newer build replaced)
+# must not be cached for a year. $status is final when the header is sent.
+map $status $bifrost_asset_cache_control {
+    default         "";
+    200             "public, max-age=31536000, immutable";
+    206             "public, max-age=31536000, immutable";
+    304             "public, max-age=31536000, immutable";
+}
+
+# The page policy, for everything but /api. The bundle has no inline script
+# (index.html loads /zod-jitless.js and one module entry), so script-src 'self'
+# needs no nonce, and every API call goes to this origin (the /api proxy
+# below), so connect-src is 'self'. img-src stays https: because a template
+# cannot know a deployer's image hosts (link-preview and favicon images).
+map $uri $bifrost_page_csp {
+    default         "default-src 'self'; base-uri 'self'; object-src __CSP_OBJECT_SRC__; frame-src 'self'__CSP_PREVIEW_ORIGINS__; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' https://assets.fusang.co data:; img-src 'self' data: blob: https:; connect-src 'self'; manifest-src 'self'; worker-src 'self' blob:; upgrade-insecure-requests__CSP_REPORTING__";
+    ~^/api/         "";
+}
+
+# The /api policy, always enforced whatever CSP_MODE says: an /api response is
+# data (JSON, or a stored file the Worker returns as it is), never a page, so
+# nothing it holds may run on this privileged origin, even an R2 object stored
+# as text/html.
+map $uri $bifrost_api_csp {
+    default         "";
+    ~^/api/         "default-src 'none'; frame-ancestors 'none'; sandbox";
+}
+
+# Every /api response that is not JSON (a stored object, a feedback
+# attachment, an export, the changelog) is an attachment, so a browser never
+# renders one inline; a JSON answer keeps the Worker's own value (none).
+map $upstream_http_content_type $bifrost_api_disposition {
+    default                             "attachment";
+    "~*^application/json\s*(?:;|$)"     $upstream_http_content_disposition;
+}
+map $uri $bifrost_content_disposition {
+    default         "";
+    ~^/api/         $bifrost_api_disposition;
+}
+
+# Cross-site refusal for the key-adding /api proxy (v1.39.0). nginx adds the
+# admin key to every request it forwards, so it forwards only the dashboard's
+# own: the request must carry the dashboard's X-Bifrost-Dashboard: 1 header (a
+# page on another origin cannot send it without a CORS preflight, and the
+# preflight is refused here like any request without it), a Sec-Fetch-Site,
+# when the browser sends one, of same-origin, and an Origin, when present, on
+# the host the browser asked for. Each map is empty when its check passes.
+map $http_x_bifrost_dashboard $bifrost_api_csrf_header {
+    "1"             "";
+    default         "header";
+}
+map $http_sec_fetch_site $bifrost_api_csrf_site {
+    ""              "";
+    "same-origin"   "";
+    default         "site";
+}
+map "$http_origin $bifrost_request_host" $bifrost_api_csrf_origin {
+    "~^ "                           "";
+    "~*^https?://([^/\s]+) \1$"     "";
+    default                         "origin";
+}
+map "$bifrost_api_csrf_header$bifrost_api_csrf_site$bifrost_api_csrf_origin" $bifrost_api_refused {
+    ""              0;
+    default         1;
+}
+
+# Path hygiene for the /api proxy (v1.39.0). nginx picks the location on the
+# DECODED, merged path but forwards the RAW one, so `/x/..%2Fapi/y` or
+# `//api/x` would reach the /api location and be forwarded, with the key, to a
+# Worker path outside /api. The raw request must itself start with /api/; its
+# path may hold no encoded slash, dot or backslash and no empty segment; and
+# the whole target only RFC 3986 path and query characters. That refuses a
+# raw `#` (nginx's $uri stops at it, so `/api/x#/../../y` is matched as
+# /api/x while the Worker's URL parser resolves the dot segments after it), a
+# raw backslash (a URL parser reads it as a slash) and any other character a
+# browser's own request would have encoded. Bare /api is not the API.
+map $request_uri $bifrost_api_path_refused {
+    "~*^[^?]*(?:%2f|%2e|%5c|//)"                                                          1;
+    "~^/api/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*(?:\?[A-Za-z0-9._~!$&'()*+,;=:@%/?-]*)?$"      0;
+    default                                                                               1;
+}
+
+# Where nginx listens (the renderer's choice): DASHBOARD_LISTEN_ADDRESS port
+# 3001, or, behind Tailscale Serve (DASHBOARD_TAILSCALE_SERVE=on), only
+# the Unix socket /run/bifrost/nginx.sock in a root-only directory, with no
+# TCP port at all. tailscaled's userspace networking hands an inbound tailnet
+# connection to any port of the node to 127.0.0.1:<port>, so even a loopback
+# listener would be reachable from the tailnet around Serve, without Serve's
+# identity headers.
+#
+# Any Host that is not the dashboard's (DASHBOARD_HOSTNAMES, localhost or
+# 127.0.0.1) gets no answer at all: a name an attacker points at the
+# dashboard's address (DNS rebinding) never reaches it, so the cross-site
+# checks above can trust the Host they compare an Origin with. (Behind Serve
+# every request says `Host: localhost`; there Serve's TLS certificate, for
+# the node's own name only, keeps a rebound name out.) The one
+# exception is /health, answered for any Host without a key or the proxy, so
+# a load balancer or Kubernetes probe that names the container by its
+# address gets 200 instead of a dropped connection.
+server {
+    listen __LISTEN__ default_server;
+    server_name _;
+    server_tokens off;
+    access_log /dev/stdout bifrost_access;
+
+    location = /health {
+        default_type application/json;
+        return 200 '{"status":"ok"}';
+    }
+
+    location / {
+        return 444;
+    }
 }
 
 server {
-    listen 3001;
-    server_name localhost;
+    listen __LISTEN__;
+    server_name localhost 127.0.0.1__DASHBOARD_HOSTNAMES__;
+    server_tokens off;
+    access_log /dev/stdout bifrost_access;
+    # A redirect (a directory without its slash) names no host, so it stays
+    # on the dashboard origin behind Serve, which sends `Host: localhost`.
+    absolute_redirect off;
 
     root /usr/share/nginx/html;
     index index.html;
 
-    # The public template serves a static Vite bundle from nginx, so a nonce is
-    # unnecessary: scripts are restricted to same-origin hashed assets. Keep
-    # CSP here (not in the routing Worker) so proxied/R2 responses are untouched.
-    #
-    # Template: admin/scripts/render-nginx-conf.sh fills the object-src and
-    # frame-src placeholders at container start from R2_PREVIEW_ORIGINS, the R2
-    # custom-domain origins the dashboard previews PDFs from (v1.37.0). Unset,
-    # they render as object-src 'none' and frame-src 'self'. connect-src
-    # already admits https: origins.
-    add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src __CSP_OBJECT_SRC__; frame-src __CSP_FRAME_SRC__; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' https://assets.fusang.co data:; img-src 'self' data: blob: https:; connect-src 'self' https:; manifest-src 'self'; worker-src 'self' blob:; upgrade-insecure-requests" always;
+    # Security headers, once, for every response. Enforced or report-only is
+    # CSP_MODE (the page policy only; the policy text is the same in both).
+    # Reporting is on only when CSP_REPORT_ORIGIN is set: otherwise the policy
+    # has no report directives and Reporting-Endpoints is empty, which nginx
+    # does not send. Keep the router's CSP here, not in the Worker, so proxied
+    # and R2 responses of the Worker are untouched.
+    add_header __CSP_HEADER__ $bifrost_page_csp always;
+    add_header Content-Security-Policy $bifrost_api_csp always;
+    add_header Reporting-Endpoints '__CSP_REPORTING_ENDPOINTS__' always;
+    add_header Strict-Transport-Security "max-age=31536000" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
     add_header X-Frame-Options "DENY" always;
-    add_header Strict-Transport-Security "max-age=31536000" always;
-    add_header Cache-Control $bifrost_cache_control;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
+    add_header Cache-Control $bifrost_cache_control always;
+    add_header Content-Disposition $bifrost_content_disposition always;
 
     # Gzip compression
     gzip on;
@@ -39,50 +256,131 @@ server {
     gzip_proxied any;
     gzip_types text/plain text/css text/xml text/javascript application/javascript application/json application/xml;
 
-    # Cache static assets
-    # (Cache-Control "public, immutable" comes from the map above.)
+    # Hashed build assets: Cache-Control "public, max-age=31536000, immutable"
+    # from the maps on a successful answer only, the only Cache-Control they
+    # get (`expires` would add a second one).
     location /assets/ {
-        expires 1y;
     }
 
-    # Runtime env config - must not be cached (regenerated at container
-    # startup); Cache-Control "no-store, no-cache, must-revalidate" comes from
-    # the map above.
-    location = /env-config.js {
-        expires 0;
+    # Bounded CSP receiver, on only when CSP_REPORT_ORIGIN is set (the
+    # renderer writes on or off; off answers 404): POST only, 16 KiB maximum,
+    # two reports per second per viewer (burst 5) and twenty for the whole
+    # receiver (burst 40), and metadata-only logs. The 204 comes from
+    # try_files, which runs after limit_req: a `return` runs in the rewrite
+    # phase, before limit_req, so a receiver answering with `return 204` is
+    # never rate limited (the 404 and 405 refusals may be). The file named is
+    # never in the web root.
+    location = /csp-report {
+        set $bifrost_csp_receiver __CSP_RECEIVER__;
+        if ($bifrost_csp_receiver = off) { return 404; }
+        if ($request_method != POST) { return 405; }
+        client_max_body_size 16k;
+        limit_req zone=csp_reports burst=5 nodelay;
+        limit_req zone=csp_reports_all burst=40 nodelay;
+        limit_req_status 429;
+        # A refused report is already in the csp_report access line; at warn
+        # each 429 would also write an error line naming the client and Referer
+        limit_req_log_level info;
+        access_log /dev/stdout csp_report;
+        try_files /.csp-report-receiver =204;
     }
 
-    # Tailscale identity endpoint
-    # When served via Tailscale Serve, it injects identity headers:
-    # - Tailscale-User-Login: User's login (e.g., alice@example.com)
-    # - Tailscale-User-Name: Display name
-    # - Tailscale-User-Profile-Pic: Profile picture URL
-    location /api/tailscale/identity {
+    # The viewer's Tailscale identity, from the headers Serve sets (empty, so
+    # unauthenticated, unless Serve is the front door: the maps above), each
+    # blanked if it could not be pasted into JSON as it is.
+    # Answered here, never proxied (an exact match beats the /api regex).
+    location = /api/tailscale/identity {
         default_type application/json;
-
-        # Extract Tailscale headers (nginx converts to lowercase with underscores)
-        set $ts_login $http_tailscale_user_login;
-        set $ts_name $http_tailscale_user_name;
-        set $ts_pic $http_tailscale_user_profile_pic;
-
-        # Determine if authenticated (login header present)
+        set $ts_login $bifrost_identity_json_login;
+        set $ts_name $bifrost_identity_json_name;
+        set $ts_pic $bifrost_identity_json_profile_pic;
         set $is_auth "false";
-        if ($ts_login != "") {
-            set $is_auth "true";
-        }
-
-        # Return JSON response with identity info
-        # Note: Using single quotes to avoid JSON escaping issues
+        if ($ts_login != "") { set $is_auth "true"; }
         return 200 '{"login":"$ts_login","name":"$ts_name","profilePic":"$ts_pic","isAuthenticated":$is_auth}';
     }
 
-    # SPA fallback - serve index.html for all routes
+    # Same-origin API proxy to the Worker (API_PROXY_ORIGIN): the browser never
+    # holds the admin key (v1.39.0). nginx adds X-Admin-Key from the container's
+    # ADMIN_API_KEY through the include, a root-only file the renderer writes;
+    # proxy_set_header replaces any X-Admin-Key the client sent, so a client
+    # value is never forwarded. The Tailscale identity headers are the
+    # trusted ones above, so a client's own never reach the Worker's audit
+    # rows. Anyone who can open the dashboard can use the API through it, so
+    # the dashboard belongs behind private access; a page on another site
+    # cannot (the cross-site maps above). The access log records no request
+    # header, path or query (the bifrost_access format above); nginx's error
+    # log still names the request line, the client address and the Referer of
+    # a call that fails at the proxy (a refused upstream certificate, a
+    # timeout).
+    #
+    # The Worker's certificate is verified against the image's CA bundle for
+    # API_PROXY_ORIGIN's host. The resolver (API_PROXY_RESOLVER) re-resolves the
+    # host without an nginx restart. The Worker's own copies of the security
+    # headers are hidden, so a proxied response carries one of each.
+    resolver __API_PROXY_RESOLVER__ valid=300s ipv6=off;
+    set $bifrost_api_host "__API_PROXY_HOST__";
+    location ~ ^/api/ {
+        default_type application/json;
+        if ($bifrost_api_path_refused) {
+            return 400 '{"success":false,"error":"BAD_API_PATH","message":"The API path must start with /api/ and hold only URL path and query characters, no encoded slash, dot or backslash, and no empty segment."}';
+        }
+        if ($bifrost_api_refused) {
+            return 403 '{"success":false,"error":"CROSS_SITE_REQUEST","message":"The dashboard API answers only the dashboard itself."}';
+        }
+        # The Worker's largest body is a dashboard upload (100 MiB) plus its
+        # multipart framing; nginx's default of 1 MiB would refuse most files.
+        client_max_body_size 101m;
+        # Uploads stream through to the Worker instead of being written to a
+        # temporary file first, and so do downloads the other way: a large
+        # object is never spooled to the container's disk (no temp file;
+        # nginx reads the Worker only as fast as the client takes it).
+        proxy_request_buffering off;
+        proxy_max_temp_file_size 0;
+        proxy_pass https://$bifrost_api_host$request_uri;
+        proxy_http_version 1.1;
+        proxy_ssl_server_name on;
+        proxy_ssl_name $bifrost_api_host;
+        proxy_ssl_verify on;
+        proxy_ssl_verify_depth 3;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+        proxy_set_header Host $bifrost_api_host;
+        proxy_set_header Connection "";
+        # A front door's session cookie, credentials and the tokens common
+        # front doors add (Basic auth, oauth2-proxy, Cloudflare Access) are the
+        # dashboard's, never the Worker's: the Worker authenticates the key
+        # above. A front door adding another header should drop it itself.
+        proxy_set_header Cookie "";
+        proxy_set_header Authorization "";
+        proxy_set_header Proxy-Authorization "";
+        proxy_set_header Cf-Access-Jwt-Assertion "";
+        proxy_set_header X-Forwarded-Access-Token "";
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Tailscale-User-Login $bifrost_tailscale_user_login;
+        proxy_set_header Tailscale-User-Name $bifrost_tailscale_user_name;
+        proxy_set_header Tailscale-User-Profile-Pic $bifrost_tailscale_user_profile_pic;
+        include __ADMIN_KEY_INCLUDE__;
+        proxy_hide_header Content-Security-Policy;
+        proxy_hide_header Content-Security-Policy-Report-Only;
+        proxy_hide_header Reporting-Endpoints;
+        proxy_hide_header Strict-Transport-Security;
+        proxy_hide_header X-Content-Type-Options;
+        proxy_hide_header Referrer-Policy;
+        proxy_hide_header X-Frame-Options;
+        proxy_hide_header Permissions-Policy;
+        proxy_hide_header Content-Disposition;
+        proxy_connect_timeout 10s;
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
+    }
+
+    # SPA fallback - serve index.html for all other routes
     location / {
         try_files $uri $uri/ /index.html;
     }
 
-    # Health check
-    location /health {
+    location = /health {
         default_type application/json;
         return 200 '{"status":"ok"}';
     }

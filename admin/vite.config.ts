@@ -3,7 +3,14 @@ import react from '@vitejs/plugin-react';
 import { readFileSync } from 'fs';
 import path from 'path';
 import type { Connect, Plugin } from 'vite';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
+import {
+  DEV_ENV_PREFIX,
+  dashboardApiGuard,
+  devApiProxy,
+  isIdentityRequest,
+  missingDevKeyWarning,
+} from './dev-api-proxy';
 import { stripHtmlComments } from './src/lib/strip-html-comments';
 
 // Read version from root package.json at build time
@@ -19,7 +26,7 @@ const APP_VERSION = rootPackageJson.version;
  */
 function tailscaleIdentityMiddleware(): Connect.NextHandleFunction {
   return (req, res, next) => {
-    if (req.url === '/api/tailscale/identity') {
+    if (isIdentityRequest(req.url)) {
       const login = req.headers['tailscale-user-login'] as string | undefined;
       const name = req.headers['tailscale-user-name'] as string | undefined;
       const profilePic = req.headers['tailscale-user-profile-pic'] as string | undefined;
@@ -40,57 +47,55 @@ function tailscaleIdentityMiddleware(): Connect.NextHandleFunction {
 }
 
 /**
- * Vite plugin to add Tailscale identity endpoint middleware.
- * Works in both dev and preview servers.
+ * Vite plugin to add the Tailscale identity endpoint and the /api guard.
+ * Works in both dev and preview servers. Identity first: it is answered
+ * locally and never proxied.
  */
-function tailscaleIdentityPlugin(): Plugin {
+function dashboardServerPlugin(): Plugin {
   return {
-    name: 'tailscale-identity',
+    name: 'dashboard-server',
     configureServer(server) {
       server.middlewares.use(tailscaleIdentityMiddleware());
+      server.middlewares.use(dashboardApiGuard());
     },
     configurePreviewServer(server) {
       server.middlewares.use(tailscaleIdentityMiddleware());
+      server.middlewares.use(dashboardApiGuard());
     },
   };
 }
 
-/** The zod package (plain or pnpm store path) and the module that configures it. */
-const ZOD_CHUNK =
-  /[\\/]node_modules[\\/](?:\.pnpm[\\/][^\\/]+[\\/]node_modules[\\/])?zod[\\/]|[\\/]src[\\/]lib[\\/]zod-jitless\.ts$/;
-
 // https://vite.dev/config/
-export default defineConfig({
-  plugins: [react(), tailwindcss(), tailscaleIdentityPlugin(), stripHtmlComments()],
-  define: {
-    // Inject version at build time from root package.json
-    __APP_VERSION__: JSON.stringify(APP_VERSION),
-  },
-  resolve: {
-    alias: {
-      '@': path.resolve(import.meta.dirname, './src'),
+export default defineConfig(({ mode, command }) => {
+  // One proxy config for the dev and preview servers, from admin/.env.local
+  // (DASHBOARD_DEV_*; see dev-api-proxy.ts)
+  const devEnv = loadEnv(mode, import.meta.dirname, DEV_ENV_PREFIX);
+  const warning = command === 'serve' ? missingDevKeyWarning(devEnv) : null;
+  if (warning) console.warn(warning);
+  const proxy = devApiProxy(devEnv);
+  return {
+    plugins: [react(), tailwindcss(), dashboardServerPlugin(), stripHtmlComments()],
+    define: {
+      // Inject version at build time from root package.json
+      __APP_VERSION__: JSON.stringify(APP_VERSION),
     },
-  },
-  build: {
-    rolldownOptions: {
-      output: {
-        // zod + the jitless config in one import-free chunk (v1.37.0). Chunk
-        // evaluation order, not source import order, decides when the config
-        // runs: imported chunks evaluate before the entry body, and by default
-        // zod shares a chunk with @bifrost/shared's schemas, which trigger
-        // zod's eval probe under the CSP before main.tsx's first import runs.
-        // Every zod user imports this chunk, so jitless is set before any
-        // schema is built (src/lib/zod-jitless.ts).
-        codeSplitting: {
-          groups: [{ name: 'zod', test: ZOD_CHUNK }],
-        },
+    resolve: {
+      alias: {
+        '@': path.resolve(import.meta.dirname, './src'),
       },
     },
-  },
-  server: {
-    port: 3001,
-  },
-  preview: {
-    port: 3001,
-  },
+    // No CORS on either server (v1.39.0): the dashboard calls its own origin,
+    // so no other origin has a reason to read it, and Vite's default allows
+    // any localhost origin
+    server: {
+      port: 3001,
+      proxy,
+      cors: false,
+    },
+    preview: {
+      port: 3001,
+      proxy,
+      cors: false,
+    },
+  };
 });
