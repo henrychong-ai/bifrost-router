@@ -222,12 +222,13 @@ describe('shared outbound host policy', () => {
     expect(hostRefusal('.')).toBe('name');
   });
 
-  it('names the refusal in each validator', () => {
-    expect(() => validateUrlForSSRF('http://localhost/')).toThrow('Blocked hostname: localhost');
-    expect(() => validateUrlForSSRF('http://10.0.0.1/')).toThrow('Blocked private IP: 10.0.0.1');
-    expect(() => validateUrlForSSRF('http://[::1]/')).toThrow('Blocked IPv6 address: [::1]');
+  // v1.38.0: fixed text naming the refusal class, never the host
+  it('names the refusal class in each validator, never the host', () => {
+    expect(() => validateUrlForSSRF('http://localhost/')).toThrow(/^Blocked hostname$/);
+    expect(() => validateUrlForSSRF('http://10.0.0.1/')).toThrow(/^Blocked private IP address$/);
+    expect(() => validateUrlForSSRF('http://[::1]/')).toThrow(/^Blocked IPv6 address$/);
     expect(validateProxyTarget('http://[::1]/').error).toBe(
-      'Cannot proxy to private/internal address: [::1]',
+      'Cannot proxy to a private or internal address',
     );
   });
 });

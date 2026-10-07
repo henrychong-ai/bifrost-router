@@ -24,6 +24,28 @@ export function isPrivateIP(hostname: string): boolean {
 }
 
 /**
+ * The refusal messages (v1.38.0): fixed text that never quotes the target, its
+ * scheme or its host. A stored target can carry a credential, and the proxy
+ * logs the refusal on every visitor request to the route.
+ */
+export const PROXY_TARGET_ERRORS = {
+  format: 'Invalid URL format',
+  protocol: 'Invalid protocol. Only http: and https: are allowed.',
+  address: 'Cannot proxy to a private or internal address',
+  hostname: 'Invalid hostname. Only letters, digits, hyphens and dots are allowed.',
+} as const;
+
+/**
+ * A hostname of letters, digits and hyphens in dot-separated labels, with one
+ * trailing dot allowed (v1.38.0), as the URL parser leaves it: lower-cased,
+ * an international name in its `xn--` form. A name such as `*.example.com`
+ * or `under_score.example.com` parses but can never be fetched, and the
+ * runtime's error for it names the whole URL. IP literals keep their own
+ * rules: an IPv4 address is digits and dots, an IPv6 one is bracketed.
+ */
+const LDH_HOSTNAME = /^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.?$/;
+
+/**
  * Validation result for proxy targets
  */
 export interface URLValidationResult {
@@ -38,6 +60,7 @@ export interface URLValidationResult {
  * Security checks:
  * - Valid URL format
  * - Allowed protocol (http/https only)
+ * - A hostname of letters, digits, hyphens and dots (or an IP literal)
  * - Not a private/internal IP
  * - Not a cloud metadata endpoint
  *
@@ -50,26 +73,23 @@ export function validateProxyTarget(target: string): URLValidationResult {
   try {
     url = new URL(target);
   } catch {
-    return {
-      valid: false,
-      error: `Invalid URL format: ${target}`,
-    };
+    return { valid: false, error: PROXY_TARGET_ERRORS.format };
   }
 
   // Check protocol
   if (!ALLOWED_PROTOCOLS.includes(url.protocol)) {
-    return {
-      valid: false,
-      error: `Invalid protocol: ${url.protocol}. Only http: and https: are allowed.`,
-    };
+    return { valid: false, error: PROXY_TARGET_ERRORS.protocol };
+  }
+
+  // Letters, digits, hyphens and dots only; a bracketed IPv6 literal is
+  // checked by the address rules alone
+  if (!url.hostname.startsWith('[') && !LDH_HOSTNAME.test(url.hostname)) {
+    return { valid: false, error: PROXY_TARGET_ERRORS.hostname };
   }
 
   // Check for private/internal IPs
   if (isPrivateIP(url.hostname)) {
-    return {
-      valid: false,
-      error: `Cannot proxy to private/internal address: ${url.hostname}`,
-    };
+    return { valid: false, error: PROXY_TARGET_ERRORS.address };
   }
 
   return {

@@ -14,6 +14,7 @@ import {
   isInvalidRouteRow,
   type LastBackupInfo,
   type ManifestSummary,
+  plainErrorText,
   readErrorEnvelope,
   StoredQRCodeSchema,
   type TriageFeedbackInput,
@@ -66,9 +67,6 @@ const API_KEY = env.ADMIN_API_KEY;
 // Base Fetch Functions
 // =============================================================================
 
-/** The longest plain-text error body shown as it is (a longer one is cut). */
-const TEXT_ERROR_MAX_LENGTH = 300;
-
 /**
  * A failed response's error, through the ONE envelope reader the shared
  * client uses too (`readErrorEnvelope`, v1.38.0), so both agree on the code:
@@ -86,8 +84,8 @@ async function readErrorBody(
   try {
     body = JSON.parse(text);
   } catch {
-    const plain = text.trim().replace(/\s+/g, ' ');
-    return plain ? { error: plain.slice(0, TEXT_ERROR_MAX_LENGTH) } : {};
+    const plain = plainErrorText(text);
+    return plain === undefined ? {} : { error: plain };
   }
   const envelope = readErrorEnvelope(body);
   if (envelope === null) return {};

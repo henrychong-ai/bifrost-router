@@ -25,7 +25,7 @@ import { ALL_R2_BUCKETS, R2_BUCKETS, SUPPORTED_DOMAINS, SUPPORTED_DOMAINS_LIST }
 // ENABLE the route. Any value `mcpBoolean()` does not recognise (including JSON
 // numbers `1`/`0` and unrecognised strings) falls through to `z.boolean()`,
 // which rejects it, so a toggle still fails closed rather than guessing.
-const mcpBoolean = () =>
+export const mcpBoolean = () =>
   z.preprocess(v => {
     if (typeof v === 'string') {
       const s = v.trim().toLowerCase();
@@ -34,6 +34,29 @@ const mcpBoolean = () =>
     }
     return v;
   }, z.boolean());
+
+/** A decimal number as text: optional sign, digits, optional fraction. */
+const DECIMAL_TEXT = /^[+-]?\d+(?:\.\d+)?$/;
+
+/**
+ * The same for an MCP tool's NUMERIC field (v1.38.0): a decimal string
+ * (`"20"`, `" 7 "`, `"-1"`, `"2.5"`) is read as that number, then checked
+ * by `schema` with all its rules (whole number, range). Before the MCP server
+ * validated arguments, such strings went into the query string and the
+ * Worker coerced them, so refusing them would break clients that worked.
+ *
+ * ⚠️ Never `z.coerce.number()`: it turns `''`, `null`, `false` and `[]`
+ * into `0` and `'0x10'` into 16. Anything that is not decimal text reaches
+ * `schema` unchanged and is refused.
+ */
+export const mcpNumber = <T extends z.ZodType<number>>(schema: T) =>
+  z.preprocess(v => {
+    if (typeof v === 'string') {
+      const text = v.trim();
+      if (DECIMAL_TEXT.test(text)) return Number(text);
+    }
+    return v;
+  }, schema);
 
 // =============================================================================
 // Domain Schema
@@ -420,13 +443,20 @@ export const CreateRouteToolInputSchema = z.object({
   path: RoutePathSchema.describe('Route path starting with /'),
   type: RouteTypeSchema.describe('Route type: redirect, proxy, or r2'),
   target: RouteTargetSchema.describe('Target URL or R2 key'),
-  statusCode: z.number().optional().describe('HTTP status (301/302/307/308) for redirects'),
-  preserveQuery: z.boolean().optional().default(true).describe('Preserve query params on redirect'),
-  preservePath: z.boolean().optional().default(false).describe('Preserve path for wildcard routes'),
+  statusCode: mcpNumber(z.number())
+    .optional()
+    .describe('HTTP status (301/302/307/308) for redirects'),
+  preserveQuery: mcpBoolean()
+    .optional()
+    .default(true)
+    .describe('Preserve query params on redirect'),
+  preservePath: mcpBoolean()
+    .optional()
+    .default(false)
+    .describe('Preserve path for wildcard routes'),
   cacheControl: RouteCacheControlSchema.optional().describe('Cache-Control header'),
   hostHeader: RouteHostHeaderSchema.optional().describe('Override Host header for proxy requests'),
-  forceDownload: z
-    .boolean()
+  forceDownload: mcpBoolean()
     .optional()
     .default(false)
     .describe('Force browser to download instead of display inline (R2 only)'),
@@ -444,14 +474,14 @@ export const UpdateRouteToolInputSchema = z.object({
   path: RoutePathSchema.describe('Route path to update'),
   type: RouteTypeSchema.optional().describe('New route type'),
   target: RouteTargetSchema.optional().describe('New target URL or R2 key'),
-  statusCode: z.number().optional().describe('New HTTP status code'),
-  preserveQuery: z.boolean().optional().describe('New preserve query setting'),
-  preservePath: z.boolean().optional().describe('New preserve path setting'),
+  statusCode: mcpNumber(z.number()).optional().describe('New HTTP status code'),
+  preserveQuery: mcpBoolean().optional().describe('New preserve query setting'),
+  preservePath: mcpBoolean().optional().describe('New preserve path setting'),
   cacheControl: RouteCacheControlSchema.optional().describe('New Cache-Control header'),
   hostHeader: RouteHostHeaderSchema.optional().describe(
     'New Host header override for proxy routes',
   ),
-  forceDownload: z.boolean().optional().describe('New force download setting (R2 only)'),
+  forceDownload: mcpBoolean().optional().describe('New force download setting (R2 only)'),
   bucket: R2BucketSchema.optional().describe('R2 bucket for file serving (R2 only)'),
   domain: RequiredDomainSchema,
   acknowledgeCredentialTarget: AcknowledgeCredentialTargetToolSchema,
@@ -531,7 +561,7 @@ export const ListBucketsInputSchema = z.object({});
  */
 export const GetAnalyticsSummaryInputSchema = z.object({
   domain: OptionalDomainSchema,
-  days: z.number().min(1).max(365).optional().default(30).describe('Time range in days'),
+  days: mcpNumber(z.number().min(1).max(365)).optional().default(30).describe('Time range in days'),
 });
 
 /**
@@ -539,9 +569,9 @@ export const GetAnalyticsSummaryInputSchema = z.object({
  */
 export const GetClicksInputSchema = z.object({
   domain: OptionalDomainSchema,
-  days: z.number().min(1).max(365).optional().default(30).describe('Time range in days'),
-  limit: z.number().min(1).max(100).optional().default(50).describe('Results per page'),
-  offset: z.number().min(0).optional().default(0).describe('Pagination offset'),
+  days: mcpNumber(z.number().min(1).max(365)).optional().default(30).describe('Time range in days'),
+  limit: mcpNumber(z.number().min(1).max(100)).optional().default(50).describe('Results per page'),
+  offset: mcpNumber(z.number().min(0)).optional().default(0).describe('Pagination offset'),
   slug: z.string().optional().describe('Filter by specific slug'),
   country: z.string().length(2).optional().describe('Filter by country code'),
 });
@@ -551,9 +581,9 @@ export const GetClicksInputSchema = z.object({
  */
 export const GetViewsInputSchema = z.object({
   domain: OptionalDomainSchema,
-  days: z.number().min(1).max(365).optional().default(30).describe('Time range in days'),
-  limit: z.number().min(1).max(100).optional().default(50).describe('Results per page'),
-  offset: z.number().min(0).optional().default(0).describe('Pagination offset'),
+  days: mcpNumber(z.number().min(1).max(365)).optional().default(30).describe('Time range in days'),
+  limit: mcpNumber(z.number().min(1).max(100)).optional().default(50).describe('Results per page'),
+  offset: mcpNumber(z.number().min(0)).optional().default(0).describe('Pagination offset'),
   path: z.string().optional().describe('Filter by specific path'),
   country: z.string().length(2).optional().describe('Filter by country code'),
 });
@@ -566,7 +596,7 @@ export const GetSlugStatsInputSchema = z.object({
   domain: RequiredDomainSchema.describe(
     `Domain the slug belongs to. Required — the same slug can exist on several domains. One of: ${SUPPORTED_DOMAINS_LIST}.`,
   ),
-  days: z.number().min(1).max(365).optional().default(30).describe('Time range in days'),
+  days: mcpNumber(z.number().min(1).max(365)).optional().default(30).describe('Time range in days'),
 });
 
 // =============================================================================
@@ -597,10 +627,7 @@ export const R2ListObjectsInputSchema = z.object({
   bucket: AllR2BucketSchema.describe('R2 bucket name'),
   prefix: z.string().optional().describe('Filter objects by key prefix'),
   cursor: z.string().optional().describe('Pagination cursor from a previous truncated response'),
-  limit: z
-    .number()
-    .min(1)
-    .max(1000)
+  limit: mcpNumber(z.number().min(1).max(1000))
     .optional()
     .describe('Maximum objects to return (default: 100, max: 1000)'),
   delimiter: z.string().optional().describe('Delimiter for directory-like grouping (default: "/")'),
@@ -621,8 +648,7 @@ export const R2UploadInputSchema = z
       .min(1)
       .optional()
       .describe('MIME type (auto-detected from key extension if omitted)'),
-    overwrite: z
-      .boolean()
+    overwrite: mcpBoolean()
       .optional()
       .describe('Overwrite if object already exists (default: false)'),
   })
@@ -720,8 +746,7 @@ export const R2ObjectKeyInputSchema = z.object({
 export const R2GetObjectInputSchema = z.object({
   bucket: AllR2BucketSchema.describe('R2 bucket name'),
   key: z.string().min(1).describe('Object key (path) within the bucket'),
-  metadata_only: z
-    .boolean()
+  metadata_only: mcpBoolean()
     .optional()
     .describe('If true, return only metadata without downloading content (default: false)'),
 });

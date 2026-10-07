@@ -1,3 +1,5 @@
+import type { Route } from './schemas';
+
 /**
  * The dashboard's API error.
  *
@@ -49,4 +51,35 @@ export function isQrNotFoundError(error: unknown): error is ApiError {
  */
 export function isQrAlreadyExistsError(error: unknown): error is ApiError {
   return error instanceof ApiError && error.status === 409 && error.code === 'QR_ALREADY_EXISTS';
+}
+
+/**
+ * Whether an error is the server's answer that a route create's path is
+ * already taken (v1.38.0): a 409 with no code whose text is `Route already
+ * exists: …`. Not `ROUTE_RECORD_INVALID` (the path holds an unreadable
+ * record), which is a coded 409.
+ */
+export function isRouteAlreadyExistsError(error: unknown): error is ApiError {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    error.code === undefined &&
+    error.message.startsWith('Route already exists')
+  );
+}
+
+/**
+ * A route create retried after an uncertain answer that met a route at its
+ * path holding other values (v1.38.0): not this create's own route. Carries
+ * the existing route, so the page can offer to view it.
+ */
+export class RouteExistsError extends ApiError {
+  /** The route stored at the path. */
+  readonly route: Route;
+
+  constructor(route: Route) {
+    super(409, `Route ${route.path} already exists with other values.`);
+    this.name = 'RouteExistsError';
+    this.route = route;
+  }
 }

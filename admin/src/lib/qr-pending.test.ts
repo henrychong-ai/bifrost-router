@@ -380,8 +380,8 @@ describe('pending QR store', () => {
     expect(ids(store.merge(firstPage, page([qr('b')])))).toEqual(['b']);
   });
 
-  it('expires after 90 seconds, covering KV list lag of about 60', () => {
-    expect(PENDING_QR_TTL_MS).toBe(90_000);
+  it('expires after 5 minutes, well past KV list lag (about 60 seconds, sometimes more)', () => {
+    expect(PENDING_QR_TTL_MS).toBe(5 * 60 * 1000);
   });
 
   it('does not add a code that sorts after page 1 while more pages follow: no duplicate', () => {

@@ -43,6 +43,8 @@ const ManifestSchema = z.object({
     domains: z.array(z.string()),
     totalRoutes: z.number().int().nonnegative(),
     file: z.string(),
+    // v1.38.0; absent from an older manifest
+    skippedNotJson: z.number().int().nonnegative().optional(),
   }),
 });
 
@@ -72,12 +74,6 @@ export const BACKUP_ERRORS = {
    * archive cannot be shown to be exactly one gzip member.
    */
   inflaterUnsupported: 'Backup verification cannot count compressed bytes (pako internals changed)',
-  /**
-   * A value backupKV read from KV does not parse as JSON (v1.37.1). The parse
-   * error would quote the stored value, so only this text is reported, thrown
-   * or logged, and the parse error is not kept as a cause.
-   */
-  kvRecordNotJson: 'KV record is not valid JSON',
   /**
    * A record backupKV read serialises to a line longer than
    * MAX_RECORD_LINE_BYTES (v1.37.2), which verification would refuse. Raised

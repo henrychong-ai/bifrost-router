@@ -20,6 +20,13 @@ import type { KVBackupResult } from './types';
 export const KV_BULK_GET_MAX_KEYS = 100;
 
 /**
+ * The fixed log text for a KV value that is not JSON (v1.38.0), followed by
+ * the record's key and nothing else: never the value, which can carry a
+ * credential.
+ */
+export const BACKUP_SKIPPED_NOT_JSON = 'Skipped a KV record that is not JSON';
+
+/**
  * Backup all KV routes to R2 as compressed NDJSON
  *
  * Iterates through all supported domains, fetches all routes from KV,
@@ -38,8 +45,14 @@ export const KV_BULK_GET_MAX_KEYS = 100;
  * gzip and without reading the rest of the namespace. A listing page that is
  * truncated but gives no cursor, or repeats one, stops the run with
  * BackupListingError rather than backing up a partial listing. Values are
- * read as text and parsed here, so a value that is not JSON stops the run with
- * the fixed BACKUP_ERRORS.kvRecordNotJson, quoting nothing (v1.37.1).
+ * read as text and parsed here (v1.37.1). A value that is not JSON is skipped
+ * (v1.38.0): counted as `skippedNotJson` (the manifest carries it) and logged
+ * as one fixed line naming its key, never its value. Every other record is
+ * backed up. Such a value is not a route or QR code any reader can use (the
+ * API lists it as an unreadable row, to be deleted and created again), and
+ * the archive cannot hold it unchanged: its records are `{key, value}` lines
+ * with a JSON value, restored as `JSON.stringify(value)`. It used to stop
+ * every nightly backup until someone deleted it.
  *
  * @param kv - KV namespace containing routes
  * @param bucket - R2 bucket for backup storage
@@ -59,6 +72,8 @@ export async function backupKV(
   const encoder = new TextEncoder();
   // Bytes of the NDJSON so far, each line counted with its newline
   let ndjsonBytes = 0;
+  // Values that are not JSON, skipped (v1.38.0)
+  let skippedNotJson = 0;
 
   // Iterate through all supported domains. Route keys are `{domain}:{path}`;
   // QR records (v1.30.0) live under `qr:{domain}:{id}` in the SAME namespace,
@@ -71,7 +86,7 @@ export async function backupKV(
     for (const prefix of [`${domain}:`, `qr:${domain}:`]) {
       let cursor: string | undefined;
       const seenCursors = new Set<string>();
-      // Records listed so far under this prefix: locates a malformed value
+      // Records listed so far under this prefix: locates an over-long record
       // in the log without naming its key
       let listed = 0;
 
@@ -89,8 +104,7 @@ export async function backupKV(
         for (let start = 0; start < names.length; start += KV_BULK_GET_MAX_KEYS) {
           const chunk = names.slice(start, start + KV_BULK_GET_MAX_KEYS);
           // Read as text and parsed here (v1.37.1): the runtime's JSON parse
-          // error can quote the stored value, so a malformed record fails with
-          // the fixed BACKUP_ERRORS.kvRecordNotJson and its text goes nowhere.
+          // error can quote the stored value, so its text goes nowhere.
           const texts = await kv.get(chunk, 'text');
           for (const name of chunk) {
             const index = listed;
@@ -105,13 +119,11 @@ export async function backupKV(
             try {
               value = JSON.parse(text);
             } catch {
-              // No cause: the SyntaxError quotes the value. Log where it is,
-              // as the prefix and its position in that listing, never the key
-              // or the value.
-              console.error(
-                `[Backup] ${BACKUP_ERRORS.kvRecordNotJson}: prefix ${prefix}, listing index ${index}`,
-              );
-              throw new BackupIntegrityError(BACKUP_ERRORS.kvRecordNotJson);
+              // Skipped and counted (v1.38.0). The SyntaxError quotes the
+              // value, so it is dropped; the log names the key only.
+              console.warn(`[Backup] ${BACKUP_SKIPPED_NOT_JSON}: ${name}`);
+              skippedNotJson += 1;
+              continue;
             }
             // A stored JSON `null` is skipped, as the 'json' read returned it
             if (value === null) continue;
@@ -171,5 +183,6 @@ export async function backupKV(
     domains: [...SUPPORTED_DOMAINS],
     totalRoutes: lines.length,
     file: filename,
+    skippedNotJson,
   };
 }

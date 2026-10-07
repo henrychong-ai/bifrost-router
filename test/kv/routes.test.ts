@@ -8,14 +8,24 @@ import {
   getRoute,
   listAllDomainRoutes,
   listDomainRoutes,
+  mergeRoutePatch,
   migrateRoute,
   parseRouteKey,
+  RouteSourceChangedError,
   seedRoutes,
   updateRoute,
 } from '../../src/kv/routes';
 import { routeKey } from '../../src/kv/schema';
 import { KVReadError } from '../../src/utils/kv-errors';
 import { clearRoutes } from '../helpers';
+
+const STORED_FOR_MERGE = {
+  path: '/stored',
+  type: 'redirect' as const,
+  target: 'https://example.com/stored',
+  createdAt: 1,
+  updatedAt: 1,
+};
 
 /** The record a single-route read found, else null (missing or invalid). */
 async function recordAt(...args: Parameters<typeof getRoute>) {
@@ -457,6 +467,56 @@ describe('migrateRoute', () => {
     expect(migrated?.target).toBe('https://example.com');
     expect(migrated?.createdAt).toBe(original.createdAt);
     expect(migrated?.updatedAt).toBeGreaterThanOrEqual(original.updatedAt);
+  });
+
+  // v1.38.0: one merge (mergeRoutePatch) behind an update and a path-change edit
+  it('stores the same record for a patch whether it updates or moves the route', async () => {
+    const base = {
+      type: 'redirect' as const,
+      target: 'https://example.com/a',
+      statusCode: 302 as const,
+    };
+    await createRoute(env.ROUTES, testDomain, { path: '/upd', ...base });
+    await createRoute(env.ROUTES, testDomain, { path: '/mov', ...base });
+    const patch = { cacheControl: 'no-store', statusCode: 301 as const, target: undefined };
+    const updated = await updateRoute(env.ROUTES, testDomain, '/upd', patch);
+    const moved = await migrateRoute(env.ROUTES, testDomain, '/mov', '/moved', { patch });
+    const comparable = (route: typeof updated) => ({
+      ...route,
+      path: undefined,
+      createdAt: undefined,
+      updatedAt: undefined,
+    });
+    expect(comparable(moved)).toEqual(comparable(updated));
+    // A field carried as undefined keeps the stored value
+    expect(moved?.target).toBe(base.target);
+    expect(mergeRoutePatch(STORED_FOR_MERGE, { type: undefined }, '/x')).toMatchObject({
+      type: 'redirect',
+      target: STORED_FOR_MERGE.target,
+      path: '/x',
+      createdAt: 1,
+    });
+  });
+
+  it('moves only the record the caller checked (v1.38.0)', async () => {
+    const original = await createRoute(env.ROUTES, testDomain, {
+      path: '/checked',
+      type: 'redirect',
+      target: 'https://example.com/a',
+    });
+    await expect(
+      migrateRoute(env.ROUTES, testDomain, '/checked', '/elsewhere', {
+        source: { ...original, target: 'https://example.com/other' },
+      }),
+    ).rejects.toBeInstanceOf(RouteSourceChangedError);
+    expect(await recordAt(env.ROUTES, testDomain, '/elsewhere')).toBeNull();
+    expect(
+      await migrateRoute(env.ROUTES, testDomain, '/checked', '/elsewhere', { source: original }),
+    ).toMatchObject({ path: '/elsewhere', target: 'https://example.com/a' });
+    // Gone: null, never a different record
+    expect(
+      await migrateRoute(env.ROUTES, testDomain, '/checked', '/again', { source: original }),
+    ).toBeNull();
   });
 
   it('deletes the old route after migration', async () => {

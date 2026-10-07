@@ -86,7 +86,7 @@ import {
   useUpdateQr,
 } from '@/hooks';
 import type { QrQueryParams } from '@/lib/api-client';
-import { ApiError, isQrNotFoundError } from '@/lib/api-error';
+import { ApiError, isQrNotFoundError, RouteExistsError } from '@/lib/api-error';
 import { getPersistedPageSize, persistPageSize } from '@/lib/constants';
 import { credentialTargetParametersFromError } from '@/lib/credential-target';
 import { useClearNavigationState } from '@/lib/navigation-state';
@@ -258,6 +258,11 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
   const [createdRoute, setCreatedRoute] = useState<Route>();
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  // The new route whose last create got no certain answer (v1.38.0): its
+  // create may have landed, so a retry for the same path that meets "Route
+  // already exists" reads the route back and links it when it holds the
+  // values sent
+  const uncertainRoute = useRef<string | null>(null);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -439,11 +444,22 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
     try {
       let input = submission.input;
       if (submission.route) {
-        const route = await createRoute.mutateAsync({
-          data: submission.route,
-          domain,
-          acknowledgeCredentialTarget,
-        });
+        const routeKey = `${domain}\u0000${submission.route.path}`;
+        let route: Route;
+        try {
+          route = await createRoute.mutateAsync({
+            data: submission.route,
+            domain,
+            acknowledgeCredentialTarget,
+            afterUncertainAnswer: uncertainRoute.current === routeKey,
+          });
+        } catch (failure) {
+          const answered =
+            failure instanceof ApiError && failure.status >= 400 && failure.status < 500;
+          uncertainRoute.current = answered ? null : routeKey;
+          throw failure;
+        }
+        uncertainRoute.current = null;
         retained = { ...route, domain };
         if (!mounted.current) {
           reportRetainedRoute(retained);
@@ -465,7 +481,15 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
       } else {
         setCredentialConfirm(null);
         if (retained) reportRetainedRoute(retained, error);
-        else toast.error(error instanceof Error ? error.message : 'Save failed');
+        else if (error instanceof RouteExistsError) {
+          // The path holds a route this form did not make: never linked
+          // silently, never created twice
+          const existing = { ...error.route, domain };
+          toast.error(
+            `Route ${linkedRouteUrl({ domain, path: existing.path })} already exists with other values. Link it as an existing route, or choose another path.`,
+            { action: { label: 'View route', onClick: () => viewRoute(existing) } },
+          );
+        } else toast.error(error instanceof Error ? error.message : 'Save failed');
       }
     } finally {
       savingRef.current = false;

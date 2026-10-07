@@ -5,7 +5,7 @@
  * the MCP server and the Slackbot Worker.
  */
 
-import { type ErrorEnvelope, readErrorEnvelope } from './error-envelope.js';
+import { type ErrorEnvelope, plainErrorText, readErrorEnvelope } from './error-envelope.js';
 import { isRecord } from './guards.js';
 import type { InvalidQRRow, QRCode } from './qr.js';
 import type { InvalidRouteRow } from './stored-route.js';
@@ -84,14 +84,34 @@ function envelopeError(
   };
 }
 
-/** A response body read as unknown: null when it is not JSON (the parser's message is dropped). */
-async function readBody(response: Response): Promise<{ value: unknown } | null> {
+/**
+ * A response body: parsed as unknown when it is JSON, else its text (v1.38.0).
+ * The parser's message is dropped; a body that cannot be read at all is empty
+ * text.
+ */
+async function readBody(
+  response: Response,
+): Promise<{ json: true; value: unknown } | { json: false; text: string }> {
+  const text = await response.text().catch(() => '');
   try {
-    const value: unknown = await response.json();
-    return { value };
+    const value: unknown = JSON.parse(text);
+    return { json: true, value };
   } catch {
-    return null;
+    return { json: false, text };
   }
+}
+
+/**
+ * A failed answer whose body is not a JSON envelope (v1.38.0): its text, as
+ * the dashboard shows it (a bare `HTTPException` message such as `Route not
+ * found: /x`), else the status text. Never "Failed to parse response", which
+ * is kept for a SUCCESSFUL answer that cannot be read.
+ */
+function plainError(response: Response, body: { json: false; text: string }): EdgeRouterError {
+  return new EdgeRouterError(
+    plainErrorText(body.text) ?? `Request failed: ${response.statusText}`,
+    response.status,
+  );
 }
 
 /** Pagination meta returned by the QR list endpoint (mirrors the routes meta). */
@@ -204,9 +224,10 @@ export class EdgeRouterClient {
       ...(options.body ? { body: JSON.stringify(options.body) } : {}),
     });
 
-    // Parse response, as unknown
+    // Parse response, as unknown; a failed answer that is not JSON keeps its text
     const read = await readBody(response);
-    const data = read === null ? null : readEnvelope(read.value);
+    if (!response.ok && !read.json) throw plainError(response, read);
+    const data = read.json ? readEnvelope(read.value) : null;
     if (data === null) {
       throw new EdgeRouterError(
         `Failed to parse response: ${response.statusText}`,
@@ -242,7 +263,8 @@ export class EdgeRouterClient {
     });
 
     const read = await readBody(response);
-    const data = read === null ? null : readEnvelope(read.value);
+    if (!response.ok && !read.json) throw plainError(response, read);
+    const data = read.json ? readEnvelope(read.value) : null;
     if (data === null) {
       throw new EdgeRouterError(
         `Failed to parse response: ${response.statusText}`,
@@ -284,10 +306,12 @@ export class EdgeRouterClient {
 
     if (!response.ok) {
       // As request() (envelopeError): the markdown and SVG paths come through
-      // here, a QR image of a deleted code included. A body that is not JSON,
-      // or not an object, keeps the default text.
+      // here, a QR image of a deleted code included. A body that is not JSON
+      // is reported by its text; one that is JSON but not an object keeps the
+      // default text.
       const read = await readBody(response);
-      const data = read === null ? null : readEnvelope(read.value);
+      if (!read.json) throw plainError(response, read);
+      const data = readEnvelope(read.value);
       const error = envelopeError(data, response);
       throw new EdgeRouterError(error.message, response.status, data?.error.details, error.code);
     }

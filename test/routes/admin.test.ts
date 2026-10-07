@@ -1626,6 +1626,11 @@ describe('admin routes', () => {
         testEnv,
       );
       expect(response.status).toBe(400);
+      // The schema is the one rule: the same JSON refusal as any invalid query
+      expect(await response.json()).toEqual({
+        success: false,
+        error: expect.stringMatching(/^Invalid query: search: /),
+      });
       expect(await listSearch(app, `?search=${'x'.repeat(2048)}`)).toEqual([]);
     });
   });

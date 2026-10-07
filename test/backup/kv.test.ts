@@ -6,7 +6,7 @@ import {
   BackupListingError,
   MAX_RECORD_LINE_BYTES,
 } from '../../src/backup/integrity';
-import { backupKV, KV_BULK_GET_MAX_KEYS } from '../../src/backup/kv';
+import { BACKUP_SKIPPED_NOT_JSON, backupKV, KV_BULK_GET_MAX_KEYS } from '../../src/backup/kv';
 import { readBackupRecords } from './archive-records';
 
 /**
@@ -277,30 +277,57 @@ describe('backupKV', () => {
     );
   });
 
-  // v1.37.1: values are read as text and parsed by backupKV, so a malformed
-  // value fails with fixed text and the runtime's parse error, which quotes
-  // the value, goes nowhere.
-  it('refuses a value that is not JSON with fixed text, quoting nothing', async () => {
+  // v1.38.0: a value that is not JSON is skipped, counted and logged by its key
+  // only, and the backup of every other record goes on. The archive's records
+  // are `{key, value}` with a JSON value, restored as `JSON.stringify(value)`,
+  // so it cannot hold raw text unchanged; one such value used to fail every
+  // nightly backup until someone deleted it.
+  it('skips a value that is not JSON next to valid records, counting it, quoting nothing', async () => {
     // Short and bare: V8's parse error quotes the first ten characters
     const secret = 'zq7f3a91x';
-    await env.ROUTES.put('links.example.com:/good', JSON.stringify({ target: 'x' }));
+    const good = { path: '/good', type: 'redirect', target: 'https://example.com/' };
+    const qr = { id: 'promo', type: 'text', payload: { text: 'hi' } };
+    await env.ROUTES.put('links.example.com:/good', JSON.stringify(good));
     await env.ROUTES.put('links.example.com:/bad', secret);
+    await env.ROUTES.put('qr:links.example.com:promo', JSON.stringify(qr));
+    await env.ROUTES.put('qr:links.example.com:broken', `{"id":"${secret}"`);
 
-    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const failure = await backupKV(env.ROUTES, env.BACKUP_BUCKET, '20260115').then(
-      () => undefined,
-      (error: unknown) => error,
-    );
-    expect(failure).toBeInstanceOf(BackupIntegrityError);
-    expect((failure as Error).message).toBe('KV record is not valid JSON');
-    // Located by prefix and listing index (`/bad` sorts before `/good`)
-    expect(errorLog.mock.calls).toEqual([
-      ['[Backup] KV record is not valid JSON: prefix links.example.com:, listing index 0'],
+    const lines: string[] = [];
+    for (const channel of ['log', 'info', 'warn', 'error'] as const) {
+      vi.spyOn(console, channel).mockImplementation((...args: unknown[]) => {
+        lines.push(args.map(String).join(' '));
+      });
+    }
+    const result = await backupKV(env.ROUTES, env.BACKUP_BUCKET, '20260115');
+    expect(result.totalRoutes).toBe(2);
+    expect(result.skippedNotJson).toBe(2);
+
+    // One fixed line per skipped record, naming its key and nothing else
+    expect(lines).toEqual([
+      `[Backup] ${BACKUP_SKIPPED_NOT_JSON}: links.example.com:/bad`,
+      `[Backup] ${BACKUP_SKIPPED_NOT_JSON}: qr:links.example.com:broken`,
     ]);
-    // No cause, and the secret is nowhere on the error
-    expect((failure as Error).cause).toBeUndefined();
-    expect(JSON.stringify(failure, Object.getOwnPropertyNames(failure))).not.toContain(secret);
-    expect(await env.BACKUP_BUCKET.head('daily/20260115/kv-routes.ndjson.gz')).toBeNull();
+    expect(lines.join('\n')).not.toContain(secret);
+
+    // The valid records restore unchanged
+    const records = await readBackupRecords(env.BACKUP_BUCKET, {
+      version: '2.0.0',
+      timestamp: 0,
+      date: '20260115',
+      kv: result,
+    });
+    expect(records).toEqual([
+      { key: 'links.example.com:/good', value: good },
+      { key: 'qr:links.example.com:promo', value: qr },
+    ]);
+  });
+
+  it('counts no skipped record when every value is JSON', async () => {
+    await env.ROUTES.put('links.example.com:/good', JSON.stringify({ target: 'x' }));
+    expect(await backupKV(env.ROUTES, env.BACKUP_BUCKET, '20260115')).toMatchObject({
+      totalRoutes: 1,
+      skippedNotJson: 0,
+    });
   });
 
   // v1.37.2: a record the verifier would refuse as an over-long line fails

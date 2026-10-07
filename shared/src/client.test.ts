@@ -8,6 +8,34 @@ const okJson = (data: unknown) => ({ ok: true, json: async () => ({ success: tru
 
 const okText = (text: string) => ({ ok: true, text: async () => text });
 
+/**
+ * The stand-ins as the client reads them: the client reads every body as text
+ * (v1.38.0), so a stand-in with only `json()` is given the text it stands for,
+ * its JSON, or an empty body when `json()` throws (a body that is not JSON).
+ */
+function textual(stub: StubFetch): typeof fetch {
+  return (async (...args: Parameters<typeof fetch>) => {
+    const response = (await stub(...args)) as Record<string, unknown> & {
+      json?: () => Promise<unknown>;
+      text?: () => Promise<string>;
+    };
+    if (response === undefined || response.text !== undefined || response.json === undefined) {
+      return response;
+    }
+    const json = response.json;
+    return {
+      ...response,
+      text: async () => {
+        try {
+          return JSON.stringify(await json());
+        } catch {
+          return '';
+        }
+      },
+    };
+  }) as unknown as typeof fetch;
+}
+
 describe('EdgeRouterClient', () => {
   const mockFetch = vi.fn<StubFetch>();
   let client: EdgeRouterClient;
@@ -17,7 +45,7 @@ describe('EdgeRouterClient', () => {
     client = new EdgeRouterClient({
       baseUrl: 'https://test.example.com',
       apiKey: 'test-api-key',
-      fetch: mockFetch as unknown as typeof fetch,
+      fetch: textual(mockFetch),
     });
   });
 
@@ -26,7 +54,7 @@ describe('EdgeRouterClient', () => {
       const clientWithSlash = new EdgeRouterClient({
         baseUrl: 'https://test.example.com/',
         apiKey: 'test-api-key',
-        fetch: mockFetch as unknown as typeof fetch,
+        fetch: textual(mockFetch),
       });
 
       mockFetch.mockResolvedValueOnce({
@@ -408,7 +436,9 @@ describe('EdgeRouterClient', () => {
       expect((error as EdgeRouterError).status).toBe(404);
     });
 
-    it('throws EdgeRouterError on parse failure', async () => {
+    // v1.38.0: a failed answer that is not JSON is reported by its text, or
+    // (empty) by its status text; only a successful one is a parse failure
+    it('throws EdgeRouterError for a failed answer that is not JSON', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 500,
@@ -420,7 +450,7 @@ describe('EdgeRouterClient', () => {
 
       const error = await client.listRoutes('links.example.com').catch((caught: unknown) => caught);
       expect(error).toBeInstanceOf(EdgeRouterError);
-      expect((error as EdgeRouterError).message).toContain('Failed to parse response');
+      expect((error as EdgeRouterError).message).toBe('Request failed: Internal Server Error');
       expect((error as EdgeRouterError).status).toBe(500);
     });
   });
@@ -432,7 +462,7 @@ describe('EdgeRouterClient response envelope', () => {
   const client = new EdgeRouterClient({
     baseUrl: 'https://test.example.com',
     apiKey: 'test-api-key',
-    fetch: mockFetch as unknown as typeof fetch,
+    fetch: textual(mockFetch),
   });
   beforeEach(() => mockFetch.mockReset());
 
@@ -525,6 +555,65 @@ describe('EdgeRouterClient response envelope', () => {
   });
 });
 
+// v1.38.0: a failed answer whose body is not JSON (a bare HTTPException
+// message, a proxy's HTML page) is reported with its own text, as the
+// dashboard shows it, never as "Failed to parse response"
+describe('EdgeRouterClient plain-text error bodies', () => {
+  const client = new EdgeRouterClient({
+    baseUrl: 'https://test.example.com',
+    apiKey: 'test-api-key',
+    fetch: async () => currentResponse,
+  });
+  let currentResponse = new Response('');
+
+  const failure = async (call: () => Promise<unknown>, response: Response) => {
+    currentResponse = response;
+    return call().catch((caught: unknown) => caught);
+  };
+
+  it.each([
+    [404, 'Route not found: /x'],
+    [400, 'Invalid JSON body'],
+    [500, 'Internal Server Error'],
+    [502, '  upstream\n  timed out  '],
+  ])('a %s with a text body carries the text', async (status, body) => {
+    for (const call of [
+      () => client.deleteRoute('/x', 'links.example.com', { recoverInvalid: true }),
+      () => client.uploadObject('files', 'a.txt', new Blob(['x']), 'text/plain'),
+      () => client.getQrImageSvg('abc', 'links.example.com'),
+    ]) {
+      const error = await failure(call, new Response(body, { status, statusText: 'x' }));
+      expect(error).toBeInstanceOf(EdgeRouterError);
+      expect((error as EdgeRouterError).message).toBe(body.trim().replace(/\s+/g, ' '));
+      expect((error as EdgeRouterError).status).toBe(status);
+    }
+  });
+
+  it('cuts a long text body to 300 characters', async () => {
+    const error = await failure(
+      () => client.listRoutes('links.example.com'),
+      new Response('x'.repeat(1000), { status: 500 }),
+    );
+    expect((error as EdgeRouterError).message).toBe('x'.repeat(300));
+  });
+
+  it('an empty error body falls back to the status text', async () => {
+    const error = await failure(
+      () => client.listRoutes('links.example.com'),
+      new Response('', { status: 503, statusText: 'Service Unavailable' }),
+    );
+    expect((error as EdgeRouterError).message).toBe('Request failed: Service Unavailable');
+  });
+
+  it('a successful answer that is not JSON is still a parse failure', async () => {
+    const error = await failure(
+      () => client.listRoutes('links.example.com'),
+      new Response('<html>ok</html>', { status: 200, statusText: 'OK' }),
+    );
+    expect((error as EdgeRouterError).message).toBe('Failed to parse response: OK');
+  });
+});
+
 describe('createClientFromEnv', () => {
   it('creates client from env object', () => {
     const client = createClientFromEnv({
@@ -551,7 +640,7 @@ describe('createClientFromEnv', () => {
         ok: true,
         json: async () => ({ success: true, data: { routes: [], total: 0, items: [] } }),
       });
-      vi.stubGlobal('fetch', fetchMock);
+      vi.stubGlobal('fetch', textual(fetchMock));
     });
 
     afterEach(() => {
@@ -615,7 +704,7 @@ describe('EdgeRouterClient credential-target acknowledgement and changelog', () 
     client = new EdgeRouterClient({
       baseUrl: 'https://test.example.com',
       apiKey: 'test-api-key',
-      fetch: mockFetch as unknown as typeof fetch,
+      fetch: textual(mockFetch),
     });
   });
 

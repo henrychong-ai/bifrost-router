@@ -19,6 +19,11 @@ export interface BackupManifest {
     totalRoutes: number;
     /** R2 object key for the backup file */
     file: string;
+    /**
+     * KV values that were not JSON, skipped and not in the archive (v1.38.0;
+     * absent from an older manifest). Each was logged by its key.
+     */
+    skippedNotJson?: number | undefined;
   };
 }
 
@@ -49,4 +54,6 @@ export interface KVBackupResult {
   totalRoutes: number;
   /** R2 object key */
   file: string;
+  /** KV values that were not JSON, skipped (v1.38.0) */
+  skippedNotJson: number;
 }

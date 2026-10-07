@@ -57,3 +57,17 @@ export function readErrorEnvelope(body: unknown): ErrorEnvelope | null {
   const text = message ?? (error === code ? undefined : error);
   return { code, error, message, text, details: own('details') };
 }
+
+/** The longest plain-text error body shown as it is (a longer one is cut). */
+export const PLAIN_ERROR_MAX_LENGTH = 300;
+
+/**
+ * A failed answer's body that is not JSON (a bare `HTTPException` message such
+ * as `Route not found: /x`, a proxy's error page), as one line of text cut to
+ * {@link PLAIN_ERROR_MAX_LENGTH}; undefined when it is empty. The shared
+ * client and the dashboard both report such an answer by its text (v1.38.0).
+ */
+export function plainErrorText(body: string): string | undefined {
+  const plain = body.trim().replace(/\s+/g, ' ');
+  return plain === '' ? undefined : plain.slice(0, PLAIN_ERROR_MAX_LENGTH);
+}

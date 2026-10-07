@@ -102,3 +102,148 @@ describe('delete_route catalogue and schema parity (v1.38.0)', () => {
     );
   });
 });
+
+/** The first value of `key` anywhere in the recorded client calls' arguments. */
+function sentValue(key: string): unknown {
+  const visit = (value: unknown): unknown => {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = visit(item);
+        if (found !== undefined) return found;
+      }
+      return undefined;
+    }
+    if (typeof value === 'object' && value !== null && !(value instanceof Uint8Array)) {
+      if (Object.hasOwn(value, key)) return (value as Record<string, unknown>)[key];
+      return visit(Object.values(value));
+    }
+    return undefined;
+  };
+  return visit(calls.map(call => call.args));
+}
+
+/**
+ * Some MCP clients send every argument as a string. Before the dispatcher
+ * validated arguments (v1.38.0) such numbers reached the query string and the
+ * Worker coerced them; a stringified number or boolean is now parsed by the
+ * tool schema itself (`mcpNumber`, `mcpBoolean`), never refused.
+ */
+describe('stringified numeric and boolean arguments keep working', () => {
+  const CASES: Array<[string, Record<string, unknown>, Record<string, unknown>]> = [
+    ['get_analytics_summary', { days: '7' }, { days: 7 }],
+    ['get_clicks', { days: '7', limit: '20', offset: '5' }, { days: 7, limit: 20, offset: 5 }],
+    ['get_views', { days: '7', limit: '20', offset: '5' }, { days: 7, limit: 20, offset: 5 }],
+    ['get_slug_stats', { slug: '/promo', domain: DOMAIN, days: '7' }, { days: 7 }],
+    ['list_objects', { bucket: 'files', limit: '20' }, { limit: 20 }],
+    ['list_qrs', { domain: DOMAIN, limit: '20', offset: '0' }, { limit: 20, offset: 0 }],
+    ['get_route_qr', { domain: DOMAIN, path: '/promo', size: '512' }, { size: 512 }],
+    [
+      'create_route',
+      {
+        path: '/promo',
+        type: 'redirect',
+        target: 'https://example.net/',
+        statusCode: '301',
+        preserveQuery: 'false',
+        preservePath: 'true',
+        forceDownload: 'false',
+        acknowledgeCredentialTarget: 'true',
+        domain: DOMAIN,
+      },
+      {
+        statusCode: 301,
+        preserveQuery: false,
+        preservePath: true,
+        forceDownload: false,
+        acknowledgeCredentialTarget: true,
+      },
+    ],
+    [
+      'update_route',
+      {
+        path: '/promo',
+        statusCode: '308',
+        preserveQuery: 'true',
+        preservePath: 'false',
+        forceDownload: 'true',
+        acknowledgeCredentialTarget: 'false',
+        domain: DOMAIN,
+      },
+      {
+        statusCode: 308,
+        preserveQuery: true,
+        preservePath: false,
+        forceDownload: true,
+        acknowledgeCredentialTarget: false,
+      },
+    ],
+    [
+      'toggle_route',
+      { path: '/promo', enabled: 'false', acknowledgeCredentialTarget: '1', domain: DOMAIN },
+      { acknowledgeCredentialTarget: true },
+    ],
+    ['delete_route', { path: '/promo', domain: DOMAIN, recover_invalid: 'false' }, {}],
+    [
+      'transfer_route',
+      {
+        path: '/promo',
+        from_domain: DOMAIN,
+        to_domain: 'secondary.example.net',
+        acknowledgeCredentialTarget: 'yes',
+      },
+      { acknowledgeCredentialTarget: true },
+    ],
+    ['get_object', { bucket: 'files', key: 'a.txt', metadata_only: 'true' }, {}],
+    [
+      'upload_object',
+      { bucket: 'files', key: 'a.txt', content_base64: 'aGk=', overwrite: 'false' },
+      { overwrite: false },
+    ],
+    ['update_qr', { id: 'promo', domain: DOMAIN, clearLinkedRoute: 'false' }, {}],
+  ];
+
+  it.each(CASES)('%s parses its stringified arguments', async (name, args, sent) => {
+    const result = await callTool(client, name, args);
+    expect(result).not.toMatch(/invalid arguments/);
+    expect(calls.length).toBeGreaterThan(0);
+    for (const [key, value] of Object.entries(sent)) expect(sentValue(key)).toBe(value);
+  });
+
+  it('reads the strings by value, never by truthiness', async () => {
+    await callTool(client, 'toggle_route', { path: '/promo', enabled: 'false', domain: DOMAIN });
+    expect(calls[0]?.args[1]).toBe(false);
+    calls = [];
+    await callTool(client, 'update_qr', { id: 'promo', domain: DOMAIN, clearLinkedRoute: 'false' });
+    expect(sentValue('linkedRoute')).toBeUndefined();
+    calls = [];
+    await callTool(client, 'update_qr', { id: 'promo', domain: DOMAIN, clearLinkedRoute: 'true' });
+    expect(sentValue('linkedRoute')).toBeNull();
+  });
+
+  it.each([
+    ['get_clicks', { limit: '' }],
+    ['get_clicks', { limit: 'twenty' }],
+    ['get_clicks', { days: '7 days' }],
+    ['get_clicks', { limit: '0x10' }],
+    ['list_qrs', { domain: DOMAIN, limit: '1.5' }],
+    ['get_route_qr', { domain: DOMAIN, path: '/promo', size: '99999' }],
+    ['get_object', { bucket: 'files', key: 'a.txt', metadata_only: 'maybe' }],
+  ])('still refuses %s %j, sending nothing', async (name, args) => {
+    expect(await callTool(client, name, args)).toMatch(
+      new RegExp(`^Error: invalid arguments for ${name}: `),
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it('covers every numeric and boolean field the catalogue advertises', () => {
+    const advertised = toolDefinitions.flatMap(tool =>
+      Object.entries(tool.inputSchema.properties ?? {})
+        .filter(([, field]) => ['number', 'integer', 'boolean'].includes(String(field.type)))
+        .map(([field]) => `${tool.name}.${field}`),
+    );
+    const covered = new Set(
+      CASES.flatMap(([name, args]) => Object.keys(args).map(key => `${name}.${key}`)),
+    );
+    expect(advertised.filter(field => !covered.has(field))).toEqual([]);
+  });
+});

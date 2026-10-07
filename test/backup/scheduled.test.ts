@@ -163,6 +163,23 @@ describe('handleScheduled', () => {
     expect(kvObj).not.toBeNull();
   });
 
+  // v1.38.0: a value that is not JSON no longer fails every nightly backup
+  it('backs up the readable records past a value that is not JSON, counted in the manifest', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await env.ROUTES.put(
+      'links.example.com:/github',
+      JSON.stringify({ path: '/github', type: 'redirect', target: 'https://github.com' }),
+    );
+    await env.ROUTES.put('links.example.com:/broken', 'not json at all');
+
+    const result = await handleScheduled(env as unknown as Bindings);
+    expect(result.success).toBe(true);
+    expect(result.manifest?.kv).toMatchObject({ totalRoutes: 1, skippedNotJson: 1 });
+    const stored = await env.BACKUP_BUCKET.get(`daily/${result.manifest?.date}/manifest.json`);
+    expect(await stored?.json()).toMatchObject({ kv: { totalRoutes: 1, skippedNotJson: 1 } });
+  });
+
   it('succeeds with empty KV', async () => {
     const result = await handleScheduled(env as unknown as Bindings);
 

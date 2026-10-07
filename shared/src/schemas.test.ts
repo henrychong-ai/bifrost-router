@@ -1,4 +1,5 @@
 import { assert, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import {
   CreateQrToolInputSchema,
   DeleteQrInputSchema,
@@ -19,6 +20,7 @@ import {
   GetSlugStatsInputSchema,
   GetViewsInputSchema,
   ListRoutesInputSchema,
+  mcpNumber,
   R2UpdateCommentInputSchema,
   RedirectStatusCodeSchema,
   RoutePathSchema,
@@ -601,4 +603,26 @@ describe('RoutePathSchema', () => {
       });
     }
   });
+});
+
+// v1.38.0: numeric MCP tool fields read decimal text as numbers, and nothing else
+describe('mcpNumber', () => {
+  const limit = mcpNumber(z.number().int().min(1).max(100)).optional();
+
+  it.each([
+    ['20', 20],
+    [' 7 ', 7],
+    ['+5', 5],
+    [20, 20],
+    [undefined, undefined],
+  ])('reads %j as %j', (input, output) => {
+    expect(limit.parse(input)).toBe(output);
+  });
+
+  it.each([[''], ['  '], [null], [false], [[]], ['0x10'], ['1e2'], ['20px'], ['2.5'], ['0']])(
+    'refuses %j, never coercing it to a number',
+    input => {
+      expect(limit.safeParse(input).success).toBe(false);
+    },
+  );
 });

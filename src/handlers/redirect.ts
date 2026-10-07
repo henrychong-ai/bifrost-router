@@ -1,3 +1,4 @@
+import { isRedirectStatusCode } from '@bifrost/shared';
 import type { Context } from 'hono';
 import { rawWildcardRemainder } from '../kv/lookup';
 import type { AppEnv, KVRouteConfig, RedirectStatusCode } from '../types';
@@ -37,11 +38,6 @@ export function redirectDestination(route: KVRouteConfig, incomingUrl: URL): URL
   }
 
   return targetUrlObj;
-}
-
-/** A redirect status code a route write accepts; no write ever accepted another. */
-function isRedirectStatusCode(value: unknown): value is RedirectStatusCode {
-  return value === 301 || value === 302 || value === 307 || value === 308;
 }
 
 /**

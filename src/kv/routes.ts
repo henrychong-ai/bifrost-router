@@ -1,4 +1,5 @@
 import {
+  canonicalJson,
   type InvalidRouteRow,
   MAX_CACHE_CONTROL_LENGTH,
   MAX_HOST_HEADER_LENGTH,
@@ -68,6 +69,24 @@ export class InvalidStoredRouteError extends CodedHTTPException {
   constructor() {
     super(409, 'ROUTE_RECORD_INVALID', ROUTE_RECORD_INVALID_MESSAGE);
     this.name = 'InvalidStoredRouteError';
+  }
+}
+
+/** The fixed message of {@link RouteSourceChangedError}. */
+export const ROUTE_SOURCE_CHANGED_MESSAGE =
+  'The route changed while this request was running. Nothing was moved; read it again and retry.';
+
+/**
+ * A migrate or transfer whose source record is no longer the record its
+ * handler checked (v1.38.0): a fixed 409 `{ success: false, error:
+ * 'ROUTE_SOURCE_CHANGED', message }`. KV has no compare-and-set, so a source
+ * replaced between the handler's read and the write is refused, never re-read
+ * and moved in place of the record the guard and the audit row examined.
+ */
+export class RouteSourceChangedError extends CodedHTTPException {
+  constructor() {
+    super(409, 'ROUTE_SOURCE_CHANGED', ROUTE_SOURCE_CHANGED_MESSAGE);
+    this.name = 'RouteSourceChangedError';
   }
 }
 
@@ -383,6 +402,36 @@ export async function createRoute(
 type RoutePatch = { [K in keyof CreateRouteInput]?: CreateRouteInput[K] | undefined };
 
 /**
+ * A stored route with an update merged in (v1.38.0): the ONE merge behind
+ * {@link updateRoute} and {@link migrateRoute}, so a PUT and a path-change
+ * edit store the same record. The patch's fields replace the stored ones;
+ * every field it leaves out (or carries as `undefined`) keeps its stored
+ * value, the type and target included. `path` is the record's key path,
+ * `createdAt` is kept and `updatedAt` is now. The patch's own fields are
+ * checked against their caps ({@link RouteWriteRefusedError}); the caller
+ * checks the merged record's size as it serialises it.
+ */
+export function mergeRoutePatch(
+  existing: KVRouteConfig,
+  patch: RoutePatch,
+  path: string,
+): KVRouteConfig {
+  assertWrittenFieldsFit(patch);
+  return {
+    ...existing,
+    ...patch,
+    // A stored route always has a type and a target. A patch that leaves either
+    // out keeps the stored value, as the spread alone already did; writing them
+    // out also keeps it when the key is present but `undefined`.
+    type: patch.type ?? existing.type,
+    target: patch.target ?? existing.target,
+    path,
+    createdAt: existing.createdAt,
+    updatedAt: Date.now(),
+  };
+}
+
+/**
  * Update an existing route
  * Returns null if not found, throws KVWriteError on failure
  */
@@ -398,21 +447,10 @@ export async function updateRoute(
   const existing = presentRoute(await readStateOrThrow(kv, key));
   if (!existing) return null;
 
-  const updated: KVRouteConfig = {
-    ...existing,
-    ...updates,
-    // A stored route always has a type and a target. A patch that leaves either
-    // out keeps the stored value, as the spread alone already did; writing them
-    // out also keeps it when the key is present but `undefined`.
-    type: updates.type ?? existing.type,
-    target: updates.target ?? existing.target,
-    path: normalizedPath, // Path cannot be changed
-    createdAt: existing.createdAt,
-    updatedAt: Date.now(),
-  };
-  // The patch's own fields against their caps; the merged record as it will
-  // be stored against the key and size limits, checked as it is written
-  assertWrittenFieldsFit(updates);
+  // Path cannot be changed. The patch's own fields against their caps; the
+  // merged record as it will be stored against the key and size limits,
+  // checked as it is written
+  const updated = mergeRoutePatch(existing, updates, normalizedPath);
   // A patch that only enables or disables the route skips the size check, so
   // an oversized legacy route can always be switched off (v1.37.2)
   const onlyEnabled = Object.entries(updates).every(
@@ -551,34 +589,56 @@ export async function seedRoutes(
 }
 
 /**
- * What {@link migrateRoute} may do besides the move (v1.38.0): `patch` is an
- * update applied to the moved record, written ONCE at the new key (KV takes
- * one write per key per second, so a move followed by an update of the same
- * key could lose the update), and `beforeWrite` sees the merged record before
- * anything is written and may throw to refuse the whole move (the credential
- * guard), so nothing moves when it refuses.
+ * The source record a move was checked against (v1.38.0): its handler's own
+ * read, the record the credential guard, the merge and the audit row used.
+ * The KV layer only confirms it, never reads a replacement in its place:
+ * `missing` when it has gone (the caller answers 404), or a throw when it is
+ * unreadable ({@link InvalidStoredRouteError}) or no longer the same record,
+ * compared as canonical JSON ({@link RouteSourceChangedError}). Without a
+ * `source`, the record read here is the one moved.
+ */
+async function confirmSource(
+  kv: KVNamespace,
+  key: string,
+  source: KVRouteConfig | undefined,
+): Promise<KVRouteConfig | null> {
+  const found = presentRoute(await readStateOrThrow(kv, key));
+  if (found === null || source === undefined) return found;
+  if (canonicalJson(found) !== canonicalJson(source)) throw new RouteSourceChangedError();
+  return source;
+}
+
+/**
+ * What {@link migrateRoute} may do besides the move (v1.38.0): `source` is
+ * the record the caller checked (confirmed before anything is written, see
+ * {@link confirmSource}), and `patch` an update applied to the moved record
+ * with {@link mergeRoutePatch}, written ONCE at the new key (KV takes one
+ * write per key per second, so a move followed by an update of the same key
+ * could lose the update).
  */
 export interface MigrateOptions {
+  source?: KVRouteConfig | undefined;
   patch?: RoutePatch | undefined;
-  beforeWrite?: ((merged: KVRouteConfig, existing: KVRouteConfig) => void) | undefined;
 }
 
 /**
  * Migrate a route from one path to another, optionally applying an update in
  * the same single write at the new key ({@link MigrateOptions}).
  * Preserves createdAt timestamp for audit trail continuity
- * Returns the migrated route config, or null if oldPath not found (`beforeWrite`
- * receives the record as it was)
- * Throws error if newPath already exists or paths are the same; a patch over
- * its field caps, or a merged record over the key or size limit, is refused
- * (RouteWriteRefusedError) before anything is written
+ * Returns the migrated route config, or null if oldPath not found (or the
+ * checked `source` has gone)
+ * Throws error if newPath already exists or paths are the same (before any
+ * read); a source replaced since the caller read it is refused
+ * (RouteSourceChangedError), and a patch over its field caps, or a merged
+ * record over the key or size limit (RouteWriteRefusedError), before anything
+ * is written
  */
 export async function migrateRoute(
   kv: KVNamespace,
   domain: string,
   oldPath: string,
   newPath: string,
-  { patch, beforeWrite }: MigrateOptions = {},
+  { source, patch }: MigrateOptions = {},
 ): Promise<KVRouteConfig | null> {
   const normalizedOldPath = normalizePath(oldPath);
   const normalizedNewPath = normalizePath(newPath);
@@ -588,38 +648,29 @@ export async function migrateRoute(
     throw new Error('Old path and new path cannot be the same');
   }
 
-  // Get existing route at oldPath; an unreadable record is never moved
-  const existing = presentRoute(await readStateOrThrow(kv, routeKey(domain, normalizedOldPath)));
+  const oldKey = routeKey(domain, normalizedOldPath);
+  const newKey = routeKey(domain, normalizedNewPath);
+
+  // The record at oldPath, confirmed as the caller's; an unreadable record is
+  // never moved
+  const existing = await confirmSource(kv, oldKey, source);
   if (!existing) {
     return null;
   }
 
   // Check if newPath already exists; an unreadable record there is present
   // too, and is never overwritten
-  const atNew = await readStateOrThrow(kv, routeKey(domain, normalizedNewPath));
+  const atNew = await readStateOrThrow(kv, newKey);
   if (atNew.status === 'invalid') throw new InvalidStoredRouteError();
   if (atNew.status === 'ok') {
     throw new Error(`Route already exists at path: ${normalizedNewPath}`);
   }
 
-  const oldKey = routeKey(domain, normalizedOldPath);
-  const newKey = routeKey(domain, normalizedNewPath);
-
   // The moved record, with the patch merged as an update merges it, preserved
-  // createdAt; the patch's own fields against their caps, the merged record
-  // against the key and size limits, all before anything is written
-  const migratedRoute: KVRouteConfig = {
-    ...existing,
-    ...patch,
-    type: patch?.type ?? existing.type,
-    target: patch?.target ?? existing.target,
-    path: normalizedNewPath,
-    createdAt: existing.createdAt, // Preserve original
-    updatedAt: Date.now(),
-  };
-  if (patch) assertWrittenFieldsFit(patch);
+  // createdAt; the merged record against the key and size limits, all before
+  // anything is written
+  const migratedRoute = mergeRoutePatch(existing, patch ?? {}, normalizedNewPath);
   const serialized = serializeStoredRoute(newKey, migratedRoute);
-  beforeWrite?.(migratedRoute, existing);
 
   try {
     // Write to new key first
@@ -646,12 +697,15 @@ export async function migrateRoute(
  *
  * Preserves all route configuration and original createdAt timestamp.
  * Non-atomic: writes to new domain first, then deletes from old domain.
+ * `source` is the record the caller checked, confirmed as for a migrate
+ * ({@link confirmSource}); null when it has gone.
  */
 export async function transferRoute(
   kv: KVNamespace,
   fromDomain: string,
   toDomain: string,
   path: string,
+  source?: KVRouteConfig,
 ): Promise<KVRouteConfig | null> {
   const normalizedPath = normalizePath(path);
 
@@ -659,20 +713,20 @@ export async function transferRoute(
     throw new Error('Source and destination domains cannot be the same');
   }
 
+  const oldKey = routeKey(fromDomain, normalizedPath);
+  const newKey = routeKey(toDomain, normalizedPath);
+
   // An unreadable record is never moved, and never overwritten at the target
-  const existing = presentRoute(await readStateOrThrow(kv, routeKey(fromDomain, normalizedPath)));
+  const existing = await confirmSource(kv, oldKey, source);
   if (!existing) {
     return null;
   }
 
-  const atTarget = await readStateOrThrow(kv, routeKey(toDomain, normalizedPath));
+  const atTarget = await readStateOrThrow(kv, newKey);
   if (atTarget.status === 'invalid') throw new InvalidStoredRouteError();
   if (atTarget.status === 'ok') {
     throw new Error(`Route already exists at ${toDomain}:${normalizedPath}`);
   }
-
-  const oldKey = routeKey(fromDomain, normalizedPath);
-  const newKey = routeKey(toDomain, normalizedPath);
 
   const transferredRoute: KVRouteConfig = {
     ...existing,

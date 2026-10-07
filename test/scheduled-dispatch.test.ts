@@ -89,9 +89,11 @@ describe('scheduled backup cron', () => {
     );
   });
 
-  // v1.37.1: the rejection and every log line carry fixed text only. A stored
-  // value that is not JSON used to reach both through the parse error.
-  it('keeps a malformed stored value out of the rejection and every log line', async () => {
+  // v1.37.1: every log line carries fixed text only; a stored value that is
+  // not JSON used to reach them through the parse error. v1.38.0: such a value
+  // is skipped and counted, logged by its key only, and the backup succeeds
+  // (it used to fail every nightly run until someone deleted the record).
+  it('keeps a malformed stored value out of every log line, and backs up past it', async () => {
     // Short and bare: V8's parse error quotes the first ten characters
     const secret = 'zq7f3a91x';
     await env.ROUTES.put('links.example.com:/malformed', secret);
@@ -100,10 +102,7 @@ describe('scheduled backup cron', () => {
     );
     try {
       const [backup] = await runCron('0 20 * * *', env as unknown as Bindings);
-      expect(backup.status).toBe('rejected');
-      const reason = (backup as PromiseRejectedResult).reason as Error;
-      expect(reason.message).toBe('Backup failed: KV record is not valid JSON');
-      expect(reason.cause).toBeUndefined();
+      expect(backup.status).toBe('fulfilled');
       const logged = spies.flatMap(spy =>
         spy.mock.calls
           .flat()
@@ -113,14 +112,11 @@ describe('scheduled backup cron', () => {
               : String(arg),
           ),
       );
-      expect(logged).toContain('[Scheduled] Backup failed: KV record is not valid JSON');
-      // The malformed record is located by prefix and listing index, not key
+      // Named by its key, never its value
       expect(logged).toContain(
-        '[Backup] KV record is not valid JSON: prefix links.example.com:, listing index 0',
+        '[Backup] Skipped a KV record that is not JSON: links.example.com:/malformed',
       );
-      expect(logged.join('\n')).not.toContain('/malformed');
       expect(logged.join('\n')).not.toContain(secret);
-      expect(`${reason.message} ${reason.stack ?? ''}`).not.toContain(secret);
     } finally {
       await env.ROUTES.delete('links.example.com:/malformed');
     }

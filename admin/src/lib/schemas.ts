@@ -84,10 +84,8 @@ export const RouteWithDomainSchema = routeOf(true).transform(route => route as R
  */
 export type { InvalidRouteRow } from '@bifrost/shared';
 
-/** The status codes a redirect is written with, for narrowing a stored one. */
-export function isRedirectStatusCode(value: unknown): value is RedirectStatusCode {
-  return RedirectStatusCodeSchema.safeParse(value).success;
-}
+/** The status codes a redirect is written with, for narrowing a stored one (shared). */
+export { isRedirectStatusCode } from '@bifrost/shared';
 
 /** Whether a stored bucket name is one the dashboard offers. */
 export function isR2BucketName(value: unknown): value is R2BucketName {

@@ -52,6 +52,14 @@ const stored = async (path: string): Promise<Record<string, unknown> | null> => 
   return text === null ? null : (JSON.parse(text) as Record<string, unknown>);
 };
 
+/** The details of the latest migrate audit row. */
+const lastMigrateAudit = async (): Promise<Record<string, unknown>> => {
+  const row = await env.DB.prepare(
+    "SELECT details FROM audit_logs WHERE action = 'migrate' ORDER BY id DESC LIMIT 1",
+  ).first<{ details: string }>();
+  return JSON.parse(row?.details ?? '{}') as Record<string, unknown>;
+};
+
 describe('POST /api/routes/migrate with the rest of the edit', () => {
   beforeEach(async () => {
     await clearAllRoutes();
@@ -98,6 +106,42 @@ describe('POST /api/routes/migrate with the rest of the edit', () => {
       expect(response.status).toBe(200);
       expect(await stored(`/moved-${index}`)).toMatchObject({ target: STORED.target });
     }
+  });
+
+  it('a body with no field besides path, {} included, is a plain move', async () => {
+    // A stored target with a credential-named parameter: a plain move never
+    // asks for the confirmation, as with no body at all
+    await env.ROUTES.put(
+      routeKey(DOMAIN, '/promo'),
+      JSON.stringify({ ...STORED, target: 'https://example.com/cb?token=LIVE' }),
+    );
+    const bodies = [{}, { path: '/elsewhere' }, { targte: 'https://x.example', foo: 1 }];
+    for (const [index, body] of bodies.entries()) {
+      const from = index === 0 ? '/promo' : `/plain-${index - 1}`;
+      const response = await migrate(
+        body,
+        `oldPath=${from}&newPath=/plain-${index}&domain=${DOMAIN}`,
+      );
+      expect(response.status).toBe(200);
+      expect(await stored(`/plain-${index}`)).toMatchObject({
+        target: 'https://example.com/cb?token=LIVE',
+      });
+      // No patch, so no before/edited pair in the audit row
+      const details = await lastMigrateAudit();
+      expect(details).not.toHaveProperty('before');
+      expect(details).not.toHaveProperty('edited');
+    }
+  });
+
+  it('audits the parsed patch as edited: never the path, a stripped key or the flag', async () => {
+    const response = await migrate({
+      cacheControl: 'no-store',
+      path: '/ignored',
+      targte: 'https://x.example',
+      acknowledgeCredentialTarget: true,
+    });
+    expect(response.status).toBe(200);
+    expect((await lastMigrateAudit())['edited']).toEqual({ cacheControl: 'no-store' });
   });
 
   it('refuses a body that is not JSON or not a valid patch, moving nothing', async () => {

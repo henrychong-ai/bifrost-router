@@ -171,8 +171,11 @@ paths:
         optional body holds the rest of an edit (an update body, with
         `acknowledgeCredentialTarget` when confirmed): it is merged into the
         moved record and written ONCE at the new key, validated, size-checked
-        and credential-guarded before anything moves. Without a body the record
-        moves unedited.
+        and credential-guarded before anything moves. Without a body, or with
+        one that sets no field besides `path` (`{}` included), the record moves
+        unedited. The route is read once and confirmed unchanged just before
+        the write; the same path after normalisation is refused before any
+        read.
       tags: [Routes]
       parameters:
         - name: oldPath
@@ -207,20 +210,26 @@ paths:
           description: Route migrated successfully
         '400':
           description: >-
-            Invalid parameters or body, a field over its cap, or a credential-named
-            target parameter not yet confirmed (`error: ROUTE_TARGET_CREDENTIAL`);
-            nothing moved
+            Invalid parameters or body, the same path, a field over its cap, or a
+            credential-named target parameter not yet confirmed (`error:
+            ROUTE_TARGET_CREDENTIAL`); nothing moved
         '404':
-          description: Route not found at oldPath
+          description: Route not found at oldPath (also when deleted while the request ran)
         '409':
           description: >-
-            Route already exists at newPath, or the record at either path cannot be
-            read (`error: ROUTE_RECORD_INVALID`)
+            Route already exists at newPath, the record at either path cannot be
+            read (`error: ROUTE_RECORD_INVALID`), or the route at oldPath was
+            replaced while the request ran (`error: ROUTE_SOURCE_CHANGED`; nothing
+            moved)
 
   /api/routes/transfer:
     post:
       summary: Transfer route between domains
-      description: Moves a route from one domain to another, preserving all configuration and original createdAt timestamp.
+      description: >-
+        Moves a route from one domain to another, preserving all configuration
+        and original createdAt timestamp. The route is read once and confirmed
+        unchanged just before the write; the same source and destination is
+        refused before any read.
       tags: [Routes]
       requestBody:
         required: true
@@ -255,11 +264,13 @@ paths:
         '400':
           description: Invalid parameters (missing fields, invalid domain, same source/destination)
         '404':
-          description: Route not found on source domain
+          description: Route not found on source domain (also when deleted while the request ran)
         '409':
           description: >-
-            Route already exists on destination domain, or the record on either domain
-            cannot be read (`error: ROUTE_RECORD_INVALID`)
+            Route already exists on destination domain, the record on either domain
+            cannot be read (`error: ROUTE_RECORD_INVALID`), or the source route was
+            replaced while the request ran (`error: ROUTE_SOURCE_CHANGED`; nothing
+            moved)
 
   /api/routes/normalize-case:
     post:

@@ -87,12 +87,22 @@ const REQUEST_TIMEOUT_MS = 5000;
 /** Why a link-preview URL was refused (v1.38.0), for the fixed answer of each class. */
 export type SSRFRefusal = 'format' | 'scheme' | 'name' | 'ipv4' | 'ipv6';
 
+/** The fixed text for each SSRF refusal class (v1.38.0). */
+const SSRF_REFUSAL_DETAILS: Readonly<Record<SSRFRefusal, string>> = {
+  format: 'Invalid URL format',
+  scheme: 'Blocked scheme',
+  name: 'Blocked hostname',
+  ipv4: 'Blocked private IP address',
+  ipv6: 'Blocked IPv6 address',
+};
+
+/**
+ * A refused link-preview URL. Its message is the fixed text of its refusal
+ * class ({@link SSRF_REFUSAL_DETAILS}), never the URL or its host (v1.38.0).
+ */
 export class SSRFBlockedError extends Error {
-  constructor(
-    message: string,
-    readonly reason: SSRFRefusal,
-  ) {
-    super(message);
+  constructor(readonly reason: SSRFRefusal) {
+    super(SSRF_REFUSAL_DETAILS[reason]);
     this.name = 'SSRFBlockedError';
   }
 }
@@ -135,12 +145,12 @@ export function validateUrlForSSRF(urlString: string): URL {
   try {
     url = new URL(urlString);
   } catch {
-    throw new SSRFBlockedError('Invalid URL format', 'format');
+    throw new SSRFBlockedError('format');
   }
 
   // Only allow http and https schemes
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new SSRFBlockedError(`Blocked scheme: ${url.protocol}`, 'scheme');
+    throw new SSRFBlockedError('scheme');
   }
 
   // One shared host policy for every outbound fetch of a caller-supplied URL
@@ -148,13 +158,13 @@ export function validateUrlForSSRF(urlString: string): URL {
   // IPv6 allow-list. Hostnames are not resolved.
   const refusal = hostRefusal(url.hostname);
   if (refusal === 'name') {
-    throw new SSRFBlockedError(`Blocked hostname: ${url.hostname}`, 'name');
+    throw new SSRFBlockedError('name');
   }
   if (refusal === 'ipv4') {
-    throw new SSRFBlockedError(`Blocked private IP: ${url.hostname}`, 'ipv4');
+    throw new SSRFBlockedError('ipv4');
   }
   if (refusal === 'ipv6') {
-    throw new SSRFBlockedError(`Blocked IPv6 address: ${url.hostname}`, 'ipv6');
+    throw new SSRFBlockedError('ipv6');
   }
 
   return url;
@@ -818,15 +828,6 @@ async function fetchOpenGraph(
     clearTimeout(timeoutId);
   }
 }
-
-/** The fixed text for each SSRF refusal class (v1.38.0). */
-const SSRF_REFUSAL_DETAILS: Readonly<Record<SSRFRefusal, string>> = {
-  format: 'Invalid URL format',
-  scheme: 'Blocked scheme',
-  name: 'Blocked hostname',
-  ipv4: 'Blocked private IP address',
-  ipv6: 'Blocked IPv6 address',
-};
 
 /** A failed preview as `GET /api/metadata/og` answers it. */
 export interface OpenGraphFailure {

@@ -8,10 +8,12 @@ import type { QRListMeta, QrQueryParams } from './api-client';
 
 /**
  * How long the store holds what it knows about a code after it last learned
- * something new: KV list results lag a write by up to about 60 seconds, so 90
- * seconds covers the lag with margin without holding a stale copy for long.
+ * something new: 5 minutes. KV list results lag a write by about 60 seconds,
+ * sometimes more at a slow location, and the TTL also bounds the deletion
+ * tombstones, so a short one would let a deleted code reappear (or a new one
+ * drop off page 1) while the listing is still stale.
  */
-export const PENDING_QR_TTL_MS = 90 * 1000;
+export const PENDING_QR_TTL_MS = 5 * 60 * 1000;
 
 export interface QrListPage {
   items: QRCode[];
@@ -100,7 +102,7 @@ export interface PendingQrView {
  * from any source — create and update responses and every row of every
  * server listing — and never moves backwards (`isNewer`); and, per deleted
  * incarnation, a tombstone (`hides`). Seeing a current server row never
- * removes an entry: only the TTL (90 seconds from the entry's last change)
+ * removes an entry: only the TTL (5 minutes from the entry's last change)
  * ends a version or a tombstone, and a deletion ends the version of the
  * incarnation it deleted.
  *

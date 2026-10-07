@@ -22,7 +22,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { CredentialTargetDialog } from '@/components/credential-target-dialog';
@@ -995,13 +995,8 @@ export function RoutesPage() {
     parameters: string[];
     verb: string;
     retry: () => Promise<void>;
-    /** What cancelling leaves undone, said when the operator cancels. */
-    cancelled?: () => void;
   } | null>(null);
   const [credentialConfirmPending, setCredentialConfirmPending] = useState(false);
-  // Set while a confirmation runs: closing the dialog then is not a cancel
-  // (the dialog's confirm button also closes it)
-  const credentialConfirming = useRef(false);
   const [transferTarget, setTransferTarget] = useState<{
     path: string;
     fromDomain: string;
@@ -1198,12 +1193,10 @@ export function RoutesPage() {
   /** Re-send the refused write with the operator's acknowledgement. */
   const handleConfirmCredentialTarget = async () => {
     if (!credentialConfirm) return;
-    credentialConfirming.current = true;
     setCredentialConfirmPending(true);
     try {
       await credentialConfirm.retry();
     } finally {
-      credentialConfirming.current = false;
       setCredentialConfirmPending(false);
     }
   };
@@ -1909,10 +1902,7 @@ export function RoutesPage() {
         verb={credentialConfirm?.verb ?? 'Save'}
         pending={credentialConfirmPending}
         onConfirm={() => void handleConfirmCredentialTarget()}
-        onCancel={() => {
-          if (!credentialConfirming.current) credentialConfirm?.cancelled?.();
-          setCredentialConfirm(null);
-        }}
+        onCancel={() => setCredentialConfirm(null)}
       />
 
       {/* Migration Confirmation Dialog */}

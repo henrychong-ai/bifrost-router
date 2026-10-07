@@ -23,7 +23,8 @@ stale list. No D1 migration.
 
 **Proxy routes:** check any proxy route whose upstream redirects to another
 origin and expects the visitor's `Authorization` or `Cookie` there: those
-headers are no longer sent on such a hop.
+headers are no longer sent on such a hop. A proxy target whose hostname is
+not letters, digits, hyphens and dots (never fetchable) now answers 502.
 
 ### Proxy
 
@@ -46,7 +47,19 @@ headers are no longer sent on such a hop.
   longer sets `retain_authorization_on_cross_origin_redirect`.
 - **A failed upstream connection answers fixed text.** 502 `network_error`
   with `Failed to connect to upstream server.`, never the runtime's error
-  message, which can name an upstream host or address.
+  message, which can name an upstream host or address; the log records only
+  the error's class name.
+- **A refused proxy target is never quoted.** The target check answers fixed
+  text (an invalid URL, a protocol other than http or https, a hostname that
+  is not an ordinary name, a private or internal address) and never repeats
+  the target, its scheme or its host. The proxy logs the refusal on every
+  visitor request, and a stored target can carry a credential: a target that
+  was not a URL used to be logged in full, query included.
+- **A proxy target needs an ordinary hostname:** letters, digits, hyphens and
+  dots (international names in their `xn--` form; IP addresses keep their own
+  rules). A name such as `*.example.com` or `under_score.example.com` could
+  never be fetched and now answers 502 `validation_error`, as do redirects to
+  one.
 - **Two redirect caps, on purpose.** The proxy follows up to 20 redirects;
   link previews keep their own loop and cap of 5, also when previewing a proxy
   route.
@@ -102,8 +115,9 @@ headers are no longer sent on such a hop.
   matching it would list them all.
 - **An invalid list query is refused.** `GET /api/routes` answers 400 for a
   `limit` or `offset` that is not a whole number in range and for an unknown
-  `type` or `enabled` value, as it does for an over-long search; it never
-  answers with an unfiltered list instead.
+  `type` or `enabled` value, as it does for an over-long search (all with the
+  same JSON `Invalid query: …` answer); it never answers with an unfiltered
+  list instead.
 - **Results are ordered by relevance:** a path equal to the query (ignoring
   separators), then paths starting with it, other path matches, then matches
   in other fields, newest first on ties. Route lists without a search are
@@ -137,7 +151,15 @@ headers are no longer sent on such a hop.
   record) beside the kept route and View route; "could not be confirmed" is
   kept for an answer that never arrived. A retry after such an answer that
   finds the id taken by the very code it sent (same type, content and link)
-  counts as saved instead of failing. Creating a code with an id already
+  counts as saved instead of failing, but only when every value matches:
+  type, content, link, description, tags and the whole design (colours,
+  logo, size, margin, error correction, with the defaults the server fills
+  in). Otherwise the save is refused with "A code with this reference exists
+  with different values." instead of silently dropping the changes. The same
+  goes for the new route: a retry after an uncertain route create that finds
+  the route already there links it when it holds the values sent, and
+  otherwise says the route exists with other values and offers View route,
+  instead of failing every retry. Creating a code with an id already
   taken answers a JSON 409 `{ success: false, error: 'QR_ALREADY_EXISTS',
   message }`.
 - **Edits send only what changed.** The QR edit dialog compares the form with
@@ -216,7 +238,18 @@ headers are no longer sent on such a hop.
   changes separately. "The route moved but its other changes were not saved"
   is shown only if the server moved the route without them. A route whose
   stored target is not a URL can still be moved: the target is only sent when
-  it is edited.
+  it is edited. A body with no change besides the path (`{}` included, or
+  only fields the API does not know) is a plain move, as with no body: no
+  credential confirmation and no edit in the audit row.
+- **A move or transfer moves the record it checked.** The API reads the
+  route once (for the credential check, the merged record and the audit row)
+  and confirms it is unchanged just before writing: a route deleted in
+  between answers 404, one replaced in between 409 `ROUTE_SOURCE_CHANGED`
+  (nothing moved; read it again and retry), one made unreadable 409
+  `ROUTE_RECORD_INVALID`. It is never re-read and moved in place of the
+  record that was checked. A move to the same path, or a transfer to the
+  same domain, answers 400 before anything is read. An update and a
+  path-change edit merge the changes the same way.
 - **UTM tracking.** Redirect routes get a **UTM tracking** section: source,
   medium, campaign, term and content, each with a short explanation (a proxy
   replaces the target's query with the visitor's, so it has none). Values are
@@ -233,6 +266,17 @@ headers are no longer sent on such a hop.
   a save. MCP `create_route` describes the same convention.
 - **The dashboard shows the server's message for coded refusals**
   (`ROUTE_RECORD_INVALID`, `QR_NOT_FOUND`) instead of the code.
+
+### Backups
+
+- **A stored value that is not JSON no longer fails the nightly backup.**
+  Such a value at a route or QR key is not a record anything can read (the
+  API lists it as an unreadable row, to be deleted and created again). The
+  backup leaves it out, counts it in the manifest (`kv.skippedNotJson`) and
+  logs one fixed line naming its key, never its value, and backs up every
+  other record. It used to stop every run until someone deleted the record.
+  The archive holds JSON values only, so such a value could not be restored
+  unchanged from it.
 
 ### Validated boundary reads
 
@@ -293,8 +337,11 @@ headers are no longer sent on such a hop.
   ones before it; an audit-log entry that fails its shape, or has a missing
   or empty id, is recorded in a minimal form (its id or
   a hash of its canonical JSON, the same whatever its key order), its time,
-  `unparsed`) and never its content, never twice (looked up over the last 90
-  days, far longer than an entry can be fetched again); at 20 such rows
+  `unparsed`) and never its content; no entry is recorded twice: it is
+  looked up from the run's own clock, from a day before the entry's own time
+  when that is known and not in the future, else over the last 90 days, far
+  longer than an entry can be fetched again (an entry dated in the future
+  used to be recorded again on every poll); at 20 such rows
   a run stops before the next one, so a flood is recorded over several runs
   and the watermark never passes an entry it did not record; pagination
   counts the raw page; feedback context and screenshot-key
@@ -307,10 +354,12 @@ headers are no longer sent on such a hop.
   context. The feedback context cap moved to `shared`
   (`FEEDBACK_CONTEXT_MAX_BYTES`).
 - **Clients:** the shared API client reads the response envelope as unknown
-  (a body that is not a JSON object is a parse failure, and `error`,
-  `message` and `meta` count only with their declared types; a failed
-  response keeps the server's `error` and `message` text even without a
-  `success` flag, as the admin-host 404 sends it). The client and the
+  (a successful answer whose body is not a JSON object is a parse failure,
+  and `error`, `message` and `meta` count only with their declared types; a
+  failed response keeps the server's `error` and `message` text even without
+  a `success` flag, as the admin-host 404 sends it, and a failed answer whose
+  body is not JSON, such as `Route not found: /x`, is reported with that text,
+  cut to 300 characters, instead of "Failed to parse response"). The client and the
   dashboard read a failed answer through one shared reader, so they agree
   on its code, and a code is an UPPER_SNAKE value only (`Internal Server
   Error` is text, never a code); the dashboard also shows a plain-text error
@@ -339,7 +388,8 @@ headers are no longer sent on such a hop.
   regular expression or block comment, exempts nothing.
 - **Audit.** A route edit that only switches the route on or off records the
   route key and `enabled` before and after. A migration that also edited the
-  route records the record before it and the edited fields.
+  route records the record before it and the fields the edit set, as the API
+  read them (never the path, an unknown field or the confirmation flag).
 - **Cache purges survive a failed route lookup.** When the routes serving an
   R2 object cannot be listed, a replace, rename, move, delete or manual purge
   still purges the object's custom-domain URLs and reports the route lookup
@@ -351,7 +401,10 @@ headers are no longer sent on such a hop.
   refuses a non-conforming one (a path that is not a string, an unknown
   bucket) naming the field; a missing domain still gets the same actionable
   message. `delete_route` takes `recover_invalid: true` for the exact-key
-  recovery of an unreadable record.
+  recovery of an unreadable record. Numbers and true/false values sent as
+  strings (`limit: "20"`, `days: "7"`, `size: "512"`, `enabled: "false"`),
+  as some clients send every argument, are read as the values they spell, as
+  the API read them before; anything else is refused, never guessed.
 - **Dashboard browser baseline.** Dashboard code and the shared code it
   bundles call no ES2023 array method (`toSorted`, `toReversed`, `toSpliced`,
   `with`, `findLast`, `findLastIndex`), which the build target's older

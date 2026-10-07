@@ -28,6 +28,9 @@ export {
   type ManifestSummary,
   ManifestSummarySchema,
 } from './backup-health.js';
+// JSON with sorted keys at every level (v1.38.0): one serialiser for every
+// "is this the same value" comparison
+export { canonicalJson } from './canonical-json.js';
 export type { EdgeRouterClientConfig } from './client.js';
 // Client
 export {
@@ -45,7 +48,13 @@ export {
 } from './comment.js';
 // The one reader of a failed answer's body (v1.38.0): the shared client and
 // the dashboard; a machine code is an UPPER_SNAKE value only
-export { type ErrorEnvelope, isErrorCode, readErrorEnvelope } from './error-envelope.js';
+export {
+  type ErrorEnvelope,
+  isErrorCode,
+  PLAIN_ERROR_MAX_LENGTH,
+  plainErrorText,
+  readErrorEnvelope,
+} from './error-envelope.js';
 // Feedback work-queue (v1.26.0)
 export {
   type CreateFeedbackInput,

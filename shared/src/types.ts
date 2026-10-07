@@ -79,6 +79,15 @@ export type RouteType = 'redirect' | 'proxy' | 'r2';
 export type RedirectStatusCode = 301 | 302 | 307 | 308;
 
 /**
+ * Whether `value` is a redirect status code a route write accepts (v1.38.0).
+ * One definition for the Worker (a stored code no write accepts answers 302)
+ * and the dashboard (such a code is shown as stored, marked unsupported).
+ */
+export function isRedirectStatusCode(value: unknown): value is RedirectStatusCode {
+  return value === 301 || value === 302 || value === 307 || value === 308;
+}
+
+/**
  * Route configuration as stored in KV and returned by API
  */
 export interface Route {

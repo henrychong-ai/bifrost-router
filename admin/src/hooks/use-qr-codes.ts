@@ -1,4 +1,4 @@
-import { isRecord, type QRCode } from '@bifrost/shared';
+import { CreateQRInputSchema, canonicalJson, type QRCode, QRDesignSchema } from '@bifrost/shared';
 import {
   hashKey,
   keepPreviousData,
@@ -9,7 +9,7 @@ import {
 } from '@tanstack/react-query';
 import { useCallback, useState, useSyncExternalStore } from 'react';
 import { api, type QrQueryParams } from '@/lib/api-client';
-import { isQrAlreadyExistsError, isQrNotFoundError } from '@/lib/api-error';
+import { ApiError, isQrAlreadyExistsError, isQrNotFoundError } from '@/lib/api-error';
 import { type PendingQrStore, pendingQrs, type QrListPage } from '@/lib/qr-pending';
 
 // =============================================================================
@@ -81,38 +81,53 @@ export function useQrCodes(params?: QrQueryParams, options?: { enabled?: boolean
 // The option factories are exported so tests can run them without a renderer.
 // =============================================================================
 
-/** A JSON text with every object's keys sorted: the same for the same value. */
-function sortedJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(sortedJson).join(',')}]`;
-  if (isRecord(value)) {
-    // In place on a fresh array: the dashboard's build target predates
-    // Array#toSorted
-    const keys = Object.keys(value);
-    keys.sort();
-    return `{${keys
-      .filter(key => value[key] !== undefined)
-      .map(key => `${JSON.stringify(key)}:${sortedJson(value[key])}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value) ?? 'null';
+/**
+ * The fields of a code a create decides, as the Worker stores them: what
+ * `POST /api/qr` would write for this input. The input is parsed with the
+ * shared create schema (payload and design defaults applied), a blank
+ * description is none, and the design is the full design with its defaults.
+ * Null when the input would have been refused, so it can match no code.
+ */
+function createdFields(input: Record<string, unknown>) {
+  const parsed = CreateQRInputSchema.safeParse(input);
+  if (!parsed.success) return null;
+  const data = parsed.data;
+  return {
+    type: data.type,
+    payload: data.payload,
+    description: data.description || undefined,
+    tags: data.tags,
+    design: QRDesignSchema.parse(data.design ?? {}),
+    linkedRoute: data.type === 'url' ? data.linkedRoute : undefined,
+  };
 }
 
 /**
- * Whether a stored code is the one a create sent (v1.38.0): the same type,
- * payload and link. A create retried after an uncertain answer (no answer, a
- * 5xx, an unreadable body) that meets 409 `QR_ALREADY_EXISTS` for its own id
- * is its own earlier save only when the stored code matches; otherwise the id
- * belongs to another code and the 409 stands.
+ * Whether a stored code is the one a create sent (v1.38.0): EVERY field the
+ * create decides (type, payload, link, description, tags and the whole
+ * design: colours, logo and its aspect ratio, size, margin, error
+ * correction), compared as the Worker would have stored the input. A create
+ * retried after an uncertain answer (no answer, a 5xx, an unreadable body)
+ * that meets 409 `QR_ALREADY_EXISTS` for its own id is its own earlier save
+ * only when the stored code matches; otherwise the id holds a code with other
+ * values, and the save is refused.
  */
 function isCodeAsSent(stored: QRCode, input: Record<string, unknown>): boolean {
-  const sentLink = isRecord(input['linkedRoute']) ? input['linkedRoute'] : undefined;
-  return (
-    stored.type === input['type'] &&
-    sortedJson(stored.payload) === sortedJson(input['payload']) &&
-    stored.linkedRoute?.domain === sentLink?.['domain'] &&
-    stored.linkedRoute?.path === sentLink?.['path']
-  );
+  const sent = createdFields(input);
+  if (sent === null) return false;
+  const storedFields = {
+    type: stored.type,
+    payload: stored.payload,
+    description: stored.description || undefined,
+    tags: stored.tags,
+    design: stored.design,
+    linkedRoute: stored.linkedRoute,
+  };
+  return canonicalJson(storedFields) === canonicalJson(sent);
 }
+
+/** The refusal of a retried create whose id holds a code with other values. */
+const DIFFERENT_VALUES_MESSAGE = 'A code with this reference exists with different values.';
 
 /**
  * A create (v1.38.0). `afterUncertainAnswer` marks a retry of a create of the
@@ -140,7 +155,9 @@ export function createQrMutationOptions(
           throw error;
         }
         const stored = await api.qr.get(id, domain);
-        if (!isCodeAsSent(stored, input)) throw error;
+        if (!isCodeAsSent(stored, input)) {
+          throw new ApiError(409, DIFFERENT_VALUES_MESSAGE, undefined, { code: error.code });
+        }
         return stored;
       }
     },

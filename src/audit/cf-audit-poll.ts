@@ -1,3 +1,4 @@
+import { canonicalJson } from '@bifrost/shared';
 import { and, eq, gte, sql } from 'drizzle-orm';
 import { createDb } from '../db';
 import { insertAuditLog } from '../db/analytics';
@@ -183,23 +184,6 @@ function looseString(value: unknown, field: string): string | undefined {
   return isString(item) ? item : undefined;
 }
 
-/**
- * `value` as JSON with every object's keys in sorted order: the same text for
- * the same entry whatever order its keys arrive in. A value JSON cannot hold
- * (undefined, a function) is written as `null`, as in an array.
- */
-export function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (isRecord(value)) {
-    const fields = Object.keys(value)
-      .toSorted()
-      .filter(key => value[key] !== undefined && typeof value[key] !== 'function')
-      .map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`);
-    return `{${fields.join(',')}}`;
-  }
-  return JSON.stringify(value) ?? 'null';
-}
-
 async function unparsedEntry(raw: unknown): Promise<UnparsedAuditEntry> {
   const fields = isRecord(raw) ? raw : {};
   const when = isString(fields['when']) ? fields['when'] : undefined;
@@ -280,47 +264,47 @@ async function fetchAuditPage(
 }
 
 /**
- * How far back an unparsed entry's id is looked for (v1.38.0): 90 days. An
- * entry is fetched again only while the cursor is within a minute of it (the
- * query overlap), or after a lost or unreadable cursor restarts the 24-hour
- * first-run window, so a re-fetched entry was recorded far less than 90 days
- * ago; the bound keeps the lookup on the `(source, created_at)` index.
+ * How far back a recorded id is looked for when the entry's own time cannot
+ * place it (v1.38.0): 90 days before the run's clock. An entry is fetched
+ * again only while the cursor is within a minute of it (the query overlap),
+ * or after a lost or unreadable cursor restarts the 24-hour first-run window,
+ * so a re-fetched entry was recorded far less than 90 days ago; the bound
+ * keeps the lookup on the `(source, created_at)` index.
  */
 export const UNPARSED_DEDUPE_WINDOW_SECS = 90 * 24 * 60 * 60;
 
+/** How far before an entry's own `when` its recorded row is looked for: a day of clock skew. */
+const WHEN_DEDUPE_MARGIN_SECS = 24 * 60 * 60;
+
 /**
- * Has this unparsed entry's id already been recorded (v1.38.0)? Its time may
- * be unknown, so the check is not tied to the entry's own time: any row in
- * the last {@link UNPARSED_DEDUPE_WINDOW_SECS} counts, so a re-fetched entry
- * recorded more than a day ago is still recognised.
+ * The earliest `created_at` a recorded row of an entry can have (v1.38.0),
+ * always from the run's own clock, never later than it: a day before the
+ * entry's `when` when that is a zoned timestamp not after the run's clock (a
+ * row is recorded after its event, so this narrows the scan), else
+ * {@link UNPARSED_DEDUPE_WINDOW_SECS} before the run's clock. A window taken
+ * from a future `when` started after every recorded row, so such an entry was
+ * recorded again on every poll.
  */
-async function unparsedAlreadyRecorded(
-  db: ReturnType<typeof createDb>,
-  cfId: string,
-): Promise<boolean> {
-  const rows = await db
-    .select({ id: auditLogs.id })
-    .from(auditLogs)
-    .where(
-      and(
-        eq(auditLogs.source, 'cf_audit'),
-        gte(auditLogs.createdAt, Math.floor(Date.now() / 1000) - UNPARSED_DEDUPE_WINDOW_SECS),
-        sql`json_extract(${auditLogs.details}, '$.cf_audit_id') = ${cfId}`,
-      ),
-    )
-    .limit(1);
-  return rows.length > 0;
+function dedupeFromSecs(when: string | undefined, runClockMs: number): number {
+  const runSecs = Math.floor(runClockMs / 1000);
+  const widest = runSecs - UNPARSED_DEDUPE_WINDOW_SECS;
+  if (!isZonedTimestamp(when)) return widest;
+  const whenMs = Date.parse(when);
+  if (whenMs > runClockMs) return widest;
+  return Math.max(widest, Math.floor(whenMs / 1000) - WHEN_DEDUPE_MARGIN_SECS);
 }
 
 /**
- * Idempotency backstop: has this CF entry id already been recorded?
- * Exact json_extract match on details.cf_audit_id (a LIKE pattern would treat
- * %/_ in the id as wildcards — failure direction is permanent audit loss).
+ * Idempotency backstop: has this CF entry id already been recorded since
+ * `fromSecs` ({@link dedupeFromSecs})? The one lookup for parsed and unparsed
+ * entries alike. Exact json_extract match on details.cf_audit_id (a LIKE
+ * pattern would treat %/_ in the id as wildcards — failure direction is
+ * permanent audit loss), bounded on the `(source, created_at)` index.
  */
 async function alreadyRecorded(
   db: ReturnType<typeof createDb>,
   cfId: string,
-  sinceSecs: number,
+  fromSecs: number,
 ): Promise<boolean> {
   const rows = await db
     .select({ id: auditLogs.id })
@@ -328,7 +312,7 @@ async function alreadyRecorded(
     .where(
       and(
         eq(auditLogs.source, 'cf_audit'),
-        gte(auditLogs.createdAt, sinceSecs),
+        gte(auditLogs.createdAt, fromSecs),
         sql`json_extract(${auditLogs.details}, '$.cf_audit_id') = ${cfId}`,
       ),
     )
@@ -423,7 +407,7 @@ export async function pollCfAuditLogs(env: Bindings): Promise<void> {
             advanceWatermark(entry.id, entry.when);
             continue;
           }
-          if (!(await unparsedAlreadyRecorded(db, entry.id))) {
+          if (!(await alreadyRecorded(db, entry.id, dedupeFromSecs(entry.when, runClockMs)))) {
             if (unparsedRecorded >= MAX_UNPARSED_PER_RUN) {
               console.warn(
                 JSON.stringify({
@@ -465,11 +449,7 @@ export async function pollCfAuditLogs(env: Bindings): Promise<void> {
           continue;
         }
 
-        const whenSecs = entry.when
-          ? Math.floor(new Date(entry.when).getTime() / 1000)
-          : Math.floor(Date.now() / 1000);
-
-        if (!(await alreadyRecorded(db, id, whenSecs - 24 * 60 * 60))) {
+        if (!(await alreadyRecorded(db, id, dedupeFromSecs(entry.when, runClockMs)))) {
           // STRICT insert — a swallowed failure here would advance the
           // watermark past an unrecorded entry and lose it forever. A throw
           // aborts the run before writeCursor; the next run re-polls from the

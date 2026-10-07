@@ -15,7 +15,13 @@
 
 import { z } from 'zod';
 import { isOptional, isRecord } from './guards.js';
-import { MAX_ROUTE_KEY_BYTES, RoutePathSchema, routeKeyBytes } from './schemas.js';
+import {
+  MAX_ROUTE_KEY_BYTES,
+  mcpBoolean,
+  mcpNumber,
+  RoutePathSchema,
+  routeKeyBytes,
+} from './schemas.js';
 import {
   matchesSearchFields,
   type ParsedSearchQuery,
@@ -836,8 +842,8 @@ export const ListQrsInputSchema = z.object({
   type: QRTypeSchema.optional().describe('Filter by QR type'),
   tag: z.string().optional().describe('Filter by exact tag'),
   search: z.string().max(SEARCH_PARAM_MAX_LENGTH).optional().describe(QR_SEARCH_DESCRIPTION),
-  limit: z.number().int().min(1).max(1000).optional().describe('Page size'),
-  offset: z.number().int().min(0).optional().describe('Page offset'),
+  limit: mcpNumber(z.number().int().min(1).max(1000)).optional().describe('Page size'),
+  offset: mcpNumber(z.number().int().min(0)).optional().describe('Page offset'),
 });
 export type ListQrsInput = z.infer<typeof ListQrsInputSchema>;
 
@@ -893,7 +899,7 @@ export const UpdateQrToolInputSchema = z.object({
     .describe(
       'Replacement design — FULL replacement, omitted fields reset to defaults; when the record has a logo, round-trip logoDataUri AND logoAspectRatio or wide-logo rendering silently resets',
     ),
-  clearLinkedRoute: z.boolean().optional().describe('Set true to unlink the route'),
+  clearLinkedRoute: mcpBoolean().optional().describe('Set true to unlink the route'),
   linkedRoute: z
     .object({ domain: z.enum(SUPPORTED_DOMAINS), path: z.string() })
     .optional()
@@ -912,6 +918,6 @@ export const GetRouteQrInputSchema = z.object({
   path: z.string().describe('Route path to encode (e.g., "/linkedin")'),
   fg: z.string().optional().describe('Foreground colour (#rrggbb)'),
   bg: z.string().optional().describe('Background colour (#rrggbb)'),
-  size: z.number().int().min(128).max(2048).optional().describe('SVG size in px'),
+  size: mcpNumber(z.number().int().min(128).max(2048)).optional().describe('SVG size in px'),
 });
 export type GetRouteQrInput = z.infer<typeof GetRouteQrInputSchema>;

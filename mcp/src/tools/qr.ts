@@ -5,10 +5,11 @@
  * validation (discriminated payload schemas, type immutability), so handlers
  * surface its errors verbatim and format results for tool output.
  *
- * `domain` is required on every QR tool and never defaulted. The low-level
- * stdio Server validates nothing, so the guard below is the enforcement here;
- * without it an omitted domain reached the API's ADMIN_API_DOMAIN fallback and
- * a QR meant for one domain landed on another's host.
+ * `domain` is required on every QR tool and never defaulted: the dispatcher
+ * (dispatch.ts) refuses a call without one, and the guard below refuses a
+ * direct call alike. Without it an omitted domain reached the API's
+ * ADMIN_API_DOMAIN fallback and a QR meant for one domain landed on another's
+ * host.
  */
 
 import type { EdgeRouterClient, QRCode } from '@bifrost/shared';

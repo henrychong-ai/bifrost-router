@@ -1,5 +1,6 @@
 import type { EdgeRouterClient, Route } from '@bifrost/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { callTool } from '../dispatch.js';
 import {
   createRoute,
   deleteRoute,
@@ -283,26 +284,39 @@ describe('Route tool handlers', () => {
 
     it('recovers an unreadable record by its exact key with recover_invalid (v1.38.0)', async () => {
       vi.mocked(mockClient.deleteRoute).mockResolvedValue(undefined);
-      for (const recover of [true, 'true', 'yes']) {
-        const result = await deleteRoute(mockClient, {
-          path: '/p?x',
-          domain: 'links.example.com',
-          recover_invalid: recover,
-        });
-        expect(result).toBe('Unreadable route record /p?x deleted from links.example.com.');
-      }
+      const result = await deleteRoute(mockClient, {
+        path: '/p?x',
+        domain: 'links.example.com',
+        recover_invalid: true,
+      });
+      expect(result).toBe('Unreadable route record /p?x deleted from links.example.com.');
       expect(mockClient.deleteRoute).toHaveBeenCalledWith('/p?x', 'links.example.com', {
         recoverInvalid: true,
       });
     });
 
+    // The dispatcher parses the flag (`mcpBoolean`) before the handler runs
+    it('takes the string forms of recover_invalid through the dispatcher', async () => {
+      vi.mocked(mockClient.deleteRoute).mockResolvedValue(undefined);
+      for (const recover of ['true', 'yes']) {
+        expect(
+          await callTool(mockClient, 'delete_route', {
+            path: '/p?x',
+            domain: 'links.example.com',
+            recover_invalid: recover,
+          }),
+        ).toBe('Unreadable route record /p?x deleted from links.example.com.');
+      }
+      expect(mockClient.deleteRoute).toHaveBeenCalledTimes(2);
+    });
+
     it('refuses a recover_invalid it does not recognise, deleting nothing', async () => {
-      const result = await deleteRoute(mockClient, {
+      const result = await callTool(mockClient, 'delete_route', {
         path: '/p?x',
         domain: 'links.example.com',
         recover_invalid: 'maybe',
       });
-      expect(result).toBe('Error deleting route: recover_invalid must be true or false.');
+      expect(result).toMatch(/^Error: invalid arguments for delete_route: recover_invalid: /);
       expect(mockClient.deleteRoute).not.toHaveBeenCalled();
     });
 
@@ -362,8 +376,8 @@ describe('Route tool handlers', () => {
 });
 
 /**
- * The stdio server hands raw JSON-RPC arguments straight to these handlers with
- * no schema in front, so both flags may arrive stringified.
+ * Both flags may arrive stringified; the dispatcher parses them with the
+ * shared schema (`mcpBoolean`) before a handler runs (v1.38.0).
  */
 describe('credential-target acknowledgement and enabled parsing', () => {
   let mockClient: EdgeRouterClient;
@@ -396,32 +410,42 @@ describe('credential-target acknowledgement and enabled parsing', () => {
   };
 
   it('create_route forwards a real boolean and a stringified one alike', async () => {
-    await createRoute(mockClient, { ...createArgs, acknowledgeCredentialTarget: true });
+    await callTool(mockClient, 'create_route', {
+      ...createArgs,
+      acknowledgeCredentialTarget: true,
+    });
     expect(vi.mocked(mockClient.createRoute).mock.calls[0][2]).toEqual({
       acknowledgeCredentialTarget: true,
     });
 
-    await createRoute(mockClient, { ...createArgs, acknowledgeCredentialTarget: 'true' });
+    await callTool(mockClient, 'create_route', {
+      ...createArgs,
+      acknowledgeCredentialTarget: 'true',
+    });
     expect(vi.mocked(mockClient.createRoute).mock.calls[1][2]).toEqual({
       acknowledgeCredentialTarget: true,
     });
   });
 
-  it('an absent flag stays absent, and an unrecognised one is dropped', async () => {
-    await createRoute(mockClient, createArgs);
+  it('an absent flag stays absent, and an unrecognised one is refused', async () => {
+    await callTool(mockClient, 'create_route', createArgs);
     expect(vi.mocked(mockClient.createRoute).mock.calls[0][2]).toEqual({
       acknowledgeCredentialTarget: undefined,
     });
 
-    // Never coerced to `true` by truthiness — the guard must still fire.
-    await createRoute(mockClient, { ...createArgs, acknowledgeCredentialTarget: 'maybe' });
-    expect(vi.mocked(mockClient.createRoute).mock.calls[1][2]).toEqual({
-      acknowledgeCredentialTarget: undefined,
+    // Never coerced to `true` by truthiness: refused, nothing sent
+    const result = await callTool(mockClient, 'create_route', {
+      ...createArgs,
+      acknowledgeCredentialTarget: 'maybe',
     });
+    expect(result).toMatch(
+      /^Error: invalid arguments for create_route: acknowledgeCredentialTarget: /,
+    );
+    expect(mockClient.createRoute).toHaveBeenCalledTimes(1);
   });
 
   it('update_route and transfer_route forward the flag too', async () => {
-    await updateRoute(mockClient, {
+    await callTool(mockClient, 'update_route', {
       path: '/cred',
       domain: 'links.example.com',
       acknowledgeCredentialTarget: 'yes',
@@ -442,7 +466,7 @@ describe('credential-target acknowledgement and enabled parsing', () => {
   });
 
   it('toggle_route treats the string "false" as DISABLE, not enable', async () => {
-    const result = await toggleRoute(mockClient, {
+    const result = await callTool(mockClient, 'toggle_route', {
       path: '/cred',
       enabled: 'false',
       domain: 'links.example.com',
@@ -454,14 +478,13 @@ describe('credential-target acknowledgement and enabled parsing', () => {
 
   it('toggle_route REFUSES an unrecognised enabled value and changes nothing', async () => {
     for (const value of ['off', 'disabled', 'n']) {
-      const result = await toggleRoute(mockClient, {
+      const result = await callTool(mockClient, 'toggle_route', {
         path: '/cred',
         enabled: value,
         domain: 'links.example.com',
       });
 
-      expect(result).toContain('must be true or false');
-      expect(result).toContain('The route was not changed.');
+      expect(result).toMatch(/^Error: invalid arguments for toggle_route: enabled: /);
     }
     expect(mockClient.toggleRoute).not.toHaveBeenCalled();
   });

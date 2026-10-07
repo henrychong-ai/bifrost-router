@@ -3,7 +3,6 @@ import {
   RoutePathSchema,
   RoutesListQuerySchema,
   redactSensitive,
-  SEARCH_PARAM_MAX_LENGTH,
   searchAndRankRoutes,
 } from '@bifrost/shared';
 import type { Context } from 'hono';
@@ -23,6 +22,7 @@ import {
   InvalidStoredRouteError,
   listAllDomainRoutes,
   listDomainRoutes,
+  mergeRoutePatch,
   migrateRoute,
   presentRoute,
   recoverInvalidRoute,
@@ -365,19 +365,13 @@ adminRoutes.get('/routes', async c => {
   const domain = domainResult.domain;
 
   // Parse search/pagination query params. An invalid query is refused (400),
-  // never answered with an unfiltered list (v1.38.0): an over-long search,
-  // a limit or offset that is not a whole number in range, an unknown type
-  // or enabled value
-  const rawSearch = c.req.query('search');
-  if (rawSearch !== undefined && rawSearch.length > SEARCH_PARAM_MAX_LENGTH) {
-    throw new HTTPException(400, {
-      message: `search must be at most ${SEARCH_PARAM_MAX_LENGTH} characters`,
-    });
-  }
+  // never answered with an unfiltered list (v1.38.0): an over-long search
+  // (SEARCH_PARAM_MAX_LENGTH, in the schema), a limit or offset that is not a
+  // whole number in range, an unknown type or enabled value
   const queryParams = RoutesListQuerySchema.safeParse({
     limit: c.req.query('limit'),
     offset: c.req.query('offset'),
-    search: rawSearch,
+    search: c.req.query('search'),
     type: c.req.query('type'),
     enabled: c.req.query('enabled'),
   });
@@ -1022,18 +1016,22 @@ adminRoutes.post('/routes/migrate', async c => {
 
   const domain = domainResult.domain;
 
+  // The same path once normalised: refused before anything is read
+  if (normalizePath(oldPath) === normalizePath(newPath)) {
+    return c.json({ success: false, error: 'Old path and new path cannot be the same' }, 400);
+  }
+
   // An optional patch (v1.38.0): the other fields of an edit that also
   // changes the path, applied to the moved record in the SAME single write at
   // the new key. KV takes one write per key per second, so a move followed by
   // an update of the new key could lose the update. The patch is validated as
   // an update body; the credential guard and the size checks run on the
-  // merged record, and a refusal moves nothing. No body (or an empty one)
-  // moves the record unedited, as before.
+  // merged record, and a refusal moves nothing. No body, an empty one, `{}`,
+  // or one with no field besides `path` (every other key stripped by the
+  // schema) moves the record unedited, as before: no credential guard, no
+  // patch in the audit row.
   const rawBody = await c.req.text();
-  // The parsed patch carries `path` (the new path, as an update's carries the
-  // route's own); the move sets the path itself
-  let patch: UpdateRouteInput | undefined;
-  let fields: Record<string, unknown> = {};
+  let patch: Omit<UpdateRouteInput, 'path'> | undefined;
   let acknowledged = false;
   if (rawBody.trim() !== '') {
     let body: unknown;
@@ -1042,6 +1040,8 @@ adminRoutes.post('/routes/migrate', async c => {
     } catch {
       return c.json({ success: false, error: 'Invalid JSON body' }, 400);
     }
+    // Parsed as an update body, whose `path` is the route's own: here the new
+    // path, which the move sets itself
     const result = UpdateRouteSchema.safeParse(isRecord(body) ? { ...body, path: newPath } : body);
     if (!result.success) {
       return c.json(
@@ -1049,33 +1049,40 @@ adminRoutes.post('/routes/migrate', async c => {
         400,
       );
     }
-    patch = result.data;
-    fields = isRecord(body) ? body : {};
+    const { path: _path, ...fields } = result.data;
+    if (Object.values(fields).some(value => value !== undefined)) patch = fields;
     acknowledged = readCredentialAcknowledgement(body);
   }
 
-  let before: KVRouteConfig | undefined;
+  // The source, read ONCE here (v1.38.0): the credential guard, the merge and
+  // the audit row use this record, and migrateRoute only confirms it is still
+  // the same before writing. A source that has gone is 404, one replaced in
+  // between 409 ROUTE_SOURCE_CHANGED, an unreadable one 409
+  // ROUTE_RECORD_INVALID; nothing is re-read and moved in its place.
+  const source = presentRoute(await getRoute(c.env.ROUTES, domain, oldPath));
+  if (!source) {
+    throw new HTTPException(404, { message: `Route not found: ${oldPath}` });
+  }
+
   let credentialParams: string[] = [];
+  if (patch) {
+    // As an update guards it: the EFFECTIVE moved record, before anything moves
+    credentialParams = credentialTargetParameters(
+      mergeRoutePatch(source, patch, normalizePath(newPath)),
+    );
+    if (credentialParams.length > 0 && !acknowledged) {
+      return c.json(
+        credentialTargetRefusal(
+          credentialParams,
+          patch.target === undefined ? "This route's stored target" : 'This route target',
+        ),
+        400,
+      );
+    }
+  }
+
   try {
-    const route = await migrateRoute(c.env.ROUTES, domain, oldPath, newPath, {
-      patch,
-      beforeWrite: (merged, existing) => {
-        before = existing;
-        if (!patch) return;
-        // As an update guards it: the EFFECTIVE moved record, before anything moves
-        credentialParams = credentialTargetParameters(merged);
-        if (credentialParams.length > 0 && !acknowledged) {
-          const refusal = credentialTargetRefusal(
-            credentialParams,
-            patch.target === undefined ? "This route's stored target" : 'This route target',
-          );
-          throw new HTTPException(400, {
-            message: refusal.message,
-            res: Response.json(refusal, { status: 400 }),
-          });
-        }
-      },
-    });
+    const route = await migrateRoute(c.env.ROUTES, domain, oldPath, newPath, { source, patch });
 
     if (!route) {
       throw new HTTPException(404, { message: `Route not found: ${oldPath}` });
@@ -1084,9 +1091,6 @@ adminRoutes.post('/routes/migrate', async c => {
     // Audit log
     try {
       const actor = getActorInfo(c);
-      const edited = Object.fromEntries(
-        Object.entries(fields).filter(([key]) => key !== 'acknowledgeCredentialTarget'),
-      );
       c.executionCtx.waitUntil(
         recordAuditLog(c.env.DB, {
           domain,
@@ -1098,9 +1102,9 @@ adminRoutes.post('/routes/migrate', async c => {
             oldPath,
             newPath,
             route,
-            // A move that also edited the route keeps the edit and the
-            // record before it (v1.38.0)
-            ...(patch ? { before, edited } : {}),
+            // A move that also edited the route keeps the parsed edit and
+            // the record before it (v1.38.0)
+            ...(patch ? { before: source, edited: patch } : {}),
             ...(credentialParams.length > 0
               ? { credentialTargetAcknowledged: credentialParams }
               : {}),
@@ -1115,7 +1119,7 @@ adminRoutes.post('/routes/migrate', async c => {
     // BOTH paths: the old URL now 404s but still serves cached bytes (when the
     // route served r2 before the move or after it), and the new URL may hold a
     // cached 404 or a previously-deleted route's body.
-    purgeRouteUrlIfR2(c, route.type === 'r2' ? route : before, domain, oldPath);
+    purgeRouteUrlIfR2(c, route.type === 'r2' ? route : source, domain, oldPath);
     purgeRouteUrlIfR2(c, route, domain, newPath);
 
     return c.json({
@@ -1314,14 +1318,27 @@ adminRoutes.post('/routes/transfer', async c => {
     );
   }
 
+  // Refused before anything is read
+  if (fromDomain === toDomain) {
+    return c.json(
+      { success: false, error: 'Source and destination domains cannot be the same' },
+      400,
+    );
+  }
+
+  // The source, read ONCE here (v1.38.0): the credential guard uses this
+  // record, and transferRoute only confirms it is still the same before
+  // writing. A source that has gone is 404 (also one that appears only
+  // after this read), one replaced in between 409 ROUTE_SOURCE_CHANGED, an
+  // unreadable one 409 ROUTE_RECORD_INVALID (refused here already).
+  const existingForTransfer = presentRoute(await getRoute(c.env.ROUTES, fromDomain, path));
+  if (!existingForTransfer) {
+    throw new HTTPException(404, { message: `Route not found: ${path} on ${fromDomain}` });
+  }
   // A transfer cannot CHANGE a target, but it re-publishes it on a different
   // host with a different audience — a link acknowledged for one brand's domain
   // was never acknowledged for another's.
-  // An unreadable record is refused here already (409 ROUTE_RECORD_INVALID)
-  const existingForTransfer = presentRoute(await getRoute(c.env.ROUTES, fromDomain, path));
-  const transferCredentialParams = existingForTransfer
-    ? credentialTargetParameters(existingForTransfer)
-    : [];
+  const transferCredentialParams = credentialTargetParameters(existingForTransfer);
   if (transferCredentialParams.length > 0 && !readCredentialAcknowledgement(body)) {
     return c.json(
       credentialTargetRefusal(transferCredentialParams, "This route's stored target"),
@@ -1330,7 +1347,13 @@ adminRoutes.post('/routes/transfer', async c => {
   }
 
   try {
-    const route = await transferRoute(c.env.ROUTES, fromDomain, toDomain, path);
+    const route = await transferRoute(
+      c.env.ROUTES,
+      fromDomain,
+      toDomain,
+      path,
+      existingForTransfer,
+    );
 
     if (!route) {
       throw new HTTPException(404, { message: `Route not found: ${path} on ${fromDomain}` });

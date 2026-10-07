@@ -561,6 +561,44 @@ describe('handleProxy redirects (v1.38.0)', () => {
     }
   });
 
+  // workerd names the whole URL in its message ("Fetch API cannot load:
+  // <url>"), so only the error's class name is logged (v1.38.0)
+  it('logs only the error name of a failed fetch, never its message', async () => {
+    const spy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValue(
+        new TypeError('Fetch API cannot load: https://upstream.example.com/base?token=SECRET-URL'),
+      );
+    const lines: string[] = [];
+    for (const channel of ['log', 'info', 'warn', 'error', 'debug'] as const) {
+      vi.spyOn(console, channel).mockImplementation((...args: unknown[]) => {
+        lines.push(args.map(String).join(' '));
+      });
+    }
+    try {
+      const app = new Hono<AppEnv>();
+      app.all('/svc', c =>
+        handleProxy(c, {
+          path: '/svc',
+          type: 'proxy',
+          target: 'https://upstream.example.com/base?token=SECRET-URL',
+          createdAt: 0,
+          updatedAt: 0,
+        }),
+      );
+      const response = await app.fetch(new Request('https://links.example.com/svc'), env);
+      expect(response.status).toBe(502);
+      expect(await response.text()).not.toContain('SECRET');
+      const output = lines.join('\n');
+      expect(output).toContain('"errorName":"TypeError"');
+      expect(output).not.toContain('Fetch API cannot load');
+      expect(output).not.toContain('SECRET');
+    } finally {
+      spy.mockRestore();
+      vi.restoreAllMocks();
+    }
+  });
+
   it('carries only allowlisted headers to another origin', async () => {
     const { response, sent } = await proxyThrough(
       [redirectTo('/same'), redirectTo('https://other.example.org/x'), redirectTo('/y'), ok()],

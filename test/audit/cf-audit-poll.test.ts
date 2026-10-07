@@ -17,9 +17,9 @@
  */
 
 import { env } from 'cloudflare:test';
+import { canonicalJson } from '@bifrost/shared';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  canonicalJson,
   MAX_UNPARSED_PER_RUN,
   pollCfAuditLogs,
   UNPARSED_DEDUPE_WINDOW_SECS,
@@ -489,6 +489,46 @@ describe('pollCfAuditLogs boundary validation', () => {
     stubFetch([[entry]]);
     await pollCfAuditLogs(envWith({}));
     expect(await unparsedIds()).toEqual(['ancient-unparsed', 'ancient-unparsed']);
+  });
+
+  // v1.38.0: the dedupe window runs from the run's own clock. Derived from a
+  // future `when`, it started after every recorded row, so the entry was
+  // recorded again on every poll until the clock passed it.
+  it('records a future-dated entry once, however often it is fetched again', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const future = '2030-01-01T00:00:00Z';
+    const entries = [
+      cfEntry({ id: 'future-parsed', when: future }),
+      cfEntry({ id: 'future-unparsed', actor: 7, when: future }),
+    ];
+    for (let run = 0; run < 3; run++) {
+      stubFetch([entries]);
+      await pollCfAuditLogs(envWith({}));
+      // Rows stamped with the run's own time, as the database stamps them
+      await env.DB.prepare('UPDATE audit_logs SET created_at = ?')
+        .bind(Math.floor(Date.now() / 1000))
+        .run();
+      vi.setSystemTime(Date.now() + 10 * 60 * 1000);
+    }
+    const ids = (await allAudit()).map(
+      row => (JSON.parse(row.details ?? '{}') as { cf_audit_id: string }).cf_audit_id,
+    );
+    expect(ids).toEqual(['future-parsed', 'future-unparsed']);
+  });
+
+  it('narrows the lookup to a day before a known, past `when`', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const entry = cfEntry({ id: 'placed-unparsed', actor: 7, when: CF_ENTRY_WHEN });
+    stubFetch([[entry]]);
+    await pollCfAuditLogs(envWith({}));
+    // A row from before the day the entry's own time allows is not looked at
+    await env.DB.prepare('UPDATE audit_logs SET created_at = ?')
+      .bind(Math.floor(Date.parse(CF_ENTRY_WHEN) / 1000) - 2 * 24 * 60 * 60)
+      .run();
+    await env.DB.prepare('DELETE FROM poll_cursors').run();
+    stubFetch([[entry]]);
+    await pollCfAuditLogs(envWith({}));
+    expect(await unparsedIds()).toEqual(['placed-unparsed', 'placed-unparsed']);
   });
 
   it('never moves the cursor back, even when a run stops at the cap inside the overlap', async () => {

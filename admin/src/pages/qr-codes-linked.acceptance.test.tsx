@@ -11,7 +11,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError } from '@/lib/api-error';
+import { ApiError, RouteExistsError } from '@/lib/api-error';
 import type { Route } from '@/lib/schemas';
 
 const DOMAIN = 'example.com';
@@ -39,7 +39,13 @@ const state = vi.hoisted(() => ({
     >(),
   deleteQr: vi.fn<(variables: { id: string; domain: string; createdAt?: number }) => void>(),
   createRoute:
-    vi.fn<(variables: { data: Record<string, unknown>; domain: string }) => Promise<Route>>(),
+    vi.fn<
+      (variables: {
+        data: Record<string, unknown>;
+        domain: string;
+        afterUncertainAnswer?: boolean;
+      }) => Promise<Route>
+    >(),
 }));
 const toasts = vi.hoisted(() => ({
   success: vi.fn<(message: string) => void>(),
@@ -483,5 +489,54 @@ describe('unreadable QR records', () => {
       domain: DOMAIN,
       createdAt: undefined,
     });
+  });
+});
+
+describe('a new linked route whose create got no certain answer (v1.38.0)', () => {
+  beforeEach(async () => {
+    await render();
+    await click(button(/New QR code/));
+    const toggle = document.getElementById('qr-link-route');
+    if (!toggle) throw new Error('no link switch');
+    await click(toggle);
+    await click(button('New route'));
+    await typeInto(input('qr-route-path'), '/autumn');
+    await typeInto(input('qr-route-target'), 'https://example.net/autumn');
+  });
+
+  it('marks the retry, and links the route the first create made', async () => {
+    state.createRoute.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await click(button('Create QR code'));
+    expect(state.createQr).not.toHaveBeenCalled();
+    expect(state.createRoute.mock.calls[0]?.[0]).toMatchObject({ afterUncertainAnswer: false });
+
+    // The hook takes the existing route as this create's own (it matches)
+    await click(button('Create QR code'));
+    expect(state.createRoute).toHaveBeenCalledTimes(2);
+    expect(state.createRoute.mock.calls[1]?.[0]).toMatchObject({ afterUncertainAnswer: true });
+    expect(state.createQr.mock.calls[0]?.[0].input).toMatchObject({
+      linkedRoute: { domain: DOMAIN, path: '/autumn' },
+    });
+    expect(toasts.success).toHaveBeenCalledWith(expect.stringMatching(/^QR code created: /));
+  });
+
+  it('says a route at the path exists with other values, offering View route', async () => {
+    state.createRoute.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await click(button('Create QR code'));
+    state.createRoute.mockRejectedValueOnce(new RouteExistsError(route('/autumn')));
+    await click(button('Create QR code'));
+    const [message, options] = lastError();
+    expect(message).toBe(
+      `Route https://${DOMAIN}/autumn already exists with other values. Link it as an existing route, or choose another path.`,
+    );
+    expect(options?.action?.label).toBe('View route');
+    expect(state.createQr).not.toHaveBeenCalled();
+  });
+
+  it('a retry after a certain refusal is not marked', async () => {
+    state.createRoute.mockRejectedValueOnce(new ApiError(400, 'Target is not valid'));
+    await click(button('Create QR code'));
+    await click(button('Create QR code'));
+    expect(state.createRoute.mock.calls[1]?.[0]).toMatchObject({ afterUncertainAnswer: false });
   });
 });

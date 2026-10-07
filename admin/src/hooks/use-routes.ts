@@ -1,7 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { canonicalJson } from '@bifrost/shared';
+import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { api } from '@/lib/api-client';
-import type { CreateRouteInput, UpdateRouteInput } from '@/lib/schemas';
+import { isRouteAlreadyExistsError, RouteExistsError } from '@/lib/api-error';
+import type { CreateRouteInput, Route, UpdateRouteInput } from '@/lib/schemas';
 
 // =============================================================================
 // Query Keys
@@ -98,28 +100,71 @@ export function useRoute(path: string) {
 // Mutations
 // =============================================================================
 
+/** A route create (v1.38.0): `afterUncertainAnswer` marks a retry, as for a QR create. */
+interface RouteCreate {
+  data: CreateRouteInput;
+  domain: string;
+  /** Set only after the operator confirmed the credential-target dialog. */
+  acknowledgeCredentialTarget?: boolean | undefined;
+  /**
+   * A retry of a create of the same path whose earlier answer never arrived
+   * (no answer, a 5xx, an unreadable body): that create may have landed.
+   */
+  afterUncertainAnswer?: boolean | undefined;
+}
+
+/**
+ * Whether a stored route holds every value a create sent (v1.38.0): each
+ * field of the create body, compared as JSON; the path is the one it was read
+ * at. The server fills in only what the body leaves out.
+ */
+function isRouteAsSent(stored: Route, data: CreateRouteInput): boolean {
+  return Object.entries(data).every(
+    ([field, value]) =>
+      field === 'path' ||
+      value === undefined ||
+      canonicalJson(Object.hasOwn(stored, field) ? stored[field as keyof Route] : undefined) ===
+        canonicalJson(value),
+  );
+}
+
+/**
+ * Create a new route. A retry after an uncertain answer that meets 409
+ * "Route already exists" reads the route back: when it holds every value sent
+ * it is the earlier create, and the create succeeds with it (the QR editor
+ * then links it instead of failing every retry); otherwise it is another
+ * route, and the create fails with {@link RouteExistsError}, which carries it.
+ */
+export function createRouteMutationOptions(queryClient: QueryClient) {
+  return {
+    mutationFn: async ({
+      data,
+      domain,
+      acknowledgeCredentialTarget,
+      afterUncertainAnswer,
+    }: RouteCreate): Promise<Route> => {
+      try {
+        return await api.routes.create(data, domain, acknowledgeCredentialTarget);
+      } catch (error) {
+        if (!afterUncertainAnswer || !isRouteAlreadyExistsError(error)) throw error;
+        const stored = await api.routes.get(data.path, domain);
+        if (!isRouteAsSent(stored, data)) throw new RouteExistsError(stored);
+        return stored;
+      }
+    },
+    onSuccess: () => {
+      // Invalidate routes list to refetch
+      void queryClient.invalidateQueries({ queryKey: routeKeys.all });
+    },
+  };
+}
+
 /**
  * Create a new route
  */
 export function useCreateRoute() {
   const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({
-      data,
-      domain,
-      acknowledgeCredentialTarget,
-    }: {
-      data: CreateRouteInput;
-      domain: string;
-      /** Set only after the operator confirmed the credential-target dialog. */
-      acknowledgeCredentialTarget?: boolean;
-    }) => api.routes.create(data, domain, acknowledgeCredentialTarget),
-    onSuccess: () => {
-      // Invalidate routes list to refetch
-      void queryClient.invalidateQueries({ queryKey: routeKeys.all });
-    },
-  });
+  return useMutation(createRouteMutationOptions(queryClient));
 }
 
 /**

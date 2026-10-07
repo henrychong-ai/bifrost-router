@@ -461,27 +461,29 @@ describe('Analytics tool handlers', () => {
 });
 
 function realClient(): { client: EdgeRouterClient; fetchMock: ReturnType<typeof vi.fn> } {
-  // A fetch whose response is a stand-in with only the fields the client reads.
+  // A fetch whose response is a stand-in with only the fields the client
+  // reads: `ok` and the body as text (v1.38.0).
   const fetchMock = vi
     .fn<(...args: Parameters<typeof fetch>) => Promise<unknown>>()
     .mockResolvedValue({
       ok: true,
-      json: async () => ({
-        success: true,
-        data: {
-          totalClicks: 0,
-          uniqueLinks: 0,
-          totalPageViews: 0,
-          uniquePages: 0,
-          topClicks: [],
-          topPages: [],
-          topCountries: [],
-          topReferrers: [],
-          recentClicks: [],
-          items: [],
-          meta: { total: 0, count: 0, offset: 0, limit: 0, hasMore: false },
-        },
-      }),
+      text: async () =>
+        JSON.stringify({
+          success: true,
+          data: {
+            totalClicks: 0,
+            uniqueLinks: 0,
+            totalPageViews: 0,
+            uniquePages: 0,
+            topClicks: [],
+            topPages: [],
+            topCountries: [],
+            topReferrers: [],
+            recentClicks: [],
+            items: [],
+            meta: { total: 0, count: 0, offset: 0, limit: 0, hasMore: false },
+          },
+        }),
     });
   const client = new EdgeRouterClientImpl({
     baseUrl: 'https://admin.example.com',

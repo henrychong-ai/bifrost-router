@@ -361,6 +361,17 @@ const stored = () =>
     linkedRoute: { domain: 'example.com', path: '/summer' },
   });
 
+/** A create retried after an uncertain answer that meets its id taken by `storedCode`. */
+const adopt = (input: Record<string, unknown>, storedCode: QRCode) => {
+  const client = new QueryClient();
+  create.mockRejectedValueOnce(exists());
+  get.mockResolvedValueOnce(storedCode);
+  return new MutationObserver(
+    client,
+    createQrMutationOptions(client, createPendingQrStore()),
+  ).mutate({ input, domain: 'example.com', afterUncertainAnswer: true });
+};
+
 describe('a create retried after an uncertain answer (v1.38.0)', () => {
   const sent = {
     type: 'url',
@@ -395,6 +406,52 @@ describe('a create retried after an uncertain answer (v1.38.0)', () => {
         afterUncertainAnswer: true,
       }),
     ).rejects.toMatchObject({ code: 'QR_ALREADY_EXISTS' });
+  });
+
+  // v1.38.0: every submitted field, with the schema defaults the server applies
+  it('takes the stored code as its save when every field matches, defaults included', async () => {
+    const full = {
+      ...sent,
+      tags: ['print', 'spring'],
+      design: { fg: '#112233', logoDataUri: 'data:image/png;base64,iVBORw0KGgo=' },
+    };
+    const storedCode = stored();
+    const match = qr('promo', {
+      ...storedCode,
+      tags: ['print', 'spring'],
+      design: QRDesignSchema.parse({
+        fg: '#112233',
+        logoDataUri: 'data:image/png;base64,iVBORw0KGgo=',
+      }),
+    });
+    // An empty description is stored as none; the design's defaults are filled in
+    expect((await adopt({ ...full, description: '' }, match)).id).toBe('promo');
+    expect((await adopt(full, match)).id).toBe('promo');
+  });
+
+  it.each([
+    ['the type', { type: 'text', payload: { text: 'https://example.com/summer' } }],
+    ['the description', { description: 'Spring flyer' }],
+    ['the tags', { tags: ['print'] }],
+    ['a colour', { design: { bg: '#000000' } }],
+    ['the logo', { design: { logoDataUri: 'data:image/png;base64,iVBORw0KGgo=' } }],
+    ['the size', { design: { size: 1024 } }],
+    ['the margin', { design: { margin: 2 } }],
+    ['the error correction', { design: { errorCorrection: 'H' } }],
+    ['the link', { linkedRoute: { domain: 'example.com', path: '/autumn' } }],
+  ])('reports a code with different values when %s differs', async (_label, change) => {
+    const result = adopt({ ...sent, ...change }, stored());
+    await expect(result).rejects.toMatchObject({
+      status: 409,
+      code: 'QR_ALREADY_EXISTS',
+      message: 'A code with this reference exists with different values.',
+    });
+  });
+
+  it('never adopts a code for input the server would have refused', async () => {
+    await expect(adopt({ ...sent, design: { size: 5 } }, stored())).rejects.toMatchObject({
+      code: 'QR_ALREADY_EXISTS',
+    });
   });
 
   it('never reads back after a certain answer: the 409 stands', async () => {

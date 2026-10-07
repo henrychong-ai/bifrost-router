@@ -3,29 +3,23 @@
  */
 
 import type { EdgeRouterClient, InvalidRouteRow, Route } from '@bifrost/shared';
-import {
-  AcknowledgeCredentialTargetToolSchema,
-  DeleteRouteInputSchema,
-  isInvalidRouteRow,
-  SUPPORTED_DOMAINS_LIST,
-  ToggleRouteInputSchema,
-} from '@bifrost/shared';
+import { isInvalidRouteRow, SUPPORTED_DOMAINS_LIST } from '@bifrost/shared';
 
 /**
  * v1.35.0 — there is no default domain. Every route, QR and slug-stats call
  * names its own domain and nothing fills a missing one in.
  *
- * The low-level stdio Server validates nothing, so these handler guards ARE the
- * enforcement on this transport: they refuse before any client call, and the
+ * The dispatcher (dispatch.ts, v1.38.0) answers a missing domain with this
+ * error before it validates anything else; the handlers keep the same guard,
+ * so a handler called on its own refuses alike, before any client call. The
  * error lists the valid domains so an agent recovers in one retry.
  */
 export const NO_DOMAIN_ERROR = `Error: No domain specified. Pass the domain parameter — one of: ${SUPPORTED_DOMAINS_LIST}.`;
 
 /**
- * Returns the caller's domain, or `undefined` when they named none.
- *
- * Takes `unknown` on purpose: the stdio server hands raw JSON-RPC arguments
- * straight to the handlers, so a non-string is as reachable as a missing key.
+ * Returns the caller's domain, or `undefined` when they named none. Takes
+ * `unknown`: the dispatcher runs it on the raw JSON-RPC arguments, where a
+ * non-string is as reachable as a missing key.
  */
 export function requireDomain(domain: unknown): string | undefined {
   return typeof domain === 'string' && domain.length > 0 ? domain : undefined;
@@ -159,34 +153,6 @@ export async function getRoute(
 }
 
 /**
- * Parse the operator acknowledgement through the shared boolean coercion. The
- * stdio server hands raw JSON-RPC arguments straight to these handlers with no
- * schema in front, so a client that stringifies booleans sends `"true"` — which
- * would reach the Worker as a string, fail its `=== true` test and refuse the
- * write for ever. `undefined` stays `undefined`, so an absent flag is still
- * absent.
- */
-function parseAcknowledgement(value: unknown): boolean | undefined {
-  const parsed = AcknowledgeCredentialTargetToolSchema.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
-}
-
-/**
- * Parse `enabled` through the same shared schema. Same reason as the
- * acknowledgement above: this handler took the raw JSON-RPC value and passed it
- * straight to the client, so a stringified `"false"` reached the Worker as a
- * string and was refused by its schema — the route was never wrongly enabled,
- * but the caller got an opaque validation error instead of a disabled route.
- * `mcpBoolean()` now recognises the usual string forms; anything else is `null`
- * and the handler REFUSES with a clear message rather than guessing. A toggle is
- * often the response to an abused link, so it must fail closed either way.
- */
-function parseEnabled(value: boolean | string): boolean | null {
-  const parsed = ToggleRouteInputSchema.shape.enabled.safeParse(value);
-  return parsed.success ? parsed.data : null;
-}
-
-/**
  * Create a new route
  */
 export async function createRoute(
@@ -203,9 +169,8 @@ export async function createRoute(
     forceDownload?: boolean | undefined;
     bucket?: string | undefined;
     domain?: string | undefined;
-    /** Request-only operator override; never stored. Raw JSON-RPC, so a client
-     * may send the string form. */
-    acknowledgeCredentialTarget?: boolean | string | undefined;
+    /** Request-only operator override; never stored. */
+    acknowledgeCredentialTarget?: boolean | undefined;
   },
 ): Promise<string> {
   const domain = requireDomain(args.domain);
@@ -237,7 +202,7 @@ export async function createRoute(
           | undefined,
       },
       domain,
-      { acknowledgeCredentialTarget: parseAcknowledgement(args.acknowledgeCredentialTarget) },
+      { acknowledgeCredentialTarget: args.acknowledgeCredentialTarget },
     );
 
     return `Route created successfully!\n\n${formatRouteDetails(route, domain)}`;
@@ -263,9 +228,8 @@ export async function updateRoute(
     forceDownload?: boolean | undefined;
     bucket?: string | undefined;
     domain?: string | undefined;
-    /** Request-only operator override; never stored. Raw JSON-RPC, so a client
-     * may send the string form. */
-    acknowledgeCredentialTarget?: boolean | string | undefined;
+    /** Request-only operator override; never stored. */
+    acknowledgeCredentialTarget?: boolean | undefined;
   },
 ): Promise<string> {
   const domain = requireDomain(args.domain);
@@ -297,7 +261,7 @@ export async function updateRoute(
           | undefined,
       },
       domain,
-      { acknowledgeCredentialTarget: parseAcknowledgement(args.acknowledgeCredentialTarget) },
+      { acknowledgeCredentialTarget: args.acknowledgeCredentialTarget },
     );
 
     return `Route updated successfully!\n\n${formatRouteDetails(route, domain)}`;
@@ -314,23 +278,15 @@ export async function deleteRoute(
   args: {
     path: string;
     domain?: string | undefined;
-    recover_invalid?: boolean | string | undefined;
+    /** The exact-key recovery of an unreadable record (v1.38.0). */
+    recover_invalid?: boolean | undefined;
   },
 ): Promise<string> {
   const domain = requireDomain(args.domain);
   if (!domain) {
     return NO_DOMAIN_ERROR;
   }
-  // The exact-key recovery of an unreadable record (v1.38.0); a value
-  // mcpBoolean() does not recognise is refused, never guessed
-  const recover =
-    args.recover_invalid === undefined
-      ? false
-      : DeleteRouteInputSchema.shape.recover_invalid.safeParse(args.recover_invalid);
-  if (recover !== false && !recover.success) {
-    return 'Error deleting route: recover_invalid must be true or false.';
-  }
-  const recoverInvalid = recover !== false && recover.data === true;
+  const recoverInvalid = args.recover_invalid === true;
 
   try {
     await client.deleteRoute(args.path, domain, recoverInvalid ? { recoverInvalid } : {});
@@ -349,12 +305,10 @@ export async function toggleRoute(
   client: EdgeRouterClient,
   args: {
     path: string;
-    /** Raw JSON-RPC, so a client may send the string form. */
-    enabled: boolean | string;
+    enabled: boolean;
     domain?: string | undefined;
-    /** Request-only operator override; never stored. Raw JSON-RPC, so a client
-     * may send the string form. */
-    acknowledgeCredentialTarget?: boolean | string | undefined;
+    /** Request-only operator override; never stored. */
+    acknowledgeCredentialTarget?: boolean | undefined;
   },
 ): Promise<string> {
   const domain = requireDomain(args.domain);
@@ -362,14 +316,10 @@ export async function toggleRoute(
     return NO_DOMAIN_ERROR;
   }
 
-  const enabled = parseEnabled(args.enabled);
-  if (enabled === null) {
-    return `Error toggling route: 'enabled' must be true or false (received ${JSON.stringify(args.enabled)}). The route was not changed.`;
-  }
-
+  const { enabled } = args;
   try {
     const route = await client.toggleRoute(args.path, enabled, domain, {
-      acknowledgeCredentialTarget: parseAcknowledgement(args.acknowledgeCredentialTarget),
+      acknowledgeCredentialTarget: args.acknowledgeCredentialTarget,
     });
     const action = enabled ? 'enabled' : 'disabled';
     return `Route ${args.path} ${action} successfully!\n\n${formatRouteDetails(route, domain)}`;
@@ -407,18 +357,15 @@ export async function handleTransferRoute(
     path: string;
     from_domain?: string | undefined;
     to_domain?: string | undefined;
-    /** Request-only operator override; never stored. Raw JSON-RPC, so a client
-     * may send the string form. */
-    acknowledgeCredentialTarget?: boolean | string | undefined;
+    /** Request-only operator override; never stored. */
+    acknowledgeCredentialTarget?: boolean | undefined;
   },
 ): Promise<string> {
   // Both domains are explicit, never defaulted: a transfer deletes the route
   // from the source, so guessing the source would delete from a domain the
   // caller never named. The API already refuses a missing one; this guard names
-  // which is missing and lists the valid domains. Both go through
-  // requireDomain, so a non-string (the stdio server hands over raw JSON-RPC
-  // arguments) is refused exactly like a missing key and never reaches the
-  // client.
+  // which is missing and lists the valid domains (the dispatcher answers it
+  // first, from the raw arguments; this guard keeps a direct call alike).
   const fromDomain = requireDomain(args.from_domain);
   const toDomain = requireDomain(args.to_domain);
   const missing = [...(fromDomain ? [] : ['from_domain']), ...(toDomain ? [] : ['to_domain'])];
@@ -428,7 +375,7 @@ export async function handleTransferRoute(
 
   try {
     const route = await client.transferRoute(args.path, fromDomain, toDomain, {
-      acknowledgeCredentialTarget: parseAcknowledgement(args.acknowledgeCredentialTarget),
+      acknowledgeCredentialTarget: args.acknowledgeCredentialTarget,
     });
     return [
       'Route transferred successfully!',
