@@ -1,7 +1,7 @@
 {
   "name": "@bifrost/shared",
   "version": "1.0.0",
-  "description": "Shared code for Bifrost MCP server and Slackbot",
+  "description": "Shared code for the Bifrost Worker, dashboard and MCP server",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

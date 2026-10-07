@@ -15,7 +15,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const SOURCES = ['src', 'shared/src', 'admin/src', 'mcp/src', 'slackbot/src'];
+const SOURCES = ['src', 'shared/src', 'admin/src', 'mcp/src'];
 const SOURCE = /\.(?:ts|tsx)$/;
 const TEST_FILE = /\.(?:test|spec)\.tsx?$/;
 

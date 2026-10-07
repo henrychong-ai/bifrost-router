@@ -64,7 +64,6 @@ like any other file; the test assembles its synthetic bad values at runtime.
 | **shared/** | Types, schemas, HTTP client (`@bifrost/shared`) |
 | **mcp/** | MCP server for AI route management |
 | **admin/** | React SPA dashboard (Vite + shadcn/ui) |
-| **slackbot/** | Deprecated Slack bot Worker — not deployed; see [Deprecated: Slack bot](#deprecated-slack-bot) |
 
 ## Tech Stack
 
@@ -137,9 +136,8 @@ lint-staged, reading the same `.gitleaks.toml` allowlists as CI. With no local
 (`brew install gitleaks`; keep it at the CI-pinned version).
 
 The workflow runs each test once. Root, `shared`, `admin`, and `mcp` run only
-under coverage (`test:coverage:all`); `slackbot` has no coverage run, so it
-keeps a plain `pnpm -C slackbot test` step, after the coverage step. A new
-workspace package with tests needs one or the other;
+under coverage (`test:coverage:all`). A new workspace package with tests needs
+a coverage run there or its own plain `pnpm -C <dir> test` step;
 `scripts/check-ci-test-coverage.test.mjs` (part of `test:gates`) fails until it
 has one, and it credits only an unconditional step whose command is exactly
 `pnpm run test:coverage:all` or `pnpm -C <dir> test`; `-r` and `--filter` test
@@ -1016,30 +1014,15 @@ When the user asks to **"install mcp"** (or to connect bifrost to their Claude s
 
 Full user-facing instructions + tool reference: `mcp/README.md`.
 
-## Deprecated: Slack bot
+## Removed: Slack bot
 
-**Why:** the Slack bot (`slackbot/`) was built but never used or deployed. Interact
-with Bifrost through the [Bifrost MCP server](#mcp-server) instead: an AI client
-covers what the bot did (list, create and toggle routes, read stats) with the
-full tool set.
-
-**State:** the code and its tests stay in the repository and still run in
-`pnpm check` (`pnpm -r test`, `pnpm -r typecheck`, `pnpm -C slackbot run types:check`).
-`slackbot/wrangler.toml` is marked DEPRECATED, has `workers_dev = false` in
-production and `env.dev`, and binds only placeholder KV and D1 IDs. The `deploy`
-and `deploy:dev` scripts print a deprecation message and exit 1.
-`scripts/check-slackbot-deprecated.test.mjs` (in `pnpm run test:gates`) fails if
-any of that changes. The user guide and README no longer offer the bot.
-
-**Reviving it:** create the KV namespace (`wrangler kv namespace create
-SLACK_PERMISSIONS`) and put its ID and your D1 ID into `slackbot/wrangler.toml`;
-restore `"deploy": "wrangler deploy"` and `"deploy:dev": "wrangler deploy --env dev"`
-in `slackbot/package.json` and set `workers_dev` as your routing needs; update or
-remove the guard test; set the secrets (`SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN`,
-`ADMIN_API_KEY`) with `wrangler secret put` from `slackbot/`; point a Slack app's
-Events API at the Worker's `/slack/events`; and bring the user guide and README
-back in line. The bot holds the full admin key, so treat its channel as a root
-terminal.
+The Slack bot Worker (`slackbot/`) was removed on 2026-10-07: it was built but
+never deployed. Manage Bifrost through the [Bifrost MCP server](#mcp-server)
+or the dashboard instead. The code is kept at the annotated tag
+`slackbot-archive`; `git checkout slackbot-archive -- slackbot` plus re-adding
+`slackbot` to `pnpm-workspace.yaml` restores it. A revival needs a new design,
+not a Worker that calls the public admin API with the full admin key: give it a
+service binding or narrowly scoped credentials.
 
 ## Feedback Work-Queue (v1.26.0, P0-P3 priority since v1.34.0)
 
@@ -1288,7 +1271,7 @@ The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `sr
 
 **Oxlint override — test files (`**/*.test.ts`, `**/*.test.tsx`):** `import/default` is off. Source-pinning tests import a module's text with Vite's `?raw` suffix; the resolver follows the path to the `.ts` source and finds no default export there. Runtime code keeps the rule.
 
-**Oxlint override — Hono Workers (`src/**`, `slackbot/src/**`):** `oxc/no-async-endpoint-handlers` is off. The rule assumes Express, where a rejected async handler goes unhandled; Hono awaits every handler and routes a rejection to `app.onError`. The dashboard, MCP server and shared client keep the rule.
+**Oxlint override — Hono Worker (`src/**`):** `oxc/no-async-endpoint-handlers` is off. The rule assumes Express, where a rejected async handler goes unhandled; Hono awaits every handler and routes a rejection to `app.onError`. The dashboard, MCP server and shared client keep the rule.
 
 **Oxlint override — test setup files:** `import/no-unassigned-import` is off for `test/setup.*`, `*.setup.*` and `setupTests.*`, as in the team template.
 
@@ -1302,12 +1285,12 @@ The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `sr
 
 ### TypeScript configuration
 
-**Compiler:** `typescript@~6.0` in all five packages. Never add it without the range: npm's `latest` tag is TypeScript 7, which has no compiler API for typescript-eslint (peer range `<6.1.0`).
+**Compiler:** `typescript@~6.0` in all four packages. Never add it without the range: npm's `latest` tag is TypeScript 7, which has no compiler API for typescript-eslint (peer range `<6.1.0`).
 
 | Project | `exactOptionalPropertyTypes` | `noPropertyAccessFromIndexSignature` | `verbatimModuleSyntax` | `noUncheckedIndexedAccess` |
 |---|---|---|---|---|
 | Worker (`tsconfig.json`) | on | on | on | **off** (below) |
-| `shared`, `mcp`, `slackbot` | on | on | on | on |
+| `shared`, `mcp` | on | on | on | on |
 | `admin/tsconfig.app.json` | **off** (below) | on | on | on |
 | `admin/tsconfig.node.json` | on | on | on | on |
 

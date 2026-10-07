@@ -1,6 +1,6 @@
 # MCP Server & Slackbot Implementation Plan
 
-> Historical design document. Superseded on the domain contract by AGENTS.md "Domain parameter (v1.35.0)": there is no default domain and no EDGE_ROUTER_DOMAIN variable.
+> Historical design document. Phase II (the Slack bot) was removed on 2026-10-07; see AGENTS.md "Removed: Slack bot". Superseded on the domain contract by AGENTS.md "Domain parameter (v1.35.0)": there is no default domain and no EDGE_ROUTER_DOMAIN variable.
 
 
 ## Overview
@@ -259,7 +259,7 @@ claude mcp add-json --scope user edge-router '{
 
 ## Phase II: Slackbot Worker
 
-> Deprecated: the Slack bot was built but never deployed, and is kept only for a possible revival. See AGENTS.md "Deprecated: Slack bot".
+> Removed: the Slack bot was built but never deployed, and was removed on 2026-10-07; its code is at the tag `slackbot-archive`. See AGENTS.md "Removed: Slack bot".
 
 ### Purpose
 

@@ -1,8 +1,8 @@
 /**
- * Shared types for Bifrost MCP server and Slackbot
+ * Shared types for the Bifrost MCP server and other API clients
  *
  * These types mirror the main Worker types but are decoupled from
- * Cloudflare-specific bindings for use in MCP and Slackbot clients.
+ * Cloudflare-specific bindings for use in API clients such as the MCP server.
  */
 
 // =============================================================================
@@ -596,76 +596,4 @@ export interface R2UpdateMetadataParams {
   contentType?: string | undefined;
   cacheControl?: string | undefined;
   contentDisposition?: string | undefined;
-}
-
-// =============================================================================
-// Permission Types (for Slackbot)
-// =============================================================================
-
-/**
- * Permission levels for domain access
- */
-export type PermissionLevel = 'none' | 'read' | 'edit' | 'admin';
-
-/**
- * Permission hierarchy (admin > edit > read > none)
- */
-export const PERMISSION_HIERARCHY: Record<PermissionLevel, number> = {
-  none: 0,
-  read: 1,
-  edit: 2,
-  admin: 3,
-};
-
-/**
- * Check if a user has at least the required permission level
- */
-export function hasPermission(userLevel: PermissionLevel, requiredLevel: PermissionLevel): boolean {
-  return PERMISSION_HIERARCHY[userLevel] >= PERMISSION_HIERARCHY[requiredLevel];
-}
-
-/**
- * Tool permission requirements
- */
-export const TOOL_PERMISSIONS: Record<string, PermissionLevel> = {
-  // Read operations
-  list_routes: 'read',
-  get_route: 'read',
-  get_analytics_summary: 'read',
-  get_clicks: 'read',
-  get_views: 'read',
-  get_slug_stats: 'read',
-
-  // Edit operations
-  create_route: 'edit',
-  update_route: 'edit',
-  toggle_route: 'edit',
-
-  // Admin operations
-  delete_route: 'admin',
-
-  // Storage read operations
-  list_buckets: 'read',
-  list_objects: 'read',
-  get_object_meta: 'read',
-  get_object: 'read',
-
-  // Storage edit operations
-  upload_object: 'edit',
-  rename_object: 'edit',
-  update_object_metadata: 'edit',
-
-  // Storage admin operations
-  delete_object: 'admin',
-};
-
-/**
- * Slack user permissions stored in KV
- */
-export interface SlackUserPermissions {
-  user_id: string;
-  user_name: string;
-  permissions: Record<string, PermissionLevel>;
-  created_at: number;
-  updated_at: number;
 }

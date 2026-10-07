@@ -63,7 +63,8 @@ show complete, isolated placeholder bindings.
 ### Verification
 
 - `pnpm run check`: pass — 597 Worker, 217 shared, 208 dashboard, 92 MCP, and
-  104 Slackbot tests (1,218 total), plus 6 Node regression gates
+  104 tests in the Slack bot removed in 2026-10 (1,218 total), plus 6 Node
+  regression gates
 - `pnpm run test:coverage:all`: pass — Worker 69.91% statements / 58.26%
   branches / 67.35% functions / 70.78% lines; shared 83.29% / 76.47% /
   67.39% / 82.85%; dashboard scope 43.96% / 49.23% / 33.14% / 45.35%;
@@ -124,7 +125,7 @@ raw / 34.59 kB gzip.
 
 - `pnpm run benchmark:routing`: pass
 - `pnpm run check`: pass — 585 root tests plus 206 shared, 204 admin,
-  92 MCP, and 104 Slackbot tests
+  92 MCP, and 104 tests in the Slack bot removed in 2026-10
 - `pnpm run test:coverage`: pass — 69.24% statements / 70.17% lines
 - `pnpm -C admin run build`: pass; root and nested SPA paths returned HTTP 200
 - `wrangler deploy --dry-run`: pass — 1,096.71 KiB raw / 193.41 KiB gzip

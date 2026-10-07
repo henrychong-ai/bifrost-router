@@ -3,5 +3,4 @@ packages:
   - "admin"
   - "shared"
   - "mcp"
-  - "slackbot"
 confirmModulesPurge: false

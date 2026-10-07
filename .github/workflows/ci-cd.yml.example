@@ -75,13 +75,9 @@ jobs:
           pnpm run typecheck
           pnpm run -r typecheck
 
-      # Mirrors ci.yml: root, shared, admin, and mcp run under coverage;
-      # slackbot has no coverage run, so it runs plainly.
+      # Mirrors ci.yml: root, shared, admin, and mcp run under coverage.
       - name: Tests + coverage gates
         run: pnpm run test:coverage:all
-
-      - name: Test (slackbot)
-        run: pnpm -C slackbot test
 
   deploy-worker:
     name: Deploy Worker

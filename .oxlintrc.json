@@ -155,7 +155,7 @@
       }
     },
     {
-      "files": ["src/**", "slackbot/src/**"],
+      "files": ["src/**"],
       "rules": {
         "oxc/no-async-endpoint-handlers": "off"
       }

@@ -21,15 +21,15 @@ describe('the real repository', () => {
     assert.deepEqual(untestedPackages('.'), []);
   });
 
-  test('the four live packages run under coverage and slackbot runs plainly', () => {
+  test('the four packages run under coverage and none runs plainly', () => {
     assert.deepEqual([...coveragePackages('.')].toSorted(), ['.', 'admin', 'mcp', 'shared']);
     const { runsCoverageAll, plain } = ciTestRuns('.');
     assert.equal(runsCoverageAll, true);
-    assert.deepEqual([...plain], ['slackbot']);
+    assert.deepEqual([...plain], []);
   });
 
-  test('all five packages are detected as having tests', () => {
-    assert.deepEqual(packagesWithTests('.'), ['.', 'admin', 'mcp', 'shared', 'slackbot']);
+  test('all four packages are detected as having tests', () => {
+    assert.deepEqual(packagesWithTests('.'), ['.', 'admin', 'mcp', 'shared']);
   });
 });
 
@@ -43,25 +43,20 @@ const COVERAGE_STEP = [
   '      - name: Tests + coverage gates',
   '        run: pnpm run test:coverage:all',
 ];
-const SLACKBOT_STEP = ['      - name: Test (slackbot)', '        run: pnpm -C slackbot test'];
+const PLAIN_STEP = ['      - name: Test (tools)', '        run: pnpm -C tools test'];
 
 /** A ci.yml with one job; `jobLines` go under the job, `steps` under its steps. */
-function workflow(steps = [...COVERAGE_STEP, ...SLACKBOT_STEP], jobLines = []) {
+function workflow(steps = [...COVERAGE_STEP, ...PLAIN_STEP], jobLines = []) {
   return ['jobs:', '  ci:', ...jobLines, '    steps:', ...steps, ''].join('\n');
 }
 
 /**
  * Writes a minimal workspace shaped like this repository: root and shared
- * under coverage, slackbot plain. Options override any part of it.
+ * under coverage and a `tools` package run plainly. Options override any part of it.
  */
 async function writeFixture(
   root,
-  {
-    packages = ['.', 'shared', 'slackbot'],
-    scripts = ROOT_SCRIPTS,
-    ci = workflow(),
-    extra = {},
-  } = {},
+  { packages = ['.', 'shared', 'tools'], scripts = ROOT_SCRIPTS, ci = workflow(), extra = {} } = {},
 ) {
   await mkdir(root, { recursive: true });
   await writeFile(
@@ -71,7 +66,7 @@ async function writeFixture(
   await writeFile(join(root, 'package.json'), JSON.stringify({ scripts }));
   await mkdir(join(root, 'test'), { recursive: true });
   await writeFile(join(root, 'test', 'root.test.ts'), '');
-  for (const dir of ['shared', 'slackbot']) {
+  for (const dir of ['shared', 'tools']) {
     await mkdir(join(root, dir), { recursive: true });
     await writeFile(
       join(root, dir, 'package.json'),
@@ -123,7 +118,7 @@ describe('fixtures', () => {
 
   test('a single trailing dir/* is accepted', async () => {
     const dir = await fixture({
-      packages: ['.', 'shared', 'slackbot', 'pkgs/*'],
+      packages: ['.', 'shared', 'tools', 'pkgs/*'],
       extra: {
         'pkgs/fake/package.json': JSON.stringify({ name: 'fake' }),
         'pkgs/fake/src/thing.test.ts': '',
@@ -134,7 +129,7 @@ describe('fixtures', () => {
 
   test('a new package with a test script and no CI run fails', async () => {
     const dir = await fixture({
-      packages: ['.', 'shared', 'slackbot', 'fake'],
+      packages: ['.', 'shared', 'tools', 'fake'],
       extra: { 'fake/package.json': JSON.stringify({ scripts: { test: 'vitest run' } }) },
     });
     assert.deepEqual(untestedPackages(dir), ['fake']);
@@ -145,7 +140,7 @@ describe('fixtures', () => {
 
   test('a package with test files but no test script fails', async () => {
     const dir = await fixture({
-      packages: ['.', 'shared', 'slackbot', 'fake'],
+      packages: ['.', 'shared', 'tools', 'fake'],
       extra: {
         'fake/package.json': JSON.stringify({ name: 'fake' }),
         'fake/src/thing.test.ts': '',
@@ -163,7 +158,7 @@ describe('fixtures', () => {
 
   test('a package with no test script or test files is ignored', async () => {
     const dir = await fixture({
-      packages: ['.', 'shared', 'slackbot', 'docs-only'],
+      packages: ['.', 'shared', 'tools', 'docs-only'],
       extra: { 'docs-only/package.json': JSON.stringify({ name: 'docs-only' }) },
     });
     assert.deepEqual(untestedPackages(dir), []);
@@ -171,7 +166,7 @@ describe('fixtures', () => {
 
   for (const pattern of ['packages/*/*', 'packages/**/*', 'packages/**', '!skip', '*', '../x']) {
     test(`workspace pattern "${pattern}" is rejected`, async () => {
-      const dir = await fixture({ packages: ['.', 'shared', 'slackbot', pattern] });
+      const dir = await fixture({ packages: ['.', 'shared', 'tools', pattern] });
       assert.throws(() => untestedPackages(dir), /unsupported pattern|not a literal directory/);
       const result = await runCli(dir);
       assert.equal(result.code, 1);
@@ -181,42 +176,42 @@ describe('fixtures', () => {
 
   test('a coverage step with if: false earns no credit', async () => {
     const dir = await fixture({
-      ci: workflow([...COVERAGE_STEP, '        if: false', ...SLACKBOT_STEP]),
+      ci: workflow([...COVERAGE_STEP, '        if: false', ...PLAIN_STEP]),
     });
     assert.deepEqual(untestedPackages(dir), ['.', 'shared']);
   });
 
   test('a plain step with an if earns no credit', async () => {
     const dir = await fixture({
-      ci: workflow([...COVERAGE_STEP, ...SLACKBOT_STEP, "        if: github.ref == 'x'"]),
+      ci: workflow([...COVERAGE_STEP, ...PLAIN_STEP, "        if: github.ref == 'x'"]),
     });
-    assert.deepEqual(untestedPackages(dir), ['slackbot']);
+    assert.deepEqual(untestedPackages(dir), ['tools']);
   });
 
   test('a job-level if earns no credit for any step', async () => {
     const dir = await fixture({ ci: workflow(undefined, ['    if: false']) });
-    assert.deepEqual(untestedPackages(dir), ['.', 'shared', 'slackbot']);
+    assert.deepEqual(untestedPackages(dir), ['.', 'shared', 'tools']);
   });
 
   test('a step working-directory earns no credit', async () => {
     const dir = await fixture({
-      ci: workflow([...COVERAGE_STEP, ...SLACKBOT_STEP, '        working-directory: shared']),
+      ci: workflow([...COVERAGE_STEP, ...PLAIN_STEP, '        working-directory: shared']),
     });
-    assert.deepEqual(untestedPackages(dir), ['slackbot']);
+    assert.deepEqual(untestedPackages(dir), ['tools']);
   });
 
   test('a job default working-directory earns no credit', async () => {
     const dir = await fixture({
       ci: workflow(undefined, ['    defaults:', '      run:', '        working-directory: shared']),
     });
-    assert.deepEqual(untestedPackages(dir), ['.', 'shared', 'slackbot']);
+    assert.deepEqual(untestedPackages(dir), ['.', 'shared', 'tools']);
   });
 
   test('continue-on-error earns no credit', async () => {
     const dir = await fixture({
-      ci: workflow([...COVERAGE_STEP, ...SLACKBOT_STEP, '        continue-on-error: true']),
+      ci: workflow([...COVERAGE_STEP, ...PLAIN_STEP, '        continue-on-error: true']),
     });
-    assert.deepEqual(untestedPackages(dir), ['slackbot']);
+    assert.deepEqual(untestedPackages(dir), ['tools']);
   });
 
   test('an echoed coverage command in the step earns no credit', async () => {
@@ -224,7 +219,7 @@ describe('fixtures', () => {
       ci: workflow([
         '      - name: Tests + coverage gates',
         '        run: echo "pnpm run test:coverage:all"',
-        ...SLACKBOT_STEP,
+        ...PLAIN_STEP,
       ]),
     });
     assert.deepEqual(untestedPackages(dir), ['.', 'shared']);
@@ -234,11 +229,11 @@ describe('fixtures', () => {
     const dir = await fixture({
       ci: workflow([
         ...COVERAGE_STEP,
-        '      - name: Test (slackbot)',
-        '        run: echo pnpm -C slackbot test',
+        '      - name: Test (tools)',
+        '        run: echo pnpm -C tools test',
       ]),
     });
-    assert.deepEqual(untestedPackages(dir), ['slackbot']);
+    assert.deepEqual(untestedPackages(dir), ['tools']);
   });
 
   test('a test:coverage script that only echoes vitest fails', async () => {
@@ -274,8 +269,8 @@ describe('fixtures', () => {
     'pnpm run -r test',
     'pnpm -r test',
     'pnpm --recursive run test',
-    'pnpm --filter ./slackbot test',
-    'pnpm -F slackbot test',
+    'pnpm --filter ./tools test',
+    'pnpm -F tools test',
   ]) {
     test(`multi-package command "${command}" is rejected`, async () => {
       const dir = await fixture({

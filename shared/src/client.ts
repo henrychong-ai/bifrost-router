@@ -1,8 +1,8 @@
 /**
  * EdgeRouterClient - HTTP client for Bifrost Admin API
  *
- * This client wraps the Admin API endpoints and is used by both
- * the MCP server and the Slackbot Worker.
+ * This client wraps the Admin API endpoints and is used by the
+ * MCP server.
  */
 
 import { type ErrorEnvelope, plainErrorText, readErrorEnvelope } from './error-envelope.js';

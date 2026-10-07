@@ -59,7 +59,6 @@ export default defineConfig({
       'admin',
       'shared',
       'mcp',
-      'slackbot',
       'scripts',
     ],
     // `vitest bench <file>` filters by SUBSTRING, so a sibling worktree's copy
@@ -77,7 +76,6 @@ export default defineConfig({
         'admin/**',
         'shared/**',
         'mcp/**',
-        'slackbot/**',
       ],
     },
     coverage: {
@@ -93,7 +91,6 @@ export default defineConfig({
         'admin/**',
         'shared/**',
         'mcp/**',
-        'slackbot/**',
         'test/**',
         '**/*.test.ts',
         'vitest.config.ts',

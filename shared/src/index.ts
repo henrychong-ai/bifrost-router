@@ -1,7 +1,7 @@
 /**
  * @bifrost/shared
  *
- * Shared code for Bifrost MCP server and Slackbot
+ * Shared code for the Bifrost Worker, dashboard and MCP server
  */
 
 export * from './analytics-utils.js';

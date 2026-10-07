@@ -84,15 +84,10 @@ jobs:
 
       # Root, shared, admin, and mcp run once, here, under coverage
       # (`test:coverage:all`); a plain run as well would repeat the same tests.
+      # scripts/check-ci-test-coverage.test.mjs fails when a package with tests
+      # is run by neither this step nor a plain `pnpm -C <dir> test` step.
       - name: Tests + coverage gates
         run: pnpm run test:coverage:all
-
-      # Slackbot has no coverage run, so it keeps its plain run. It comes after
-      # coverage so a failure in the deprecated bot cannot skip the live tests.
-      # scripts/check-ci-test-coverage.test.mjs fails when a package with tests
-      # is run by neither step.
-      - name: Test (slackbot)
-        run: pnpm -C slackbot test
 
       - name: Public sanitization gate
         run: pnpm run public:check
@@ -101,7 +96,7 @@ jobs:
         run: pnpm run test:gates
 
       # Runtime-types freshness gate: `wrangler types --check` asserts the committed
-      # worker-configuration.d.ts still matches each Worker's wrangler.toml
+      # worker-configuration.d.ts still matches the Worker's wrangler.toml
       # (compatibility_date + flags). A compat-date bump or binding change that is not
       # regenerated fails HERE rather than silently typechecking against a stale runtime
       # surface. Listed explicitly because this job enumerates commands inline and does
@@ -115,9 +110,6 @@ jobs:
 
       - name: Runtime types check (root)
         run: pnpm run types:check
-
-      - name: Runtime types check (slackbot)
-        run: pnpm -C slackbot run types:check
 
       - name: Build admin dashboard
         run: pnpm -C admin build

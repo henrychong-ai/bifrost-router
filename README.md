@@ -75,8 +75,7 @@ bifrost/                         # pnpm monorepo
 ├── src/                         # Main edge router Worker
 ├── shared/                      # Shared types, schemas, HTTP client
 ├── mcp/                         # MCP server for AI route management
-├── admin/                       # React SPA admin dashboard
-└── slackbot/                    # Deprecated Slack bot (not deployed; see AGENTS.md)
+└── admin/                       # React SPA admin dashboard
 ```
 
 ## Fork & Deploy Guide
@@ -356,13 +355,6 @@ There is no default-domain variable: since v1.35.0 every route, QR and slug-stat
 For Claude Desktop, add the same entry (with full executable paths) to `~/Library/Application Support/Claude/claude_desktop_config.json` and restart the app. Or open this repo in Claude Code and ask it to **"install mcp"** — it will configure both surfaces for you.
 
 See [`mcp/README.md`](./mcp/README.md) for full setup and the 29-tool reference.
-
-### Deprecated: Slackbot
-
-The Slack bot in `slackbot/` is deprecated and not deployed: manage routes
-through the dashboard or the MCP server instead. Its code and tests are kept
-for a possible revival, and its `deploy` scripts refuse to run. See
-[AGENTS.md](AGENTS.md) → "Deprecated: Slack bot".
 
 ### Optional: CI/CD
 
