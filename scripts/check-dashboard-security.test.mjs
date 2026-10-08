@@ -442,7 +442,7 @@ test('the API proxy hides the Worker copies of the server-level headers', () => 
 
 test('the dashboard HTML has no inline script, so script-src self needs no nonce', () => {
   const html = readFileSync('admin/index.html', 'utf8');
-  const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)];
+  const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)];
   assert.ok(scripts.length > 0);
   for (const [tag, attributes, body] of scripts) {
     assert.match(attributes, /\bsrc="\/[^"]+"/, tag);
@@ -1335,7 +1335,7 @@ function inFreshZod(runScriptFirst) {
 
 test('index.html loads the Zod jitless script as a classic script before the module entry', () => {
   const html = readFileSync('admin/index.html', 'utf8');
-  const scripts = [...html.matchAll(/<script\b[^>]*>/g)].map(match => match[0]);
+  const scripts = [...html.matchAll(/<script\b[^>]*>/gi)].map(match => match[0]);
   assert.equal(scripts[0], '<script src="/zod-jitless.js">');
   assert.ok(scripts.some(tag => tag.includes('type="module"')));
   assert.ok(existsSync(ZOD_JITLESS));
