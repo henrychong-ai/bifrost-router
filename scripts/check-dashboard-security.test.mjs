@@ -25,6 +25,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { parse as parseHtml } from 'parse5';
+
 import {
   locationBlocks,
   locationsWithAddHeader,
@@ -440,14 +442,189 @@ test('the API proxy hides the Worker copies of the server-level headers', () => 
   }
 });
 
+/** The text of a parse5 node: every text node under it, in order. */
+const nodeText = node =>
+  (node.childNodes ?? [])
+    .map(child => (child.nodeName === '#text' ? child.value : nodeText(child)))
+    .join('');
+
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+
+/**
+ * Every element named `name` in a parsed document, as a browser's parser
+ * builds the tree. The walk enters template contents and foreign (SVG)
+ * content too, so an element anywhere in the tree counts.
+ */
+function elementsNamed(document, name) {
+  const found = [];
+  const walk = node => {
+    if (node.nodeName === name) found.push(node);
+    for (const child of node.childNodes ?? []) walk(child);
+    if (node.content) walk(node.content);
+  };
+  walk(document);
+  return found;
+}
+
+/**
+ * Every `script` element in an HTML document: parse5 implements the WHATWG
+ * tokenizer and tree builder, so a stray quote in an attribute name, end
+ * tags with attributes, the script data escape states (`<!--<script>`), any
+ * letter case and an unclosed script are all read the way the browser reads
+ * them. A hand-written scan or a regex gets at least one of those wrong.
+ * Each element is { svg, attrs, body }: whether it is an SVG script, its
+ * attributes as [name, value] pairs (a namespaced one by its qualified name,
+ * such as `xlink:href`; the parser keeps the first of a duplicate, as
+ * browsers do) and its text.
+ */
+function scriptElements(html) {
+  return elementsNamed(parseHtml(html), 'script').map(node => ({
+    svg: node.namespaceURI === SVG_NAMESPACE,
+    attrs: node.attrs.map(({ prefix, name, value }) => [
+      prefix ? `${prefix}:${name}` : name,
+      value,
+    ]),
+    body: nodeText(node),
+  }));
+}
+
+/**
+ * Two unrelated page origins. A root-relative URL stays on the page's own
+ * origin under both; a disguised protocol-relative one (`/\\host/a.js`) names
+ * one host, so it cannot stay on both (resolving against one base alone would
+ * accept a URL naming that base's own host).
+ */
+const PAGE_ORIGINS = ['https://dashboard-a.invalid', 'https://dashboard-b.invalid'];
+
+/**
+ * Why `html` would need a nonce, or could load script from elsewhere, under
+ * script-src 'self'. Each script must load a same-origin file and carry no
+ * code: its URL (`src` for an HTML script; `href`, else `xlink:href`, for an
+ * SVG script, as the browser reads them) must be a path from the root (one
+ * leading `/`) that the URL parser resolves to the page's own origin (so a
+ * backslash, or a tab or newline the parser strips, cannot turn it into a
+ * protocol-relative URL), and its body must be empty. A `<base>` element
+ * anywhere fails too, as it would move what every relative URL resolves
+ * against. Empty when the page passes.
+ */
+/** `value` without leading and trailing ASCII whitespace, as HTML strips it (never Unicode spaces). */
+function asciiTrim(value) {
+  return value?.replace(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/g, '');
+}
+
+function inlineScriptProblems(html) {
+  const document = parseHtml(html);
+  const baseProblems = elementsNamed(document, 'base').map(
+    node => `base element: ${JSON.stringify(node.attrs.map(({ name, value }) => [name, value]))}`,
+  );
+  const scriptProblems = scriptElements(html).flatMap(({ svg, attrs, body }) => {
+    const attr = name => attrs.find(([attrName]) => attrName === name)?.[1];
+    // Browsers strip leading and trailing ASCII whitespace from a URL attribute
+    const url = asciiTrim(svg ? (attr('href') ?? attr('xlink:href')) : attr('src'));
+    // With a root-relative input and an absolute base, the URL parser cannot throw
+    const sameOrigin =
+      url !== undefined &&
+      url.startsWith('/') &&
+      !url.startsWith('//') &&
+      PAGE_ORIGINS.every(origin => new URL(url, `${origin}/`).origin === origin);
+    return [
+      ...(sameOrigin ? [] : [`no same-origin URL: ${JSON.stringify(attrs)}`]),
+      ...(body.trim() === '' ? [] : [`inline body: ${JSON.stringify(body)}`]),
+    ];
+  });
+  return [...baseProblems, ...scriptProblems];
+}
+
+test('the script check reads HTML as a browser parses it', () => {
+  // A quote in an attribute name or an unquoted value is part of the name,
+  // not the start of a quoted value, so the inline script is still a script
+  for (const html of [
+    `<script x'>alert(1)</script><script src="/b.js" '></script>`,
+    '<script a">alert(1)</script><script src="/b.js"></script>',
+  ]) {
+    assert.ok(inlineScriptProblems(html).includes('inline body: "alert(1)"'), html);
+  }
+  assert.deepEqual(scriptElements(`<script x'>alert(1)</script>`), [
+    { svg: false, attrs: [["x'", '']], body: 'alert(1)' },
+  ]);
+  // End tags may carry attributes, quoted or not, and any case
+  assert.deepEqual(scriptElements('<script>x()</script foo="bar">'), [
+    { svg: false, attrs: [], body: 'x()' },
+  ]);
+  assert.deepEqual(scriptElements('<SCRIPT SRC="/a.js"></SCRIPT >'), [
+    { svg: false, attrs: [['src', '/a.js']], body: '' },
+  ]);
+  assert.deepEqual(inlineScriptProblems('<SCRIPT SRC="/a.js"></SCRIPT >'), []);
+  // A quoted > does not end a start tag
+  assert.deepEqual(scriptElements('<script data-x=">">y()</script>'), [
+    { svg: false, attrs: [['data-x', '>']], body: 'y()' },
+  ]);
+  // An unclosed script runs to the end of the input, so its body is checked
+  assert.deepEqual(scriptElements('<script>z()'), [{ svg: false, attrs: [], body: 'z()' }]);
+  assert.notDeepEqual(inlineScriptProblems('<script src="/a.js">z()'), []);
+  // The double-escaped state: the first end tag inside <!--<script> does not
+  // close the element, so b() is part of its body
+  assert.deepEqual(scriptElements('<script><!--<script>a</script>b()</script>'), [
+    { svg: false, attrs: [], body: '<!--<script>a</script>b()' },
+  ]);
+  // A tag name ends at whitespace, / or >: <scripts> and </scripty> are not script tags
+  assert.deepEqual(scriptElements('<scripts></scripts><script>w()</scripty></script>'), [
+    { svg: false, attrs: [], body: 'w()</scripty>' },
+  ]);
+  // Scripts in template contents and SVG count; one in a comment is not one
+  assert.equal(scriptElements('<template><script>t()</script></template>').length, 1);
+  assert.deepEqual(scriptElements('<svg><script>s()</script></svg>'), [
+    { svg: true, attrs: [], body: 's()' },
+  ]);
+  assert.deepEqual(scriptElements('<!--<script>c()</script>-->'), []);
+  // Not same-origin, or no src at all
+  assert.notDeepEqual(
+    inlineScriptProblems('<script src="https://cdn.example.com/a.js"></script>'),
+    [],
+  );
+  assert.notDeepEqual(inlineScriptProblems('<script src="//cdn.example.com/a.js"></script>'), []);
+  // A disguised protocol-relative URL naming a page origin's own host
+  for (const host of ['dashboard-a.invalid', 'dashboard-b.invalid']) {
+    assert.notDeepEqual(inlineScriptProblems(`<script src="/\\${host}/a.js"></script>`), []);
+    assert.notDeepEqual(inlineScriptProblems(`<script src="/&#9;/${host}/a.js"></script>`), []);
+  }
+  assert.notDeepEqual(inlineScriptProblems('<script data-src="/a.js"></script>'), []);
+  // One leading slash is not enough: the URL parser reads a backslash as a
+  // slash and strips a tab or newline (here a character reference or a raw
+  // newline in the value), so each of these is protocol-relative
+  for (const src of [
+    '/\\cdn.example.com/a.js',
+    '/&#9;/cdn.example.com/a.js',
+    '/\n/cdn.example.com/a.js',
+  ]) {
+    assert.notDeepEqual(inlineScriptProblems(`<script src="${src}"></script>`), [], src);
+  }
+  // Surrounding ASCII whitespace is stripped as the browser does; a Unicode space is not
+  assert.deepEqual(inlineScriptProblems('<script src=" /a.js\n"></script>'), []);
+  assert.notDeepEqual(inlineScriptProblems('<script src="\u00a0/a.js"></script>'), []);
+  // An SVG script loads its href (else xlink:href), never a src
+  assert.deepEqual(inlineScriptProblems('<svg><script href="/a.js"></script></svg>'), []);
+  assert.deepEqual(inlineScriptProblems('<svg><script xlink:href="/a.js"></script></svg>'), []);
+  assert.notDeepEqual(
+    inlineScriptProblems('<svg><script src="/a.js" href="https://evil.example/x.js"/></svg>'),
+    [],
+  );
+  assert.notDeepEqual(
+    inlineScriptProblems('<svg><script href="//evil.example/x.js" xlink:href="/a.js"/></svg>'),
+    [],
+  );
+  assert.notDeepEqual(inlineScriptProblems('<svg><script src="/a.js"></script></svg>'), []);
+  // A <base> moves what a root-relative src resolves against
+  assert.deepEqual(
+    inlineScriptProblems('<base href="https://evil.example/"><script src="/a.js"></script>'),
+    ['base element: [["href","https://evil.example/"]]'],
+  );
+});
+
 test('the dashboard HTML has no inline script, so script-src self needs no nonce', () => {
   const html = readFileSync('admin/index.html', 'utf8');
-  const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)];
-  assert.ok(scripts.length > 0);
-  for (const [tag, attributes, body] of scripts) {
-    assert.match(attributes, /\bsrc="\/[^"]+"/, tag);
-    assert.equal(body.trim(), '', tag);
-  }
+  assert.ok(scriptElements(html).length > 0);
+  assert.deepEqual(inlineScriptProblems(html), []);
 });
 
 test('every security header is set once, at server level, on every response', () => {
@@ -1391,9 +1568,15 @@ function inFreshZod(runScriptFirst) {
 
 test('index.html loads the Zod jitless script as a classic script before the module entry', () => {
   const html = readFileSync('admin/index.html', 'utf8');
-  const scripts = [...html.matchAll(/<script\b[^>]*>/gi)].map(match => match[0]);
-  assert.equal(scripts[0], '<script src="/zod-jitless.js">');
-  assert.ok(scripts.some(tag => tag.includes('type="module"')));
+  const scripts = scriptElements(html);
+  // The first script carries only its src: no type, so it runs as a classic
+  // script, ahead of any module
+  assert.deepEqual(scripts[0]?.attrs, [['src', '/zod-jitless.js']]);
+  assert.ok(
+    scripts.some(({ attrs }) =>
+      attrs.some(([name, value]) => name === 'type' && asciiTrim(value).toLowerCase() === 'module'),
+    ),
+  );
   assert.ok(existsSync(ZOD_JITLESS));
 });
 

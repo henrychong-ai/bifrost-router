@@ -6,6 +6,44 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.40.1 (2026-10-08) — Dashboard script check on a real HTML parser
+
+**Why:** a CodeQL alert (`js/bad-tag-filter`) flagged the regular expression
+the dashboard security test used to find `script` elements. No D1 migration,
+no Worker or dashboard behaviour change.
+
+- **Script check (`scripts/check-dashboard-security.test.mjs`).** The "no
+  inline script" test found `script` elements with a regular expression
+  whose end tag (`</script\s*>`) missed end tags with attributes, such as
+  `</script foo="bar">`, which browsers accept. It now parses the HTML with
+  `parse5`, which implements the WHATWG tokenizer and tree builder, and walks
+  every `script` element in the tree, template contents and SVG included: a
+  stray quote in an attribute name, an end tag with attributes, the script
+  data escape states (`<!--<script>`), any letter case and an unclosed script
+  are read as a browser reads them. `parse5` rather than `happy-dom`, already
+  a dashboard test dependency: happy-dom dropped a script whose end tag
+  carried attributes and an unclosed script, the very cases the check must
+  see. Every script must have an empty body and a URL (`src` for an HTML
+  script; `href`, else `xlink:href`, for an SVG one) that is a path from the
+  root and resolves to the page's own origin under two unrelated page
+  origins, so a backslash or a stripped tab or newline after the first slash
+  (`/\cdn.example.com/a.js`) cannot make it protocol-relative, even when it
+  names the page's own host; surrounding ASCII whitespace is stripped first,
+  as browsers do (never Unicode spaces); any `<base>` element fails the check. New tests
+  pin those cases, and the Zod jitless test reads the same parsed elements
+  (its module entry matches `type` in any letter case, with ASCII whitespace stripped), so the file
+  holds no regular expression for `script` tags.
+- **Dependencies.** `parse5` is a new root devDependency, used only by that
+  test. The open Dependabot alert for `sharp` is stale: the
+  `"sharp": ">=0.35.5"` override added in v1.39.0 already resolves every copy
+  to 0.35.5 (`pnpm why sharp`), and this release does not change it.
+- **TODO.md.** A P3 item records what turning on `noUncheckedIndexedAccess`
+  in the Worker's `tsconfig.json` would take, and the item to drop the
+  `:tailscale` healthcheck's TCP fallback now names when: from v1.41.0, once
+  v1.38.x and earlier are no longer reasonable rollback targets.
+
+---
+
 ## v1.40.0 (2026-10-08) — One oversized record no longer stops backups; MCP refusals as errors; new QR codes listed at once
 
 **Why:** one record over the line limit stopped every nightly backup until
