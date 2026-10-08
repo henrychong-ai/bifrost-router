@@ -6,7 +6,7 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
-## v1.41.1 (2026-10-08) — Dependency maintenance
+## v1.41.1 (2026-10-09) — Dependency maintenance
 
 **Why:** a routine minor and patch sweep across every workspace package. No
 D1 migration, no API wire change, no Worker or dashboard behaviour change.
