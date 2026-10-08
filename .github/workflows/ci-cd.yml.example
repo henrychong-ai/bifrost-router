@@ -105,6 +105,22 @@ jobs:
       - name: Build shared package
         run: pnpm -C shared build
 
+      # --- D1 migrations (optional) ---
+      # This template applies migrations by hand (README "Run Database
+      # Migrations"). To apply a release's ADDITIVE, idempotent migration here
+      # instead, uncomment a step like this one, so the Worker never ships ahead
+      # of its table. Never add a one-shot migration (0012) to a step that runs
+      # on every deploy. Requires an API token with "Account > D1 > Edit".
+      # EDIT PER RELEASE: the --file list below is v1.41.0's (0013). Replace it
+      # on every release with that release's own additive migrations (one
+      # `wrangler d1 execute ... --file=` per file), or comment the step out
+      # when the release has none.
+      # - name: Apply D1 migrations
+      #   env:
+      #     CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      #     CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      #   run: pnpm exec wrangler d1 execute DB --remote --file=./drizzle/0013_qr_recent.sql
+
       - name: Deploy to Cloudflare
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

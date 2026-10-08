@@ -11,9 +11,10 @@
  * are used here.
  */
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -21,12 +22,14 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
+import net from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import { parse as parseHtml } from 'parse5';
 
+import { CLOSED_PORT_PROBE, closedPortMarker, DASHBOARD_TCP_PORT } from './closed-port-probe.mjs';
 import {
   locationBlocks,
   locationsWithAddHeader,
@@ -1239,14 +1242,20 @@ test('the :tailscale image reaches nginx through Serve and a root-only socket on
   assert.ok(prepared[3] < lines.findIndex(line => /^(exec )?nginx\b/.test(line)));
   assert.ok(at(`tailscale serve --bg --https=443 unix:${SERVE_SOCKET}`) > prepared[3]);
   assert.doesNotMatch(script, /127\.0\.0\.1:3001|http:\/\/127/);
-  // The healthcheck asks nginx over the socket, and an image from before the
-  // socket (a rollback to an earlier tag with this compose file) over TCP
+  // The healthcheck asks nginx over the socket only (v1.41.0: the TCP
+  // fallback for images from before v1.39.0 is gone), and nothing else in the
+  // file reaches a TCP port in the container
   const compose = readFileSync('admin/docker-compose.tailscale.yml', 'utf8');
   assert.ok(
     compose.includes(
-      `test: ["CMD-SHELL", "if [ -S ${SERVE_SOCKET} ]; then curl -fsS -o /dev/null --unix-socket ${SERVE_SOCKET} http://localhost/health; else curl -fsS -o /dev/null http://127.0.0.1:3001/health; fi"]`,
+      `test: ["CMD-SHELL", "curl -fsS -o /dev/null --unix-socket ${SERVE_SOCKET} http://localhost/health"]`,
     ),
   );
+  const composeCode = compose
+    .split('\n')
+    .filter(line => !line.trimStart().startsWith('#'))
+    .join('\n');
+  assert.doesNotMatch(composeCode, /127\.0\.0\.1|:3001\b|\bwget\b|-S \//);
   // The plain image never trusts Serve's headers
   assert.doesNotMatch(readFileSync('admin/Dockerfile', 'utf8'), /DASHBOARD_TAILSCALE_SERVE/);
   for (const file of ['admin/docker-compose.yml', 'admin/docker-compose.prod.yml']) {
@@ -1656,4 +1665,143 @@ test('a production build carries no admin key, even with the dev proxy settings 
 test('request logs do not persist configured route targets', () => {
   const worker = readFileSync('src/index.ts', 'utf8');
   assert.doesNotMatch(worker, /target:\s*route\.target/);
+});
+
+// ---------------------------------------------------------------------------
+// The closed-port probe (v1.41.0): the container check proves nothing listens
+// on TCP 3001 in the :tailscale image with specific evidence only
+// ---------------------------------------------------------------------------
+
+/** The socket-table header line both /proc/net/tcp and tcp6 start with. */
+const TCP_HEADER =
+  '  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode';
+
+/** One /proc/net/tcp line: a socket on `port` (hex, upper case) in state `st`. */
+function tcpLine(port, st, address = '0100007F') {
+  const hex = port.toString(16).toUpperCase().padStart(4, '0');
+  return `   0: ${address}:${hex} 00000000:0000 ${st} 00000000:00000000 00:00000000 00000000     0        0 1 1 0000000000000000 100 0 0 10 0`;
+}
+
+/** A fake /proc/net with the given tables; `null` leaves a table out. */
+function procNet({ tcp, tcp6 }) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'bifrost-proc-net-'));
+  if (tcp !== null) writeFileSync(path.join(dir, 'tcp'), tcp);
+  if (tcp6 === 'unreadable') {
+    // A directory: it exists, and cat fails on it
+    mkdirSync(path.join(dir, 'tcp6'));
+  } else if (tcp6 !== null) {
+    writeFileSync(path.join(dir, 'tcp6'), tcp6);
+  }
+  return dir;
+}
+
+/** Run the probe with `sh -s`, as `docker exec -i … sh -s` does in the container. */
+function runProbe(port, proc) {
+  return new Promise(resolve => {
+    const child = execFile(
+      'sh',
+      ['-s'],
+      { env: { ...process.env, BIFROST_CLOSED_PORT: String(port), BIFROST_PROC_NET: proc } },
+      (error, stdout, stderr) => {
+        resolve({ status: error ? (error.code ?? 1) : 0, stdout, stderr });
+      },
+    );
+    child.stdin.end(CLOSED_PORT_PROBE);
+  });
+}
+
+/** A port nothing listens on: bound by the OS, then released. */
+async function closedPort() {
+  const server = net.createServer();
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  await new Promise(resolve => server.close(resolve));
+  return port;
+}
+
+test('the closed-port probe prints its marker only on a readable table with no listener and a refused port', async () => {
+  const port = await closedPort();
+  const tables = [TCP_HEADER, tcpLine(port, '01'), tcpLine(port + 1, '0A'), ''].join('\n');
+  for (const tcp6 of [tables, null]) {
+    const proc = procNet({ tcp: tables, tcp6 });
+    try {
+      const result = await runProbe(port, proc);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout.trim(), closedPortMarker(port));
+    } finally {
+      rmSync(proc, { recursive: true, force: true });
+    }
+  }
+  assert.equal(closedPortMarker(), 'tcp-3001-closed');
+  assert.equal(DASHBOARD_TCP_PORT, 3001);
+});
+
+test('the closed-port probe refuses a listener in either table, and a table it cannot read', async () => {
+  const port = await closedPort();
+  const empty = `${TCP_HEADER}\n`;
+  const listening = [TCP_HEADER, tcpLine(port, '0A'), ''].join('\n');
+  const cases = [
+    ['a LISTEN socket in tcp', { tcp: listening, tcp6: empty }, 5],
+    [
+      'a LISTEN socket in tcp6',
+      { tcp: empty, tcp6: listening.replace('0100007F', '0'.repeat(32)) },
+      5,
+    ],
+    ['no tcp table', { tcp: null, tcp6: empty }, 3],
+    ['a tcp that is not a socket table', { tcp: 'garbage\n', tcp6: empty }, 3],
+    ['a tcp6 that is not a socket table', { tcp: empty, tcp6: 'garbage\n' }, 3],
+    ['a tcp6 that exists but cannot be read', { tcp: empty, tcp6: 'unreadable' }, 3],
+  ];
+  for (const [name, tables, status] of cases) {
+    const proc = procNet(tables);
+    try {
+      const result = await runProbe(port, proc);
+      assert.equal(result.status, status, `${name}: ${result.stderr}`);
+      assert.equal(result.stdout, '', name);
+    } finally {
+      rmSync(proc, { recursive: true, force: true });
+    }
+  }
+});
+
+test('the closed-port probe refuses a port that answers even when the tables show no listener', async () => {
+  const sockets = new Set();
+  const server = net.createServer(socket => {
+    sockets.add(socket);
+    socket.on('error', () => {});
+    socket.end('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n');
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  const proc = procNet({ tcp: `${TCP_HEADER}\n`, tcp6: null });
+  try {
+    const result = await runProbe(port, proc);
+    assert.equal(result.status, 4, result.stderr);
+    assert.match(result.stderr, /not 7 \(refused\)/);
+    assert.equal(result.stdout, '');
+  } finally {
+    rmSync(proc, { recursive: true, force: true });
+    // Not awaited: the accepted connection is destroyed and the listener
+    // closed, and nothing here waits on either
+    for (const socket of sockets) socket.destroy();
+    server.close();
+    server.unref();
+  }
+});
+
+test('the container check runs the closed-port probe in the :tailscale image and requires its marker', () => {
+  const source = readFileSync('scripts/check-dashboard-container.mjs', 'utf8');
+  assert.match(
+    source,
+    /import \{ CLOSED_PORT_PROBE, closedPortMarker \} from '\.\/closed-port-probe\.mjs';/,
+  );
+  assert.ok(source.includes("docker(['exec', '-i', name, 'sh', '-s'], {"));
+  assert.ok(source.includes('input: CLOSED_PORT_PROBE,'));
+  assert.ok(source.includes('probe.status === 0 && probe.stdout.trim() === closedPortMarker()'));
+  // And the healthcheck must fail on an image that answers on TCP only
+  assert.ok(
+    source.includes(
+      "docker(['exec', `${ID}-dashboard`, 'sh', '-c', healthcheck], { check: false }).status !== 0",
+    ),
+  );
 });

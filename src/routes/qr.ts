@@ -48,9 +48,9 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import { type AuditAction, recordAuditLog } from '../db/analytics';
+import { forgetRecentQr, noteRecentQr } from '../db/qr-recent';
 import { normalizePath } from '../kv/lookup';
 import { deleteQR, getQR, listQRs, parseStoredQR, putQR } from '../kv/qr';
-import { recordRecentQRWrite } from '../kv/qr-recent';
 import { getRoute, InvalidStoredRouteError } from '../kv/routes';
 import { qrKey } from '../kv/schema';
 import type { AppEnv } from '../types';
@@ -70,6 +70,23 @@ export const qrRoutes = new Hono<AppEnv>();
  */
 function qrNotFound(id: string): HTTPException {
   return new CodedHTTPException(404, QR_NOT_FOUND_ERROR, `QR code not found: ${id}`);
+}
+
+/**
+ * Run best-effort work after the answer (`waitUntil`): the recent-creates
+ * writes and the audit rows (v1.41.0 review: one helper for both). With no
+ * execution context (a test calling the app without one) it runs inline
+ * before the answer, audits included, so such a caller sees the same rows a
+ * deployed Worker writes; before v1.41.0 an audit was skipped there. The work
+ * never rejects (`recordAuditLog` and the `qr_recent` writes log and swallow
+ * their own failures).
+ */
+async function afterAnswer(c: Context<AppEnv>, work: Promise<void>): Promise<void> {
+  try {
+    c.executionCtx.waitUntil(work);
+  } catch {
+    await work;
+  }
 }
 
 /**
@@ -193,57 +210,52 @@ function redactQrForAudit(record: QRCode): QRCode {
   return changed ? ({ ...record, payload } as QRCode) : record;
 }
 
-function auditQr(
+/** Record a QR audit row after the answer ({@link afterAnswer}), best effort. */
+async function auditQr(
   c: Context<AppEnv>,
   action: AuditAction,
   domain: string,
   record: QRCode,
   details: Record<string, unknown>,
-): void {
-  try {
-    const actor = getActorInfo(c);
-    c.executionCtx.waitUntil(
-      recordAuditLog(c.env.DB, {
-        domain,
-        action,
-        actorLogin: actor.login,
-        actorName: actor.name,
-        path: `/qr/${record.id}`,
-        details: JSON.stringify({
-          id: record.id,
-          type: record.type,
-          description: record.description,
-          ...details,
-        }),
-        ipAddress: c.req.header('CF-Connecting-IP') || null,
+): Promise<void> {
+  const actor = getActorInfo(c);
+  await afterAnswer(
+    c,
+    recordAuditLog(c.env.DB, {
+      domain,
+      action,
+      actorLogin: actor.login,
+      actorName: actor.name,
+      path: `/qr/${record.id}`,
+      details: JSON.stringify({
+        id: record.id,
+        type: record.type,
+        description: record.description,
+        ...details,
       }),
-    );
-  } catch {
-    // No executionCtx (unit tests via app.request) — audit is best-effort.
-  }
+      ipAddress: c.req.header('CF-Connecting-IP') || null,
+    }),
+  );
 }
 
 /**
  * The audit row of a deleted record that could not be read: its id, its KV
  * key and `state: 'invalid'`, never the unreadable value.
  */
-function auditInvalidQrDelete(c: Context<AppEnv>, domain: string, id: string): void {
-  try {
-    const actor = getActorInfo(c);
-    c.executionCtx.waitUntil(
-      recordAuditLog(c.env.DB, {
-        domain,
-        action: 'qr_delete',
-        actorLogin: actor.login,
-        actorName: actor.name,
-        path: `/qr/${id}`,
-        details: JSON.stringify({ id, key: qrKey(domain, id), state: 'invalid' }),
-        ipAddress: c.req.header('CF-Connecting-IP') || null,
-      }),
-    );
-  } catch {
-    // No executionCtx (unit tests via app.request) — audit is best-effort.
-  }
+async function auditInvalidQrDelete(c: Context<AppEnv>, domain: string, id: string): Promise<void> {
+  const actor = getActorInfo(c);
+  await afterAnswer(
+    c,
+    recordAuditLog(c.env.DB, {
+      domain,
+      action: 'qr_delete',
+      actorLogin: actor.login,
+      actorName: actor.name,
+      path: `/qr/${id}`,
+      details: JSON.stringify({ id, key: qrKey(domain, id), state: 'invalid' }),
+      ipAddress: c.req.header('CF-Connecting-IP') || null,
+    }),
+  );
 }
 
 // =============================================================================
@@ -338,13 +350,18 @@ qrRoutes.get('/', async c => {
   }
   const query = parsed.data;
 
-  const { items, total } = await listQRs(c.env.ROUTES, domain, {
-    type: query.type,
-    tag: query.tag,
-    search: query.search,
-    offset: query.offset,
-    limit: query.limit,
-  });
+  const { items, total } = await listQRs(
+    c.env.ROUTES,
+    domain,
+    {
+      type: query.type,
+      tag: query.tag,
+      search: query.search,
+      offset: query.offset,
+      limit: query.limit,
+    },
+    c.env.DB,
+  );
 
   return c.json({
     success: true as const,
@@ -412,16 +429,12 @@ qrRoutes.post('/', async c => {
   });
 
   await putQR(c.env.ROUTES, record);
-  auditQr(c, 'qr_create', domain, record, { qr: redactQrForAudit(record) });
-  // A new code is listed at once at this location (v1.40.0): its id goes
-  // into the recent-writes key after the answer, best effort, creates only
-  // (an update's key is already listed)
-  try {
-    c.executionCtx.waitUntil(recordRecentQRWrite(c.env.ROUTES, domain, record.id));
-  } catch {
-    // No execution context (some tests): record it inline
-    await recordRecentQRWrite(c.env.ROUTES, domain, record.id);
-  }
+  await auditQr(c, 'qr_create', domain, record, { qr: redactQrForAudit(record) });
+  // A new code is listed at once (v1.40.0): its id is recorded after the
+  // answer, best effort, creates only (an update's key is already listed).
+  // One D1 row per code since v1.41.0, so concurrent creates never drop each
+  // other, keyed by the record's own createdAt, its incarnation
+  await afterAnswer(c, noteRecentQr(c.env.DB, domain, record.id, record.createdAt));
 
   return c.json({ success: true as const, data: record }, 201);
 });
@@ -506,7 +519,7 @@ qrRoutes.put('/:id', async c => {
   }
 
   await putQR(c.env.ROUTES, updated);
-  auditQr(c, 'qr_update', domain, updated, {
+  await auditQr(c, 'qr_update', domain, updated, {
     before: redactQrForAudit(existing),
     after: redactQrForAudit(updated),
   });
@@ -524,10 +537,18 @@ qrRoutes.delete('/:id', async c => {
   if (state.status === 'missing') {
     throw qrNotFound(id);
   }
+  // Out of the recent-creates record too (v1.41.0), best effort, after the
+  // answer: exactly the deleted incarnation's row, by its createdAt as read
+  // BEFORE the KV delete, so a code re-created since (another incarnation,
+  // another row) stays listed. An unreadable record names no incarnation, so
+  // its delete writes nothing there (v1.41.0 review): a stale recent row then
+  // lists it as its minimal row, as KV's own listing does, until either
+  // catches up
   if (state.status === 'ok') {
-    auditQr(c, 'qr_delete', domain, state.value, { qr: redactQrForAudit(state.value) });
+    await afterAnswer(c, forgetRecentQr(c.env.DB, domain, id, state.value.createdAt));
+    await auditQr(c, 'qr_delete', domain, state.value, { qr: redactQrForAudit(state.value) });
   } else {
-    auditInvalidQrDelete(c, domain, id);
+    await auditInvalidQrDelete(c, domain, id);
   }
 
   // The deleted record's createdAt names the incarnation removed (v1.38.0):

@@ -10,11 +10,11 @@ import {
   StoredQRCodeSchema,
 } from '@bifrost/shared';
 import { HTTPException } from 'hono/http-exception';
+import { awaitRecentQrs, incarnationTime, type RecentQr, recentQrs } from '../db/qr-recent';
 import { type BoundaryRead, logInvalidBoundary, readKvJson } from '../utils/boundary';
 import { errorName } from '../utils/error-name';
 import { KVDeleteError, KVReadError, KVWriteError } from '../utils/kv-errors';
 import { kvListingPage, nextCursor } from '../utils/list-cursor';
-import { readRecentQRWrites } from './qr-recent';
 import { qrDomainPrefix, qrKey } from './schema';
 
 /**
@@ -146,17 +146,32 @@ export interface QRListResult {
  * A record that cannot be read is listed as a minimal row (`{ domain, id,
  * invalid: true }`, v1.38.0) so it can be found and deleted: it matches a
  * search by its id only, matches no type or tag filter, and sorts last.
+ *
+ * A code created in the last two minutes that KV's listing does not show yet
+ * is read by its key and included (v1.40.0; recorded in the D1 table
+ * `qr_recent` since v1.41.0, given as `recent`; none: no merge), on every
+ * page, so the offsets and the total of every page count the same rows. A
+ * row is a hint: its id is merged only when the record read is one of the
+ * id's live incarnations (its createdAt equals a live row's `created_at`;
+ * compared for equality only, never as an order), so a KV location still
+ * serving a deleted incarnation merges nothing; a record that cannot be read
+ * is listed as its minimal row, as KV's listing lists it (v1.38.0).
  */
 export async function listQRs(
   kv: KVNamespace,
   domain: string,
   query: Pick<QRListQuery, 'type' | 'tag' | 'search' | 'offset' | 'limit'> = { offset: 0 },
+  recent?: D1Database,
 ): Promise<QRListResult> {
   const prefix = qrDomainPrefix(domain);
   const records: QRCode[] = [];
   const invalid: InvalidQRRow[] = [];
   let cursor: string | undefined;
   const seenCursors = new Set<string>();
+  // The recent-creates read starts alongside the KV listing (v1.41.0) and is
+  // awaited after it, for at most QR_RECENT_READ_TIMEOUT_MS (v1.41.0 review);
+  // it never rejects (best effort, read-only)
+  const recentRead = recent ? recentQrs(recent, domain) : Promise.resolve<RecentQr[]>([]);
 
   try {
     do {
@@ -179,29 +194,38 @@ export async function listQRs(
     );
   }
 
-  // Codes written in the last two minutes that the lagging listing lacks
-  // (v1.40.0): read by key, which sees a write at once at this location. Best
-  // effort, outside the listing's own error handling: an id whose read fails
-  // is skipped and logged by error class, so a transient KV failure here
-  // never fails the listing (the code shows once KV's listing catches up)
+  // Codes created in the last two minutes that the lagging listing lacks
+  // (v1.40.0; D1 rows since v1.41.0): read by key, which sees a write at once
+  // at the location that made it, and merged only for a live incarnation of
+  // the id (v1.41.0 review). Best effort, outside the listing's own error
+  // handling: an id whose read fails is skipped and logged by error class, so
+  // a transient KV failure here never fails the listing (the code shows once
+  // KV's listing catches up)
   const listed = new Set([...records.map(qr => qr.id), ...invalid.map(row => row.id)]);
-  const unlisted = (await readRecentQRWrites(kv, domain))
-    .map(write => write.id)
-    .filter(id => !listed.has(id));
-  const recent = await Promise.all(
-    unlisted.map(async id => {
+  const live = new Map<string, Set<number>>();
+  for (const row of await awaitRecentQrs(recentRead)) {
+    if (listed.has(row.id)) continue;
+    const incarnations = live.get(row.id) ?? new Set<number>();
+    incarnations.add(row.createdAt);
+    live.set(row.id, incarnations);
+  }
+  const recentReads = await Promise.all(
+    [...live].map(async ([id, incarnations]) => {
       try {
-        return await readQRState(kv, qrKey(domain, id));
+        return { id, incarnations, read: await readQRState(kv, qrKey(domain, id)) };
       } catch (error) {
         console.warn(`[QR] A recent code could not be read: ${errorName(error)}`);
-        return { status: 'missing' } as const;
+        return { id, incarnations, read: { status: 'missing' } as const };
       }
     }),
   );
-  for (const [index, read] of recent.entries()) {
-    if (read.status === 'ok') records.push(read.value);
-    else if (read.status === 'invalid') {
-      invalid.push({ domain, id: unlisted[index] ?? '', invalid: true });
+  for (const { id, incarnations, read } of recentReads) {
+    if (read.status === 'ok') {
+      // Another incarnation (a deleted one a KV location still serves) is not merged
+      const at = incarnationTime(read.value.createdAt);
+      if (at !== null && incarnations.has(at)) records.push(read.value);
+    } else if (read.status === 'invalid') {
+      invalid.push({ domain, id, invalid: true });
     }
   }
 

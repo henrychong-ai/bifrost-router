@@ -99,21 +99,19 @@ describe('a route create retried after an uncertain answer', () => {
 });
 
 /**
- * v1.40.0: a 409 ROUTE_SOURCE_CHANGED reloads the route's queries, so a retry
- * never resends the stale expectedUpdatedAt.
+ * v1.40.0: a 409 ROUTE_SOURCE_CHANGED reloads the route listings, so a retry
+ * never resends the stale expectedUpdatedAt (v1.41.0: there is no single-route
+ * query any more).
  */
 describe('reloadChangedRoute', () => {
-  it('reloads the list and the detail after ROUTE_SOURCE_CHANGED only', () => {
+  it('reloads the route listings after ROUTE_SOURCE_CHANGED only', () => {
     const client = new QueryClient();
     const invalidate = vi.spyOn(client, 'invalidateQueries').mockResolvedValue();
     const changed = new ApiError(409, 'This route changed…', undefined, {
       code: 'ROUTE_SOURCE_CHANGED',
     });
-    expect(reloadChangedRoute(client, changed, '/promo')).toBe(true);
-    expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([
-      ['routes'],
-      ['routes', '/promo'],
-    ]);
+    expect(reloadChangedRoute(client, changed)).toBe(true);
+    expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([['routes']]);
 
     invalidate.mockClear();
     for (const other of [
@@ -121,7 +119,7 @@ describe('reloadChangedRoute', () => {
       new ApiError(400, 'ROUTE_SOURCE_CHANGED'),
       new Error('ROUTE_SOURCE_CHANGED'),
     ]) {
-      expect(reloadChangedRoute(client, other, '/promo')).toBe(false);
+      expect(reloadChangedRoute(client, other)).toBe(false);
     }
     expect(invalidate).not.toHaveBeenCalled();
   });

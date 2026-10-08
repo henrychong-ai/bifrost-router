@@ -1,3 +1,4 @@
+/* oxlint-disable import/default -- Vite ?raw imports return a string as default export */
 /**
  * Behavioural tests for the QR code API (v1.30.0 — ported feature, port-seam
  * coverage). These exercise the plain-Hono adaptation's handler-level
@@ -18,8 +19,10 @@ import {
 } from '@bifrost/shared';
 import { Hono } from 'hono';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import migration0013 from '../../drizzle/0013_qr_recent.sql?raw';
 import { MAX_RECORD_LINE_BYTES } from '../../src/backup/integrity';
 import { backupKV } from '../../src/backup/kv';
+import { recentQrs } from '../../src/db/qr-recent';
 import { putQR } from '../../src/kv/qr';
 import { createRoute, listAllDomainRoutes } from '../../src/kv/routes';
 import { qrKey, routeKey } from '../../src/kv/schema';
@@ -43,6 +46,15 @@ function authedJson(method: string, url: string, body?: unknown): Request {
   });
 }
 
+/** The newest audit row's details for `/qr/no-context` and `action`. */
+function auditOf(action: string) {
+  return env.DB.prepare(
+    `SELECT details FROM audit_logs WHERE action = ? AND path = '/qr/no-context' ORDER BY id DESC LIMIT 1`,
+  )
+    .bind(action)
+    .first<{ details: string }>();
+}
+
 describe('QR API (v1.30.0 port seams)', () => {
   let app: Hono<AppEnv>;
 
@@ -55,6 +67,15 @@ describe('QR API (v1.30.0 port seams)', () => {
         source TEXT NOT NULL DEFAULT 'bifrost',
         created_at INTEGER DEFAULT (unixepoch()) NOT NULL
       )`).run();
+    // The recent-creates table from the real migration (comments stripped)
+    const statements = migration0013
+      .split('\n')
+      .filter(line => !line.trimStart().startsWith('--'))
+      .join('\n')
+      .split(';')
+      .map(statement => statement.trim())
+      .filter(statement => statement.length > 0);
+    for (const statement of statements) await env.DB.prepare(statement).run();
   });
 
   beforeEach(() => {
@@ -74,11 +95,10 @@ describe('QR API (v1.30.0 port seams)', () => {
     return res;
   }
 
-  // v1.40.0 review: only a create records its id in the recent-writes key,
-  // after the answer (waitUntil); an update's key is already listed
-  it('records a created code in the recent-writes key, and never an update', async () => {
-    const recent = `qr-recent:${DOMAIN}`;
-    await env.ROUTES.delete(recent);
+  // v1.40.0 review: only a create records its id among the recent creates,
+  // after the answer (waitUntil); an update's key is already listed. A D1
+  // row since v1.41.0 (`qr_recent`, migration 0013), at the record's createdAt
+  it('records a created code among the recent creates, and never an update', async () => {
     const created = await fetchSettled(
       authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
         id: 'recent-check',
@@ -87,15 +107,52 @@ describe('QR API (v1.30.0 port seams)', () => {
       }),
     );
     expect(created.status).toBe(201);
-    const after = await env.ROUTES.get<Array<{ id: string }>>(recent, 'json');
-    expect(after?.map(write => write.id)).toEqual(['recent-check']);
+    const { createdAt } = ((await created.json()) as { data: QRCode }).data;
+    expect(await recentQrs(env.DB, DOMAIN)).toEqual([{ id: 'recent-check', createdAt }]);
+    const row = await env.DB.prepare('SELECT created_at FROM qr_recent WHERE id = ?')
+      .bind('recent-check')
+      .first<{ created_at: number }>();
+    expect(row?.created_at).toBe(createdAt);
 
-    await env.ROUTES.delete(recent);
+    await env.DB.prepare('DELETE FROM qr_recent').run();
     const updated = await fetchSettled(
       authedJson('PUT', `${BASE}/recent-check?domain=${DOMAIN}`, { description: 'edited' }),
     );
     expect(updated.status).toBe(200);
-    expect(await env.ROUTES.get(recent)).toBeNull();
+    expect(await recentQrs(env.DB, DOMAIN)).toEqual([]);
+    // The old shared KV key is never written
+    expect(await env.ROUTES.get(`qr-recent:${DOMAIN}`)).toBeNull();
+  });
+
+  // v1.41.0 review: the recent-creates writes and the audit rows go through
+  // one after-answer helper. With no execution context (the app called
+  // without one) both run inline, before the answer: the audit is no longer
+  // skipped there
+  it('with no execution context, a create and a delete record their audit and recent rows inline', async () => {
+    const created = await app.fetch(
+      authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
+        id: 'no-context',
+        type: 'url',
+        payload: { url: 'https://example.com' },
+      }),
+      testEnv,
+    );
+    expect(created.status).toBe(201);
+    const { createdAt } = ((await created.json()) as { data: QRCode }).data;
+    expect(JSON.parse((await auditOf('qr_create'))?.details ?? '{}')).toMatchObject({
+      id: 'no-context',
+    });
+    expect(await recentQrs(env.DB, DOMAIN)).toContainEqual({ id: 'no-context', createdAt });
+
+    const deleted = await app.fetch(
+      authedJson('DELETE', `${BASE}/no-context?domain=${DOMAIN}`),
+      testEnv,
+    );
+    expect(deleted.status).toBe(200);
+    expect(JSON.parse((await auditOf('qr_delete'))?.details ?? '{}')).toMatchObject({
+      id: 'no-context',
+    });
+    expect((await recentQrs(env.DB, DOMAIN)).map(row => row.id)).not.toContain('no-context');
   });
 
   // ---------------------------------------------------------------------------

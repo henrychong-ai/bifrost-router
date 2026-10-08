@@ -30,6 +30,7 @@ import http from 'node:http';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { CLOSED_PORT_PROBE, closedPortMarker } from './closed-port-probe.mjs';
 
 const ID = `bifrost-check-${process.pid}`;
 const IMAGE = `${ID}:dashboard`;
@@ -1055,21 +1056,26 @@ async function checkTailscaleImage(base) {
     'it listens on the Unix socket',
     docker(['exec', name, 'netstat', '-lx']).stdout.includes(SOCKET),
   );
+  // Specific evidence that nothing listens on TCP 3001 (v1.41.0): both
+  // socket tables read strictly with no LISTEN on the port, and a loopback
+  // connection refused (curl exit 7), never merely a request that failed
+  const probe = docker(['exec', '-i', name, 'sh', '-s'], {
+    check: false,
+    input: CLOSED_PORT_PROBE,
+  });
   check(
-    'a loopback TCP request finds nothing',
-    docker(
-      ['exec', name, 'wget', '-q', '-T', '2', '-O', '/dev/null', 'http://127.0.0.1:3001/health'],
-      {
-        check: false,
-      },
-    ).status !== 0,
+    'nothing listens on TCP 3001: no LISTEN in /proc/net/tcp or tcp6, and a loopback connection is refused',
+    probe.status === 0 && probe.stdout.trim() === closedPortMarker(),
+    `${probe.stdout}${probe.stderr}`.trim(),
   );
   check(
     'the socket directory is root-only',
     docker(['exec', name, 'stat', '-c', '%a %U', '/run/bifrost']).stdout.trim() === '700 root',
   );
-  // The compose healthcheck: the socket here, TCP in an image from before
-  // the socket (a rollback; the plain image, on TCP 3001, stands in for one)
+  // The compose healthcheck asks the socket only (v1.41.0: the TCP fallback
+  // for images from before v1.39.0 is gone). The plain image, which answers
+  // /health on TCP 3001 and has no socket, stands in for such an image: the
+  // healthcheck must fail there, so TCP can never be what makes it pass
   const healthcheck = JSON.parse(
     /^\s+test: (\["CMD-SHELL", .*\])$/m.exec(
       readFileSync('admin/docker-compose.tailscale.yml', 'utf8'),
@@ -1081,9 +1087,21 @@ async function checkTailscaleImage(base) {
       docker(['exec', name, 'sh', '-c', healthcheck], { check: false }).status === 0,
   );
   check(
-    'the compose healthcheck passes on an image without the socket (rollback)',
+    'the compose healthcheck fails on an image that answers on TCP 3001 only (no TCP fallback)',
     typeof healthcheck === 'string' &&
-      docker(['exec', `${ID}-dashboard`, 'sh', '-c', healthcheck], { check: false }).status === 0,
+      docker(
+        [
+          'exec',
+          `${ID}-dashboard`,
+          'curl',
+          '-fsS',
+          '-o',
+          '/dev/null',
+          'http://127.0.0.1:3001/health',
+        ],
+        { check: false },
+      ).status === 0 &&
+      docker(['exec', `${ID}-dashboard`, 'sh', '-c', healthcheck], { check: false }).status !== 0,
   );
 
   // What Serve sends: Host localhost, the browser's host in

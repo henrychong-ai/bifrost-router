@@ -6,6 +6,180 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.41.0 (2026-10-09) — Recent QR codes in D1; no self-inflicted 409 after a save; the dashboard healthcheck is socket-only
+
+**Why:** three open TODO items. Each QR create read and rewrote one shared KV
+key per domain to record the codes KV's listing did not show yet, so two
+creates at the same moment could drop one id, and KV's one write a second per
+key could refuse the second. An operator who reopened a route, or toggled it
+again, before the list refetched after their own save sent the old
+`updatedAt` and met a 409 `ROUTE_SOURCE_CHANGED` (or repeated the toggle).
+And the `:tailscale` compose healthcheck still fell back to TCP 3001 for
+images from before v1.39.0, which are no longer rollback targets. **One D1
+migration (`0013`, additive and idempotent).** No API wire change.
+
+**Upgrading:**
+
+- **Apply `drizzle/0013_qr_recent.sql` to each environment BEFORE deploying
+  the v1.41.0 Worker there** (`pnpm run db:migrate:v13:prod` for production,
+  `pnpm run db:migrate:v13:dev` for the `dev` environment's own database, or
+  `wrangler d1 execute <database> --remote --file=./drizzle/0013_qr_recent.sql`;
+  README "Run Database Migrations"). It creates the `qr_recent` table and its index
+  and changes nothing on a second apply. Without it the Worker still works: a
+  new QR code then shows in other clients only once KV's listing catches up
+  (about a minute), each QR create and delete logs a warning naming the
+  missing table, and QR listings log it once per isolate. A Worker rolled back
+  to v1.40.x ignores the table. The opt-in `.github/workflows/ci-cd.yml.example`
+  has a commented step that applies it before `wrangler deploy`; its file list
+  is marked to be edited per release to that release's additive migrations.
+- **⚠️ `admin/docker-compose.tailscale.yml` now needs a v1.39.0 or later
+  `:tailscale` image.** Its healthcheck asks nginx over the Unix socket only
+  (a deliberate choice: the TCP fallback is gone, and the container check
+  proves port 3001 is closed). Rolling the image back to a release before
+  v1.39.0 needs that release's compose file too: with this one, Docker reports
+  such a container unhealthy (it keeps serving, and nothing restarts it).
+  README "Optional: Admin Dashboard" carries the same note.
+- The v1.40.0 KV key `qr-recent:{domain}` is no longer read or written and
+  expires on its own; nothing needs deleting.
+
+### QR codes
+
+- **Recent creates are D1 rows** (TODO P2). The record of codes created in the
+  last two minutes, which `listQRs` merges while KV's listing catches up, is
+  now the D1 table `qr_recent` (migration `0013`). The module moved to
+  `src/db/qr-recent.ts`. Concurrent creates each write their own row, so none
+  is lost.
+- **One row per incarnation; no clock ever orders two writes.** Workers
+  isolates' clocks disagree, so the table never compares times from
+  different writers. A deleted code and a code re-created with the same id
+  are different incarnations, named by the record's own `createdAt` (set
+  once, at create): the primary key is `(domain, id, created_at)`, compared
+  for equality only, with a `deleted` flag and `noted_at`, the writer's clock
+  at the row's first write, used only for the two-minute window and the
+  prune (index `idx_qr_recent_domain_noted` on `(domain, noted_at)`, which
+  the Drizzle `qrRecent` table declares too). A create inserts its row and
+  never touches an existing one (`ON CONFLICT DO NOTHING`), so a late create
+  write cannot revive a deleted incarnation; a delete marks its
+  incarnation's row deleted, inserting it when the create's write has not
+  landed yet, so the delete wins in either order; a re-create is another
+  row, listed even when its clock runs behind the deleted one's. A delete
+  always writes its incarnation's row, however old the incarnation: whether
+  it is old would compare the creating isolate's clock with the deleting
+  one's. The row is noted at the delete, and the prune removes it once it
+  leaves the window. The delete of an unreadable record writes nothing at
+  all: it names no incarnation.
+- **A row is a hint; the listing checks the incarnation.** For each id a live
+  row names that KV's listing lacks, `listQRs` reads the record by key and
+  merges it only when it is readable and its `createdAt` equals one of the
+  id's live rows, so a KV location still serving a deleted incarnation (KV
+  converges in about a minute; D1 is one database for every location) merges
+  nothing. A record that cannot be read is listed as its minimal row, as
+  v1.40.x did. Two incarnations created in the same millisecond are one row.
+- **Every page merges.** Offset and limit apply after the merge, so every
+  page's offsets and `total` count the same rows and no record is skipped
+  between pages.
+- **Listings are read-only; creates and deletes prune.** A listing reads the
+  domain's newest 100 live rows noted in the last two minutes plus a 5 s
+  margin (no upper bound, for a writer whose clock runs ahead; each row
+  validated at the boundary; a failed read is no recent codes), started
+  alongside the KV listing loop. Once its KV listing is done the listing
+  waits at most 300 ms for that read (`QR_RECENT_READ_TIMEOUT_MS`,
+  `awaitRecentQrs`): a read still pending is no recent codes, logged once as
+  a timeout, so a slow or hung D1 never holds a listing up. Each create and each delete prunes up to 100
+  of its domain's rows noted before that, in one `db.batch` with its own row,
+  so a domain that only sees deletes stays bounded too; D1 runs a batch as
+  one transaction, so when the batch fails the row is written again on its
+  own (both writes are idempotent), except when the table is missing
+  (migration not applied), which is logged once and not retried. A missing
+  table is named in the log on every path: per create and per delete, and
+  once per isolate on the read path, which every listing takes. Every other
+  failure is logged by error class only, and none fails a create, delete or
+  listing.
+- **One after-answer helper.** The QR audit rows (`qr_create`, `qr_update`,
+  `qr_delete`) and the recent-creates writes go through the same `afterAnswer`
+  in `src/routes/qr.ts` (`waitUntil`). With no execution context, as when a
+  test calls the app without one, both now run inline before the answer; an
+  audit was skipped there before. A deployed Worker always has one, so
+  production behaviour is unchanged.
+
+### Dashboard
+
+- **No self-inflicted 409 after a save** (TODO P3). After a successful update,
+  toggle, migration, delete or transfer the dashboard writes the server's
+  answer into every cached route listing (the page's list, the other domains'
+  prefetches, the all-domains list, a search, and each by-target answer,
+  Storage's "Associated Routes"), matched by domain AND path, before the usual
+  invalidation and refetch (`applyRouteSaved`, `applyRouteMigrated`,
+  `applyRouteRemoved`, `applyRouteTransferred` in
+  `admin/src/hooks/use-routes.ts`). **No clock ever orders two writes**
+  (Workers isolates' clocks disagree, so a later save can carry a smaller
+  `updatedAt` than an earlier one, and a delayed older answer a greater one):
+  a saved route replaces its row only when that row is still exactly the
+  version the write superseded (the `expectedUpdatedAt` an update or
+  migration sent, else the cached version when it started, as for a toggle),
+  compared for equality. Any other row, a later write's answer or a refetch,
+  is left for the invalidation refetch, which settles it. A migrated route
+  takes its old row's place on the same rule; a row already at its new path
+  is left for the refetch, and the old row just goes. The editor and the
+  `expectedUpdatedAt` it sends, the toggle's label and the `enabled` it sends,
+  the Active/Disabled badge and the status filter all read that row, and
+  Storage's "View in Routes" opens the editor from the by-target row (its key
+  is now `routeKeys.byTarget`), so a route reopened or toggled again before
+  the refetch lands acts on the saved version. The unused single-route query
+  (`useRoute`, `routeKeys.detail`) is removed, and `reloadChangedRoute` takes
+  no path.
+- **A delete or a transfer removes only the version it removed.** Each reads,
+  when it starts, the newest `updatedAt` any cached listing holds for the
+  route (`cachedRouteVersion`, in `onMutate`), and on success a row goes only
+  if it is exactly that version: a route re-created at that path while the
+  request was in flight, and refetched, is kept whatever its stamp (even a
+  smaller one, from a slower clock), the listing's total is unchanged, and a
+  transfer never replaces it with the moved route. With nothing cached at the
+  start, only a row with no timestamp goes. A deleted
+  route leaves every listing, each total lowered to match (a recovery delete
+  removes the unreadable row by its exact key).
+- **A transferred route moves rather than vanishes.** In a listing with no
+  domain filter (all domains, a search, a by-target answer) its row becomes
+  the answer on the new domain, the total unchanged (or, when that listing
+  already shows it there, the old row just goes); the old domain's listings
+  lose it. The new domain's listings are never written: where the route
+  belongs on a page there is the server's to say, and the invalidation
+  refetches them.
+
+### Dashboard container
+
+- **Socket-only healthcheck** (TODO P3). The `:tailscale` compose healthcheck
+  is `curl --unix-socket /run/bifrost/nginx.sock http://localhost/health`,
+  nothing else; the TCP branch for images from before v1.39.0 is gone.
+- **The closed port is proven, not assumed.** `pnpm run
+  check:dashboard-container` runs `scripts/closed-port-probe.mjs` inside the
+  `:tailscale` container (`docker exec -i … sh -s`), which prints
+  `tcp-3001-closed` only when `/proc/net/tcp` and, when it exists, `tcp6` are
+  read without error as socket tables with no LISTEN socket on port 3001, and
+  `curl http://127.0.0.1:3001/` is refused (exit 7). A `tcp6` that does not
+  exist counts as IPv6 disabled; one that exists but cannot be read, a missing
+  curl, a listener or any other curl result fails the check. It replaces the
+  `wget` request whose failure alone was taken as proof. The check also
+  requires the healthcheck to fail on an image that answers `/health` on TCP
+  3001 only. `scripts/check-dashboard-security.test.mjs` pins the healthcheck
+  (no `127.0.0.1`, `:3001` or `wget` outside comments) and runs the probe
+  against synthetic socket tables (a listener in either table, an unreadable
+  or malformed table) and a real listener.
+
+### TODO.md
+
+- Closes the three items above. Adds three (P3): one shared after-answer
+  helper for every audit site (`src/routes/admin.ts`, `storage.ts` and
+  `feedback.ts` still skip their audits with no execution context, while the
+  QR handlers run theirs inline through a QR-local helper); the QR listing's
+  recent read and its per-id KV reads run even when the list filters will
+  drop every merged code; and `pnpm run public:check` fails with `ENOENT` on
+  a tracked file deleted but not yet staged. A "v1.41.0 review residuals"
+  list adds three more: replacing the route-listing cache patching with an
+  awaited invalidation, sharing `afterAnswer` with `src/routes/admin.ts`,
+  `src/routes/feedback.ts` and `src/index.ts`, and dropping the synthetic
+  by-target `RouteList`.
+
 ## v1.40.1 (2026-10-08) — Dashboard script check on a real HTML parser
 
 **Why:** a CodeQL alert (`js/bad-tag-filter`) flagged the regular expression

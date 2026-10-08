@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { R2MetadataUpdate, StorageListParams } from '@/lib/api-client';
 import { api } from '@/lib/api-client';
+import { routeKeys } from './use-routes';
 
 // =============================================================================
 // Query Keys
@@ -127,7 +128,7 @@ export function useUpdateObjectMetadata() {
 
 export function useRoutesByTarget(bucket: string, target: string) {
   return useQuery({
-    queryKey: ['routes', 'by-target', bucket, target],
+    queryKey: routeKeys.byTarget(bucket, target),
     queryFn: () => api.routes.byTarget(bucket, target),
     enabled: !!bucket && !!target,
   });

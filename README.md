@@ -209,9 +209,23 @@ wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0009_feedback.sq
 wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0010_external_audit_capture.sql
 wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0011_unified_traffic_events.sql
 wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0012_feedback_priority_scale.sql
+wrangler d1 execute bifrost-analytics --remote --file=./drizzle/0013_qr_recent.sql
 
 # For local dev, use --local instead of --remote
 ```
+
+> **Upgrading an existing deployment to v1.41.0?** Apply `0013` to each
+> environment **before** deploying the v1.41.0 Worker there
+> (`pnpm run db:migrate:v13:prod` for production, `pnpm run db:migrate:v13:dev`
+> for the `dev` environment's own database, or the `0013` line above). It adds the
+> `qr_recent` table, where each QR create records its code (and each delete
+> marks it, one row per incarnation) so every listing shows it before KV's
+> listing catches up. It is additive and idempotent
+> (`IF NOT EXISTS`): a second apply changes nothing, and a Worker rolled back
+> to v1.40.x ignores the table. A Worker deployed without it still works; a
+> new QR code then shows only once KV's listing catches up (about a minute),
+> with a warning naming the missing table per QR create and delete, and once
+> per Worker isolate on QR listings.
 
 > **Upgrading an existing deployment to v1.34.0?** `0012` is a **one-shot** data
 > migration, not a plain schema add. It rescales `feedback.priority` to the
@@ -352,6 +366,13 @@ session, credentials or token); a front door that adds another header should
 drop it itself. `DASHBOARD_HOSTNAMES` takes DNS names (letters, digits, hyphens
 and dots; no underscore).
 
+> **⚠️ Upgrading the `:tailscale` dashboard to v1.41.0:** the healthcheck in
+> `admin/docker-compose.tailscale.yml` asks nginx over its Unix socket only (no
+> TCP fallback), so this compose file needs a **v1.39.0 or later** `:tailscale`
+> image. To roll the image back to a release before v1.39.0, take that
+> release's compose file too: with this one, Docker reports the older
+> container unhealthy (it keeps serving, and nothing restarts it).
+
 **Upgrading from v1.38 or earlier:** the image no longer takes the
 `VITE_API_URL` build argument and no longer serves `/env-config.js`. Set
 `API_PROXY_ORIGIN` (the URL you used for `VITE_API_URL`) and keep
@@ -366,8 +387,9 @@ The `:tailscale` image now serves nginx on a Unix socket
 that Tailscale Serve proxies to (no TCP port: tailscaled's userspace
 networking would hand tailnet connections to a loopback port around Serve):
 take the new `admin/docker-compose.tailscale.yml`, whose healthcheck uses the
-socket and still passes on an older image, so a rollback stays healthy; it
-needs no `DASHBOARD_HOSTNAMES`. Rename `VITE_API_URL` and
+socket; it needs no `DASHBOARD_HOSTNAMES`. Since v1.41.0 that healthcheck asks
+the socket only (no TCP fallback), so the compose file needs a v1.39.0 or later
+`:tailscale` image: rolling back further needs that release's compose file. Rename `VITE_API_URL` and
 `VITE_ADMIN_API_KEY` in `admin/.env.local` to `DASHBOARD_DEV_API_URL` and
 `DASHBOARD_DEV_ADMIN_API_KEY`. The admin API now allows no CORS origin: the
 dashboard calls the Worker server-side.

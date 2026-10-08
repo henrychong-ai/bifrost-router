@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 /**
  * Link clicks analytics table
@@ -543,3 +543,41 @@ export const counters = sqliteTable('counters', {
  * Type for selecting a counter row
  */
 export type Counter = typeof counters.$inferSelect;
+
+/**
+ * Recently created QR codes (v1.41.0, migration 0013)
+ *
+ * One row per INCARNATION of a code, `(domain, id, created_at)`: `created_at`
+ * is the record's own createdAt, its identity, never compared as an ordering
+ * (isolates' clocks disagree). A create inserts its row and never touches an
+ * existing one; a delete sets `deleted` on its incarnation's row, inserting it
+ * when the create's write has not landed yet. `noted_at` is the writer's clock
+ * at the row's first write, used only for the listing window and the prune.
+ * `listQRs` merges a live row's id only for the incarnation KV serves
+ * (`src/db/qr-recent.ts`). Index `idx_qr_recent_domain_noted` on
+ * `(domain, noted_at)` serves the windowed read and the bounded prune.
+ */
+export const qrRecent = sqliteTable(
+  'qr_recent',
+  {
+    /** The code's domain */
+    domain: text('domain').notNull(),
+
+    /** The code's id */
+    id: text('id').notNull(),
+
+    /** The incarnation: the record's own createdAt, Unix MILLISECONDS (identity, not an order) */
+    createdAt: integer('created_at').notNull(),
+
+    /** 1 once this incarnation was deleted */
+    deleted: integer('deleted').notNull().default(0),
+
+    /** The writer's clock at the row's first write, ms: the window and the prune only */
+    notedAt: integer('noted_at').notNull(),
+  },
+  table => ({
+    pk: primaryKey({ columns: [table.domain, table.id, table.createdAt] }),
+    // Declared to match drizzle/0013, which creates it
+    domainNoted: index('idx_qr_recent_domain_noted').on(table.domain, table.notedAt),
+  }),
+);

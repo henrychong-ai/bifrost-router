@@ -39,9 +39,10 @@ services:
       - /dev/net/tun:/dev/net/tun
     healthcheck:
       # nginx listens on a Unix socket only (v1.39.0; Tailscale Serve is the
-      # one way in). The TCP branch serves an image from before it, so a
-      # rollback to an earlier release tag with this file stays healthy.
-      test: ["CMD-SHELL", "if [ -S /run/bifrost/nginx.sock ]; then curl -fsS -o /dev/null --unix-socket /run/bifrost/nginx.sock http://localhost/health; else curl -fsS -o /dev/null http://127.0.0.1:3001/health; fi"]
+      # one way in). No TCP fallback (v1.41.0): this file needs a v1.39.0 or
+      # later :tailscale image; rolling back further needs that release's
+      # compose file.
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null --unix-socket /run/bifrost/nginx.sock http://localhost/health"]
       interval: 30s
       timeout: 10s
       retries: 3

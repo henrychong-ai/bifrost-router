@@ -1,6 +1,6 @@
 {
   "name": "bifrost",
-  "version": "1.40.1",
+  "version": "1.41.0",
   "description": "Bifrost - Edge router with Cloudflare Workers and Hono",
   "type": "module",
   "private": true,
@@ -43,6 +43,9 @@
     "db:migrate:v11:prod": "wrangler d1 execute DB --remote --file=./drizzle/0011_unified_traffic_events.sql",
     "db:migrate:v12:local": "wrangler d1 execute DB --local --file=./drizzle/0012_feedback_priority_scale.sql",
     "db:migrate:v12:prod": "wrangler d1 execute DB --remote --file=./drizzle/0012_feedback_priority_scale.sql",
+    "db:migrate:v13:local": "wrangler d1 execute DB --local --file=./drizzle/0013_qr_recent.sql",
+    "db:migrate:v13:dev": "wrangler d1 execute DB --env dev --remote --file=./drizzle/0013_qr_recent.sql",
+    "db:migrate:v13:prod": "wrangler d1 execute DB --remote --file=./drizzle/0013_qr_recent.sql",
     "db:studio": "drizzle-kit studio",
     "prepare": "husky",
     "types:generate": "wrangler types --include-env=false",

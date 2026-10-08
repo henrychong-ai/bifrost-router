@@ -48,7 +48,6 @@ export {
   useDeleteRoute,
   useMigrateRoute,
   usePrefetchAllDomainRoutes,
-  useRoute,
   useRoutes,
   useSearchRoutes,
   useToggleRoute,
