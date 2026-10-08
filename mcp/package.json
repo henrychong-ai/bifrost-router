@@ -1,6 +1,6 @@
 {
   "name": "@bifrost/mcp",
-  "version": "1.41.0",
+  "version": "1.41.1",
   "description": "MCP server for Bifrost - AI-powered route management",
   "type": "module",
   "main": "./dist/index.js",
@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "@bifrost/shared": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.31.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
