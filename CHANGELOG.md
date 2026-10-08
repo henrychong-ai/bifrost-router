@@ -6,6 +6,31 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.41.1 (2026-10-09) — Dependency maintenance
+
+**Why:** a routine minor and patch sweep across every workspace package. No
+D1 migration, no API wire change, no Worker or dashboard behaviour change.
+
+### Dependencies
+
+- **Wrangler 4.146.0 -> 4.149.0**, still pinned exactly, with
+  `worker-configuration.d.ts` regenerated (`workerd@1.20261006.1`; the
+  compatibility date is unchanged).
+- **In-range sweep:** `hono` 4.13.13, `drizzle-orm` 0.45.4, `oxlint` 1.87.0,
+  `@modelcontextprotocol/sdk` 1.32.1, `vite` 8.3.4, `@vitejs/plugin-react`
+  6.1.2, `@tanstack/react-query` 5.104.1, and the dashboard's Radix UI
+  primitives (`react-dialog` 1.2.0, `react-slot` 1.4.0, `react-tooltip` 1.3.0,
+  `react-alert-dialog` 1.1.24, `react-dropdown-menu` 2.1.25, `react-label`
+  2.1.16, `react-select` 2.3.8, `react-separator` 1.1.16, `react-switch`
+  1.3.8, `react-tabs` 1.1.22).
+- **Held back (major versions):** TypeScript 7 (the `~6.0` pin stands),
+  Vitest 5 and its coverage plugins, `@cloudflare/vitest-pool-workers` 0.23,
+  `@tanstack/react-table` 9, `lucide-react` 1.x and `@types/node` 26 (the
+  Node 24 baseline).
+- `pnpm audit` reports no known vulnerabilities; no override floor changed.
+
+---
+
 ## v1.41.0 (2026-10-09) — Recent QR codes in D1; no self-inflicted 409 after a save; the dashboard healthcheck is socket-only
 
 **Why:** three open TODO items. Each QR create read and rewrote one shared KV

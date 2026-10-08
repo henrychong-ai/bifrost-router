@@ -2,7 +2,7 @@
 
 Guidance for AI coding agents (Claude Code, Codex and others) working with this repository. This is the canonical instruction file; `CLAUDE.md` only imports it (`@AGENTS.md`), so edit this file.
 
-**Version:** 1.41.0 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.41.1 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Public repository — sanitisation (MANDATORY)
 
