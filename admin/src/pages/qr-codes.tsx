@@ -106,6 +106,7 @@ import {
   WIFI_AUTH_TRIGGER_LABELS,
 } from '@/lib/qr-form-state';
 import { initialQrPageDomain, qrPageNavDomain } from '@/lib/qr-page-domain';
+import { keyOfInput, type RouteStoreKey, RouteWritePendingError } from '@/lib/route-pending';
 import { type CreateRouteInput, CreateRouteSchema, type Route } from '@/lib/schemas';
 import { downloadPng, downloadSvg } from '@/lib/svg-to-png';
 
@@ -261,8 +262,9 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
   // The new route whose last create got no certain answer (v1.38.0): its
   // create may have landed, so a retry for the same path that meets "Route
   // already exists" reads the route back and links it when it holds the
-  // values sent
-  const uncertainRoute = useRef<string | null>(null);
+  // values sent. Keyed as the Worker keys the path (`keyOfInput`, v1.41.1
+  // review), so a retry at another spelling of the same route is marked too
+  const uncertainRoute = useRef<RouteStoreKey | null>(null);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -444,19 +446,24 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
     try {
       let input = submission.input;
       if (submission.route) {
-        const routeKey = `${domain}\u0000${submission.route.path}`;
+        const routeKey = keyOfInput(domain, submission.route.path);
         let route: Route;
         try {
-          route = await createRoute.mutateAsync({
+          ({ route } = await createRoute.mutateAsync({
             data: submission.route,
             domain,
             acknowledgeCredentialTarget,
             afterUncertainAnswer: uncertainRoute.current === routeKey,
-          });
+          }));
         } catch (failure) {
-          const answered =
-            failure instanceof ApiError && failure.status >= 400 && failure.status < 500;
-          uncertainRoute.current = answered ? null : routeKey;
+          // Refused before any request (another write of this route is still
+          // saving): nothing was sent, so nothing is uncertain and the mark
+          // stays as it was; the toast below says why (v1.41.1 review)
+          if (!(failure instanceof RouteWritePendingError)) {
+            const answered =
+              failure instanceof ApiError && failure.status >= 400 && failure.status < 500;
+            uncertainRoute.current = answered ? null : routeKey;
+          }
           throw failure;
         }
         uncertainRoute.current = null;

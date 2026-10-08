@@ -17,15 +17,17 @@ vi.mock('@/lib/api-client', () => ({
 }));
 
 import { api } from '@/lib/api-client';
-import { ApiError, RouteExistsError } from '@/lib/api-error';
+import { ApiError, isNotFoundError, RouteExistsError } from '@/lib/api-error';
+import { keyOfInput, keyOfStored, pendingRoutes } from '@/lib/route-pending';
 import type { CreateRouteInput, Route } from '@/lib/schemas';
-import { createRouteMutationOptions, reloadChangedRoute } from './use-routes';
+import { createRouteMutationOptions } from './use-routes';
 
 const create = vi.mocked(api.routes.create);
 const get = vi.mocked(api.routes.get);
 
 afterEach(() => {
   vi.clearAllMocks();
+  pendingRoutes.clear();
 });
 
 const sent: CreateRouteInput = {
@@ -65,7 +67,10 @@ describe('a route create retried after an uncertain answer', () => {
   it('takes the existing route as its own when every sent value matches', async () => {
     create.mockRejectedValueOnce(exists());
     get.mockResolvedValueOnce(storedRoute());
-    expect(await run({ afterUncertainAnswer: true })).toMatchObject({ path: '/autumn' });
+    expect(await run({ afterUncertainAnswer: true })).toEqual({
+      route: storedRoute(),
+      readBack: true,
+    });
     expect(get).toHaveBeenCalledWith('/autumn', 'example.com');
   });
 
@@ -99,28 +104,85 @@ describe('a route create retried after an uncertain answer', () => {
 });
 
 /**
- * v1.40.0: a 409 ROUTE_SOURCE_CHANGED reloads the route listings, so a retry
- * never resends the stale expectedUpdatedAt (v1.41.0: there is no single-route
- * query any more).
+ * v1.41.1: a route create holds its route in the pending-route store for its
+ * flight and records its answer there (the listings show it once a refetch
+ * lists it); a failed create records nothing and frees the route.
  */
-describe('reloadChangedRoute', () => {
-  it('reloads the route listings after ROUTE_SOURCE_CHANGED only', () => {
-    const client = new QueryClient();
-    const invalidate = vi.spyOn(client, 'invalidateQueries').mockResolvedValue();
-    const changed = new ApiError(409, 'This route changed…', undefined, {
-      code: 'ROUTE_SOURCE_CHANGED',
+describe('a route create and the pending-route store', () => {
+  it('records the created route, the earlier create’s included, and frees the route', async () => {
+    create.mockResolvedValueOnce(storedRoute());
+    expect(await run({})).toEqual({ route: storedRoute(), readBack: false });
+    expect(pendingRoutes.generation(keyOfInput('example.com', '/autumn'))).toBe(1);
+    pendingRoutes.clear();
+    create.mockRejectedValueOnce(exists());
+    get.mockResolvedValueOnce(storedRoute({ updatedAt: 2 }));
+    await run({ afterUncertainAnswer: true });
+    expect(pendingRoutes.answerAt(keyOfStored('example.com', '/autumn'))).toEqual({
+      state: 'live',
+      route: { ...storedRoute({ updatedAt: 2 }), domain: 'example.com' },
     });
-    expect(reloadChangedRoute(client, changed)).toBe(true);
-    expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([['routes']]);
+    expect(pendingRoutes.isPending(keyOfInput('example.com', '/autumn'))).toBe(false);
+  });
 
-    invalidate.mockClear();
+  // v1.41.1 review: the read back may lag; this session's own answer at the
+  // route (a disable answered v2 since) is never overwritten by it
+  it('a route read back after an uncertain answer never overwrites an own answer', async () => {
+    const disabled = { ...storedRoute({ enabled: false, updatedAt: 2 }), domain: 'example.com' };
+    pendingRoutes.observe(disabled);
+    create.mockRejectedValueOnce(exists());
+    get.mockResolvedValueOnce(storedRoute({ updatedAt: 1 }));
+    expect(await run({ afterUncertainAnswer: true })).toMatchObject({
+      route: { updatedAt: 1 },
+      readBack: true,
+    });
+    expect(pendingRoutes.answerAt(keyOfStored('example.com', '/autumn'))).toEqual({
+      state: 'live',
+      route: disabled,
+    });
+    // A gone entry wins too
+    pendingRoutes.markGone(keyOfInput('example.com', '/autumn'));
+    create.mockRejectedValueOnce(exists());
+    get.mockResolvedValueOnce(storedRoute({ updatedAt: 1 }));
+    await run({ afterUncertainAnswer: true });
+    expect(pendingRoutes.answerAt(keyOfStored('example.com', '/autumn'))).toEqual({
+      state: 'gone',
+    });
+  });
+
+  it('a failed create records nothing and frees the route', async () => {
+    create.mockRejectedValueOnce(exists());
+    await expect(run({})).rejects.toMatchObject({ status: 409 });
+    expect(pendingRoutes.generation(keyOfInput('example.com', '/autumn'))).toBe(0);
+    expect(pendingRoutes.isPending(keyOfInput('example.com', '/autumn'))).toBe(false);
+  });
+});
+
+/**
+ * v1.41.1: a route write answered 404 only refetches (the Worker's "Route not
+ * found" is a bare text with no code, and an unknown endpoint or a proxy
+ * answers 404 too), so any 404 is one, and nothing else is.
+ */
+describe('isNotFoundError', () => {
+  // v1.41.1 review: it narrows to a 404 ApiError, so a `false` answer never
+  // narrows an ApiError away (with `error is ApiError` this branch was
+  // `never`, and reading `status` failed to compile)
+  it('a false answer leaves an ApiError an ApiError', () => {
+    const error: unknown = new ApiError(409, 'Route already exists: /promo');
+    if (!(error instanceof ApiError) || isNotFoundError(error)) throw new Error('unexpected');
+    const status: number = error.status;
+    expect(status).toBe(409);
+  });
+
+  it('is any 404 ApiError, coded or not, and nothing else', () => {
+    expect(isNotFoundError(new ApiError(404, 'Route not found: /promo'))).toBe(true);
+    expect(isNotFoundError(new ApiError(404, 'x', undefined, { code: 'QR_NOT_FOUND' }))).toBe(true);
     for (const other of [
       new ApiError(409, 'Route already exists: /promo'),
-      new ApiError(400, 'ROUTE_SOURCE_CHANGED'),
-      new Error('ROUTE_SOURCE_CHANGED'),
+      new ApiError(400, 'Not found'),
+      new Error('Route not found: /promo'),
+      { status: 404 },
     ]) {
-      expect(reloadChangedRoute(client, other)).toBe(false);
+      expect(isNotFoundError(other)).toBe(false);
     }
-    expect(invalidate).not.toHaveBeenCalled();
   });
 });

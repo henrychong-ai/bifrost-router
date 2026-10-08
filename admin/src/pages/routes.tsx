@@ -86,6 +86,8 @@ import {
   useDebounce,
   useDeleteRoute,
   useMigrateRoute,
+  usePendingRouteAdmission,
+  usePendingRouteView,
   usePrefetchAllDomainRoutes,
   useQrCodes,
   useRoutes,
@@ -107,6 +109,7 @@ import {
   unappliedPatchFields,
   unsupportedPatchFields,
 } from '@/lib/route-patch';
+import { keyOfInput, keyOfStored, pendingRoutes, type RouteList } from '@/lib/route-pending';
 import { requireWriteDomain } from '@/lib/route-write-domain';
 import type { CreateRouteInput, InvalidRouteRow, Route, UpdateRouteInput } from '@/lib/schemas';
 import { isR2BucketName, isRedirectStatusCode, R2_BUCKETS } from '@/lib/schemas';
@@ -125,6 +128,14 @@ import {
 /** What the dashboard says when a route changed since its dialog opened (v1.40.0). */
 const ROUTE_CHANGED_TOAST =
   'This route changed since you opened it, so nothing was saved. It has been reloaded: open it again to edit.';
+
+/**
+ * The toast for a save or migration whose route this session's own write
+ * answered with another version (or removed) while its dialog was open
+ * (v1.41.1): nothing is sent.
+ */
+const ROUTE_CHANGED_WHILE_OPEN_TOAST =
+  'This route changed while it was open. Reopen it to edit the current version.';
 
 function RouteTypeBadge({ type }: { type: Route['type'] }) {
   const styles: Record<Route['type'], string> = {
@@ -957,22 +968,79 @@ export function RoutesPage() {
   // Prefetch routes for all domains (for duplicate target detection)
   usePrefetchAllDomainRoutes(SUPPORTED_DOMAINS, filters.domain);
 
-  // Build cross-domain routes map from TanStack Query cache
+  // This session's own route writes (v1.41.1): what they answered is shown in
+  // every listing (the entries' view), and a route with a write in flight
+  // shows its write actions disabled (the writes in flight, on their own
+  // snapshot, so a write starting or settling re-projects no listing). The
+  // write hooks themselves refuse a write at a held route.
+  const pendingView = usePendingRouteView();
+  const admission = usePendingRouteAdmission();
+  /**
+   * Whether a write of this session at the route is in flight, from the
+   * admission snapshot this render subscribed to (it re-renders the row when
+   * the writes in flight change). A readable row is held at its path as a
+   * write of it sends it (normalised as the Worker normalises it); `exact`:
+   * an unreadable record's row, held by its exact stored key (its recovery
+   * delete's).
+   */
+  const isWritePending = useCallback(
+    (route: Pick<Route, 'path' | 'domain'>, options?: { exact?: boolean }) => {
+      const domain = route.domain ?? filters.domain;
+      if (domain === undefined) return false;
+      return admission.isPending(
+        options?.exact ? keyOfStored(domain, route.path) : keyOfInput(domain, route.path),
+      );
+    },
+    [admission, filters.domain],
+  );
+  /**
+   * Whether this session's own write answered at the route, since the
+   * version a dialog was opened on, with another version or by removing it
+   * (v1.41.1 review): the store's entry for its key is gone, or live with
+   * another `updatedAt` (equality only, never order). The dialog then sends
+   * nothing. Covers every way an editor opens, the navigation state of
+   * Storage's "View in Routes" and the QR page's "View route" included. No
+   * entry: the server's own precondition (`expectedUpdatedAt`) decides. The
+   * entry is read at the opened route's stored key, and a `gone-unreadable`
+   * one (an unreadable record removed by its exact key, which may equal a
+   * readable route's) says nothing about a readable route, so it is ignored.
+   */
+  const changedWhileOpen = (route: Route) => {
+    const domain = route.domain ?? filters.domain;
+    const answer =
+      domain === undefined ? undefined : pendingRoutes.answerAt(keyOfStored(domain, route.path));
+    if (answer === undefined || answer.state === 'gone-unreadable') return false;
+    return answer.state === 'gone' || answer.route.updatedAt !== route.updatedAt;
+  };
+  /**
+   * The store's generation of a migration's destination key, captured when
+   * its confirmation opens and compared at submit (equality only): it moves
+   * when an own answer changes that key. The typed path is normalised once,
+   * as the Worker will store it, so it is the key the migration's answer
+   * bumps. `undefined` when the route has no domain yet (the write itself
+   * then refuses).
+   */
+  const destinationGeneration = (route: Pick<Route, 'domain'>, path: string) => {
+    const domain = route.domain ?? filters.domain;
+    return domain === undefined ? undefined : pendingRoutes.generation(keyOfInput(domain, path));
+  };
+
+  // Build cross-domain routes map from TanStack Query cache: the raw
+  // prefetches, each shown through the pending-route store as `useRoutes`
+  // shows its own listing
   const queryClient = useQueryClient();
   const allDomainRoutes = useMemo(() => {
     const map = new Map<string, Route[]>();
     for (const domain of SUPPORTED_DOMAINS) {
-      const cached = queryClient.getQueryData<{ routes: Route[] }>(
-        routeKeys.list(domain, undefined, 1000),
-      );
-      if (cached) map.set(domain, cached.routes);
+      const cached = queryClient.getQueryData<RouteList>(routeKeys.list(domain, undefined, 1000));
+      if (cached) map.set(domain, pendingView.project(cached, domain).routes);
     }
     const currentRoutes = data?.routes;
     if (filters.domain && currentRoutes && currentRoutes.length > 0 && !map.has(filters.domain)) {
       map.set(filters.domain, currentRoutes);
     }
     return map;
-  }, [queryClient, filters.domain, data]);
+  }, [queryClient, filters.domain, data, pendingView]);
 
   const createRoute = useCreateRoute();
   const updateRoute = useUpdateRoute();
@@ -982,6 +1050,9 @@ export function RoutesPage() {
   const transferRoute = useTransferRoute();
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  // The editor's route, as it opened: a save after this session's own write
+  // answered another version there since (an editor opened from Storage while
+  // that route's toggle ran) sends nothing (v1.41.1)
   const [editRoute, setEditRoute] = useState<Route | null>(null);
   // The route to delete: a readable route, or an unreadable record's row,
   // which is deleted by its EXACT key through the recovery (v1.38.0): its
@@ -1007,10 +1078,13 @@ export function RoutesPage() {
     fromDomain: string;
     toDomain: string;
   } | null>(null);
+  // The migration, with its destination key's generation when its
+  // confirmation opened (v1.41.1)
   const [migrationConfirm, setMigrationConfirm] = useState<{
     route: Route;
     newPath: string;
     updates: UpdateRouteInput;
+    destinationGeneration: number | undefined;
   } | null>(null);
 
   // Auto-open edit dialog from navigate state (e.g., storage "View in Routes"),
@@ -1099,6 +1173,14 @@ export function RoutesPage() {
     acknowledgeCredentialTarget?: boolean,
   ) => {
     if (!editRoute) return;
+    // An own write answered at this route since the version the editor
+    // opened (v1.41.1): nothing is sent, and the reopen edits the current one
+    if (changedWhileOpen(editRoute)) {
+      setEditRoute(null);
+      setCredentialConfirm(null);
+      toast.error(ROUTE_CHANGED_WHILE_OPEN_TOAST);
+      return;
+    }
 
     // Nothing changed: no request, no audit row, no new updatedAt (v1.38.0)
     if (!pathChanged && Object.keys(updates).length === 0) {
@@ -1113,6 +1195,7 @@ export function RoutesPage() {
         route: editRoute,
         newPath,
         updates,
+        destinationGeneration: destinationGeneration(editRoute, newPath),
       });
       return;
     }
@@ -1179,22 +1262,27 @@ export function RoutesPage() {
   };
 
   const handleToggle = async (route: Route, acknowledgeCredentialTarget?: boolean) => {
+    // A write of this route already in flight refuses this one before any
+    // request (useToggleRoute), and the toast below says so. A route stored
+    // without `enabled` is active (the row says so): its next state is
+    // disabled (v1.41.1 review), and the toast and confirmation follow it
+    const enabled = route.enabled === false;
     try {
       // Pass domain from route when in all-domains view to ensure correct mutation
       await toggleRoute.mutateAsync({
         path: route.path,
-        enabled: !route.enabled,
+        enabled,
         domain: requireWriteDomain(route.domain, filters.domain),
         acknowledgeCredentialTarget,
       });
-      toast.success(`Route ${route.enabled ? 'disabled' : 'enabled'}`);
+      toast.success(`Route ${enabled ? 'enabled' : 'disabled'}`);
       setCredentialConfirm(null);
     } catch (err) {
       const parameters = credentialTargetParametersFromError(err);
       if (parameters && !acknowledgeCredentialTarget) {
         setCredentialConfirm({
           parameters,
-          verb: 'Enable',
+          verb: enabled ? 'Enable' : 'Disable',
           retry: () => handleToggle(route, true),
         });
         return;
@@ -1228,11 +1316,24 @@ export function RoutesPage() {
    * older Worker that ignores them).
    */
   const handleConfirmMigration = async (
-    plan: { route: Route; newPath: string; updates: UpdateRouteInput } | null = migrationConfirm,
+    plan: NonNullable<typeof migrationConfirm> | null = migrationConfirm,
     acknowledgeCredentialTarget?: boolean,
   ) => {
     if (!plan) return;
     const { route, newPath, updates } = plan;
+    // An own write answered at the source since the version the editor
+    // opened, or at the destination since the confirmation opened (v1.41.1):
+    // nothing is sent
+    if (
+      changedWhileOpen(route) ||
+      destinationGeneration(route, newPath) !== plan.destinationGeneration
+    ) {
+      setMigrationConfirm(null);
+      setEditRoute(null);
+      setCredentialConfirm(null);
+      toast.error(ROUTE_CHANGED_WHILE_OPEN_TOAST);
+      return;
+    }
 
     let domain: string;
     try {
@@ -1556,106 +1657,120 @@ export function RoutesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredRoutes.map(route => (
-                  <TableRow
-                    key={route.domain ? `${route.domain}:${route.path}` : route.path}
-                    className="hover:bg-gold-50/50 transition-colors cursor-pointer"
-                    onClick={() => setEditRoute(route)}
-                  >
-                    {!filters.domain && (
-                      <TableCell className="font-mono text-small text-charcoal-600">
-                        {route.domain || '-'}
+                {filteredRoutes.map(route => {
+                  // A write of this route in flight: no other write until it settles
+                  const pending = isWritePending(route);
+                  return (
+                    <TableRow
+                      key={route.domain ? `${route.domain}:${route.path}` : route.path}
+                      className="hover:bg-gold-50/50 transition-colors cursor-pointer"
+                      aria-busy={pending || undefined}
+                      onClick={() => {
+                        if (!isWritePending(route)) setEditRoute(route);
+                      }}
+                    >
+                      {!filters.domain && (
+                        <TableCell className="font-mono text-small text-charcoal-600">
+                          {route.domain || '-'}
+                        </TableCell>
+                      )}
+                      <TableCell className="font-mono text-small font-medium text-blue-600">
+                        {route.path}
                       </TableCell>
-                    )}
-                    <TableCell className="font-mono text-small font-medium text-blue-600">
-                      {route.path}
-                    </TableCell>
-                    <TableCell>
-                      <RouteTypeBadge type={route.type} />
-                    </TableCell>
-                    <TableCell className="max-w-[300px] truncate font-mono text-small text-charcoal-600">
-                      {route.target}
-                    </TableCell>
-                    <TableCell>
-                      <span
-                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-tiny font-inter font-medium border ${
-                          route.enabled !== false
-                            ? 'bg-green-100 text-green-700 border-green-200'
-                            : 'bg-charcoal-100 text-charcoal-500 border-charcoal-200'
-                        }`}
-                      >
-                        {route.enabled !== false ? 'Active' : 'Disabled'}
-                      </span>
-                    </TableCell>
-                    <TableCell onClick={e => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="hover:bg-blue-50">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onClick={() =>
-                              void copyToClipboard(
-                                `https://${route.domain ?? filters.domain}${route.path}`,
-                              )
-                            }
-                            className="font-inter"
-                          >
-                            <Copy className="mr-2 size-4" />
-                            Copy Link
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => setQrRoute(route)}
-                            className="font-inter"
-                          >
-                            <QrCode className="mr-2 size-4" />
-                            QR Code
-                          </DropdownMenuItem>
-                          {route.type === 'redirect' && (
-                            <DropdownMenuItem asChild className="font-inter">
-                              <a href={route.target} target="_blank" rel="noopener noreferrer">
-                                <ExternalLink className="h-4 w-4 mr-2" />
-                                Open Target
-                              </a>
+                      <TableCell>
+                        <RouteTypeBadge type={route.type} />
+                      </TableCell>
+                      <TableCell className="max-w-[300px] truncate font-mono text-small text-charcoal-600">
+                        {route.target}
+                      </TableCell>
+                      <TableCell>
+                        <span
+                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-tiny font-inter font-medium border ${
+                            route.enabled !== false
+                              ? 'bg-green-100 text-green-700 border-green-200'
+                              : 'bg-charcoal-100 text-charcoal-500 border-charcoal-200'
+                          }`}
+                        >
+                          {route.enabled !== false ? 'Active' : 'Disabled'}
+                        </span>
+                      </TableCell>
+                      <TableCell onClick={e => e.stopPropagation()}>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="hover:bg-blue-50">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={() =>
+                                void copyToClipboard(
+                                  `https://${route.domain ?? filters.domain}${route.path}`,
+                                )
+                              }
+                              className="font-inter"
+                            >
+                              <Copy className="mr-2 size-4" />
+                              Copy Link
                             </DropdownMenuItem>
-                          )}
-                          <DropdownMenuItem
-                            onClick={() => setEditRoute(route)}
-                            className="font-inter"
-                          >
-                            <Pencil className="h-4 w-4 mr-2" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => void handleToggle(route)}
-                            className="font-inter"
-                          >
-                            {route.enabled !== false ? (
-                              <>
-                                <PowerOff className="h-4 w-4 mr-2" />
-                                Disable
-                              </>
-                            ) : (
-                              <>
-                                <Power className="h-4 w-4 mr-2" />
-                                Enable
-                              </>
+                            <DropdownMenuItem
+                              onClick={() => setQrRoute(route)}
+                              className="font-inter"
+                            >
+                              <QrCode className="mr-2 size-4" />
+                              QR Code
+                            </DropdownMenuItem>
+                            {route.type === 'redirect' && (
+                              <DropdownMenuItem asChild className="font-inter">
+                                <a href={route.target} target="_blank" rel="noopener noreferrer">
+                                  <ExternalLink className="h-4 w-4 mr-2" />
+                                  Open Target
+                                </a>
+                              </DropdownMenuItem>
                             )}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => setDeleteConfirmRoute(route)}
-                            className="text-destructive font-inter"
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                            <DropdownMenuItem
+                              disabled={pending}
+                              onClick={() => {
+                                if (!isWritePending(route)) setEditRoute(route);
+                              }}
+                              className="font-inter"
+                            >
+                              <Pencil className="h-4 w-4 mr-2" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              disabled={pending}
+                              onClick={() => void handleToggle(route)}
+                              className="font-inter"
+                            >
+                              {route.enabled !== false ? (
+                                <>
+                                  <PowerOff className="h-4 w-4 mr-2" />
+                                  Disable
+                                </>
+                              ) : (
+                                <>
+                                  <Power className="h-4 w-4 mr-2" />
+                                  Enable
+                                </>
+                              )}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              disabled={pending}
+                              onClick={() => {
+                                if (!isWritePending(route)) setDeleteConfirmRoute(route);
+                              }}
+                              className="text-destructive font-inter"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
                 {invalidRoutes.map(row => (
                   <TableRow
                     key={`invalid:${row.domain}:${row.path}`}
@@ -1685,6 +1800,7 @@ export function RoutesPage() {
                         size="icon"
                         className="text-destructive hover:bg-destructive/10"
                         aria-label={`Delete unreadable record ${row.path}`}
+                        disabled={isWritePending(row, { exact: true })}
                         onClick={() => setDeleteConfirmRoute({ ...row, unreadable: true })}
                       >
                         <Trash2 className="h-4 w-4" />
@@ -1860,7 +1976,7 @@ export function RoutesPage() {
                 void handleUpdate(updates, pathChanged, newPath)
               }
               onCancel={() => setEditRoute(null)}
-              isSubmitting={updateRoute.isPending}
+              isSubmitting={updateRoute.isPending || isWritePending(editRoute)}
               allowedDomains={[...SUPPORTED_DOMAINS]}
               onTransfer={
                 editRoute.domain

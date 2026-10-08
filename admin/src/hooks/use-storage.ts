@@ -1,7 +1,10 @@
+import { r2ObjectId, routeR2ObjectId } from '@bifrost/shared';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback } from 'react';
 import type { R2MetadataUpdate, StorageListParams } from '@/lib/api-client';
 import { api } from '@/lib/api-client';
-import { routeKeys } from './use-routes';
+import type { RouteWithDomain } from '@/lib/schemas';
+import { routeKeys, usePendingRouteView } from './use-routes';
 
 // =============================================================================
 // Query Keys
@@ -126,10 +129,28 @@ export function useUpdateObjectMetadata() {
   });
 }
 
+/**
+ * The routes serving one R2 object (Storage's "Associated Routes"), shown
+ * through the pending-route store as the listings are (v1.41.1): a route this
+ * session saved shows its answer (so "View in Routes" opens the editor on the
+ * saved `updatedAt`), one it deleted or moved away is hidden, and one whose
+ * saved answer no longer serves the object (its target, bucket or type
+ * changed) is dropped by the Worker's own match (`routeR2ObjectId`). A route
+ * that newly serves it shows on the refetch.
+ */
 export function useRoutesByTarget(bucket: string, target: string) {
+  const view = usePendingRouteView();
+  const select = useCallback(
+    (rows: RouteWithDomain[]) => {
+      const object = r2ObjectId(bucket, target);
+      return view.projectRows(rows, route => routeR2ObjectId(route) === object);
+    },
+    [view, bucket, target],
+  );
   return useQuery({
     queryKey: routeKeys.byTarget(bucket, target),
     queryFn: () => api.routes.byTarget(bucket, target),
+    select,
     enabled: !!bucket && !!target,
   });
 }

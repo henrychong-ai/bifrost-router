@@ -97,3 +97,17 @@ export function isRouteSourceChanged(error: unknown): boolean {
     (error.code === 'ROUTE_SOURCE_CHANGED' || error.message === 'ROUTE_SOURCE_CHANGED')
   );
 }
+
+/**
+ * Whether an error is a 404 answer (v1.41.1). The Worker answers a missing
+ * route ("Route not found: …", on an update, toggle, delete, migration or
+ * transfer) as a bare text with no code, and an unknown endpoint, the admin
+ * API hidden on another host or a proxy in front of the API answer 404 too,
+ * so it never says the route is gone: a route write answered this way only
+ * refetches the listings. (A QR code's own absence has a code,
+ * {@link isQrNotFoundError}.) It narrows to a 404 `ApiError` only, so a
+ * `false` answer never narrows an `ApiError` away (v1.41.1 review).
+ */
+export function isNotFoundError(error: unknown): error is ApiError & { status: 404 } {
+  return error instanceof ApiError && error.status === 404;
+}

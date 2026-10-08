@@ -142,3 +142,27 @@ export const InvalidRouteRowSchema = z
     invalid: z.literal(true),
   })
   .strict();
+
+/** The bucket an r2 route stored without one (or with an empty one) serves from. */
+export const DEFAULT_ROUTE_BUCKET = 'files';
+
+/**
+ * The R2 object a route serves, as one comparable id (`bucket` NUL `key`), or
+ * undefined for a route that serves none (v1.41.1): an r2 route's bucket
+ * (absent or empty: {@link DEFAULT_ROUTE_BUCKET}) and target. The Worker's
+ * by-target lookup (`findRoutesByR2Target`, which Storage's "Associated
+ * Routes" and the cache purge read) and the dashboard's projection of a
+ * by-target answer match with this one definition.
+ */
+export function routeR2ObjectId(
+  route: Pick<StoredRoute, 'type' | 'bucket' | 'target'>,
+): string | undefined {
+  return route.type === 'r2'
+    ? r2ObjectId(route.bucket || DEFAULT_ROUTE_BUCKET, route.target)
+    : undefined;
+}
+
+/** The id {@link routeR2ObjectId} gives a route serving `key` in `bucket`. */
+export function r2ObjectId(bucket: string, key: string): string {
+  return `${bucket}\u0000${key}`;
+}

@@ -1,5 +1,6 @@
 /**
- * Recently created QR codes, per domain (v1.40.0; D1 rows since v1.41.0).
+ * Recently created QR codes, per domain (v1.40.0; D1 rows since v1.41.0; the
+ * delete awaited and marking every incarnation since v1.41.1).
  *
  * KV's `list` lags a write by about 60 seconds, so a code just created was
  * missing from every listing (MCP `list_qrs`, the REST API, another dashboard
@@ -25,37 +26,61 @@
  *   - A create inserts its incarnation's row and never touches an existing
  *     one ({@link noteRecentQr}, `ON CONFLICT DO NOTHING`), so a create write
  *     that lands after its own delete cannot revive it.
- *   - A delete marks its incarnation's row deleted, inserting it already
- *     deleted when the create's write has not landed yet
- *     ({@link forgetRecentQr}), so it wins in either order.
- *   - Another incarnation is another row, so a re-create is listed whatever
- *     its clock says, even behind the deleted one's.
- * The writes are best effort, after the answer, so they can land in any
- * order; every order ends the same way.
+ *   - A delete marks EVERY incarnation of the id recorded so far deleted
+ *     (v1.41.1: KV's delete removes the key whatever incarnation it holds,
+ *     and the delete's own read of it may have been stale), and inserts the
+ *     incarnation it read already deleted when the create's write has not
+ *     landed yet ({@link forgetRecentQr}), so it wins in either order. An
+ *     unreadable record names no incarnation: its delete only marks the
+ *     recorded ones.
+ *   - A re-create whose create row is written after the delete's D1 write is
+ *     another row, so it is listed whatever its clock says, even behind the
+ *     deleted one's. One whose row lands between the delete's KV delete and
+ *     its D1 write (possible even within the bound) is marked deleted by that
+ *     write's `UPDATE` too: it shows once KV's own listing has it.
+ * A create's write is best effort after the answer; a delete's is awaited
+ * before the answer (v1.41.1, bounded: {@link awaitRecentQrDelete}), so a
+ * listing made after a delete has answered never merges the code it deleted,
+ * provided that write finished within its bound. One that outlasts it lands
+ * after the answer, and until it does (or KV converges) a listing at a KV
+ * location still serving the code can merge it (TODO.md).
  *
  * **The listing checks the incarnation too.** A live row is only a hint that
  * an id may be missing from KV's listing. `listQRs` merges the id when the
  * record it then reads from KV is readable AND is one of the id's live
  * incarnations, so a KV location still serving a deleted incarnation (KV
  * converges in about a minute; D1 is one database for every location) merges
- * nothing; a record that cannot be read is listed as its minimal row, as KV's
- * own listing lists it.
+ * nothing. A record that cannot be read names no incarnation, so it is never
+ * merged (v1.41.1): it is listed as its minimal row once KV's own listing has
+ * it.
  *
  * **`noted_at` is for the window only**: the writer's clock when the row was
- * first written. The read takes rows noted within the window plus
+ * FIRST written, kept by every later write of it (a delete marking an
+ * existing row leaves its `noted_at`; only a row a delete inserts is noted at
+ * the delete's time). The read takes rows noted within the window plus
  * {@link QR_RECENT_SKEW_MARGIN_MS} (no upper bound, for a writer whose clock
  * runs ahead), and the write path prunes, a bounded batch per create and per
  * delete, rows noted before that. A disagreeing clock can only make a row
  * show a little longer or shorter, never show a deleted incarnation.
  *
  * Best effort throughout: a failed write is logged by error class and never
- * fails the create or delete (callers run it after the answer), and a failed
- * read is no recent codes. A listing's wait for the read is bounded
- * ({@link awaitRecentQrs}): a read that has not answered within
- * {@link QR_RECENT_READ_TIMEOUT_MS} of the listing needing it is no recent
- * codes too, so a slow D1 never holds a listing up. A missing table (migration 0013 not applied) is
- * named in the log: once per write, and once per isolate on the read path,
- * which every listing takes. Listing is read-only.
+ * fails the create or delete, and a failed read is no recent codes. A wait is
+ * always bounded: a listing's for the read ({@link awaitRecentQrs},
+ * {@link QR_RECENT_READ_TIMEOUT_MS} from the listing needing it) and a
+ * delete's for its write ({@link awaitRecentQrDelete},
+ * {@link QR_RECENT_DELETE_TIMEOUT_MS}), so a slow D1 never holds either up. A
+ * missing table (migration 0013 not applied) is named in the log: once per
+ * write, and once per isolate on the read path, which every listing takes; a
+ * read timeout at most once a minute per isolate. Listing is read-only.
+ *
+ * Residual (TODO.md): a create's row is written after its answer, so it can
+ * land after a later delete's write. When that delete's KV read was stale (it
+ * read an older incarnation, so it did not insert this one's row deleted),
+ * the late create row is live, and a KV location still serving the deleted
+ * code lists it until KV converges (about a minute). Likewise the delete's
+ * `UPDATE` marks deleted a code re-created between its KV delete and its D1
+ * write (within the bound or, for a write that outlasts it, after the
+ * answer), which then shows once KV's own listing has it.
  */
 import { z } from 'zod';
 import { isRecord } from '../utils/boundary';
@@ -75,10 +100,20 @@ export const QR_RECENT_SKEW_MARGIN_MS = 5_000;
 /**
  * How long a listing waits for the recent-rows read (v1.41.0 review): every
  * QR listing awaits it after its KV listing, so a read that has not answered
- * by then is taken as no recent codes (logged as a timeout), and a code just
- * created shows once KV's listing catches up.
+ * by then is taken as no recent codes (logged as a timeout, once per
+ * isolate), and a code just created shows once KV's listing catches up. A
+ * location far from the D1 primary routinely takes more than 300 ms (the
+ * v1.41.0 budget), so the budget is a second (v1.41.1).
  */
-export const QR_RECENT_READ_TIMEOUT_MS = 300;
+export const QR_RECENT_READ_TIMEOUT_MS = 1_000;
+
+/**
+ * How long a delete waits for its recent-rows write before answering
+ * (v1.41.1). A write that has not answered by then is logged as a timeout and
+ * left to finish after the answer (the caller keeps it alive), so a slow D1
+ * never holds a delete up.
+ */
+export const QR_RECENT_DELETE_TIMEOUT_MS = 1_000;
 
 /** At most this many recent rows are merged per listing (the newest noted). */
 export const QR_RECENT_MAX = 100;
@@ -151,24 +186,30 @@ function pruneExpired(db: D1Database, domain: string, now: number): D1PreparedSt
 }
 
 /**
- * Write one row and prune expired rows of its domain in ONE `db.batch`, the
- * row first. D1 runs a batch as one transaction, so a failing prune rolls the
- * row back with it: when the batch fails, or answers without the row's
- * statement succeeding, the row is written again on its own (both writes are
- * idempotent, so writing twice is harmless). A missing table is logged once
- * and not retried, since the lone write would fail the same way. A prune that
- * fails is retried by the next write. Never throws.
+ * Run a write's statements and prune expired rows of its domain in ONE
+ * `db.batch`, the writes first. D1 runs a batch as one transaction, so a
+ * failing prune rolls the writes back with it: when the batch fails, or
+ * answers without every write statement succeeding, each write statement is
+ * run again on its own (every one is idempotent, so writing twice is
+ * harmless), and a failure there is logged once, by the first failure's error
+ * class (v1.41.1: a delete has two statements). A missing table is logged
+ * once and not retried, since the lone writes would fail the same way. A
+ * prune that fails is retried by the next write. Never throws, even when the
+ * statements cannot be prepared.
  */
 async function writeAndPrune(
   db: D1Database,
   domain: string,
   now: number,
   kind: 'create' | 'delete',
-  write: () => D1PreparedStatement,
+  writes: () => D1PreparedStatement[],
 ): Promise<void> {
+  let count = 0;
   let results: unknown;
   try {
-    results = await db.batch([write(), pruneExpired(db, domain, now)]);
+    const batched = writes();
+    count = batched.length;
+    results = await db.batch([...batched, pruneExpired(db, domain, now)]);
   } catch (error) {
     if (isMissingTable(error)) {
       console.warn(`[QR] Recent ${kind} not recorded: table qr_recent is missing`);
@@ -179,14 +220,26 @@ async function writeAndPrune(
     );
   }
   const answered: readonly unknown[] = Array.isArray(results) ? results : [];
-  if (succeeded(answered[0])) {
-    if (!succeeded(answered[1])) console.warn('[QR] Expired recent rows were not pruned');
+  const written = answered.slice(0, count);
+  if (count > 0 && written.length === count && written.every(succeeded)) {
+    if (!succeeded(answered[count])) console.warn('[QR] Expired recent rows were not pruned');
     return;
   }
+  let failure: { error: unknown } | null = null;
   try {
-    await write().run();
+    for (const statement of writes()) {
+      try {
+        await statement.run();
+      } catch (error) {
+        failure ??= { error };
+      }
+    }
   } catch (error) {
-    console.warn(`[QR] Recent ${kind} could not be recorded: ${errorName(error)}`);
+    // The statements could not even be prepared
+    failure ??= { error };
+  }
+  if (failure) {
+    console.warn(`[QR] Recent ${kind} could not be recorded: ${errorName(failure.error)}`);
   }
 }
 
@@ -210,57 +263,89 @@ export async function noteRecentQr(
     console.warn('[QR] Recent create not recorded: no valid createdAt');
     return;
   }
-  await writeAndPrune(db, domain, now, 'create', () =>
+  await writeAndPrune(db, domain, now, 'create', () => [
     db
       .prepare(
         'INSERT INTO qr_recent (domain, id, created_at, deleted, noted_at) VALUES (?, ?, ?, 0, ?) ' +
           'ON CONFLICT(domain, id, created_at) DO NOTHING',
       )
       .bind(domain, id, created, now),
-  );
+  ]);
 }
 
 /**
  * Record a deleted code, so a recent row cannot bring it back while KV
  * converges (another location's KV `get` can still serve the deleted value
- * for about a minute, and D1 is one database for every location).
- * `deletedCreatedAt` is the deleted record's createdAt, read before its KV
- * delete: exactly that incarnation's row is marked deleted, and inserted
- * already deleted when the create's write has not landed yet, so the delete
- * wins in either order. Any other incarnation, a re-create included, is
- * another row and is left alone. The same round trip prunes, so a domain
- * that only sees deletes does not grow either.
+ * for about a minute, and D1 is one database for every location). Two
+ * statements, in one batch with the prune (v1.41.1):
+ *   - every incarnation of the id recorded so far is marked deleted: KV's
+ *     delete removed the key whatever incarnation it held, and the delete's
+ *     own read of it (`deletedCreatedAt`) is eventually consistent, so it can
+ *     name an older incarnation than the one KV deleted. An existing row
+ *     keeps its `noted_at`;
+ *   - when `deletedCreatedAt` (the record's createdAt, read before its KV
+ *     delete) is valid, that incarnation's row is inserted already deleted,
+ *     noted at `now`, so its create's write landing later (it runs after the
+ *     create's answer) cannot revive it.
+ * An unreadable record names no incarnation (`deletedCreatedAt` undefined):
+ * its delete runs the first statement only, so its live row stops listing it
+ * (v1.41.0 wrote nothing for it). A re-create whose create row is written
+ * after this D1 write is another row, left live; one whose row landed between
+ * the KV delete and this write (even within the bound) is marked deleted by
+ * the `UPDATE` too, and shows once KV's own listing has it (TODO.md). The
+ * same round trip prunes, so a domain that only sees deletes does not grow
+ * either.
  *
  * Always written, however old the incarnation (v1.41.0 review): whether its
  * create's row is still in a reader's window would compare the creating
- * isolate's clock with this one's, and no clock orders two writes. The row is
- * noted at `now`, so the prune removes it once it leaves the window. Never
+ * isolate's clock with this one's, and no clock orders two writes. The caller
+ * awaits it before answering, bounded ({@link awaitRecentQrDelete}). Never
  * throws.
  */
 export async function forgetRecentQr(
   db: D1Database,
   domain: string,
   id: string,
-  deletedCreatedAt: number,
+  deletedCreatedAt: number | undefined,
   now: number = Date.now(),
 ): Promise<void> {
-  const deleted = incarnationTime(deletedCreatedAt);
-  if (deleted === null) {
-    console.warn('[QR] Recent delete not recorded: no valid createdAt');
-    return;
+  const deleted = deletedCreatedAt === undefined ? null : incarnationTime(deletedCreatedAt);
+  if (deletedCreatedAt !== undefined && deleted === null) {
+    console.warn(
+      '[QR] Recent delete has no valid createdAt; marking the recorded incarnations only',
+    );
   }
-  await writeAndPrune(db, domain, now, 'delete', () =>
-    db
-      .prepare(
-        'INSERT INTO qr_recent (domain, id, created_at, deleted, noted_at) VALUES (?, ?, ?, 1, ?) ' +
-          'ON CONFLICT(domain, id, created_at) DO UPDATE SET deleted = 1',
-      )
-      .bind(domain, id, deleted, now),
-  );
+  await writeAndPrune(db, domain, now, 'delete', () => [
+    db.prepare('UPDATE qr_recent SET deleted = 1 WHERE domain = ? AND id = ?').bind(domain, id),
+    ...(deleted === null
+      ? []
+      : [
+          db
+            .prepare(
+              'INSERT INTO qr_recent (domain, id, created_at, deleted, noted_at) ' +
+                'VALUES (?, ?, ?, 1, ?) ON CONFLICT(domain, id, created_at) DO UPDATE SET deleted = 1',
+            )
+            .bind(domain, id, deleted, now),
+        ]),
+  ]);
 }
 
 /** Whether this isolate has logged the read path's missing table (logged once per isolate). */
 let missingTableReadLogged = false;
+
+/**
+ * Shortest time between two read-timeout logs in one isolate (v1.41.1
+ * review): a location far from the D1 primary would otherwise log on every
+ * listing, while once per isolate forever would hide a timeout that starts
+ * later in a long-lived isolate.
+ */
+export const QR_RECENT_TIMEOUT_LOG_INTERVAL_MS = 60_000;
+
+/**
+ * When this isolate last logged a read timeout, by its own clock (used only
+ * to throttle the log, never to order writes); `undefined`: never.
+ */
+let readTimeoutLoggedAt: number | undefined;
 
 /**
  * The live rows of `domain` noted within the window (and its skew margin)
@@ -309,28 +394,69 @@ export async function recentQrs(
 }
 
 /**
- * Wait for a started {@link recentQrs} read for at most `timeoutMs` (v1.41.0
- * review): every QR listing awaits it after its KV listing, so a D1 that is
- * slow or hung must not hold the listing up. A read that has not answered by
- * then is taken as no recent codes and logged once, as a timeout (a code just
- * created then shows once KV's listing catches up); its late answer is
- * ignored. The timer starts when the listing needs the rows, not when the read
- * was started, and is cleared when the read answers first. Never throws.
+ * `work`, or `onTimeout()` when it has not settled within `timeoutMs` of this
+ * call. The timer is cleared when `work` settles first. `work` must never
+ * reject (every caller's work is best effort and never throws).
  */
-export async function awaitRecentQrs(
-  read: Promise<RecentQr[]>,
-  timeoutMs: number = QR_RECENT_READ_TIMEOUT_MS,
-): Promise<RecentQr[]> {
+async function bounded<T>(work: Promise<T>, timeoutMs: number, onTimeout: () => T): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | null = null;
-  const timeout = new Promise<RecentQr[]>(resolve => {
-    timer = setTimeout(() => {
-      console.warn('[QR] Recent creates could not be read: timeout');
-      resolve([]);
-    }, timeoutMs);
+  const timeout = new Promise<T>(resolve => {
+    timer = setTimeout(() => resolve(onTimeout()), timeoutMs);
   });
   try {
-    return await Promise.race([read, timeout]);
+    return await Promise.race([work, timeout]);
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Wait for a started {@link recentQrs} read for at most `timeoutMs` (v1.41.0
+ * review): every QR listing awaits it after its KV listing, so a D1 that is
+ * slow or hung must not hold the listing up. A read that has not answered by
+ * then is taken as no recent codes (a code just created then shows once KV's
+ * listing catches up); its late answer is ignored. The timeout is logged at
+ * most once per {@link QR_RECENT_TIMEOUT_LOG_INTERVAL_MS} per isolate (v1.41.1:
+ * a location far from the D1 primary would otherwise log on every listing).
+ * The timer starts when the listing needs the rows, not when the read was
+ * started, and is cleared when the read answers first. Never throws (the read
+ * never rejects).
+ */
+export function awaitRecentQrs(
+  read: Promise<RecentQr[]>,
+  timeoutMs: number = QR_RECENT_READ_TIMEOUT_MS,
+): Promise<RecentQr[]> {
+  return bounded(read, timeoutMs, () => {
+    const at = Date.now();
+    // A clock that went back logs again rather than staying silent
+    if (
+      readTimeoutLoggedAt === undefined ||
+      at < readTimeoutLoggedAt ||
+      at - readTimeoutLoggedAt >= QR_RECENT_TIMEOUT_LOG_INTERVAL_MS
+    ) {
+      readTimeoutLoggedAt = at;
+      console.warn('[QR] Recent creates could not be read: timeout');
+    }
+    return [];
+  });
+}
+
+/**
+ * Wait for a started {@link forgetRecentQr} write for at most `timeoutMs`
+ * (v1.41.1): a delete awaits it before answering, so a listing made after the
+ * answer never merges the code it deleted when the write finished within the
+ * bound, but a slow or hung D1 must not hold the delete up. A write that has
+ * not answered by then is logged, as a timeout, and keeps running: the caller
+ * keeps it alive after the answer (`waitUntil`), and it lands late (marking a
+ * delete late is safe: `deleted` only ever goes to 1). Until it lands, a
+ * listing at a KV location still serving the code can merge it (TODO.md).
+ * Never throws (the write never rejects).
+ */
+export function awaitRecentQrDelete(
+  write: Promise<void>,
+  timeoutMs: number = QR_RECENT_DELETE_TIMEOUT_MS,
+): Promise<void> {
+  return bounded(write, timeoutMs, () => {
+    console.warn('[QR] Recent delete could not be recorded before the answer: timeout');
+  });
 }

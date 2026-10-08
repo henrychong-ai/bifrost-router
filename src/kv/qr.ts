@@ -154,8 +154,11 @@ export interface QRListResult {
  * row is a hint: its id is merged only when the record read is one of the
  * id's live incarnations (its createdAt equals a live row's `created_at`;
  * compared for equality only, never as an order), so a KV location still
- * serving a deleted incarnation merges nothing; a record that cannot be read
- * is listed as its minimal row, as KV's listing lists it (v1.38.0).
+ * serving a deleted incarnation merges nothing. A record that cannot be read
+ * names no incarnation, so the recent merge never adds it (v1.41.1): a stale
+ * unreadable value at one KV location could otherwise be listed for an id
+ * that is now a valid re-created code, or for one just deleted. It is listed
+ * as its minimal row once KV's own listing has it (v1.38.0).
  */
 export async function listQRs(
   kv: KVNamespace,
@@ -197,10 +200,12 @@ export async function listQRs(
   // Codes created in the last two minutes that the lagging listing lacks
   // (v1.40.0; D1 rows since v1.41.0): read by key, which sees a write at once
   // at the location that made it, and merged only for a live incarnation of
-  // the id (v1.41.0 review). Best effort, outside the listing's own error
-  // handling: an id whose read fails is skipped and logged by error class, so
-  // a transient KV failure here never fails the listing (the code shows once
-  // KV's listing catches up)
+  // the id (v1.41.0 review). A record that cannot be read names no
+  // incarnation, so it is never merged (v1.41.1): it is listed once KV's own
+  // listing has it. Best effort, outside the listing's own error handling: an
+  // id whose read fails is skipped and logged by error class, so a transient
+  // KV failure here never fails the listing (the code shows once KV's listing
+  // catches up)
   const listed = new Set([...records.map(qr => qr.id), ...invalid.map(row => row.id)]);
   const live = new Map<string, Set<number>>();
   for (const row of await awaitRecentQrs(recentRead)) {
@@ -212,21 +217,19 @@ export async function listQRs(
   const recentReads = await Promise.all(
     [...live].map(async ([id, incarnations]) => {
       try {
-        return { id, incarnations, read: await readQRState(kv, qrKey(domain, id)) };
+        return { incarnations, read: await readQRState(kv, qrKey(domain, id)) };
       } catch (error) {
         console.warn(`[QR] A recent code could not be read: ${errorName(error)}`);
-        return { id, incarnations, read: { status: 'missing' } as const };
+        return { incarnations, read: { status: 'missing' } as const };
       }
     }),
   );
-  for (const { id, incarnations, read } of recentReads) {
-    if (read.status === 'ok') {
-      // Another incarnation (a deleted one a KV location still serves) is not merged
-      const at = incarnationTime(read.value.createdAt);
-      if (at !== null && incarnations.has(at)) records.push(read.value);
-    } else if (read.status === 'invalid') {
-      invalid.push({ domain, id, invalid: true });
-    }
+  for (const { incarnations, read } of recentReads) {
+    // Another incarnation (a deleted one a KV location still serves) is not
+    // merged, nor is a record that cannot be read (it names no incarnation)
+    if (read.status !== 'ok') continue;
+    const at = incarnationTime(read.value.createdAt);
+    if (at !== null && incarnations.has(at)) records.push(read.value);
   }
 
   // Same predicate as the dashboard's QR store (shared), the query parsed once

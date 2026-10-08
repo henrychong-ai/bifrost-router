@@ -12,6 +12,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, RouteExistsError } from '@/lib/api-error';
+import { RouteWritePendingError } from '@/lib/route-pending';
 import type { Route } from '@/lib/schemas';
 
 const DOMAIN = 'example.com';
@@ -44,7 +45,7 @@ const state = vi.hoisted(() => ({
         data: Record<string, unknown>;
         domain: string;
         afterUncertainAnswer?: boolean;
-      }) => Promise<Route>
+      }) => Promise<{ route: Route; readBack: boolean }>
     >(),
 }));
 const toasts = vi.hoisted(() => ({
@@ -177,7 +178,11 @@ beforeEach(() => {
     .mockReset()
     .mockImplementation(async ({ input: body }) => code({ id: String(body['id'] ?? 'generated') }));
   state.updateQr.mockReset().mockImplementation(async ({ id }) => code({ id }));
-  state.createRoute.mockReset().mockImplementation(async ({ data }) => route(String(data['path'])));
+  // The create hook's result: the route, and whether it was read back
+  state.createRoute.mockReset().mockImplementation(async ({ data }) => ({
+    route: route(String(data['path'])),
+    readBack: false,
+  }));
   for (const toast of Object.values(toasts)) toast.mockReset();
 });
 
@@ -533,10 +538,56 @@ describe('a new linked route whose create got no certain answer (v1.38.0)', () =
     expect(state.createQr).not.toHaveBeenCalled();
   });
 
+  // v1.41.1 review: the mark is the Worker's key for the path, so a retry at
+  // another spelling of the same route is marked too
+  it('marks a retry at another spelling of the same route', async () => {
+    await typeInto(input('qr-route-path'), '/Promo/');
+    state.createRoute.mockRejectedValueOnce(new ApiError(502, 'Bad gateway'));
+    await click(button('Create QR code'));
+    await typeInto(input('qr-route-path'), '/promo');
+    state.createRoute.mockRejectedValueOnce(new ApiError(503, 'Unavailable'));
+    await click(button('Create QR code'));
+    expect(state.createRoute.mock.calls[1]?.[0]).toMatchObject({
+      data: { path: '/promo' },
+      afterUncertainAnswer: true,
+    });
+    // Spellings the form keeps apart but the Worker stores at one key
+    await typeInto(input('qr-route-path'), '/caf%C3%A9');
+    state.createRoute.mockRejectedValueOnce(new ApiError(500, 'Internal error'));
+    await click(button('Create QR code'));
+    await typeInto(input('qr-route-path'), '/café');
+    state.createRoute.mockRejectedValueOnce(new ApiError(500, 'Internal error'));
+    await click(button('Create QR code'));
+    const calls = state.createRoute.mock.calls.map(call => call[0]);
+    expect(calls[2]).toMatchObject({ data: { path: '/caf%c3%a9' } });
+    expect(calls[3]).toMatchObject({ data: { path: '/café' }, afterUncertainAnswer: true });
+    expect(state.createQr).not.toHaveBeenCalled();
+  });
+
   it('a retry after a certain refusal is not marked', async () => {
     state.createRoute.mockRejectedValueOnce(new ApiError(400, 'Target is not valid'));
     await click(button('Create QR code'));
     await click(button('Create QR code'));
     expect(state.createRoute.mock.calls[1]?.[0]).toMatchObject({ afterUncertainAnswer: false });
+  });
+
+  // v1.41.1 review: a create refused before any request (another write of
+  // the route is still saving) sent nothing, so it neither sets nor clears
+  // the uncertain mark, and the toast says why
+  it('a create refused while another write of the route saves leaves the mark as it was', async () => {
+    const afterUncertain = () =>
+      state.createRoute.mock.calls.map(call => call[0].afterUncertainAnswer);
+    state.createRoute.mockRejectedValueOnce(new RouteWritePendingError());
+    await click(button('Create QR code'));
+    expect(lastError()[0]).toBe('Another change to this route is still saving');
+    state.createRoute.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await click(button('Create QR code'));
+    state.createRoute.mockRejectedValueOnce(new RouteWritePendingError());
+    await click(button('Create QR code'));
+    expect(lastError()[0]).toBe('Another change to this route is still saving');
+    await click(button('Create QR code'));
+    // Not marked by the first refusal; still marked after the second
+    expect(afterUncertain()).toEqual([false, false, true, true]);
+    expect(state.createQr).toHaveBeenCalledTimes(1);
   });
 });

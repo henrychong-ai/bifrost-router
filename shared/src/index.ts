@@ -343,13 +343,17 @@ export {
   tokeniseSearchText,
 } from './search.js';
 // Stored route records (v1.38.0): the one tolerant read shape for the Worker
-// guard and the dashboard, and the listing row of an unreadable record
+// guard and the dashboard, the listing row of an unreadable record, and the
+// R2 object a route serves (v1.41.1)
 export {
+  DEFAULT_ROUTE_BUCKET,
   type InvalidRouteRow,
   InvalidRouteRowSchema,
   isInvalidRouteRow,
   isStoredRoute,
   parseStoredRoute,
+  r2ObjectId,
+  routeR2ObjectId,
   STORED_ROUTE_FIELDS,
   STORED_ROUTE_REQUIRED,
   type StoredRoute,

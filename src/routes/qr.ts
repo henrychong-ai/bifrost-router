@@ -48,7 +48,7 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import { type AuditAction, recordAuditLog } from '../db/analytics';
-import { forgetRecentQr, noteRecentQr } from '../db/qr-recent';
+import { awaitRecentQrDelete, forgetRecentQr, noteRecentQr } from '../db/qr-recent';
 import { normalizePath } from '../kv/lookup';
 import { deleteQR, getQR, listQRs, parseStoredQR, putQR } from '../kv/qr';
 import { getRoute, InvalidStoredRouteError } from '../kv/routes';
@@ -73,8 +73,9 @@ function qrNotFound(id: string): HTTPException {
 }
 
 /**
- * Run best-effort work after the answer (`waitUntil`): the recent-creates
- * writes and the audit rows (v1.41.0 review: one helper for both). With no
+ * Run best-effort work after the answer (`waitUntil`): the recent-QR create
+ * write and the audit rows (v1.41.0 review: one helper for both; the delete's
+ * recent-QR write is awaited first, {@link beforeAnswer}, v1.41.1). With no
  * execution context (a test calling the app without one) it runs inline
  * before the answer, audits included, so such a caller sees the same rows a
  * deployed Worker writes; before v1.41.0 an audit was skipped there. The work
@@ -87,6 +88,26 @@ async function afterAnswer(c: Context<AppEnv>, work: Promise<void>): Promise<voi
   } catch {
     await work;
   }
+}
+
+/**
+ * Await best-effort work (one that never rejects) before the answer, for at
+ * most its bound (`wait`, which logs a timeout), and keep it alive in
+ * `waitUntil` so work that outlasts the bound still lands after the answer
+ * (v1.41.1: the recent-QR delete). Without an execution context only the
+ * bounded wait runs.
+ */
+async function beforeAnswer(
+  c: Context<AppEnv>,
+  work: Promise<void>,
+  wait: (work: Promise<void>) => Promise<void>,
+): Promise<void> {
+  try {
+    c.executionCtx.waitUntil(work);
+  } catch {
+    // No execution context: the bounded wait below is all there is
+  }
+  await wait(work);
 }
 
 /**
@@ -537,15 +558,26 @@ qrRoutes.delete('/:id', async c => {
   if (state.status === 'missing') {
     throw qrNotFound(id);
   }
-  // Out of the recent-creates record too (v1.41.0), best effort, after the
-  // answer: exactly the deleted incarnation's row, by its createdAt as read
-  // BEFORE the KV delete, so a code re-created since (another incarnation,
-  // another row) stays listed. An unreadable record names no incarnation, so
-  // its delete writes nothing there (v1.41.0 review): a stale recent row then
-  // lists it as its minimal row, as KV's own listing does, until either
-  // catches up
+  // Out of the recent-creates record too (v1.41.0), best effort, and AWAITED
+  // before the answer (v1.41.1; bounded: a timeout is logged and the write
+  // finishes after the answer), so a listing made after this answer, at a KV
+  // location still serving the code, merges nothing when the write finished
+  // within its bound (a later one: until it lands, such a listing can merge
+  // the code; TODO.md). Every incarnation of the id recorded so far is marked
+  // deleted (KV's delete removed the key whatever it held, and this request's
+  // read of it may have been stale), and the incarnation read BEFORE the KV
+  // delete is inserted deleted, so its create's later write cannot revive it.
+  // A code whose re-create row is written after this D1 write is another row,
+  // listed whatever its clock says (one written between the KV delete and
+  // this write is marked deleted too, and shows once KV's own listing has
+  // it). An unreadable record names no incarnation: its delete marks the
+  // recorded ones only (the listing never merges an unreadable read, v1.41.1)
+  await beforeAnswer(
+    c,
+    forgetRecentQr(c.env.DB, domain, id, state.status === 'ok' ? state.value.createdAt : undefined),
+    awaitRecentQrDelete,
+  );
   if (state.status === 'ok') {
-    await afterAnswer(c, forgetRecentQr(c.env.DB, domain, id, state.value.createdAt));
     await auditQr(c, 'qr_delete', domain, state.value, { qr: redactQrForAudit(state.value) });
   } else {
     await auditInvalidQrDelete(c, domain, id);

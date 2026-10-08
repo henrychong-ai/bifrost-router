@@ -6,6 +6,245 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.41.1 (2026-10-09) — The route cache as a store of this session's own writes; QR deletes recorded before they answer
+
+**Why:** v1.41.0's review residuals, and defects a sibling deployment's
+review found in the same designs after porting them. The dashboard patched
+every cached route listing after a write, letting an answer replace a row
+only when that row was exactly the version the write superseded. That rule
+failed when listings held different versions of one route (a by-target
+answer or a prefetch older than the page), when a change was reverted (the
+answer's identity matched an older cached row again), on the recovery delete
+and on Storage's by-target rows, and a write started while another write of
+the same route was in flight could race it. On the Worker, a QR delete
+recorded its tombstone in D1 after its answer, so a listing made straight
+after the 200, at a KV location still serving the code, merged the deleted
+code back; a delete whose own KV read was stale (an older incarnation)
+tombstoned that one and left the live incarnation listed; and an unreadable
+record's delete wrote nothing, while the listing merged an unreadable read as
+its minimal row with no incarnation check. **No clock ever orders two
+writes**, as in v1.41.0: everything is decided by identity (equality, never
+order), and what is ambiguous is left to the refetch or the next listing.
+**No migration** (the per-incarnation table `qr_recent`, migration `0013`, is
+used as it is). No API wire change.
+
+### Dashboard
+
+- **The route cache is a store of this session's own write answers**
+  (`admin/src/lib/route-pending.ts`, modelled on the QR store
+  `qr-pending.ts`). The cache patching is gone (`applyRouteSaved`,
+  `applyRouteMigrated`, `applyRouteRemoved`, `applyRouteTransferred`,
+  `cachedRouteVersion` and the synthetic by-target listing), and so is
+  `reloadChangedRoute`. The query cache now holds the RAW server listings, and
+  every route query (`useRoutes`, `useSearchRoutes`, Storage's
+  `useRoutesByTarget`, and the Routes page's cross-domain duplicate-target
+  map over the prefetches) shows its listing through the store in `select`.
+  Per domain AND key path the store holds what the last own write there
+  answered: the route (an update, toggle, create, or the destination of a
+  migration or transfer), gone (a delete, the source of a migration or
+  transfer) or gone-unreadable (a recovery delete). **Keys are the
+  Worker's, and say which path built them** (`RouteStoreKey`): a path as a
+  write REQUEST names it is normalised once with `normalizeRoutePath` from
+  `@bifrost/shared` (the Worker's own `normalizePath`), as the Worker
+  normalises it into the key it stores or addresses (`keyOfInput`: a write's
+  admission, the key a delete or a migration's source marks gone, and the
+  migration confirmation's destination), so `/Promo/` and `/promo` are one
+  route; a path as STORED (a listed row's, a write answer's, an unreadable
+  record's exact key, which the recovery delete addresses) is used as is
+  (`keyOfStored`), because `normalizeRoutePath` is not idempotent (`/p%3Fx`
+  is stored as `/p?x`, which would normalise again to `/p`, another route).
+  A row whose key holds a route shows it (keeping the row's own `domain`
+  field); a gone key's rows are dropped; a gone-unreadable key leaves a
+  readable row at the same key as it is; an unreadable row is dropped
+  whenever its exact key holds any entry (so a create after a recovery delete
+  keeps the stale unreadable row hidden). A
+  by-target answer also drops a saved route that no longer serves its object,
+  by the Worker's own match (`routeR2ObjectId` in `@bifrost/shared`, which
+  `findRoutesByR2Target` now uses too), and a search listing one its search
+  no longer matches, by the shared matcher the Worker's list handler ranks by
+  (`matchesRouteSearch`, the domain counted in the all-domains list only, as
+  on the Worker). Nothing is added (a new row shows on the refetch). A
+  listing's `total` drops by the rows the store hid, readable and
+  unreadable (the Worker's total counts both; never below 0), so "Showing 9
+  of 10" after an own delete reads 9 of 9; offsets and `hasMore` stay the
+  server's. The store is fed only by
+  this session's answers, never by listing rows, and each answer overwrites
+  its key's entry; an `updatedAt` is compared for equality only. A create
+  retried after an uncertain answer that adopts the existing route it reads
+  back records it only when the key holds no entry: a read may lag, and an
+  entry there (live or gone) is this session's own later answer. Whether a
+  create adopted its route from that read travels in the mutation's result
+  (`{ route, readBack }`, `CreatedRoute`), never in state closed over by one
+  render's options: TanStack Query hands a pending mutation each newer
+  render's options, so `onSuccess` can run from options other than the ones
+  that sent it. A write changing several keys (a migration, a transfer)
+  records its answer in one `apply`, so every listing re-projects once per
+  answer, and a listing's search matcher is built once per search and domain
+  (`useMemo`), not on every projection.
+- **An entry ends** at its expiry, at a later own write there, when a write
+  holding it fails with no definite answer, or when the server refuses
+  exactly its version. **Expiry touches only what is on screen, and keeps
+  the protection until every route query on screen has refreshed:** 90 s
+  after the answer (`PENDING_ROUTE_TTL_MS`), the entries due within 5 s of
+  the first due one (`PENDING_ROUTE_EXPIRY_WINDOW_MS`) are marked expiring
+  (still shown, still read by the dialogs), and the store's expiry listener
+  runs once for the batch. It REMOVES every inactive route query
+  (`removeQueries` with `type: 'inactive'`: a closed search, Storage's
+  unmounted by-target answer, the other domains' prefetches), so no
+  unwatched cache can show the rows cached while KV lagged, keep the batch
+  waiting on a refetch nobody sees, or be kept alive by one; a query mounted
+  again fetches anew. It then marks each active route query
+  (`markActiveRouteQueries`: its `dataUpdateCount`, and whether a fetch was
+  in flight), refetches the active ones (`refetchType: 'active'`), and
+  answers refreshed only when each has no error and its data was written
+  once more since the mark, or twice when a fetch was already in flight
+  (`routeQueriesRefreshed`): a fetch in flight when the expiry began may
+  have been sent while KV lagged, and the refetch reuses its promise. **No
+  clock decides it:** the count replaces a comparison of `dataUpdatedAt` with
+  the tab's clock, and the listener takes no clock reading. Only then is the
+  batch dropped; otherwise (no network, an error answer, a fetch paused
+  offline or in flight) it stays shown and is tried again 30 s later
+  (`PENDING_ROUTE_EXPIRY_RETRY_MS`), so a watched query whose refetch keeps
+  failing keeps the batch for as long as it fails. A newer own answer at an
+  expiring key replaces it and is kept. So a burst of writes ends in one
+  refetch, and what shows afterwards is the refetch's result, which still
+  lags when KV lags beyond the 90 s. **A failed
+  write:** a failure that is not a definite answer (no answer, a 5xx, an
+  unreadable body: anything but an `ApiError` with a 4xx status) may have
+  landed, so the store drops its entry at every key the write held and every
+  route query is refetched (a delete, then a re-create answered 502: the gone
+  entry is dropped and the refetch decides). It does not move those keys'
+  generations: the failure is no answer, and its own retry (a migration
+  answered 502, confirmed again) is sent, while the server's own checks (the
+  precondition, the destination's existence) guard a write that did land. A
+  409 `ROUTE_SOURCE_CHANGED` forgets the entry only when the
+  refused request's `expectedUpdatedAt` equals the entry's `updatedAt` (an
+  editor opened on an older copy leaves this session's answer), and
+  refetches; each hook passes the version it sent, and a toggle sends none,
+  so a 409 to a toggle never forgets. A 404 only refetches: the Worker
+  answers a missing route with a bare `Route not found` text and no code, as
+  an unknown endpoint or a proxy may answer 404, so a 404 never marks a
+  route gone (`isNotFoundError` now narrows to a 404 `ApiError` only, so a
+  `false` answer never narrows an `ApiError` away). Any other 4xx leaves the
+  store alone, and a write refused before any request (below) changes
+  nothing.
+- **One write at a time per route, across every route a write affects.**
+  Each route write acquires, in `onMutate`, EVERY key it affects (a create,
+  update, toggle or delete its own; a migration its old AND new path; a
+  transfer its source AND destination domain), atomically: when another
+  write of this session holds any of them it acquires nothing and fails with
+  `RouteWritePendingError` before any request, and the page's error toast
+  says "Another change to this route is still saving"; `onSettled` releases
+  only that write's own keys. The writes in flight are their own snapshot,
+  apart from the answers', so a write starting or settling re-runs no
+  listing; the Routes page reads that snapshot to disable a held row's Edit,
+  Enable/Disable and Delete (and an unreadable row's Delete, by its exact
+  key) and the editor's save. The QR editor treats such a refusal as nothing
+  sent: it neither sets nor clears its retry's "uncertain answer" mark, and
+  shows the refusal. That mark is the Worker's key for the new route's path
+  (`keyOfInput`), so a retry at another spelling of the same route
+  (`/caf%C3%A9`, then `/café`) is marked as a retry too.
+- **A dialog that would act on a replaced version sends nothing.** At
+  submit, the route editor and the migration confirmation (its source) read
+  the store's entry for the route: when it is gone, or live with an
+  `updatedAt` other than the one the dialog opened on (equality only), they
+  send nothing, close, and say "This route changed while it was open.
+  Reopen it to edit the current version." This holds however the editor
+  opened, from the list, Storage's "View in Routes" or the QR page's "View
+  route" toast (a toast holding the version the QR editor created, clicked
+  after a toggle answered another). A gone-unreadable entry is ignored here:
+  it says nothing about a readable route at that key (an unreadable `/promo`
+  recovered, then a readable `/promo` written, edits as usual). The
+  migration's destination keeps the generation captured when its
+  confirmation opened, of the typed path normalised once (the key the
+  migration's own answer bumps); it moves whenever an own answer changes that
+  key: an own write landing there since sends nothing. Otherwise a route reopened, toggled again or opened
+  from Storage before the refetch lands acts on its saved `updatedAt` and
+  `enabled`, before and after a refetch that still lags.
+- **A route stored without `enabled` toggles to disabled.** It is active
+  (its row says Active and offers Disable), but the toggle sent
+  `enabled: !route.enabled`, which enabled it again; the next state is now
+  `route.enabled === false`, and the toast and the credential confirmation's
+  verb ("Disable anyway") follow it.
+- **Best effort, by design:** another writer's change to a route within 90 s
+  of this session's own write is masked by this session's answer until the
+  server refuses the stale stamp with a 409, which heals it (the table toggle
+  sends no precondition, so the next edit does); a refetch after the 90 s
+  that still lags shows the lagging row; a created, migrated or transferred
+  route appears in a listing on the refetch only; a write whose request never
+  settles keeps the routes it holds refusing other writes until the page is
+  reloaded, an expiry refetch that never settles keeps its batch shown, and
+  one of a watched query that keeps failing (offline, an error answer) keeps
+  it shown, retried every 30 s; the Routes page's cross-domain
+  duplicate-target note lacks the other domains from an expiry until it
+  prefetches them again (a domain change or a remount) (TODO.md).
+
+### QR codes
+
+- **A delete is recorded before it answers.** Its D1 write is awaited,
+  bounded at 1 s (`QR_RECENT_DELETE_TIMEOUT_MS`, `awaitRecentQrDelete`, through
+  `beforeAnswer` in `src/routes/qr.ts`), so a listing made after the delete's
+  200, at a KV location still serving the code, merges nothing when that
+  write finished within the bound. A write that outlasts the bound is logged
+  as a timeout and kept alive in `waitUntil`, landing after the answer; until
+  it lands such a listing can merge the code (TODO.md). Still best effort: it
+  never throws and never fails the delete. The create's write stays after the
+  answer (`afterAnswer`).
+- **A delete marks every recorded incarnation.** In one batch with the prune,
+  `forgetRecentQr` runs `UPDATE qr_recent SET deleted = 1 WHERE domain = ? AND
+  id = ?` (KV's delete removes the key whatever incarnation it holds, and the
+  delete's own read of the record is eventually consistent, so it can name an
+  older incarnation than the one KV held) and, when that read gave a valid
+  `createdAt`, inserts that incarnation already deleted (`ON CONFLICT DO
+  UPDATE SET deleted = 1`), so its create's write landing later cannot revive
+  it. A row marked deleted keeps the `noted_at` of its first write. A
+  re-create whose row is written after the delete's D1 write is another row,
+  listed whatever its clock says. When the batch fails each write statement
+  is run again on its own (a delete has two), a failure there logged once by
+  error class; a write whose statements cannot even be prepared never throws.
+- **An unreadable record's delete marks its recorded incarnations.** It names
+  no incarnation, so it inserts nothing, but it runs the `UPDATE`, so the
+  id's live rows stop listing it (v1.41.0 wrote nothing).
+- **An unreadable read is never merged.** The listing merges a recent id only
+  when the record it reads is readable AND its `createdAt` equals one of the
+  id's live rows. v1.41.0 merged an unreadable read as `{ domain, id, invalid:
+  true }` with no incarnation check, so a stale unreadable value at one KV
+  location could be listed for an id that is now a valid re-created code (or
+  one just deleted); an unreadable record is now listed as that minimal row
+  only once KV's own listing has it.
+- **The hint read's budget is a second.** `QR_RECENT_READ_TIMEOUT_MS` rises
+  from 300 ms, which a location far from the D1 primary routinely exceeds, to
+  1 s, and its timeout is logged at most once a minute per isolate
+  (`QR_RECENT_TIMEOUT_LOG_INTERVAL_MS`, by the isolate's own clock, used only
+  to throttle the log) instead of on every listing.
+- **Residual** (TODO.md): a create's row, written after its answer, can land
+  after a later delete's write; when that delete's KV read was stale (it named
+  an older incarnation, so it did not insert this one deleted), the row is
+  live, and a KV location still serving the deleted code lists it until KV
+  converges (about a minute). The delete's `UPDATE` also marks deleted a code
+  re-created between its KV delete and its D1 write, which then shows once
+  KV's own listing has it.
+
+### TODO.md
+
+- Closes the v1.41.0 residuals "replace the route-listing cache patching" and
+  "drop the synthetic by-target `RouteList`" (both gone with the patching).
+  Adds "v1.41.1 residuals" (P3): the route cache is best effort; a write that
+  never settles holds its routes (and an expiry refetch that never settles,
+  or keeps failing, keeps its batch shown); expiry removes the other
+  domains' prefetches, so the duplicate-target note lacks them until the
+  page prefetches again, a watched query whose refetch keeps failing keeps
+  the batch, and a fetch in flight at expiry costs one more refetch; a
+  projected total counts only the rows hidden on the page shown; the QR
+  editor's uncertain mark holds one route; the five route mutation factories
+  repeat their admission wiring (one `withAdmission` helper); a delayed create row after a stale-read delete is
+  live, and a delete write that outlasts its bound lands after the answer;
+  migration `0013`'s header comment still describes the v1.41.0 rules (the
+  applied file is left as it shipped); `route-pending.ts` and `qr-pending.ts`
+  each carry their own keyed-TTL store (one shared primitive).
+
+---
+
 ## v1.41.0 (2026-10-09) — Recent QR codes in D1; no self-inflicted 409 after a save; the dashboard healthcheck is socket-only
 
 **Why:** three open TODO items. Each QR create read and rewrote one shared KV

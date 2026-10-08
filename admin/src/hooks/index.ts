@@ -47,6 +47,8 @@ export {
   useCreateRoute,
   useDeleteRoute,
   useMigrateRoute,
+  usePendingRouteAdmission,
+  usePendingRouteView,
   usePrefetchAllDomainRoutes,
   useRoutes,
   useSearchRoutes,

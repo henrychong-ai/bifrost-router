@@ -2,7 +2,10 @@
  * A new QR code is listed before KV listing catches up (v1.40.0), recorded as
  * D1 rows since v1.41.0 (the shared KV key could drop a concurrent create):
  * one row per INCARNATION, `(domain, id, created_at)`, so no write is ever
- * ordered by a clock and the best-effort writes may land in any order. KV's
+ * ordered by a clock and the best-effort writes may land in any order. Since
+ * v1.41.1 a delete's write is awaited before its answer (bounded) and marks
+ * every recorded incarnation of the id, and an unreadable read is never
+ * merged. KV's
  * list lag is simulated by a namespace whose list hides chosen keys while get
  * still reads them, as at an edge whose listing has not caught up. The table
  * comes from the REAL migration.
@@ -14,9 +17,11 @@ import { getTableConfig } from 'drizzle-orm/sqlite-core';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import migration0013 from '../../drizzle/0013_qr_recent.sql?raw';
 import {
+  awaitRecentQrDelete,
   awaitRecentQrs,
   forgetRecentQr,
   noteRecentQr,
+  QR_RECENT_DELETE_TIMEOUT_MS,
   QR_RECENT_MAX,
   QR_RECENT_PRUNE_BATCH,
   QR_RECENT_READ_TIMEOUT_MS,
@@ -25,6 +30,7 @@ import {
   recentQrs,
 } from '../../src/db/qr-recent';
 import { qrRecent } from '../../src/db/schema';
+import worker from '../../src/index';
 import { listQRs, putQR } from '../../src/kv/qr';
 import { isRouteKey, qrDomainPrefix, qrKey } from '../../src/kv/schema';
 
@@ -218,6 +224,68 @@ const throwing = (error: unknown) =>
     },
   });
 
+/** A D1 binding whose read never answers, as when D1 hangs. */
+function hangingDb(): D1Database {
+  return dbWith({
+    prepare: () => ({
+      bind: () => ({ all: () => new Promise<never>(() => undefined) }),
+    }),
+  });
+}
+
+/**
+ * env.DB whose batches wait for `hold(sqls)` (the batch's statements' SQL)
+ * before running, so a test decides when a write lands.
+ */
+function heldDb(hold: (sqls: string[]) => Promise<void> | undefined): D1Database {
+  const sqlOf = new WeakMap<object, string>();
+  return dbWith({
+    prepare: (sql: string) => {
+      const prepared = env.DB.prepare(sql);
+      return new Proxy(prepared, {
+        get(statement, key) {
+          if (key === 'bind') {
+            return (...args: unknown[]) => {
+              const bound = statement.bind(...args);
+              sqlOf.set(bound, sql);
+              return bound;
+            };
+          }
+          const value: unknown = Reflect.get(statement, key);
+          return typeof value === 'function' ? value.bind(statement) : value;
+        },
+      });
+    },
+    batch: async (statements: D1PreparedStatement[]) => {
+      await hold(statements.map(statement => sqlOf.get(statement) ?? ''));
+      return env.DB.batch(statements);
+    },
+  });
+}
+
+/** Whether a batch is the recent-QR create's (its row inserted live). */
+const isCreateBatch = (sqls: string[]) => sqls.some(sql => sql.includes('VALUES (?, ?, ?, 0, ?)'));
+/** Whether a batch is the recent-QR delete's. */
+const isDeleteBatch = (sqls: string[]) => sqls.some(sql => sql.startsWith('UPDATE qr_recent'));
+
+/** An execution context that keeps every `waitUntil` promise, to be settled by the test. */
+function keptContext() {
+  const kept: Promise<unknown>[] = [];
+  const ctx = {
+    waitUntil: (promise: Promise<unknown>) => {
+      kept.push(promise);
+    },
+    passThroughOnException: () => undefined,
+    props: {},
+  } as unknown as ExecutionContext;
+  return { ctx, settle: () => Promise.all(kept) };
+}
+
+/** The app with `db` as its D1 binding and `ctx` as its execution context. */
+async function apiWith(db: D1Database, ctx: ExecutionContext, path: string, init: RequestInit) {
+  return worker.fetch(new Request(`${API}${path}`, init), { ...env, DB: db }, ctx);
+}
+
 async function createThroughApi(id: string): Promise<number> {
   const res = await SELF.fetch(`${API}?domain=${DOMAIN}`, {
     method: 'POST',
@@ -321,23 +389,48 @@ describe('recently created QR codes (v1.40.0; D1 rows per incarnation since v1.4
     expect(items.map(item => item.id)).toEqual(['fresh']);
   });
 
-  // v1.38.0 rule, as v1.40.x merged it: a record that cannot be read is listed
-  // as a minimal row with Delete. It names no createdAt, so it matches no
-  // incarnation; it is listed whatever the live row's incarnation, once
-  it('lists a recent unreadable record as its minimal row, once', async () => {
+  // v1.38.0 rule: a record that cannot be read is listed as a minimal row
+  // with Delete, once KV's own listing has it. It names no createdAt, so it
+  // matches no incarnation, and the recent merge never adds it (v1.41.1; the
+  // v1.41.0 merge listed it from a live row): only KV's listing lists it
+  it('lists an unreadable record once KV lists it, never from the recent merge', async () => {
     await env.ROUTES.put(qrKey(DOMAIN, 'broken'), '{not json');
     await noteRecentQr(env.DB, DOMAIN, 'broken', Date.now());
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const kv = laggingKv(new Set([qrKey(DOMAIN, 'broken')]));
     const row = { domain: DOMAIN, id: 'broken', invalid: true };
-    expect(await listQRs(kv, DOMAIN, { offset: 0 }, env.DB)).toEqual({ items: [row], total: 1 });
+    expect(await listQRs(kv, DOMAIN, { offset: 0 }, env.DB)).toEqual({ items: [], total: 0 });
     expect(await listQRs(env.ROUTES, DOMAIN, { offset: 0 }, env.DB)).toEqual({
       items: [row],
       total: 1,
     });
     // It matches a search by its id only, and no type filter, as a listed one does
-    expect((await listQRs(kv, DOMAIN, { offset: 0, search: 'zzz' }, env.DB)).items).toEqual([]);
-    expect((await listQRs(kv, DOMAIN, { offset: 0, type: 'url' }, env.DB)).items).toEqual([]);
+    expect((await listQRs(env.ROUTES, DOMAIN, { offset: 0, search: 'zzz' }, env.DB)).items).toEqual(
+      [],
+    );
+    expect((await listQRs(env.ROUTES, DOMAIN, { offset: 0, type: 'url' }, env.DB)).items).toEqual(
+      [],
+    );
+  });
+
+  // v1.41.1: the merge listed an unreadable read as `{invalid: true}` with no
+  // incarnation check, so a stale unreadable value at one KV location was
+  // listed for an id that is now a valid re-created code (whose own row is
+  // live). It merges nothing now
+  it('a stale unreadable value at a KV location is not listed for a live re-created code', async () => {
+    const now = Date.now();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // This location still serves the old, unreadable value; the code was
+    // re-created as B, whose row is live, and KV's listing here lacks it
+    await env.ROUTES.put(qrKey(DOMAIN, 'code'), '{not json');
+    await noteRecentQr(env.DB, DOMAIN, 'code', now - 10, now);
+    const kv = laggingKv(new Set([qrKey(DOMAIN, 'code')]));
+    expect(await listQRs(kv, DOMAIN, { offset: 0 }, env.DB)).toEqual({ items: [], total: 0 });
+    // Once the location serves B, B is merged
+    await putQR(env.ROUTES, makeQR('code', now - 10, now - 10));
+    expect((await listQRs(kv, DOMAIN, { offset: 0 }, env.DB)).items).toEqual([
+      makeQR('code', now - 10, now - 10),
+    ]);
   });
 
   // A row is a hint that an id may be missing from KV's listing, never the
@@ -373,10 +466,13 @@ describe('recently created QR codes (v1.40.0; D1 rows per incarnation since v1.4
     expect(total).toBe(1);
   });
 
-  // The root cause this release removes: isolates' clocks disagree, so a code
+  // The root cause v1.41.0 removed: isolates' clocks disagree, so a code
   // re-created on an isolate whose clock runs BEHIND the deleted one's has an
-  // earlier createdAt. Another incarnation is another row, so it is listed
-  describe('a re-create whose clock runs behind the deleted incarnation’s', () => {
+  // earlier createdAt. Another incarnation is another row, so it is listed. A
+  // delete's write lands before its answer (v1.41.1), so a re-create made
+  // after it writes its row after the delete's; A's own create write (after
+  // ITS answer) can land anywhere
+  describe('a re-create whose clock runs behind (or ahead of) the deleted incarnation’s', () => {
     const now = Date.now();
     const A = now - 10;
     for (const [label, B] of [
@@ -389,16 +485,11 @@ describe('recently created QR codes (v1.40.0; D1 rows per incarnation since v1.4
         'create B': () => noteRecentQr(env.DB, DOMAIN, 'code', B, now),
       };
       type Write = keyof typeof writes;
-      const names = Object.keys(writes) as Write[];
-      const orders: Write[][] = names.flatMap(first =>
-        names
-          .filter(second => second !== first)
-          .map(second => [
-            first,
-            second,
-            names.find(name => name !== first && name !== second) ?? first,
-          ]),
-      );
+      const orders: Write[][] = [
+        ['create A', 'delete A', 'create B'],
+        ['delete A', 'create A', 'create B'],
+        ['delete A', 'create B', 'create A'],
+      ];
       it.each(orders)(`B ${label}: %s, %s, %s: B listed, A never`, async (...order) => {
         for (const name of order) await writes[name]();
         expect(await recentQrs(env.DB, DOMAIN, now)).toEqual([{ id: 'code', createdAt: B }]);
@@ -410,9 +501,8 @@ describe('recently created QR codes (v1.40.0; D1 rows per incarnation since v1.4
         expect((await listQRs(kv, DOMAIN, { offset: 0 }, env.DB)).items).toEqual([
           makeQR('code', B, B),
         ]);
-        // Replaying A's writes, in either order, changes nothing
+        // Replaying A's create write changes nothing
         await writes['create A']();
-        await writes['delete A']();
         expect(await recentQrIds(env.DB, DOMAIN, now)).toEqual(['code']);
         // Deleting B hides it too, and a delayed create write never brings either back
         await forgetRecentQr(env.DB, DOMAIN, 'code', B, now);
@@ -427,6 +517,22 @@ describe('recently created QR codes (v1.40.0; D1 rows per incarnation since v1.4
         );
       });
     }
+
+    // B's create row landing BEFORE the delete's write is a create made while
+    // the delete was in flight: KV's delete removed the key whatever
+    // incarnation it held then, and the delete's read named A, so every
+    // recorded incarnation goes (v1.41.1). If B survived in KV (written after
+    // the KV delete), it shows once KV's listing has it, never a deleted code
+    it('a delete marks every incarnation recorded before its write, whichever its read named', async () => {
+      await noteRecentQr(env.DB, DOMAIN, 'code', A, now);
+      await noteRecentQr(env.DB, DOMAIN, 'code', now + 5_000, now);
+      await forgetRecentQr(env.DB, DOMAIN, 'code', A, now);
+      expect(await recentQrs(env.DB, DOMAIN, now)).toEqual([]);
+      expect(await incarnations('code')).toEqual([
+        [A, 1],
+        [now + 5_000, 1],
+      ]);
+    });
   });
 
   it('a delete landing before its create write still wins, in both orders', async () => {
@@ -436,9 +542,10 @@ describe('recently created QR codes (v1.40.0; D1 rows per incarnation since v1.4
     await noteRecentQr(env.DB, DOMAIN, 'late', now - 5, now);
     expect(await recentQrIds(env.DB, DOMAIN, now)).toEqual([]);
     expect(await incarnations('late')).toEqual([[now - 5, 1]]);
-    // Create first: the delete marks the row
+    // Create first: the delete marks the row; a create written again changes nothing
     await noteRecentQr(env.DB, DOMAIN, 'early', now - 5, now);
     await forgetRecentQr(env.DB, DOMAIN, 'early', now - 5, now);
+    await noteRecentQr(env.DB, DOMAIN, 'early', now - 5, now);
     expect(await recentQrIds(env.DB, DOMAIN, now)).toEqual([]);
     expect(await incarnations('early')).toEqual([[now - 5, 1]]);
     // Another incarnation, even one stamped a millisecond EARLIER, is listed
@@ -641,17 +748,47 @@ describe('recently created QR codes (v1.40.0; D1 rows per incarnation since v1.4
   });
 
   describe('the listing’s wait for the read is bounded (v1.41.0 review)', () => {
-    /** A D1 binding whose read never answers, as when D1 hangs. */
-    const hangingDb = dbWith({
-      prepare: () => ({
-        bind: () => ({ all: () => new Promise<never>(() => undefined) }),
-      }),
-    });
-
-    it('a read that has not answered in time is no recent codes, logged once as a timeout', async () => {
+    // v1.41.1: a location far from the D1 primary times out on every listing,
+    // so the timeout is logged at most once a minute per isolate (review: not
+    // once per isolate forever, which hides a timeout starting later)
+    it('a read that has not answered in time is no recent codes, its timeout logged at most once a minute', async () => {
+      vi.resetModules();
+      const fresh = await import('../../src/db/qr-recent');
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      expect(await awaitRecentQrs(new Promise<never>(() => undefined), 5)).toEqual([]);
-      expect(warn.mock.calls).toEqual([['[QR] Recent creates could not be read: timeout']]);
+      vi.useFakeTimers({ now: 1_000_000 });
+      try {
+        /** A hung read, timed out by the fake clock at its 5 ms bound. */
+        const timedOut = async () => {
+          const read = fresh.awaitRecentQrs(new Promise<never>(() => undefined), 5);
+          await vi.advanceTimersByTimeAsync(5);
+          return read;
+        };
+        const interval = fresh.QR_RECENT_TIMEOUT_LOG_INTERVAL_MS;
+        expect(interval).toBe(60_000);
+        expect(await timedOut()).toEqual([]);
+        const first = Date.now();
+        expect(await timedOut()).toEqual([]);
+        expect(warn).toHaveBeenCalledTimes(1);
+        // Just short of a minute after the first log: still quiet
+        vi.setSystemTime(first + interval - 6);
+        expect(await timedOut()).toEqual([]);
+        expect(warn).toHaveBeenCalledTimes(1);
+        // A minute after it: logged again
+        vi.setSystemTime(first + interval - 5);
+        expect(await timedOut()).toEqual([]);
+        expect(warn).toHaveBeenCalledTimes(2);
+        expect(await timedOut()).toEqual([]);
+        expect(warn).toHaveBeenCalledTimes(2);
+        // A clock that went back logs rather than staying quiet
+        vi.setSystemTime(first);
+        expect(await timedOut()).toEqual([]);
+        expect(warn).toHaveBeenCalledTimes(3);
+        for (const call of warn.mock.calls) {
+          expect(call).toEqual(['[QR] Recent creates could not be read: timeout']);
+        }
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('a read that answers first is returned, and its timer is cleared (no timeout logged later)', async () => {
@@ -662,15 +799,23 @@ describe('recently created QR codes (v1.40.0; D1 rows per incarnation since v1.4
       expect(warn).not.toHaveBeenCalled();
     });
 
+    // A location far from the D1 primary routinely takes more than 300 ms
+    // (v1.41.1): the budget is a second
     it('a QR listing with a hung D1 answers from KV after the timeout', async () => {
-      expect(QR_RECENT_READ_TIMEOUT_MS).toBe(300);
+      expect(QR_RECENT_READ_TIMEOUT_MS).toBe(1_000);
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       await putQR(env.ROUTES, makeQR('listed'));
       const started = Date.now();
-      const { items } = await listQRs(env.ROUTES, DOMAIN, { offset: 0 }, hangingDb);
+      const { items } = await listQRs(env.ROUTES, DOMAIN, { offset: 0 }, hangingDb());
       expect(items.map(item => item.id)).toEqual(['listed']);
-      expect(Date.now() - started).toBeLessThan(QR_RECENT_READ_TIMEOUT_MS + 2_000);
-      expect(warn.mock.calls).toEqual([['[QR] Recent creates could not be read: timeout']]);
+      const waited = Date.now() - started;
+      expect(waited).toBeGreaterThanOrEqual(QR_RECENT_READ_TIMEOUT_MS - 50);
+      expect(waited).toBeLessThan(QR_RECENT_READ_TIMEOUT_MS + 2_000);
+      // Logged at most once in this isolate, and nothing else
+      expect(warn.mock.calls.length).toBeLessThanOrEqual(1);
+      for (const call of warn.mock.calls) {
+        expect(call).toEqual(['[QR] Recent creates could not be read: timeout']);
+      }
     });
   });
 
@@ -703,6 +848,26 @@ describe('recently created QR codes (v1.40.0; D1 rows per incarnation since v1.4
     expect(
       (await listQRs(env.ROUTES, DOMAIN, { offset: 0 }, failingDb)).items.map(item => item.id),
     ).toEqual(['listed']);
+  });
+
+  // A statement that cannot even be prepared is a failure like any other:
+  // logged by its error class, never thrown (v1.41.1)
+  it('a write whose statements cannot be prepared never throws, logging the error class only', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const unpreparable = dbWith({
+      prepare: () => {
+        throw new RangeError('cannot prepare');
+      },
+    });
+    const now = Date.now();
+    await expect(noteRecentQr(unpreparable, DOMAIN, 'x', now, now)).resolves.toBeUndefined();
+    await expect(forgetRecentQr(unpreparable, DOMAIN, 'x', now, now)).resolves.toBeUndefined();
+    expect(warn.mock.calls).toEqual([
+      ['[QR] Recent create and prune failed together, writing the create alone: RangeError'],
+      ['[QR] Recent create could not be recorded: RangeError'],
+      ['[QR] Recent delete and prune failed together, writing the delete alone: RangeError'],
+      ['[QR] Recent delete could not be recorded: RangeError'],
+    ]);
   });
 
   // The merge is best effort: a recent code whose own read fails is left
@@ -777,25 +942,171 @@ describe('recently created QR codes (v1.40.0; D1 rows per incarnation since v1.4
     expect(await incarnations('gone')).toEqual([[createdAt['gone'], 1]]);
   });
 
-  // v1.41.0 review: an unreadable record names no incarnation, so its delete
-  // writes nothing to the recent record (no request-time clock stands in)
-  it('an unreadable record deleted through the API writes no recent row', async () => {
+  // v1.41.1: an unreadable record names no incarnation, but its delete still
+  // marks every recorded incarnation of the id deleted, so a KV location
+  // still serving the unreadable value lists nothing from the recent record
+  // (v1.41.0 wrote nothing, and its live row listed it as `{invalid: true}`
+  // again). It inserts no row of its own
+  it('an unreadable record deleted through the API: its live recent row stops listing it', async () => {
     const now = Date.now();
     await env.ROUTES.put(qrKey(DOMAIN, 'unreadable'), '{not json');
     await noteRecentQr(env.DB, DOMAIN, 'unreadable', now - 1000, now);
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
     await deleteThroughApi('unreadable');
-    // A readable delete after it: once its row lands, the unreadable delete's
-    // own after-answer work (started first) has run too
-    await putQR(env.ROUTES, makeQR('readable', now, now));
-    await deleteThroughApi('readable');
-    await expect.poll(() => incarnations('readable')).toEqual([[now, 1]]);
+    // Written before the answer: no poll
     expect(await stored('unreadable')).toEqual([
-      { created_at: now - 1000, deleted: 0, noted_at: now },
+      { created_at: now - 1000, deleted: 1, noted_at: now },
     ]);
-    // KV no longer holds it here, so the live row merges nothing
-    expect((await listQRs(env.ROUTES, DOMAIN, { offset: 0 }, env.DB)).items).toEqual([]);
-    warn.mockRestore();
+    // A location still serving the unreadable value (its KV listing not caught up) merges nothing
+    await env.ROUTES.put(qrKey(DOMAIN, 'unreadable'), '{not json');
+    const kv = laggingKv(new Set([qrKey(DOMAIN, 'unreadable')]));
+    expect((await listQRs(kv, DOMAIN, { offset: 0 }, env.DB)).items).toEqual([]);
+    await env.ROUTES.delete(qrKey(DOMAIN, 'unreadable'));
+    // An unreadable record with no recent row gets none
+    await env.ROUTES.put(qrKey(DOMAIN, 'unreadable-2'), '{not json');
+    await deleteThroughApi('unreadable-2');
+    expect(await stored('unreadable-2')).toEqual([]);
+  });
+
+  // With no execution context (a caller of the app without one) the writes
+  // run inline before the answer, so the rows are there when it answers
+  it('without an execution context the create and delete rows are written before the answer', async () => {
+    const created = await worker.fetch(
+      new Request(`${API}?domain=${DOMAIN}`, {
+        method: 'POST',
+        headers: HEADERS,
+        body: JSON.stringify({
+          id: 'inline',
+          type: 'url',
+          payload: { url: 'https://example.com' },
+        }),
+      }),
+      env,
+    );
+    expect(created.status).toBe(201);
+    const body: unknown = await created.json();
+    const createdAt = (body as { data: QRCode }).data.createdAt;
+    expect(await incarnations('inline')).toEqual([[createdAt, 0]]);
+    const deleted = await worker.fetch(
+      new Request(`${API}/inline?domain=${DOMAIN}`, { method: 'DELETE', headers: HEADERS }),
+      env,
+    );
+    expect(deleted.status).toBe(200);
+    expect(await incarnations('inline')).toEqual([[createdAt, 1]]);
+  });
+
+  // v1.41.1: the delete's D1 write ran after the answer, so a listing made
+  // straight after the 200, at a KV location still serving the code, merged
+  // the deleted code. It is awaited before the answer now
+  describe('a delete records before it answers (v1.41.1)', () => {
+    it('a listing straight after the answer merges nothing, even with the write slowed', async () => {
+      const now = Date.now();
+      await putQR(env.ROUTES, makeQR('code', now, now));
+      await noteRecentQr(env.DB, DOMAIN, 'code', now, now);
+      const db = heldDb(sqls =>
+        isDeleteBatch(sqls) ? new Promise(resolve => setTimeout(resolve, 50)) : undefined,
+      );
+      const { ctx, settle } = keptContext();
+      const res = await apiWith(db, ctx, `/code?domain=${DOMAIN}`, {
+        method: 'DELETE',
+        headers: HEADERS,
+      });
+      expect(res.status).toBe(200);
+      // No poll, no settling of after-answer work: the row is already deleted
+      expect(await incarnations('code')).toEqual([[now, 1]]);
+      await putQR(env.ROUTES, makeQR('code', now, now));
+      const kv = laggingKv(new Set([qrKey(DOMAIN, 'code')]));
+      expect((await listQRs(kv, DOMAIN, { offset: 0 }, env.DB)).items).toEqual([]);
+      await settle();
+    });
+
+    // KV's delete removes the key whatever incarnation it holds, but the
+    // delete's own read is eventually consistent: it can read an older
+    // incarnation (A) while B is the one KV holds and the record lists
+    it('a delete whose read was stale (A) still marks the live incarnation (B) deleted', async () => {
+      const now = Date.now();
+      const A = now - 5_000;
+      const B = now - 10;
+      await putQR(env.ROUTES, makeQR('code', A, A));
+      await noteRecentQr(env.DB, DOMAIN, 'code', B, now);
+      await deleteThroughApi('code');
+      expect(await incarnations('code')).toEqual([
+        [A, 1],
+        [B, 1],
+      ]);
+      // A location still serving B merges nothing
+      await putQR(env.ROUTES, makeQR('code', B, B));
+      const kv = laggingKv(new Set([qrKey(DOMAIN, 'code')]));
+      expect((await listQRs(kv, DOMAIN, { offset: 0 }, env.DB)).items).toEqual([]);
+    });
+
+    it('a create row landing after the delete of its incarnation stays deleted; a re-create after it is live', async () => {
+      let release!: () => void;
+      const released = new Promise<void>(resolve => {
+        release = resolve;
+      });
+      const db = heldDb(sqls => (isCreateBatch(sqls) ? released : undefined));
+      const created = keptContext();
+      const res = await apiWith(db, created.ctx, `?domain=${DOMAIN}`, {
+        method: 'POST',
+        headers: HEADERS,
+        body: JSON.stringify({ id: 'code', type: 'url', payload: { url: 'https://example.com' } }),
+      });
+      expect(res.status).toBe(201);
+      const body: unknown = await res.json();
+      const A = (body as { data: QRCode }).data.createdAt;
+      // Deleted while the create's row is held back
+      await deleteThroughApi('code');
+      expect(await incarnations('code')).toEqual([[A, 1]]);
+      release();
+      await created.settle();
+      expect(await incarnations('code')).toEqual([[A, 1]]);
+      // A re-create after the delete's write is another incarnation, live
+      await new Promise(resolve => setTimeout(resolve, 2));
+      const B = await createThroughApi('code');
+      expect(B).not.toBe(A);
+      await expect.poll(() => recentQrIds(env.DB, DOMAIN)).toEqual(['code']);
+      const kv = laggingKv(new Set([qrKey(DOMAIN, 'code')]));
+      expect((await listQRs(kv, DOMAIN, { offset: 0 }, env.DB)).items.map(item => item.id)).toEqual(
+        ['code'],
+      );
+    });
+
+    // Bounded: a hung D1 never holds the delete up. The write is kept alive
+    // after the answer and lands late (`deleted` only ever goes to 1)
+    it('a write that outlasts its bound is logged as a timeout and lands after the answer', async () => {
+      expect(QR_RECENT_DELETE_TIMEOUT_MS).toBe(1_000);
+      const now = Date.now();
+      await putQR(env.ROUTES, makeQR('slow', now, now));
+      await noteRecentQr(env.DB, DOMAIN, 'slow', now, now);
+      const db = heldDb(sqls =>
+        isDeleteBatch(sqls)
+          ? new Promise(resolve => setTimeout(resolve, QR_RECENT_DELETE_TIMEOUT_MS + 200))
+          : undefined,
+      );
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { ctx, settle } = keptContext();
+      const started = Date.now();
+      const res = await apiWith(db, ctx, `/slow?domain=${DOMAIN}`, {
+        method: 'DELETE',
+        headers: HEADERS,
+      });
+      expect(res.status).toBe(200);
+      expect(Date.now() - started).toBeLessThan(QR_RECENT_DELETE_TIMEOUT_MS + 150);
+      expect(await incarnations('slow')).toEqual([[now, 0]]);
+      expect(warn.mock.calls).toContainEqual([
+        '[QR] Recent delete could not be recorded before the answer: timeout',
+      ]);
+      await settle();
+      expect(await incarnations('slow')).toEqual([[now, 1]]);
+    });
+
+    it('the bounded wait returns the write when it answers first, and logs nothing', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await expect(awaitRecentQrDelete(Promise.resolve(), 5)).resolves.toBeUndefined();
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(warn).not.toHaveBeenCalled();
+    });
   });
 
   // A missing table fails the lone write too, so it is logged once and not
@@ -877,7 +1188,8 @@ describe('recently created QR codes (v1.40.0; D1 rows per incarnation since v1.4
       const { db, counts } = batchingDb(true);
       await noteRecentQr(db, DOMAIN, 'new', now, now);
       await forgetRecentQr(db, DOMAIN, 'gone', now, now);
-      expect(counts).toEqual({ batch: 2, run: 2 });
+      // The create's row alone; the delete's two statements alone
+      expect(counts).toEqual({ batch: 2, run: 3 });
       expect(await incarnations('new')).toEqual([[now, 0]]);
       expect(await incarnations('gone')).toEqual([[now, 1]]);
       expect(await recentQrIds(env.DB, DOMAIN, now)).toEqual(['new']);
@@ -932,16 +1244,31 @@ describe('recently created QR codes (v1.40.0; D1 rows per incarnation since v1.4
     expect(await stored('nan')).toEqual([]);
     expect(warn.mock.calls).toEqual([
       ['[QR] Recent create not recorded: no valid createdAt'],
-      ['[QR] Recent delete not recorded: no valid createdAt'],
+      ['[QR] Recent delete has no valid createdAt; marking the recorded incarnations only'],
     ]);
+    // ...and marks the recorded ones
+    await noteRecentQr(env.DB, DOMAIN, 'nan', now, now);
+    await forgetRecentQr(env.DB, DOMAIN, 'nan', Number.NaN, now);
+    expect(await incarnations('nan')).toEqual([[now, 1]]);
   });
 
-  it('forgetRecentQr leaves another id, another domain and another incarnation alone', async () => {
+  // v1.41.1: KV's delete removes the key whatever incarnation it holds, so a
+  // delete marks every incarnation of the id recorded so far, even one its
+  // own (eventually consistent) read did not name
+  it('forgetRecentQr marks every incarnation of the id, and leaves another id and another domain alone', async () => {
     const now = Date.now();
     await noteRecentQr(env.DB, DOMAIN, 'a', now, now);
+    await noteRecentQr(env.DB, DOMAIN, 'b', now, now);
+    await noteRecentQr(env.DB, OTHER, 'a', now, now);
     await forgetRecentQr(env.DB, DOMAIN, 'missing', now, now);
-    await forgetRecentQr(env.DB, OTHER, 'a', now, now);
-    await forgetRecentQr(env.DB, DOMAIN, 'a', now - 1, now);
-    expect(await recentQrs(env.DB, DOMAIN, now)).toEqual([{ id: 'a', createdAt: now }]);
+    expect(await recentQrIds(env.DB, DOMAIN, now)).toEqual(['a', 'b']);
+    await forgetRecentQr(env.DB, DOMAIN, 'a', now - 1, now + 30);
+    expect(await recentQrIds(env.DB, DOMAIN, now)).toEqual(['b']);
+    expect(await recentQrIds(env.DB, OTHER, now)).toEqual(['a']);
+    // The existing row keeps its first-write noted_at; the inserted one is noted at the delete
+    expect(await stored('a')).toEqual([
+      { created_at: now - 1, deleted: 1, noted_at: now + 30 },
+      { created_at: now, deleted: 1, noted_at: now },
+    ]);
   });
 });

@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { RouteSchema } from './schemas.js';
 import {
+  DEFAULT_ROUTE_BUCKET,
   InvalidRouteRowSchema,
   isInvalidRouteRow,
   isStoredRoute,
   parseStoredRoute,
+  r2ObjectId,
+  routeR2ObjectId,
   STORED_ROUTE_FIELDS,
   STORED_ROUTE_REQUIRED,
   StoredRouteSchema,
@@ -82,5 +85,29 @@ describe('stored routes: one tolerant read shape for the Worker and the dashboar
     expect(InvalidRouteRowSchema.safeParse(route).success).toBe(false);
     // The extra field is kept, as the Worker sends it
     expect(StoredRouteSchema.parse(route)).toMatchObject({ invalid: true, type: 'redirect' });
+  });
+});
+
+describe('routeR2ObjectId (v1.41.1)', () => {
+  it('names the object an r2 route serves, its bucket defaulting to files', () => {
+    expect(routeR2ObjectId({ type: 'r2', target: 'a.pdf' })).toBe(r2ObjectId('files', 'a.pdf'));
+    expect(routeR2ObjectId({ type: 'r2', target: 'a.pdf', bucket: '' })).toBe(
+      r2ObjectId(DEFAULT_ROUTE_BUCKET, 'a.pdf'),
+    );
+    expect(routeR2ObjectId({ type: 'r2', target: 'a.pdf', bucket: 'assets' })).toBe(
+      r2ObjectId('assets', 'a.pdf'),
+    );
+    expect(routeR2ObjectId({ type: 'r2', target: 'a.pdf', bucket: 'assets' })).not.toBe(
+      r2ObjectId('files', 'a.pdf'),
+    );
+  });
+
+  it('names none for a redirect or proxy route', () => {
+    expect(routeR2ObjectId({ type: 'redirect', target: 'a.pdf' })).toBeUndefined();
+    expect(routeR2ObjectId({ type: 'proxy', target: 'https://a.example/' })).toBeUndefined();
+  });
+
+  it('keeps bucket and key apart (no separator collision)', () => {
+    expect(r2ObjectId('a', 'b/c')).not.toBe(r2ObjectId('a/b', 'c'));
   });
 });

@@ -50,6 +50,13 @@ vi.mock('@/hooks', () => ({
   useQrCodes: () => ({ data: undefined }),
   useDebounce: <T,>(value: T) => value,
   usePrefetchAllDomainRoutes: () => undefined,
+  // The pending-route store (v1.41.1): nothing written here, so listings show as they are
+  usePendingRouteView: () => ({
+    version: 0,
+    project: (list: unknown) => list,
+    projectRows: (rows: unknown) => rows,
+  }),
+  usePendingRouteAdmission: () => ({ version: 0, isPending: () => false }),
 }));
 vi.mock('@/context', () => ({
   SUPPORTED_DOMAINS: ['example.com'],

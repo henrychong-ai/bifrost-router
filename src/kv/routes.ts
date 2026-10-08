@@ -5,6 +5,8 @@ import {
   MAX_HOST_HEADER_LENGTH,
   MAX_ROUTE_RECORD_BYTES,
   MAX_ROUTE_TARGET_LENGTH,
+  r2ObjectId,
+  routeR2ObjectId,
 } from '@bifrost/shared';
 import { HTTPException } from 'hono/http-exception';
 import type { KVRouteConfig, SupportedDomain } from '../types';
@@ -788,9 +790,9 @@ export async function findRoutesByR2Target(
   target: string,
 ): Promise<KVRouteConfigWithDomain[]> {
   const { routes } = await listAllDomainRoutes(kv);
-  return routes.filter(
-    route => route.type === 'r2' && route.target === target && (route.bucket || 'files') === bucket,
-  );
+  // One definition of "serves this object" with the dashboard (v1.41.1)
+  const wanted = r2ObjectId(bucket, target);
+  return routes.filter(route => routeR2ObjectId(route) === wanted);
 }
 
 // Re-export parseRouteKey for use by migration scripts
