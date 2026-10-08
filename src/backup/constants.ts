@@ -40,3 +40,11 @@ export function backupArchiveKey(date: string): string {
 export function backupManifestKey(date: string): string {
   return `${BACKUP_DAILY_PREFIX}${date}/manifest.json`;
 }
+
+/**
+ * Most keys of skipped oversized records a manifest names (v1.40.0). The
+ * count is always exact; the key list stops here, so a store full of
+ * oversized records cannot grow the manifest without bound (512-byte keys
+ * keep it under 26 KiB).
+ */
+export const MAX_REPORTED_SKIPPED_KEYS = 50;

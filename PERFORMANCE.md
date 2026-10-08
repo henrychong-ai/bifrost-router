@@ -4,6 +4,29 @@ This file records reproducible performance baselines and measured changes. Run
 benchmarks on an otherwise idle machine and compare the same benchmark and build
 configuration before and after a change.
 
+## 2026-10-08 — v1.40.0: the routing gate compares within one run
+
+Command: `pnpm run benchmark:routing:gate`
+
+The fixed millisecond baselines below (v1.31.0) failed the gate on a busy
+machine with unchanged routing code (load average 17-30). The benchmark now
+also measures two reference passes in the same run: the latency model's own
+reads with no lookup logic, one read (`reference: one KV read`) and the exact
+read followed by every wildcard candidate in parallel (`reference: two KV
+rounds`). The gate divides each lookup's mean by its reference's mean from
+the same run, takes the median of three runs, and fails past 15% over the
+baseline ratio of 1. Load slows both sides alike; an extra round of reads
+does not (a lookup with one extra read measured 1.46-1.53x and failed).
+
+| Scenario | Reference | Median ratio (load average 20-30) | Ceiling |
+|---|---|---:|---:|
+| Exact route hit | one KV read | 1.006x | 1.15x |
+| Root wildcard hit | two KV rounds | 1.011x | 1.15x |
+| Full miss | two KV rounds | 1.025x | 1.15x |
+
+Single runs at that load ranged 0.92-1.13x, so a run near the ceiling is
+noise, not a regression; re-run the gate before investigating.
+
 ## 2026-08-12 — v1.32.0
 
 Environment: macOS 26.5.2, Node.js 24.19.0, pnpm 10.33.0. Measurements are

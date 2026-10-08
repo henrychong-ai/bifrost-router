@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { gzipCompress } from '../../src/backup/compress';
-import { checkBackupHealth } from '../../src/backup/health';
+import { checkBackupHealth, forgetVerifiedArchive } from '../../src/backup/health';
 import { backupKV } from '../../src/backup/kv';
 import { writeManifest } from '../../src/backup/manifest';
 import { handleScheduled } from '../../src/backup/scheduled';
@@ -225,15 +225,20 @@ describe('handleScheduled', () => {
     expect(hex(new Uint8Array(sent as ArrayBuffer))).toBe(await sha256Hex(stored!));
     const checksum = (await env.BACKUP_BUCKET.head(archiveKey))?.checksums.sha256;
     expect(checksum && hex(new Uint8Array(checksum))).toBe(await sha256Hex(stored!));
+    // v1.40.0: what the run skipped, and its run id, travel with the archive
     expect(calls[0]?.options?.customMetadata).toEqual({
       date: todayDate(),
       type: 'kv-routes',
       routeCount: '1',
+      runId: expect.any(String),
+      skippedNotJson: '0',
+      skippedOverLineLimit: '0',
     });
     expect((await env.BACKUP_BUCKET.head(archiveKey))?.customMetadata?.['routeCount']).toBe('1');
     expect(await bucketKeys()).toEqual([archiveKey, `daily/${todayDate()}/manifest.json`]);
   });
 
+  // v1.40.0 review round 2: the whole store past the cap still FAILS the run
   it('writes nothing to R2 when the in-memory verification fails', {
     timeout: 30_000,
   }, async () => {
@@ -269,6 +274,116 @@ describe('handleScheduled', () => {
       manifest: await readBytes(`daily/${date}/manifest.json`),
       keys: await bucketKeys(),
     }).toEqual(before);
+  });
+
+  // v1.40.0 review: health read the skipped counts from the manifest, so a
+  // same-day re-run whose manifest write failed left the earlier, clean
+  // manifest in place and health reported healthy with a record missing.
+  // The counts now travel in the archive's own metadata.
+  it('reports a re-run’s skipped record even when its manifest write failed', async () => {
+    await env.ROUTES.put(
+      'links.example.com:/first',
+      JSON.stringify({ path: '/first', type: 'redirect', target: 'https://example.com/1' }),
+    );
+    expect((await handleScheduled(env as unknown as Bindings)).success).toBe(true);
+    forgetVerifiedArchive();
+    expect((await checkBackupHealth(env.BACKUP_BUCKET, { minExpectedRoutes: 0 })).status).toBe(
+      'healthy',
+    );
+
+    // One record over the 1 MiB line limit, then a re-run whose manifest
+    // write fails: the archive is replaced, the old manifest stays
+    await env.ROUTES.put(
+      'links.example.com:/huge',
+      JSON.stringify({ target: `https://example.com/${'a'.repeat(1_100_000)}` }),
+    );
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const rerun = await handleScheduled({
+      ...env,
+      BACKUP_BUCKET: recordingBucket([], key => key.endsWith('manifest.json')),
+    } as unknown as Bindings);
+    expect(rerun.success).toBe(false);
+
+    forgetVerifiedArchive();
+    const health = await checkBackupHealth(env.BACKUP_BUCKET, { minExpectedRoutes: 0 });
+    expect(health.status).toBe('critical');
+    expect(health.issues).toContainEqual({
+      severity: 'critical',
+      message: '1 stored record over the record line limit (MAX_RECORD_LINE_BYTES) not backed up',
+    });
+    // The manifest belongs to the earlier run: no key names are taken from it
+    expect(health.lastBackup?.skipped).toMatchObject({ source: 'archive', overLineLimit: 1 });
+    expect(health.lastBackup?.skipped?.overLineLimitKeys).toBeUndefined();
+  });
+
+  it('names the skipped keys when the manifest is the same run’s', async () => {
+    await env.ROUTES.put(
+      'links.example.com:/huge',
+      JSON.stringify({ target: `https://example.com/${'a'.repeat(1_100_000)}` }),
+    );
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect((await handleScheduled(env as unknown as Bindings)).success).toBe(true);
+    forgetVerifiedArchive();
+    const health = await checkBackupHealth(env.BACKUP_BUCKET, { minExpectedRoutes: 0 });
+    expect(health.lastBackup?.skipped?.overLineLimitKeys).toEqual(['links.example.com:/huge']);
+  });
+
+  // v1.40.0: an archive is verified once per isolate, while its ETag holds
+  it('verifies an unchanged archive once, and again once it changes', async () => {
+    forgetVerifiedArchive();
+    await env.ROUTES.put(
+      'links.example.com:/a',
+      JSON.stringify({ path: '/a', type: 'redirect', target: 'https://example.com/a' }),
+    );
+    expect((await handleScheduled(env as unknown as Bindings)).success).toBe(true);
+    const archiveGets: { conditional: boolean; body: boolean }[] = [];
+    const bucket = new Proxy(env.BACKUP_BUCKET, {
+      get(target, property) {
+        const value: unknown = Reflect.get(target, property);
+        if (typeof value !== 'function') return value;
+        if (property === 'get') {
+          return async (key: string, options?: R2GetOptions) => {
+            const object = await target.get(key, options);
+            if (key.endsWith('.ndjson.gz')) {
+              archiveGets.push({
+                conditional: options?.onlyIf !== undefined,
+                body: object !== null && 'body' in object,
+              });
+            }
+            return object;
+          };
+        }
+        return value.bind(target);
+      },
+    });
+
+    const first = await checkBackupHealth(bucket, { minExpectedRoutes: 0 });
+    const second = await checkBackupHealth(bucket, { minExpectedRoutes: 0 });
+    expect(first.status).toBe('healthy');
+    expect(second).toMatchObject({
+      status: 'healthy',
+      lastBackup: { archive: first.lastBackup?.archive, files: first.lastBackup?.files },
+      checks: { contentVerified: true },
+    });
+    // The second read came back without a body: nothing was streamed
+    expect(archiveGets).toEqual([
+      { conditional: false, body: true },
+      { conditional: true, body: false },
+    ]);
+
+    // A changed archive (corrupt here) has a new ETag and is verified again
+    const date = todayDate();
+    await env.BACKUP_BUCKET.put(`daily/${date}/kv-routes.ndjson.gz`, 'not gzip', {
+      customMetadata: { date, type: 'kv-routes', routeCount: '1' },
+    });
+    const third = await checkBackupHealth(bucket, { minExpectedRoutes: 0 });
+    expect(archiveGets.at(-1)).toEqual({ conditional: true, body: true });
+    expect(third.status).toBe('critical');
+    expect(third.issues).toContainEqual({
+      severity: 'critical',
+      message: 'Backup content verification failed',
+    });
   });
 
   it('leaves the earlier archive and manifest byte-identical when R2 refuses the archive put', async () => {
@@ -366,6 +481,25 @@ describe('handleScheduled', () => {
     health = await checkBackupHealth(env.BACKUP_BUCKET, { minExpectedRoutes: 0 });
     expect(health.status).toBe('healthy');
     expect(health.issues).toEqual([]);
+  });
+
+  // v1.40.0 review: an empty manifest object is not JSON, so it reads as
+  // missing or invalid without a separate size check
+  it('reports an empty manifest object as missing and invalid', async () => {
+    expect((await handleScheduled(env as unknown as Bindings)).success).toBe(true);
+    const date = todayDate();
+    await env.BACKUP_BUCKET.put(`daily/${date}/manifest.json`, '');
+    forgetVerifiedArchive();
+    const health = await checkBackupHealth(env.BACKUP_BUCKET, { minExpectedRoutes: 0 });
+    expect(health.checks.manifestValid).toBe(false);
+    expect(health.issues).toContainEqual({
+      severity: 'critical',
+      message: 'Backup manifest is missing or invalid',
+    });
+    expect(health.issues).toContainEqual({
+      severity: 'critical',
+      message: `Missing backup files: daily/${date}/manifest.json`,
+    });
   });
 
   it('verifies a legacy archive without routeCount metadata against its manifest', async () => {

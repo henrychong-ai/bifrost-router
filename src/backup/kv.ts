@@ -1,7 +1,9 @@
 import { SUPPORTED_DOMAINS } from '../types';
+import { kvListingPage, nextCursor } from '../utils/list-cursor';
 import { gzipCompress } from './compress';
-import { backupArchiveKey } from './constants';
+import { backupArchiveKey, MAX_REPORTED_SKIPPED_KEYS } from './constants';
 import {
+  archiveMetadata,
   BACKUP_ERRORS,
   BackupIntegrityError,
   BackupListingError,
@@ -27,6 +29,13 @@ export const KV_BULK_GET_MAX_KEYS = 100;
 export const BACKUP_SKIPPED_NOT_JSON = 'Skipped a KV record that is not JSON';
 
 /**
+ * The fixed log text for a record over MAX_RECORD_LINE_BYTES (v1.40.0),
+ * followed by the record's key and nothing else: never the value.
+ */
+export const BACKUP_SKIPPED_OVER_LINE_LIMIT =
+  'Skipped a KV record over the record line limit (MAX_RECORD_LINE_BYTES)';
+
+/**
  * Backup all KV routes to R2 as compressed NDJSON
  *
  * Iterates through all supported domains, fetches all routes from KV,
@@ -39,10 +48,19 @@ export const BACKUP_SKIPPED_NOT_JSON = 'Skipped a KV record that is not JSON';
  * own count. A run that fails verification, or whose write R2 refuses, writes
  * nothing: an earlier archive for the day (and its manifest) is untouched.
  *
- * The size cap and duplicate keys are enforced while the records are read:
- * the serialised NDJSON is counted as it grows, and the run stops with
- * BACKUP_ERRORS.sizeLimit as soon as it passes `maxBytes`, before any join or
- * gzip and without reading the rest of the namespace. A listing page that is
+ * The size caps and duplicate keys are enforced while the records are read.
+ * A single record whose line passes MAX_RECORD_LINE_BYTES is skipped
+ * (v1.40.0; it used to fail the run): counted (`skippedOverLineLimit`), its
+ * key kept (`skippedOverLineLimitKeys`, at most MAX_REPORTED_SKIPPED_KEYS) and
+ * logged as one fixed line naming the key, never the value; the records after
+ * it are backed up. The whole store passing `maxBytes` still FAILS the run,
+ * as before: the serialised NDJSON is counted as it grows and the run stops
+ * with BACKUP_ERRORS.sizeLimit as soon as it passes the cap, before any join
+ * or gzip and without reading the rest, writing nothing. The skipped counts go
+ * into the archive's own R2 metadata, written with the archive in its one
+ * put, so health reads them from the archive even when the manifest write
+ * fails or a same-day re-run leaves an older manifest; the manifest carries
+ * them too, with the key names, under the same `runId`. A listing page that is
  * truncated but gives no cursor, or repeats one, stops the run with
  * BackupListingError rather than backing up a partial listing. Values are
  * read as text and parsed here (v1.37.1). A value that is not JSON is skipped
@@ -70,11 +88,15 @@ export async function backupKV(
   const lines: string[] = [];
   const seenKeys = new Set<string>();
   const encoder = new TextEncoder();
-  // Bytes of the NDJSON so far, each line counted with its newline
+  // Bytes of the NDJSON so far, exactly as `lines.join('\n')` builds it: n
+  // records carry n - 1 newlines, so backupKV and verifyArchiveBytes (which
+  // caps the inflated bytes) agree on the cap to the byte (v1.40.0)
   let ndjsonBytes = 0;
   // Values that are not JSON, skipped (v1.38.0)
   let skippedNotJson = 0;
-
+  // Records over the line limit, skipped (v1.40.0), and the first of their keys
+  let skippedOverLineLimit = 0;
+  const skippedOverLineLimitKeys: string[] = [];
   // Iterate through all supported domains. Route keys are `{domain}:{path}`;
   // QR records (v1.30.0) live under `qr:{domain}:{id}` in the SAME namespace,
   // so each domain is backed up under BOTH prefixes — without the second
@@ -86,10 +108,6 @@ export async function backupKV(
     for (const prefix of [`${domain}:`, `qr:${domain}:`]) {
       let cursor: string | undefined;
       const seenCursors = new Set<string>();
-      // Records listed so far under this prefix: locates an over-long record
-      // in the log without naming its key
-      let listed = 0;
-
       do {
         const result = await kv.list({
           prefix,
@@ -107,8 +125,6 @@ export async function backupKV(
           // error can quote the stored value, so its text goes nowhere.
           const texts = await kv.get(chunk, 'text');
           for (const name of chunk) {
-            const index = listed;
-            listed += 1;
             // `null` (or absent) means the key vanished between list and get.
             // Any other value is kept, falsy ones included (`false`, `0`,
             // `""`): a truthiness check dropped them and the restore lost the
@@ -131,58 +147,66 @@ export async function backupKV(
             seenKeys.add(name);
             const line = JSON.stringify({ key: name, value });
             const lineBytes = encoder.encode(line).byteLength;
-            // A line verification would refuse fails here, explicitly and
-            // before any gzip (v1.37.2), located like a malformed value
+            // One record verification would refuse is skipped and named
             if (lineBytes > MAX_RECORD_LINE_BYTES) {
-              console.error(
-                `[Backup] ${BACKUP_ERRORS.recordTooLarge}: prefix ${prefix}, listing index ${index}`,
-              );
-              throw new BackupIntegrityError(BACKUP_ERRORS.recordTooLarge);
+              console.warn(`[Backup] ${BACKUP_SKIPPED_OVER_LINE_LIMIT}: ${name}`);
+              skippedOverLineLimit += 1;
+              if (skippedOverLineLimitKeys.length < MAX_REPORTED_SKIPPED_KEYS) {
+                skippedOverLineLimitKeys.push(name);
+              }
+              continue;
             }
-            ndjsonBytes += lineBytes + 1;
+            const separatorBytes = lines.length > 0 ? 1 : 0;
+            ndjsonBytes += separatorBytes + lineBytes;
+            // The whole store past the cap fails the run, writing nothing
             if (ndjsonBytes > maxBytes) throw new BackupIntegrityError(BACKUP_ERRORS.sizeLimit);
             lines.push(line);
           }
         }
 
-        if (result.list_complete) {
-          cursor = undefined;
-        } else {
-          // A truncated page must hand over a cursor not seen before
-          if (!result.cursor || seenCursors.has(result.cursor)) {
-            throw new BackupListingError();
-          }
-          seenCursors.add(result.cursor);
-          cursor = result.cursor;
-        }
+        // A truncated page must hand over a cursor not seen before
+        cursor = nextCursor(kvListingPage(result), seenCursors, () => new BackupListingError());
       } while (cursor);
     }
   }
 
-  // Convert to NDJSON (newline-delimited JSON)
-  const ndjson = lines.join('\n');
+  // Convert to NDJSON (newline-delimited JSON). The collected lines are
+  // released as soon as they are joined, and the joined text once it is
+  // compressed (v1.40.0), so at the cap the job never holds the lines, the
+  // NDJSON and its gzip at once.
+  const recordCount = lines.length;
+  let ndjson = lines.join('\n');
+  lines.length = 0;
   const compressed = await gzipCompress(ndjson);
+  ndjson = '';
 
   // Verify before any write (defence in depth for the gzip round trip): the
   // exact bytes about to be stored must inflate to exactly the records just
   // read, within the size caps.
-  await verifyArchiveBytes(new Uint8Array(compressed), lines.length, maxBytes);
+  await verifyArchiveBytes(new Uint8Array(compressed), recordCount, maxBytes);
 
   const filename = backupArchiveKey(date);
   const sha256 = await crypto.subtle.digest('SHA-256', compressed);
+  // One run id ties this archive to the manifest written after it
+  const runId = crypto.randomUUID();
   await bucket.put(filename, compressed, {
-    customMetadata: {
+    customMetadata: archiveMetadata({
       date,
-      type: 'kv-routes',
-      routeCount: String(lines.length),
-    },
+      routeCount: recordCount,
+      runId,
+      skippedNotJson,
+      skippedOverLineLimit,
+    }),
     sha256,
   });
 
   return {
     domains: [...SUPPORTED_DOMAINS],
-    totalRoutes: lines.length,
+    totalRoutes: recordCount,
     file: filename,
     skippedNotJson,
+    skippedOverLineLimit,
+    skippedOverLineLimitKeys,
+    runId,
   };
 }

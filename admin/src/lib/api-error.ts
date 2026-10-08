@@ -83,3 +83,17 @@ export class RouteExistsError extends ApiError {
     this.route = route;
   }
 }
+
+/**
+ * Whether an error is the Worker's 409 `ROUTE_SOURCE_CHANGED` (v1.40.0 for
+ * the edit precondition): the route changed since the dashboard loaded it, so
+ * nothing was saved or moved. The caller reloads the route before any retry,
+ * which would otherwise send the same stale `expectedUpdatedAt`.
+ */
+export function isRouteSourceChanged(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    (error.code === 'ROUTE_SOURCE_CHANGED' || error.message === 'ROUTE_SOURCE_CHANGED')
+  );
+}

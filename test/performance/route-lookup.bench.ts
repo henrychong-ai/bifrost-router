@@ -2,9 +2,9 @@ import { bench, describe } from 'vitest';
 import { lookupRoute } from '../../src/kv/lookup';
 import { routeKey } from '../../src/kv/schema';
 import type { KVRouteConfig } from '../../src/types';
+import { DEEP_PATH, DEEP_PATH_WILDCARD_CANDIDATES } from './route-lookup-fixture';
 
 const DOMAIN = 'benchmark.example.com';
-const DEEP_PATH = '/a/b/c/d/e/f/g/h';
 const READ_LATENCY_MS = 2;
 const BENCH_OPTIONS = { time: 1_000, warmupTime: 200 };
 
@@ -43,6 +43,24 @@ const rootWildcardHitKv = createLatencyModel(
 );
 const missKv = createLatencyModel(new Map());
 
+/**
+ * The reference passes (v1.40.0): the latency model's own cost, with no
+ * lookup logic, measured in the same run as the lookups. The gate
+ * (scripts/check-routing-benchmark.mjs) compares each lookup with its
+ * reference, so machine load slows both sides alike. One read is the exact
+ * key; two rounds are the exact key, then every wildcard candidate in
+ * parallel, as a deep lookup that falls through to the wildcards reads them.
+ * A lookup that reads more rounds than its reference, or spends more time
+ * between reads, still shows as a regression.
+ *
+ * The candidates are written out here, never taken from the code under test
+ * (getWildcardCandidates), so a lookup that reads more candidates slows only
+ * its own side; test/kv/lookup.test.ts pins the lookup's list to these
+ * (route-lookup-fixture.ts).
+ */
+const exactKey = routeKey(DOMAIN, DEEP_PATH);
+const wildcardKeys = DEEP_PATH_WILDCARD_CANDIDATES.map(path => routeKey(DOMAIN, path));
+
 describe(`route lookup with ${READ_LATENCY_MS} ms per KV read`, () => {
   bench(
     'deep exact hit',
@@ -64,6 +82,23 @@ describe(`route lookup with ${READ_LATENCY_MS} ms per KV read`, () => {
     'deep miss',
     async () => {
       await lookupRoute(missKv, DOMAIN, DEEP_PATH);
+    },
+    BENCH_OPTIONS,
+  );
+
+  bench(
+    'reference: one KV read',
+    async () => {
+      await missKv.get(exactKey);
+    },
+    BENCH_OPTIONS,
+  );
+
+  bench(
+    'reference: two KV rounds',
+    async () => {
+      await missKv.get(exactKey);
+      await Promise.all(wildcardKeys.map(key => missKv.get(key)));
     },
     BENCH_OPTIONS,
   );

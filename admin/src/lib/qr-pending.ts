@@ -15,6 +15,17 @@ import type { QRListMeta, QrQueryParams } from './api-client';
  */
 export const PENDING_QR_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * How long a code created in this session may be ADDED to a first page that
+ * lacks it: 90 seconds (v1.40.0), past KV's usual listing lag, and the
+ * Worker's listing now fetches recently written codes itself. The addition
+ * used to last the full {@link PENDING_QR_TTL_MS}, so a created code could
+ * stay on page 1 after the server listed it on page 2 (or under a filter or
+ * page size that put it elsewhere). Versions and deletion tombstones keep the
+ * longer TTL.
+ */
+export const PENDING_QR_CREATED_TTL_MS = 90 * 1000;
+
 export interface QrListPage {
   items: QRCode[];
   /**
@@ -56,6 +67,8 @@ interface LiveEntry {
   qr: QRCode;
   at: number;
   created: boolean;
+  /** When this session's create marked it (for PENDING_QR_CREATED_TTL_MS). */
+  markedAt: number;
 }
 
 /**
@@ -127,7 +140,16 @@ export interface PendingQrView {
  * The dashboard has no sign-out (its key comes from the deployment), so the
  * store lives as long as the page.
  */
-export function createPendingQrStore(now: () => number = Date.now) {
+export function createPendingQrStore(
+  now: () => number = Date.now,
+  /**
+   * Runs `run` after `ms` (tests pass their own). The store uses it to tell
+   * its subscribers when a created mark expires (v1.40.0): nothing else
+   * changes then, and the list query memoises its projection on the
+   * snapshot, so without a new snapshot the expired row would stay on screen.
+   */
+  schedule: (run: () => void, ms: number) => unknown = (run, ms) => setTimeout(run, ms),
+) {
   const live = new Map<string, LiveEntry>();
   const tombstones = new Map<string, Tombstone[]>();
   /** Codes whose unreadable record this session deleted: when, for the TTL. */
@@ -175,6 +197,8 @@ export function createPendingQrStore(now: () => number = Date.now) {
       const last = page.items.at(-1);
       for (const [key, entry] of live) {
         if (!isFresh(entry, at) || !entry.created || listed.has(key)) continue;
+        // The page-1 addition has its own, shorter lifetime (v1.40.0)
+        if (at - entry.markedAt > PENDING_QR_CREATED_TTL_MS) continue;
         const { qr } = entry;
         if (qr.domain !== params.domain || !qrMatchesListFilters(qr, filters)) continue;
         // It sorts onto a later page, where the server will list it
@@ -242,10 +266,15 @@ export function createPendingQrStore(now: () => number = Date.now) {
     if (entry && !isNewer(qr, entry.qr)) {
       // Nothing newer: only a create can mark the code as made here
       if (!created || entry.created) return false;
-      live.set(key, { ...entry, at, created: true });
+      live.set(key, { ...entry, at, created: true, markedAt: at });
       return true;
     }
-    live.set(key, { qr, at, created: created || (entry?.created ?? false) });
+    live.set(key, {
+      qr,
+      at,
+      created: created || (entry?.created ?? false),
+      markedAt: created ? at : (entry?.markedAt ?? 0),
+    });
     return true;
   }
 
@@ -279,6 +308,9 @@ export function createPendingQrStore(now: () => number = Date.now) {
      */
     remember(qr: QRCode): void {
       own(qr, true);
+      // A new snapshot once the page-1 addition has expired, so every page
+      // is projected again without it
+      schedule(changed, PENDING_QR_CREATED_TTL_MS + 1);
     },
 
     /**

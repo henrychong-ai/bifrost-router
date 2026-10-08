@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Bifrost Admin API
   description: Edge router management API for route configuration and analytics
-  version: 1.39.0
+  version: 1.40.0
   contact:
     name: Bifrost Maintainers
     url: https://example.com
@@ -102,7 +102,19 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpdateRouteInput'
+              allOf:
+                - $ref: '#/components/schemas/UpdateRouteInput'
+                - type: object
+                  properties:
+                    expectedUpdatedAt:
+                      type: integer
+                      minimum: 0
+                      description: >-
+                        Optional precondition (v1.40.0): the route's `updatedAt`
+                        as the client loaded it. A route that has changed since
+                        (or has no `updatedAt`) is refused with 409
+                        `ROUTE_SOURCE_CHANGED` and nothing is saved. A request
+                        flag, never stored.
       responses:
         '200':
           description: Updated
@@ -111,7 +123,8 @@ paths:
             The stored record cannot be read (`error: ROUTE_RECORD_INVALID`); it is
             never merged with the patch. Delete it and create it again. Or
             (`error: ROUTE_SOURCE_CHANGED`, v1.39.0) the route changed after the
-            request read and checked it; nothing was saved
+            request read and checked it, or (v1.40.0) its `updatedAt` is not the
+            `expectedUpdatedAt` the request sent; nothing was saved
     delete:
       summary: Delete route
       parameters:
@@ -207,6 +220,14 @@ paths:
                     acknowledgeCredentialTarget:
                       type: boolean
                       description: Request-only; confirms a credential-named target parameter
+                    expectedUpdatedAt:
+                      type: integer
+                      minimum: 0
+                      description: >-
+                        Optional precondition (v1.40.0): the source route's
+                        `updatedAt` as the client loaded it. A source that has
+                        changed since is refused with 409
+                        `ROUTE_SOURCE_CHANGED` and nothing moves.
       responses:
         '200':
           description: Route migrated successfully
@@ -221,8 +242,9 @@ paths:
           description: >-
             Route already exists at newPath, the record at either path cannot be
             read (`error: ROUTE_RECORD_INVALID`), or the route at oldPath was
-            replaced while the request ran (`error: ROUTE_SOURCE_CHANGED`; nothing
-            moved)
+            replaced while the request ran, or (v1.40.0) is not at the
+            `expectedUpdatedAt` the request sent (`error: ROUTE_SOURCE_CHANGED`;
+            nothing moved)
 
   /api/routes/transfer:
     post:
@@ -1711,6 +1733,12 @@ components:
                     type: integer
                   exists:
                     type: boolean
+                  state:
+                    type: string
+                    enum: [present, missing, unknown]
+                    description: >-
+                      v1.40.0: `unknown` when R2 failed to answer for the file
+                      (a warning); it is not missing, but filesComplete is false.
             archive:
               type: object
               nullable: true
@@ -1722,6 +1750,27 @@ components:
                   type: integer
                 inflatedBytes:
                   type: integer
+            skipped:
+              type: object
+              nullable: true
+              description: >-
+                What the latest run left out (v1.40.0), from the archive's own
+                metadata (source archive), or the manifest for an older
+                archive (source manifest).
+              properties:
+                source:
+                  type: string
+                  enum: [archive, manifest]
+                notJson:
+                  type: integer
+                overLineLimit:
+                  type: integer
+                overLineLimitKeys:
+                  type: array
+                  maxItems: 50
+                  description: Key names only, from the same run's manifest.
+                  items:
+                    type: string
         issues:
           type: array
           items:
@@ -1746,6 +1795,12 @@ components:
               type: boolean
             routeCountOk:
               type: boolean
+            contentVerified:
+              type: boolean
+              description: >-
+                Whether the archive's content was read back and verified
+                (v1.40.0). False when R2 could not deliver it (a warning) or
+                verification failed (critical).
 
     RouteConfig:
       type: object

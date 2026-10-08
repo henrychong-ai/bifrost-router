@@ -870,6 +870,59 @@ test('CSP_REPORT_ORIGIN turns reporting on, at the dashboard origin', () => {
   assert.ok(rendered.config.includes('        set $bifrost_csp_receiver on;\n'));
 });
 
+// v1.40.0: one internal-header rule, in @bifrost/shared, for the Worker, the
+// dev proxy and nginx. Read from the source (no build needed): every header
+// the deployment itself uses is one the rule names, and nginx's /api proxy
+// replaces each with its own value or none, so a client's copy never reaches
+// the Worker.
+test('nginx, the dev proxy and the Worker share one internal-header rule', () => {
+  const rule = readFileSync('shared/src/internal-headers.ts', 'utf8');
+  const list = name => {
+    const body = new RegExp(`export const ${name} = \\[([^\\]]*)\\] as const;`).exec(rule)?.[1];
+    assert.ok(body, name);
+    return [...body.matchAll(/'([^']+)'/g)].map(match => match[1]);
+  };
+  const names = list('INTERNAL_HEADER_NAMES');
+  const prefixes = list('INTERNAL_HEADER_PREFIXES');
+  const known = list('KNOWN_INTERNAL_HEADERS');
+  assert.deepEqual(names, ['x-admin-key']);
+  assert.deepEqual(prefixes, ['x-bifrost-', 'tailscale-user-']);
+  const internal = header => {
+    const lower = header.toLowerCase();
+    return names.includes(lower) || prefixes.some(prefix => lower.startsWith(prefix));
+  };
+  for (const header of known) assert.ok(internal(header), header);
+
+  // Every known internal header is set in the /api location (the admin key
+  // by the renderer's include), and every header nginx sets there by an
+  // internal name is a known one
+  const body = locationBody(template, API_LOCATION);
+  const rendered = render(REQUIRED);
+  assert.equal(rendered.status, 0, rendered.stderr);
+  const set = [...`${body}\n${rendered.key}`.matchAll(/proxy_set_header ([\w-]+) /g)].map(
+    match => match[1],
+  );
+  for (const header of known) assert.ok(set.includes(header), `nginx sets ${header}`);
+  for (const header of set.filter(internal)) assert.ok(known.includes(header), header);
+  // A header nginx reads from the client by an internal name feeds only the
+  // maps that replace it (the cross-site check and the Serve identity)
+  for (const [, variable] of template.matchAll(/\$http_(\w+)/g)) {
+    const header = variable.replaceAll('_', '-');
+    if (!internal(header)) continue;
+    assert.ok(
+      known.some(name => name.toLowerCase() === header),
+      `nginx reads an unknown internal header ${header}`,
+    );
+  }
+
+  // The dev proxy and the Worker use the shared rule, with no copy of their own
+  for (const file of ['admin/dev-api-proxy.ts', 'src/utils/internal-headers.ts']) {
+    const source = readFileSync(file, 'utf8');
+    assert.match(source, /^import \{ isInternalHeader \} from '@bifrost\/shared';$/m, file);
+    assert.doesNotMatch(source, /'x-bifrost-'|'tailscale-user-'/, file);
+  }
+});
+
 test('every API call is proxied to API_PROXY_ORIGIN with the key nginx adds', () => {
   const rendered = render({ ...REQUIRED, API_PROXY_ORIGIN: 'HTTPS://Bifrost.Example.com/' });
   assert.equal(rendered.status, 0, rendered.stderr);
@@ -1243,6 +1296,9 @@ test('the compose files pass the required inputs at run time and publish on loop
     assert.doesNotMatch(source, /- "3001:3001"/, file);
     assert.match(source, /^ {6}API_PROXY_ORIGIN: \$\{API_PROXY_ORIGIN\}$/m, file);
     assert.match(source, /^ {6}ADMIN_API_KEY: \$\{ADMIN_API_KEY\}$/m, file);
+    // v1.40.0: nginx and the healthcheck both read it, so a value set in .env
+    // must reach the container (an empty one is the renderer's default)
+    assert.match(source, /^ {6}DASHBOARD_LISTEN_ADDRESS: \$\{DASHBOARD_LISTEN_ADDRESS:-\}$/m, file);
     assert.doesNotMatch(source, /VITE_|args:/, file);
   }
   const tailscale = readFileSync('admin/docker-compose.tailscale.yml', 'utf8');

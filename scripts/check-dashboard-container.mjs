@@ -593,6 +593,13 @@ async function main() {
     ),
     JSON.stringify([...sent.keys()]),
   );
+  // v1.40.0: the shared internal-header rule; nginx drops the dashboard's
+  // own request header too, as the dev proxy and the Worker do
+  check(
+    'the Worker gets no X-Bifrost-* header',
+    ![...sent.keys()].some(name => name.startsWith('x-bifrost-')),
+    JSON.stringify([...sent.keys()]),
+  );
   check('the raw request URI is forwarded', echoedUrl === echoTarget);
   check(
     'a proxied answer carries the data policy only',

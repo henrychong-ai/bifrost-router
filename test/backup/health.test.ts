@@ -11,8 +11,10 @@ function createMockBucket(options: {
   delimitedPrefixes?: string[];
   manifest?: BackupManifest | null;
   files?: Map<string, { size: number } | null>;
+  /** The archive's own R2 metadata (v1.40.0: what the run skipped). */
+  archiveMeta?: Record<string, string>;
 }) {
-  const { delimitedPrefixes = [], manifest = null, files = new Map() } = options;
+  const { delimitedPrefixes = [], manifest = null, files = new Map(), archiveMeta } = options;
 
   return {
     list: vi.fn<(options?: R2ListOptions) => Promise<unknown>>().mockResolvedValue({
@@ -23,7 +25,9 @@ function createMockBucket(options: {
     }),
     get: vi.fn<(key: string) => Promise<unknown>>().mockImplementation(async (key: string) => {
       if (key.endsWith('manifest.json') && manifest) {
+        // Health takes the manifest's size from this GET (v1.40.0)
         return {
+          size: files.get(key)?.size ?? 1234,
           json: () => Promise.resolve(manifest),
         };
       }
@@ -35,7 +39,13 @@ function createMockBucket(options: {
             JSON.stringify({ key: `fixture:${i}`, value: { target: 'https://example.com' } }),
           ).join('\n'),
         );
-        return { size: data.byteLength, body: new Response(data).body };
+        // An empty archive (size 0 in `files`) is reported as missing
+        const size = files.get(key)?.size === 0 ? 0 : data.byteLength;
+        return {
+          size,
+          body: new Response(data).body,
+          ...(archiveMeta && { customMetadata: archiveMeta }),
+        };
       }
       return null;
     }),
@@ -102,6 +112,29 @@ function healthWithSkipped(skippedNotJson: number | undefined) {
   );
 }
 
+/** Archive metadata of a v1.40.0 run (what it skipped). */
+const runMeta = (overrides: Record<string, string> = {}) => ({
+  routeCount: '320',
+  runId: 'run-a',
+  skippedNotJson: '0',
+  skippedOverLineLimit: '0',
+  ...overrides,
+});
+/** Health of a fresh backup whose archive carries `meta`. */
+const healthWithRun = (meta: Record<string, string>, manifestKv: Partial<BackupManifest['kv']>) => {
+  const date = '20260123';
+  const manifest = createTestManifest({ date });
+  Object.assign(manifest.kv, manifestKv);
+  return checkBackupHealth(
+    createMockBucket({
+      delimitedPrefixes: [`daily/${date}/`],
+      manifest,
+      files: createCompleteFilesMap(date),
+      archiveMeta: meta,
+    }),
+  );
+};
+
 describe('checkBackupHealth', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -166,6 +199,7 @@ describe('checkBackupHealth', () => {
         manifestValid: true,
         filesComplete: true,
         routeCountOk: true,
+        contentVerified: true,
       });
       expect(JSON.stringify(health)).not.toMatch(/example\.com:\//);
     });
@@ -183,6 +217,54 @@ describe('checkBackupHealth', () => {
         expect(health.status).toBe('healthy');
         expect(health.issues).toEqual([]);
       }
+    });
+
+    // v1.40.0: what a run skipped is read from the archive's own metadata,
+    // written with the archive; the manifest adds key names for the same run
+    it('reports records over the line limit as critical, with the same run’s keys', async () => {
+      const health = await healthWithRun(runMeta({ skippedOverLineLimit: '2' }), {
+        runId: 'run-a',
+        skippedOverLineLimit: 2,
+        skippedOverLineLimitKeys: ['links.example.com:/big', 'qr:links.example.com:logo'],
+      });
+      expect(health.status).toBe('critical');
+      expect(health.issues).toEqual([
+        {
+          severity: 'critical',
+          message:
+            '2 stored records over the record line limit (MAX_RECORD_LINE_BYTES) not backed up',
+        },
+      ]);
+      expect(health.lastBackup?.skipped).toEqual({
+        source: 'archive',
+        notJson: 0,
+        overLineLimit: 2,
+        overLineLimitKeys: ['links.example.com:/big', 'qr:links.example.com:logo'],
+      });
+      expect(health.checks.contentVerified).toBe(true);
+    });
+
+    it('trusts the archive, not a manifest of another run, and names no keys from it', async () => {
+      // A same-day re-run whose manifest write failed: the manifest is the
+      // earlier run's and says nothing was skipped
+      const health = await healthWithRun(runMeta({ runId: 'run-b', skippedOverLineLimit: '1' }), {
+        runId: 'run-a',
+        skippedOverLineLimit: 0,
+        skippedOverLineLimitKeys: ['links.example.com:/stale'],
+      });
+      expect(health.status).toBe('critical');
+      expect(health.issues).toContainEqual({
+        severity: 'critical',
+        message: '1 stored record over the record line limit (MAX_RECORD_LINE_BYTES) not backed up',
+      });
+      expect(health.lastBackup?.skipped?.overLineLimitKeys).toBeUndefined();
+    });
+
+    it('reads not-JSON skips from the archive too', async () => {
+      const health = await healthWithRun(runMeta({ skippedNotJson: '1' }), { skippedNotJson: 0 });
+      expect(health.issues).toEqual([
+        { severity: 'warning', message: '1 stored record is not JSON and was not backed up' },
+      ]);
     });
   });
 
@@ -385,6 +467,7 @@ describe('checkBackupHealth', () => {
         key: `daily/${date}/manifest.json`,
         size: 1234,
         exists: true,
+        state: 'present',
       });
     });
 
@@ -408,6 +491,7 @@ describe('checkBackupHealth', () => {
         key: `daily/${date}/kv-routes.ndjson.gz`,
         size: 0,
         exists: false,
+        state: 'missing',
       });
     });
   });
@@ -566,28 +650,63 @@ describe('backup integrity health boundaries', () => {
     ]);
   });
 
-  it('reports an R2 head failure as critical with a fixed message, never a throw', async () => {
+  // v1.40.0: a failed read of an object is a warning, and the object keeps
+  // its row as unknown, so filesComplete: false is explained
+  it('reports an R2 head failure as a warning, the archive row unknown, never a throw', async () => {
+    // The archive is HEADed only when there is no manifest to verify it against
     const bucket = createMockBucket({
       delimitedPrefixes: ['daily/20260123/'],
-      manifest: createTestManifest(),
+      manifest: null,
       files: createCompleteFilesMap('20260123'),
     });
     vi.mocked(bucket.head).mockRejectedValue(new Error('R2 head timed out: internal detail'));
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     const health = await checkBackupHealth(bucket);
-    expect(health.status).toBe('critical');
     expect(health.checks.filesComplete).toBe(false);
-    expect(health.lastBackup?.files).toEqual([]);
-    // No archive read without a complete file check
+    expect(health.lastBackup?.files).toEqual([
+      { key: 'daily/20260123/manifest.json', size: 0, exists: false, state: 'missing' },
+      { key: 'daily/20260123/kv-routes.ndjson.gz', size: 0, exists: false, state: 'unknown' },
+    ]);
     expect(health.lastBackup?.archive).toBeNull();
     expect(health.issues).toContainEqual({
-      severity: 'critical',
+      severity: 'warning',
       message: 'Backup files could not be checked',
+    });
+    // Only the missing manifest is reported missing, not the unknown archive
+    expect(health.issues).toContainEqual({
+      severity: 'critical',
+      message: 'Missing backup files: daily/20260123/manifest.json',
     });
     expect(JSON.stringify(health)).not.toContain('internal detail');
     expect(errorLog).toHaveBeenCalledOnce();
   });
 
+  // v1.40.0: one R2 call per object. The sizes come from the GETs; there is
+  // no HEAD while the manifest is valid.
+  it('reads each object once, taking sizes from the GETs', async () => {
+    const bucket = createMockBucket({
+      delimitedPrefixes: ['daily/20260123/'],
+      manifest: createTestManifest(),
+      files: createCompleteFilesMap('20260123'),
+    });
+    const health = await checkBackupHealth(bucket);
+    expect(health.status).toBe('healthy');
+    expect(bucket.head).not.toHaveBeenCalled();
+    expect(vi.mocked(bucket.get).mock.calls.map(([key]) => key)).toEqual([
+      'daily/20260123/manifest.json',
+      'daily/20260123/kv-routes.ndjson.gz',
+    ]);
+    expect(health.lastBackup?.files).toEqual([
+      { key: 'daily/20260123/manifest.json', size: 1234, exists: true, state: 'present' },
+      {
+        key: 'daily/20260123/kv-routes.ndjson.gz',
+        size: health.lastBackup?.files[1]?.size,
+        exists: true,
+        state: 'present',
+      },
+    ]);
+    expect(health.lastBackup?.files[1]?.size).toBeGreaterThan(0);
+  });
   it('detects the cursor failure by class: a plain error with its text is a listing failure', async () => {
     const bucket = createMockBucket({});
     vi.mocked(bucket.list).mockRejectedValue(new Error('Backup listing cursor invalid'));
@@ -598,18 +717,28 @@ describe('backup integrity health boundaries', () => {
   });
 
   // v1.37.1: R2 failing to read the archive is a storage fault with its own
-  // fixed message; it used to be reported as a content failure.
-  it('reports a rejected archive GET as unreadable, logged, never as content', async () => {
+  // fixed message; it used to be reported as a content failure. v1.40.0: a
+  // warning, not critical (nothing says the backup is bad), and the content
+  // is not verified.
+  it('reports a rejected archive GET as an unreadable warning, logged, never as content', async () => {
     const bucket = bucketWithGet((key, real) =>
       key.endsWith('.ndjson.gz') ? Promise.reject(new Error('R2 get: internal detail')) : real(key),
     );
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     const health = await checkBackupHealth(bucket);
-    expect(health.status).toBe('critical');
+    expect(health.status).toBe('warning');
     expect(health.issues).toEqual([
-      { severity: 'critical', message: 'Backup archive could not be read' },
+      { severity: 'warning', message: 'Backup archive could not be read' },
     ]);
     expect(health.lastBackup?.archive).toBeNull();
+    expect(health.checks.contentVerified).toBe(false);
+    expect(health.checks.filesComplete).toBe(false);
+    expect(health.lastBackup?.files[1]).toEqual({
+      key: 'daily/20260123/kv-routes.ndjson.gz',
+      size: 0,
+      exists: false,
+      state: 'unknown',
+    });
     expect(JSON.stringify(health)).not.toContain('internal detail');
     expect(errorLog).toHaveBeenCalledOnce();
   });
@@ -636,8 +765,86 @@ describe('backup integrity health boundaries', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const health = await checkBackupHealth(bucket);
     expect(health.issues).toEqual([
-      { severity: 'critical', message: 'Backup archive could not be read' },
+      { severity: 'warning', message: 'Backup archive could not be read' },
     ]);
+    // v1.40.0: the GET answered, so the row keeps what is known; only the
+    // content is unknown
+    const row = health.lastBackup?.files[1];
+    expect(row).toMatchObject({ exists: true, state: 'unknown' });
+    expect(row?.size).toBeGreaterThan(0);
+    expect(health.checks).toMatchObject({ filesComplete: false, contentVerified: false });
+  });
+
+  // v1.40.0 review: one unreadable object is a warning, both are critical
+  it('reports critical when neither the manifest nor the archive can be read', async () => {
+    const bucket = bucketWithGet((key, real) =>
+      key.endsWith('manifest.json') ? Promise.reject(new Error('R2 get failed')) : real(key),
+    );
+    vi.mocked(bucket.head).mockRejectedValue(new Error('R2 head failed'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const health = await checkBackupHealth(bucket);
+    expect(health.status).toBe('critical');
+    expect(health.issues).toEqual([
+      { severity: 'warning', message: 'Backup manifest could not be read' },
+      { severity: 'warning', message: 'Backup files could not be checked' },
+      {
+        severity: 'critical',
+        message:
+          'Backup cannot be verified: the manifest could not be read and the archive was not verified',
+      },
+    ]);
+  });
+
+  // v1.40.0 review round 3: with the manifest unreadable the archive is only
+  // HEADed, never verified, so the backup cannot be verified either
+  it('reports critical when the manifest is unreadable and the archive only HEADed', async () => {
+    const bucket = bucketWithGet((key, real) =>
+      key.endsWith('manifest.json') ? Promise.reject(new Error('R2 get failed')) : real(key),
+    );
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const health = await checkBackupHealth(bucket);
+    expect(health.lastBackup?.files[1]).toMatchObject({ exists: true, state: 'present' });
+    expect(health.status).toBe('critical');
+    expect(health.issues).toEqual([
+      { severity: 'warning', message: 'Backup manifest could not be read' },
+      {
+        severity: 'critical',
+        message:
+          'Backup cannot be verified: the manifest could not be read and the archive was not verified',
+      },
+    ]);
+  });
+
+  // v1.40.0 review round 3: with the archive's metadata out of reach, the
+  // manifest's counts AND key names are used
+  it('takes the skipped keys from the manifest when the archive could not be read', async () => {
+    const manifest = createTestManifest();
+    Object.assign(manifest.kv, {
+      runId: 'run-a',
+      skippedOverLineLimit: 1,
+      skippedOverLineLimitKeys: ['links.example.com:/big'],
+    });
+    const bucket = createMockBucket({
+      delimitedPrefixes: ['daily/20260123/'],
+      manifest,
+      files: createCompleteFilesMap('20260123'),
+    });
+    const original = vi.mocked(bucket.get).getMockImplementation();
+    vi.mocked(bucket.get).mockImplementation(async key =>
+      key.endsWith('.ndjson.gz') ? Promise.reject(new Error('R2 get failed')) : original?.(key),
+    );
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const health = await checkBackupHealth(bucket);
+    expect(health.lastBackup?.skipped).toEqual({
+      source: 'manifest',
+      notJson: 0,
+      overLineLimit: 1,
+      overLineLimitKeys: ['links.example.com:/big'],
+    });
+    expect(health.issues).toContainEqual({
+      severity: 'critical',
+      message: '1 stored record over the record line limit (MAX_RECORD_LINE_BYTES) not backed up',
+    });
   });
 
   it('still reports corrupt archive content as content, not as unreadable', async () => {
@@ -646,9 +853,11 @@ describe('backup integrity health boundaries', () => {
         ? { size: 4, body: new Response(new Uint8Array([1, 2, 3, 4])).body }
         : real(key),
     );
-    expect((await checkBackupHealth(bucket)).issues).toEqual([
+    const health = await checkBackupHealth(bucket);
+    expect(health.issues).toEqual([
       { severity: 'critical', message: 'Backup content verification failed' },
     ]);
+    expect(health.checks.contentVerified).toBe(false);
   });
 
   it('tells a manifest GET failure from a missing or invalid manifest', async () => {
@@ -659,29 +868,51 @@ describe('backup integrity health boundaries', () => {
         : real(key),
     );
     let health = await checkBackupHealth(failing);
+    // v1.40.0: the read failure is a warning and the manifest's row unknown;
+    // without a manifest the archive is not verified, which is critical
     expect(health.status).toBe('critical');
     expect(health.checks.manifestValid).toBe(false);
+    expect(health.checks.filesComplete).toBe(false);
     expect(health.issues).toEqual([
-      { severity: 'critical', message: 'Backup manifest could not be read' },
+      { severity: 'warning', message: 'Backup manifest could not be read' },
+      {
+        severity: 'critical',
+        message:
+          'Backup cannot be verified: the manifest could not be read and the archive was not verified',
+      },
     ]);
+    expect(health.lastBackup?.files[0]).toEqual({
+      key: 'daily/20260123/manifest.json',
+      size: 0,
+      exists: false,
+      state: 'unknown',
+    });
     expect(JSON.stringify(health)).not.toContain('internal detail');
     expect(errorLog).toHaveBeenCalledOnce();
 
     // The body failing to read is the same R2 fault
     const unreadable = bucketWithGet((key, real) =>
       key.endsWith('manifest.json')
-        ? Promise.resolve({ json: () => Promise.reject(new TypeError('body stream reset')) })
+        ? Promise.resolve({
+            size: 10,
+            json: () => Promise.reject(new TypeError('body stream reset')),
+          })
         : real(key),
     );
     health = await checkBackupHealth(unreadable);
     expect(health.issues).toEqual([
-      { severity: 'critical', message: 'Backup manifest could not be read' },
+      { severity: 'warning', message: 'Backup manifest could not be read' },
+      {
+        severity: 'critical',
+        message:
+          'Backup cannot be verified: the manifest could not be read and the archive was not verified',
+      },
     ]);
 
     // A body that is not JSON is an invalid manifest, as before
     const invalid = bucketWithGet((key, real) =>
       key.endsWith('manifest.json')
-        ? Promise.resolve({ json: () => Promise.reject(new SyntaxError('not JSON')) })
+        ? Promise.resolve({ size: 10, json: () => Promise.reject(new SyntaxError('not JSON')) })
         : real(key),
     );
     health = await checkBackupHealth(invalid);
@@ -737,6 +968,7 @@ describe('backup integrity health boundaries', () => {
     vi.mocked(bucket.get).mockImplementation(async key =>
       key.endsWith('manifest.json')
         ? ({
+            size: 200,
             json: async () =>
               createTestManifest({
                 kv: { domains: [], totalRoutes: 9, file: 'daily/20260123/kv-routes.ndjson.gz' },
@@ -793,7 +1025,7 @@ describe('backup integrity health boundaries', () => {
     });
     vi.mocked(bucket.get).mockImplementation(async key =>
       key.endsWith('manifest.json')
-        ? ({ json: async () => createTestManifest() } as R2ObjectBody)
+        ? ({ size: 200, json: async () => createTestManifest() } as R2ObjectBody)
         : ({ size: 6, body: new Response('broken').body } as R2ObjectBody),
     );
     const health = await checkBackupHealth(bucket);

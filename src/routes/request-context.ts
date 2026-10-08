@@ -45,22 +45,13 @@ export function getDomainFromRequest(c: {
     };
   }
 
-  // Check X-Domain header first
-  const domainHeader = c.req.header('X-Domain');
-  if (domainHeader) {
-    if (isValidDomain(domainHeader)) {
-      return { valid: true, domain: domainHeader };
+  // At most one selector is set, or both agree: the one value, read once
+  const domain = header ?? query;
+  if (domain !== undefined) {
+    if (isValidDomain(domain)) {
+      return { valid: true, domain };
     }
-    return { valid: false, error: `Invalid domain: ${domainHeader}` };
-  }
-
-  // Check query parameter
-  const domainQuery = c.req.query('domain');
-  if (domainQuery) {
-    if (isValidDomain(domainQuery)) {
-      return { valid: true, domain: domainQuery };
-    }
-    return { valid: false, error: `Invalid domain: ${domainQuery}` };
+    return { valid: false, error: `Invalid domain: ${domain}` };
   }
 
   // Return undefined for "all domains" mode

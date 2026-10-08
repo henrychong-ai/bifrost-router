@@ -277,6 +277,8 @@ describe('UTM tracking in the route dialog', () => {
       updates: {
         target: 'https://example.net/landing?ref=a&utm_source=news&utm_campaign=spring#top',
       },
+      // v1.40.0: the version the dialog edited
+      expectedUpdatedAt: 1,
     });
     expect(state.update).not.toHaveBeenCalled();
     expect(toasts.success).toHaveBeenCalledWith(
@@ -355,6 +357,7 @@ describe('a path change on a route whose stored target is not a URL', () => {
       newPath: '/renamed',
       domain: DOMAIN,
       updates: {},
+      expectedUpdatedAt: 1,
     });
     expect(state.update).not.toHaveBeenCalled();
     expect(toasts.success).toHaveBeenCalledWith('Route migrated from /legacy-x to /renamed');
@@ -418,6 +421,7 @@ describe('a migration whose changes need the credential confirmation', () => {
       domain: DOMAIN,
       updates: { cacheControl: 'no-store' },
       acknowledgeCredentialTarget: true,
+      expectedUpdatedAt: 1,
     });
     expect(state.update).not.toHaveBeenCalled();
     expect(toasts.error).not.toHaveBeenCalled();
@@ -618,5 +622,46 @@ describe('unreadable route records', () => {
     state.filters = { domain: DOMAIN, ...filter };
     await editing({ ...base, path: '/x', type: 'redirect', target: 'https://example.net/' });
     expect(document.body.querySelector('[data-testid="unreadable-route"]')).toBeNull();
+  });
+});
+
+/** The Worker's 409 for a route changed since it was loaded (v1.40.0). */
+const changed = () =>
+  new ApiError(409, 'This route changed while it was being edited…', undefined, {
+    code: 'ROUTE_SOURCE_CHANGED',
+  });
+const dialogOpen = () => document.querySelector('[role="dialog"]') !== null;
+
+// v1.40.0: the route changed since the dialog loaded it. Nothing was saved;
+// the dialog closes, so the next edit starts from the reloaded version and
+// never resends the stale updatedAt.
+describe('a route that changed since the dialog opened', () => {
+  const route: Route = {
+    ...base,
+    path: '/promo',
+    type: 'redirect',
+    target: 'https://example.net/landing',
+  };
+  it('sends the loaded updatedAt, and on a 409 closes the edit dialog with one message', async () => {
+    state.update.mockRejectedValueOnce(changed());
+    await editing(route);
+    await typeInto(input('cacheControl'), 'no-store');
+    await save();
+    expect(state.update).toHaveBeenCalledWith(expect.objectContaining({ expectedUpdatedAt: 1 }));
+    expect(toasts.error).toHaveBeenCalledTimes(1);
+    expect(toasts.error.mock.calls[0]?.[0]).toMatch(/changed since you opened it/);
+    expect(dialogOpen()).toBe(false);
+  });
+
+  it('closes the migration on a 409 too, having moved nothing', async () => {
+    state.migrate.mockRejectedValueOnce(changed());
+    await editing(route);
+    await typeInto(input('path'), '/promo-2');
+    await save();
+    await click(button('Migrate Route'));
+    expect(toasts.error).toHaveBeenCalledTimes(1);
+    expect(toasts.error.mock.calls[0]?.[0]).toMatch(/changed since you opened it/);
+    expect(toasts.success).not.toHaveBeenCalled();
+    expect(dialogOpen()).toBe(false);
   });
 });

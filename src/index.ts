@@ -611,6 +611,17 @@ async function runScheduledBackup(env: Bindings): Promise<void> {
       `[Scheduled] Backup completed in ${result.duration}ms - ` +
         `${result.manifest?.kv.totalRoutes} routes`,
     );
+    // A run that skipped records still completes (v1.40.0), but says so at
+    // error level, counts only (the run's own lines name the keys, never a
+    // value), so Workers observability flags it
+    const notJson = result.manifest?.kv.skippedNotJson ?? 0;
+    const overLineLimit = result.manifest?.kv.skippedOverLineLimit ?? 0;
+    if (notJson + overLineLimit > 0) {
+      console.error(
+        `[Scheduled] Backup skipped ${notJson + overLineLimit} record(s): ` +
+          `${notJson} not JSON, ${overLineLimit} over the record line limit`,
+      );
+    }
     return;
   }
   // handleScheduled always sets `error` on failure; the fallback is a type guard

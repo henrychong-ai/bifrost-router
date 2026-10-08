@@ -44,7 +44,9 @@ const DEFAULT_CONFIG: CorsConfig = {
   headers: ['Content-Type', 'X-Admin-Key', 'Authorization'],
   exposeHeaders: ['X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset'],
   credentials: false,
-  maxAge: 86400, // 24 hours
+  // One hour (v1.40.0; was 24 hours): a browser re-checks a changed policy
+  // within the hour
+  maxAge: 3600,
 };
 
 /**
@@ -87,9 +89,11 @@ export function cors(config: Partial<CorsConfig> = {}) {
     const origin = c.req.header('Origin') ?? null;
     const allowedOrigin = getAllowedOrigin(origin, finalConfig);
 
-    // Handle preflight requests
+    // A CORS preflight (OPTIONS with Access-Control-Request-Method) is
+    // answered here, before any later middleware: this is the ONE place a
+    // request skips the admin API's authentication (v1.40.0). Any other
+    // OPTIONS request is an ordinary request and must authenticate.
     if (c.req.method === 'OPTIONS') {
-      // Check if it's actually a CORS preflight
       const requestMethod = c.req.header('Access-Control-Request-Method');
 
       if (requestMethod) {

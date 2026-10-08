@@ -19,7 +19,7 @@ vi.mock('@/lib/api-client', () => ({
 import { api } from '@/lib/api-client';
 import { ApiError, RouteExistsError } from '@/lib/api-error';
 import type { CreateRouteInput, Route } from '@/lib/schemas';
-import { createRouteMutationOptions } from './use-routes';
+import { createRouteMutationOptions, reloadChangedRoute } from './use-routes';
 
 const create = vi.mocked(api.routes.create);
 const get = vi.mocked(api.routes.get);
@@ -95,5 +95,34 @@ describe('a route create retried after an uncertain answer', () => {
     create.mockRejectedValueOnce(coded);
     await expect(run({ afterUncertainAnswer: true })).rejects.toBe(coded);
     expect(get).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * v1.40.0: a 409 ROUTE_SOURCE_CHANGED reloads the route's queries, so a retry
+ * never resends the stale expectedUpdatedAt.
+ */
+describe('reloadChangedRoute', () => {
+  it('reloads the list and the detail after ROUTE_SOURCE_CHANGED only', () => {
+    const client = new QueryClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries').mockResolvedValue();
+    const changed = new ApiError(409, 'This route changed…', undefined, {
+      code: 'ROUTE_SOURCE_CHANGED',
+    });
+    expect(reloadChangedRoute(client, changed, '/promo')).toBe(true);
+    expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([
+      ['routes'],
+      ['routes', '/promo'],
+    ]);
+
+    invalidate.mockClear();
+    for (const other of [
+      new ApiError(409, 'Route already exists: /promo'),
+      new ApiError(400, 'ROUTE_SOURCE_CHANGED'),
+      new Error('ROUTE_SOURCE_CHANGED'),
+    ]) {
+      expect(reloadChangedRoute(client, other, '/promo')).toBe(false);
+    }
+    expect(invalidate).not.toHaveBeenCalled();
   });
 });

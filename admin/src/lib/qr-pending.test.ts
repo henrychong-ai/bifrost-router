@@ -1,7 +1,12 @@
 import { type QRCode, QRDesignSchema, qrMatchesListFilters } from '@bifrost/shared';
 import { describe, expect, it, vi } from 'vitest';
 import type { QRListMeta, QrQueryParams } from './api-client';
-import { createPendingQrStore, PENDING_QR_TTL_MS, type QrListPage } from './qr-pending';
+import {
+  createPendingQrStore,
+  PENDING_QR_CREATED_TTL_MS,
+  PENDING_QR_TTL_MS,
+  type QrListPage,
+} from './qr-pending';
 
 function qr(id: string, overrides: Partial<QRCode> = {}): QRCode {
   return {
@@ -173,12 +178,65 @@ describe('pending QR store', () => {
 
   it('expires an entry the server never lists after the TTL', () => {
     const { store, advance } = clockedStore();
-    store.remember(qr('a'));
+    store.remember(qr('a', { updatedAt: 10 }));
     advance(PENDING_QR_TTL_MS);
+    // The version is still held for a stale row of it
+    const stale = page([qr('a', { updatedAt: 5 })]);
+    expect(store.project(firstPage, stale).items[0]?.updatedAt).toBe(10);
+    advance(1);
+    expect(store.project(firstPage, stale)).toBe(stale);
+    store.ingest(page([]));
+    expect(store.size()).toBe(0);
+  });
+
+  // v1.40.0: the page-1 addition of a created code lasts 90 s; versions and
+  // deletion tombstones keep the 5-minute TTL
+  it('adds a created code to page 1 for PENDING_QR_CREATED_TTL_MS only', () => {
+    const { store, advance } = clockedStore();
+    expect(PENDING_QR_CREATED_TTL_MS).toBe(90 * 1000);
+    store.remember(qr('a'));
+    advance(PENDING_QR_CREATED_TTL_MS);
     expect(ids(store.merge(firstPage, page([])))).toEqual(['a']);
     advance(1);
     expect(ids(store.merge(firstPage, page([])))).toEqual([]);
-    expect(store.size()).toBe(0);
+    // Still held as a version, well inside the longer TTL
+    expect(store.size()).toBe(1);
+  });
+
+  // v1.40.0 review: nothing else changes when the mark expires, and the list
+  // query memoises its projection on the snapshot, so the store announces it
+  it('announces the created-mark expiry, so an identical refetch no longer shows the row', () => {
+    let time = 1_000;
+    const timers: Array<{ run: () => void; at: number }> = [];
+    const store = createPendingQrStore(
+      () => time,
+      (run, ms) => timers.push({ run, at: time + ms }),
+    );
+    const listener = vi.fn<() => void>();
+    store.subscribe(listener);
+    store.remember(qr('a'));
+    const page1 = page([]);
+    expect(ids(store.project(firstPage, page1))).toEqual(['a']);
+    const before = store.getSnapshot();
+    listener.mockClear();
+
+    time += PENDING_QR_CREATED_TTL_MS + 1;
+    for (const timer of timers.filter(entry => entry.at <= time)) timer.run();
+    expect(listener).toHaveBeenCalled();
+    expect(store.getSnapshot()).not.toBe(before);
+    expect(ids(store.getSnapshot().project(firstPage, page1))).toEqual([]);
+  });
+
+  it('keeps a deletion tombstone for the full TTL, past the created-mark lifetime', () => {
+    const { store, advance } = clockedStore();
+    const gone = qr('gone', { createdAt: 3, updatedAt: 3 });
+    store.markDeleted('example.com', 'gone', 3);
+    advance(PENDING_QR_CREATED_TTL_MS + 1);
+    expect(ids(store.merge(firstPage, page([gone])))).toEqual([]);
+    advance(PENDING_QR_TTL_MS - PENDING_QR_CREATED_TTL_MS - 1);
+    expect(ids(store.merge(firstPage, page([gone])))).toEqual([]);
+    advance(1);
+    expect(ids(store.merge(firstPage, page([gone])))).toEqual(['gone']);
   });
 
   it('restarts the TTL when it learns a newer version, not when it sees the same one', () => {
@@ -198,7 +256,7 @@ describe('pending QR store', () => {
     store.observeOwn(qr('b', { updatedAt: 20 }));
     advance(60_000);
     expect(ids(store.merge(firstPage, page([qr('b', { updatedAt: 10 })])))).toEqual(['b']);
-    expect(store.merge(firstPage, page([])).items[0]?.updatedAt).toBe(20);
+    expect(store.merge(firstPage, page([qr('b', { updatedAt: 10 })])).items[0]?.updatedAt).toBe(20);
   });
 
   it('merges only into its own domain, the first page, and lists whose filters match', () => {

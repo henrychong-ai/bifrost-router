@@ -134,3 +134,31 @@ jobs:
 
       - name: Production and development Wrangler dry-runs
         run: pnpm run wrangler:check
+
+  # The dashboard image on the wire (v1.40.0): builds admin/Dockerfile and
+  # admin/Dockerfile.tailscale and checks the nginx proxy, headers, refusals
+  # and logs against a stand-in Worker (scripts/check-dashboard-container.mjs).
+  # Its own job: it needs Docker and openssl (both on the hosted Ubuntu
+  # runner) and no workspace install, and a failure here names the image
+  # rather than the code gates. Everything it creates is removed at the end.
+  dashboard-container:
+    name: Dashboard container check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Docker and openssl are available
+        run: docker version && openssl version
+
+      - name: Dashboard container check
+        run: pnpm run check:dashboard-container

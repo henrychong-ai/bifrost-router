@@ -4,6 +4,7 @@
 // @cloudflare/workers-types.
 
 import { errorName } from '../utils/error-name';
+import { nextCursor } from '../utils/list-cursor';
 import { BACKUP_DAILY_PREFIX, backupArchiveKey, backupManifestKey } from './constants';
 import type {
   ArchiveInfo,
@@ -14,20 +15,22 @@ import type {
   HealthIssue,
   HealthStatus,
   ManifestSummary,
+  SkippedRecords,
 } from './health-schemas';
 import { DEFAULT_HEALTH_CONFIG } from './health-schemas';
 import {
+  type ArchiveRun,
+  archiveRouteCount,
+  archiveRun,
   BackupIntegrityError,
   BackupListingError,
   BackupReadError,
   MAX_BACKUP_BYTES,
   parseBackupManifest,
-  verifyBackupArchive,
+  type StoredArchiveScan,
+  verifyArchiveObject,
 } from './integrity';
 import type { BackupManifest } from './types';
-
-/** The objects a complete backup for `date` consists of. */
-const expectedFiles = (date: string): string[] => [backupManifestKey(date), backupArchiveKey(date)];
 
 /** Bytes as MiB with one decimal, for health messages. */
 const mib = (bytes: number): string => (bytes / (1024 * 1024)).toFixed(1);
@@ -35,16 +38,30 @@ const mib = (bytes: number): string => (bytes / (1024 * 1024)).toFixed(1);
 /**
  * Fixed messages for the R2 failures health reports instead of throwing
  * (v1.37.1), so `GET /api/backups/health` answers 200 whatever R2 does. The
- * R2 error itself is logged, never put in the response.
+ * R2 error itself is logged, never put in the response. A failed list call is
+ * critical (nothing is known); a failed read of the manifest or the archive
+ * (GET or HEAD) is a WARNING (v1.40.0): a storage fault is not evidence of a
+ * bad backup, and the file it concerns is listed with `state: 'unknown'`.
  */
 export const HEALTH_R2_ERRORS = {
   /** Listing the daily backups failed (other than a broken cursor). */
   listing: 'Backup listing failed',
-  /** Checking the expected backup objects (R2 head) failed. */
+  /**
+   * Checking the archive object (R2 head, used when the manifest cannot name
+   * it for verification) failed.
+   */
   files: 'Backup files could not be checked',
   /** Fetching or reading the manifest failed (not: missing or invalid). */
   manifest: 'Backup manifest could not be read',
 } as const;
+
+/**
+ * Health's message when the backup cannot be verified at all (v1.40.0): the
+ * manifest could not be read, so the archive was at most HEADed (or could
+ * not be read either). An unreadable archive alone is a warning.
+ */
+export const HEALTH_UNVERIFIABLE =
+  'Backup cannot be verified: the manifest could not be read and the archive was not verified';
 
 /**
  * An R2 call health made failed. It carries the fixed message to report and
@@ -102,11 +119,7 @@ async function findLatestBackup(
     );
     // A page without delimited prefixes (no directories on it) adds none
     prefixes.push(...(page.delimitedPrefixes ?? []));
-    cursor = page.truncated ? page.cursor : undefined;
-    if (page.truncated && (!cursor || seenCursors.has(cursor))) {
-      throw new BackupListingError();
-    }
-    if (cursor) seenCursors.add(cursor);
+    cursor = nextCursor(page, seenCursors, () => new BackupListingError());
   } while (cursor);
 
   // Extract dates and sort descending to get most recent
@@ -128,28 +141,164 @@ async function findLatestBackup(
   return { date: latestDate, timestamp };
 }
 
+/** File rows of the health answer (v1.40.0: with their state). */
+const presentFile = (key: string, size: number): BackupFileStatus => ({
+  key,
+  size,
+  exists: true,
+  state: 'present',
+});
+const missingFile = (key: string): BackupFileStatus => ({
+  key,
+  size: 0,
+  exists: false,
+  state: 'missing',
+});
+/** A file R2 failed to answer for: neither present nor missing. */
+const unknownFile = (key: string): BackupFileStatus => ({
+  key,
+  size: 0,
+  exists: false,
+  state: 'unknown',
+});
+
+/** The manifest as read: its file status, and the manifest when valid. */
+interface ManifestRead {
+  file: BackupFileStatus;
+  /** Null when it is missing, empty, not JSON or not a valid manifest for the date. */
+  manifest: BackupManifest | null;
+}
+
 /**
- * Fetch and parse the backup manifest: null when it is missing, not JSON or
- * not a valid manifest for `date`. An R2 failure fetching or reading it is a
- * different fault and throws a {@link HealthR2Error} (v1.37.1).
+ * Fetch and parse the backup manifest, taking its size from the same GET
+ * (v1.40.0; there is no separate HEAD). An R2 failure fetching or reading it
+ * is a different fault from a missing or invalid manifest and throws a
+ * {@link HealthR2Error} (v1.37.1).
  */
-async function fetchManifest(bucket: R2Bucket, date: string): Promise<BackupManifest | null> {
-  const obj = await r2Call(HEALTH_R2_ERRORS.manifest, () => bucket.get(backupManifestKey(date)));
-  if (!obj) return null;
+async function readManifest(bucket: R2Bucket, date: string): Promise<ManifestRead> {
+  const key = backupManifestKey(date);
+  const obj = await r2Call(HEALTH_R2_ERRORS.manifest, () => bucket.get(key));
+  if (!obj) return { file: missingFile(key), manifest: null };
+  const file = presentFile(key, obj.size);
   let value: unknown;
   try {
     value = await obj.json();
   } catch (error) {
     // Not JSON: an invalid manifest. Any other failure is R2 failing to read
     // the body.
-    if (error instanceof SyntaxError) return null;
+    if (error instanceof SyntaxError) return { file, manifest: null };
     throw new HealthR2Error(HEALTH_R2_ERRORS.manifest, error);
   }
   try {
-    return parseBackupManifest(value, date);
+    return { file, manifest: parseBackupManifest(value, date) };
   } catch {
-    return null;
+    return { file, manifest: null };
   }
+}
+
+/**
+ * The last archive this isolate verified (v1.40.0), by its R2 ETag. While the
+ * stored object still has that ETag (and the same expected count), health
+ * asks R2 for it with `onlyIf: { etagDoesNotMatch }`, gets the object's
+ * metadata without its body, and reuses the result instead of streaming and
+ * inflating the whole archive again. Only a successful verification is kept;
+ * a cold isolate verifies again.
+ */
+interface VerifiedArchive {
+  key: string;
+  etag: string;
+  expectedCount: number;
+  scan: StoredArchiveScan;
+}
+
+let lastVerifiedArchive: VerifiedArchive | undefined;
+
+/** Forget the verified archive (tests). */
+export function forgetVerifiedArchive(): void {
+  lastVerifiedArchive = undefined;
+}
+
+/** What health learned of the archive. */
+interface ArchiveCheck {
+  file: BackupFileStatus;
+  /** The verification result; null when not verified. */
+  scan: StoredArchiveScan | null;
+  /** What the run recorded in the archive's metadata; null before v1.40.0. */
+  run: ArchiveRun | null;
+  /** The content failure verification found, if any (critical). */
+  failure?: BackupIntegrityError;
+  /** R2 failed mid-stream after answering the GET (a warning). */
+  readError?: BackupReadError;
+}
+
+/**
+ * Check the archive object. Without a manifest to verify against, a HEAD
+ * reports its file status only. With one, ONE GET gives both its size and the
+ * body verified (v1.40.0; it used to be a HEAD, then a GET), and a GET
+ * conditional on the ETag of the archive this isolate last verified returns
+ * no body while that archive is unchanged. Integrity failures throw
+ * {@link BackupIntegrityError}, R2 failing to deliver the archive
+ * {@link BackupReadError}, and a failed HEAD {@link HealthR2Error}.
+ */
+async function checkArchive(
+  bucket: R2Bucket,
+  key: string,
+  manifest: BackupManifest | null,
+): Promise<ArchiveCheck> {
+  if (!manifest) {
+    const head = await r2Call(HEALTH_R2_ERRORS.files, () => bucket.head(key));
+    return head
+      ? { file: presentFile(key, head.size), scan: null, run: archiveRun(head) }
+      : { file: missingFile(key), scan: null, run: null };
+  }
+  const cached = lastVerifiedArchive?.key === key ? lastVerifiedArchive : undefined;
+  const get = async (conditional: boolean): Promise<R2Object | R2ObjectBody | null> => {
+    try {
+      return await bucket.get(
+        key,
+        conditional && cached ? { onlyIf: { etagDoesNotMatch: cached.etag } } : undefined,
+      );
+    } catch (error) {
+      throw new BackupReadError(error);
+    }
+  };
+  let object = await get(true);
+  if (!object) return { file: missingFile(key), scan: null, run: null };
+  let file = presentFile(key, object.size);
+  const expectedCount = archiveRouteCount(object) ?? manifest.kv.totalRoutes;
+  if (!('body' in object)) {
+    // Unchanged since it was verified: reuse that result, unless the count it
+    // was checked against has changed (a legacy archive's manifest)
+    if (cached && cached.expectedCount === expectedCount) {
+      return { file, scan: cached.scan, run: archiveRun(object) };
+    }
+    object = await get(false);
+    // Deleted between the two reads
+    if (!object || !('body' in object)) return { file: missingFile(key), scan: null, run: null };
+    file = presentFile(key, object.size);
+  }
+  if (object.size === 0) {
+    // An empty object is as unusable as a missing one; reported as missing
+    await object.body.cancel().catch(() => undefined);
+    return { file, scan: null, run: archiveRun(object) };
+  }
+  const run = archiveRun(object);
+  let scan: StoredArchiveScan;
+  try {
+    scan = await verifyArchiveObject(object, manifest.kv.totalRoutes);
+  } catch (error) {
+    if (error instanceof BackupIntegrityError) return { file, scan: null, run, failure: error };
+    // The GET answered, so the file is known to exist with its size; only its
+    // content is unknown (v1.40.0)
+    if (error instanceof BackupReadError) {
+      return { file: { ...file, state: 'unknown' }, scan: null, run, readError: error };
+    }
+    throw error;
+  }
+  if (typeof object.etag === 'string' && object.etag !== '') {
+    lastVerifiedArchive = { key, etag: object.etag, expectedCount, scan };
+  }
+  return { file, scan, run };
 }
 
 /**
@@ -166,21 +315,69 @@ function manifestToSummary(manifest: BackupManifest): ManifestSummary {
 }
 
 /**
- * Check existence and size of all expected backup files
+ * What the latest run skipped (v1.40.0), from the archive's own metadata,
+ * written in the same put as the archive, so a failed manifest write or a
+ * same-day re-run can never make it disagree with the archive. The manifest
+ * adds the key names only when it belongs to the same run (`runId`). When the
+ * archive's metadata is not available (an archive written before v1.40.0, or
+ * one R2 failed to deliver) the manifest's counts and key names are used,
+ * `source: 'manifest'`. Null when neither says anything.
  */
-async function checkBackupFiles(bucket: R2Bucket, date: string): Promise<BackupFileStatus[]> {
-  const results = await Promise.all(
-    expectedFiles(date).map(async key => {
-      const obj = await r2Call(HEALTH_R2_ERRORS.files, () => bucket.head(key));
-      return {
-        key,
-        size: obj?.size ?? 0,
-        exists: obj !== null,
-      };
+function skippedRecords(
+  run: ArchiveRun | null,
+  manifest: BackupManifest | null,
+): SkippedRecords | null {
+  if (run) {
+    const sameRun = manifest?.kv.runId === run.runId;
+    return {
+      source: 'archive',
+      notJson: run.skippedNotJson,
+      overLineLimit: run.skippedOverLineLimit,
+      ...(sameRun &&
+        manifest?.kv.skippedOverLineLimitKeys && {
+          overLineLimitKeys: manifest.kv.skippedOverLineLimitKeys,
+        }),
+    };
+  }
+  if (!manifest) return null;
+  return {
+    source: 'manifest',
+    notJson: manifest.kv.skippedNotJson ?? 0,
+    overLineLimit: manifest.kv.skippedOverLineLimit ?? 0,
+    ...(manifest.kv.skippedOverLineLimitKeys && {
+      overLineLimitKeys: manifest.kv.skippedOverLineLimitKeys,
     }),
-  );
+  };
+}
 
-  return results;
+const records = (count: number) => (count === 1 ? '1 stored record' : `${count} stored records`);
+
+/**
+ * The issues for what a run skipped. Not JSON (v1.39.0): a WARNING, the count
+ * only; such a record is unreadable to every reader already. Over the line
+ * limit (v1.40.0): CRITICAL, valid records the archive lacks; the keys are in
+ * `lastBackup.skipped`. (The whole store passing MAX_BACKUP_BYTES fails the
+ * run instead, so no archive of it exists.)
+ */
+function skippedIssues(skipped: SkippedRecords | null): HealthIssue[] {
+  if (!skipped) return [];
+  const issues: HealthIssue[] = [];
+  if (skipped.notJson > 0) {
+    issues.push({
+      severity: 'warning',
+      message:
+        skipped.notJson === 1
+          ? '1 stored record is not JSON and was not backed up'
+          : `${skipped.notJson} stored records are not JSON and were not backed up`,
+    });
+  }
+  if (skipped.overLineLimit > 0) {
+    issues.push({
+      severity: 'critical',
+      message: `${records(skipped.overLineLimit)} over the record line limit (MAX_RECORD_LINE_BYTES) not backed up`,
+    });
+  }
+  return issues;
 }
 
 /**
@@ -227,6 +424,7 @@ export async function checkBackupHealth(
         manifestValid: false,
         filesComplete: false,
         routeCountOk: false,
+        contentVerified: false,
       },
     };
   }
@@ -244,6 +442,7 @@ export async function checkBackupHealth(
         manifestValid: false,
         filesComplete: false,
         routeCountOk: false,
+        contentVerified: false,
       },
     };
   }
@@ -251,34 +450,21 @@ export async function checkBackupHealth(
   // Fetch and validate manifest. An R2 failure is reported as such, not as a
   // missing or invalid manifest.
   let manifest: BackupManifest | null = null;
+  let manifestFile: BackupFileStatus | null = null;
   try {
-    manifest = await fetchManifest(bucket, latestBackup.date);
+    const read = await readManifest(bucket, latestBackup.date);
+    manifestFile = read.file;
+    // An empty manifest is not JSON, so readManifest gives null for it too
+    manifest = read.manifest;
     if (!manifest) {
       issues.push({ severity: 'critical', message: 'Backup manifest is missing or invalid' });
     }
   } catch (error) {
     if (!(error instanceof HealthR2Error)) throw error;
-    issues.push({ severity: 'critical', message: reportR2Failure(error, 'manifest read') });
+    manifestFile = unknownFile(backupManifestKey(latestBackup.date));
+    issues.push({ severity: 'warning', message: reportR2Failure(error, 'manifest read') });
   }
   const manifestValid = manifest !== null;
-
-  // Records the backup run skipped (v1.39.0): a stored value that is not
-  // JSON cannot be archived (backupKV), so the archive lacks it. A warning,
-  // not critical: every other record is backed up, and such a record is
-  // unreadable to every reader already. The count only, never a key (the
-  // run's own log names them). A key that vanished between the listing and
-  // the read, or holds a JSON null, is not counted: that is the normal race
-  // of a record deleted mid-run, not a record the archive lacks.
-  const skippedNotJson = manifest?.kv.skippedNotJson ?? 0;
-  if (skippedNotJson > 0) {
-    issues.push({
-      severity: 'warning',
-      message:
-        skippedNotJson === 1
-          ? '1 stored record is not JSON and was not backed up'
-          : `${skippedNotJson} stored records are not JSON and were not backed up`,
-    });
-  }
 
   // Check backup age
   const backupTime = new Date(latestBackup.timestamp);
@@ -299,58 +485,81 @@ export async function checkBackupHealth(
     });
   }
 
-  // Check file completeness. An R2 failure is a critical issue, not a 500.
-  let files: BackupFileStatus[] = [];
-  let filesComplete = false;
+  // Check the archive: its file status, and its content read back, counting
+  // only (no record array). Every object can exist and still be unrestorable
+  // (truncated, corrupt, or holding a different record count). It is checked
+  // against its own routeCount metadata (the manifest's count only for an
+  // archive without it). A failed HEAD is a critical issue, not a 500.
+  const archiveKey = backupArchiveKey(latestBackup.date);
+  let archiveFile: BackupFileStatus;
+  let archive: ArchiveInfo | null = null;
+  let run: ArchiveRun | null = null;
   try {
-    files = await checkBackupFiles(bucket, latestBackup.date);
-  } catch (error) {
-    if (!(error instanceof HealthR2Error)) throw error;
-    issues.push({ severity: 'critical', message: reportR2Failure(error, 'file check') });
-  }
-  if (files.length > 0) {
-    // An empty object is as unusable as a missing one.
-    filesComplete = files.every(f => f.exists && f.size > 0);
-    if (!filesComplete) {
-      const missing = files.filter(f => !f.exists || f.size === 0).map(f => f.key);
+    const checked = await checkArchive(bucket, archiveKey, manifest);
+    archiveFile = checked.file;
+    run = checked.run;
+    if (checked.failure) issues.push({ severity: 'critical', message: checked.failure.message });
+    if (checked.readError) {
       issues.push({
-        severity: 'critical',
-        message: `Missing backup files: ${missing.join(', ')}`,
+        severity: 'warning',
+        message: reportR2Failure(checked.readError, 'archive read'),
       });
     }
-  }
-
-  // Read the archive back, counting only (no record array): every object can
-  // exist and still be unrestorable (truncated, corrupt, or holding a different
-  // record count). It is checked against its own routeCount metadata (the
-  // manifest's count only for an archive without it).
-  let archive: ArchiveInfo | null = null;
-  if (manifest && filesComplete) {
-    try {
-      const scan = await verifyBackupArchive(bucket, manifest.kv.file, manifest.kv.totalRoutes);
+    if (checked.scan) {
+      const { scan } = checked;
       archive = { records: scan.records, inflatedBytes: scan.inflatedBytes };
       // A manifest write that failed after the archive was replaced, or two
       // overlapping runs: the archive is sound, its manifest is stale.
-      if (scan.countSource === 'archive' && scan.records !== manifest.kv.totalRoutes) {
+      if (manifest && scan.countSource === 'archive' && scan.records !== manifest.kv.totalRoutes) {
         issues.push({
           severity: 'warning',
           message: 'Backup manifest is out of date with its archive',
         });
       }
-    } catch (error) {
-      // Every failure is critical. A fixed integrity message (size limit,
-      // count, duplicate key, content, missing archive) is reported as is. R2
-      // failing to fetch or stream the archive (BackupReadError, v1.37.1) is a
-      // storage fault: logged, and reported with its own fixed message, never
-      // as a content failure. Anything else still throws.
-      if (error instanceof BackupIntegrityError) {
-        issues.push({ severity: 'critical', message: error.message });
-      } else if (error instanceof BackupReadError) {
-        issues.push({ severity: 'critical', message: reportR2Failure(error, 'archive read') });
-      } else {
-        throw error;
-      }
     }
+  } catch (error) {
+    // A fixed integrity message (size limit, count, duplicate key, content)
+    // is a content failure: critical, reported as is (checkArchive returns
+    // it with the file's row). R2
+    // failing to fetch or stream the archive (BackupReadError, v1.37.1) is a
+    // storage fault, not evidence of a bad backup: logged, and reported with
+    // its own fixed message as a WARNING (v1.40.0; it was critical), with
+    // `contentVerified` false and the archive's row `unknown`; so is a failed
+    // HEAD. Anything else still throws.
+    archiveFile = unknownFile(archiveKey);
+    if (error instanceof BackupReadError) {
+      issues.push({ severity: 'warning', message: reportR2Failure(error, 'archive read') });
+    } else if (error instanceof HealthR2Error) {
+      issues.push({ severity: 'warning', message: reportR2Failure(error, 'file check') });
+    } else {
+      throw error;
+    }
+  }
+
+  // One unreadable object is a warning; an unreadable manifest leaves the
+  // archive unverified (it is only HEADed, or unreadable too), so nothing
+  // can be verified at all, which is critical (v1.40.0)
+  if (manifestFile?.state === 'unknown' && archive === null) {
+    issues.push({ severity: 'critical', message: HEALTH_UNVERIFIABLE });
+  }
+
+  const skipped = skippedRecords(run, manifest);
+  issues.push(...skippedIssues(skipped));
+
+  // File completeness, from the two GETs (or the HEAD): an empty object is as
+  // unusable as a missing one. A file R2 failed to answer for keeps its row
+  // as `unknown` (v1.40.0), so `filesComplete: false` is explained; it is
+  // not reported missing.
+  const files = [manifestFile ?? unknownFile(backupManifestKey(latestBackup.date)), archiveFile];
+  const missing = files
+    .filter(f => f.state !== 'unknown' && (!f.exists || f.size === 0))
+    .map(f => f.key);
+  const filesComplete = files.every(f => f.state !== 'unknown') && missing.length === 0;
+  if (missing.length > 0) {
+    issues.push({
+      severity: 'critical',
+      message: `Missing backup files: ${missing.join(', ')}`,
+    });
   }
   if (archive && archive.inflatedBytes > MAX_BACKUP_BYTES / 2) {
     issues.push({
@@ -385,6 +594,7 @@ export async function checkBackupHealth(
       manifest: manifest ? manifestToSummary(manifest) : null,
       files,
       archive,
+      skipped,
     },
     issues,
     checks: {
@@ -393,6 +603,7 @@ export async function checkBackupHealth(
       manifestValid,
       filesComplete,
       routeCountOk,
+      contentVerified: archive !== null,
     },
   };
 }

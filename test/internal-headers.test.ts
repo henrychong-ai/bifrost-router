@@ -1,8 +1,9 @@
 import { env } from 'cloudflare:test';
+import { isInternalHeader } from '@bifrost/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import worker from '../src/index';
 import type { Bindings } from '../src/types';
-import { isInternalHeader, withoutInternalHeaders } from '../src/utils/internal-headers';
+import { withoutInternalHeaders } from '../src/utils/internal-headers';
 import { ownHostResolver } from '../src/utils/og-own-host';
 import { safeServiceFetch } from '../src/utils/safe-service-fetch';
 import { clearAllRoutes } from './helpers';

@@ -4,26 +4,7 @@
 
 import type { EdgeRouterClient, InvalidRouteRow, Route } from '@bifrost/shared';
 import { isInvalidRouteRow, SUPPORTED_DOMAINS_LIST } from '@bifrost/shared';
-
-/**
- * v1.35.0 — there is no default domain. Every route, QR and slug-stats call
- * names its own domain and nothing fills a missing one in.
- *
- * The dispatcher (dispatch.ts, v1.38.0) answers a missing domain with this
- * error before it validates anything else; the handlers keep the same guard,
- * so a handler called on its own refuses alike, before any client call. The
- * error lists the valid domains so an agent recovers in one retry.
- */
-export const NO_DOMAIN_ERROR = `Error: No domain specified. Pass the domain parameter — one of: ${SUPPORTED_DOMAINS_LIST}.`;
-
-/**
- * Returns the caller's domain, or `undefined` when they named none. Takes
- * `unknown`: the dispatcher runs it on the raw JSON-RPC arguments, where a
- * non-string is as reachable as a missing key.
- */
-export function requireDomain(domain: unknown): string | undefined {
-  return typeof domain === 'string' && domain.length > 0 ? domain : undefined;
-}
+import { NO_DOMAIN_ERROR, requireDomain } from './domain.js';
 
 /** The refusal of a transfer without both domains, naming which is missing. */
 export const transferDomainsError = (missing: string[]): string =>

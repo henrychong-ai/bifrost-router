@@ -273,6 +273,109 @@ describe('an edit writes the record its handler checked', () => {
   });
 });
 
+// v1.40.0: an optional client precondition. The dashboard sends the
+// updatedAt of the route it loaded; a route changed since (even before the
+// dialog opened) is refused with the same 409, and nothing is written.
+describe('an edit honours the client precondition', () => {
+  const putPath = `/routes?path=/promo&domain=${DOMAIN}`;
+
+  beforeEach(async () => {
+    await clearAllRoutes();
+    await createAuditLogsTable();
+    await env.ROUTES.put(SOURCE_KEY, JSON.stringify(STORED));
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('saves when the route still has the updatedAt the client loaded', async () => {
+    const response = await call(
+      'PUT',
+      putPath,
+      { cacheControl: 'no-store', expectedUpdatedAt: STORED.updatedAt },
+      env.ROUTES,
+    );
+    expect(response.status).toBe(200);
+    const saved = await stored(DOMAIN, '/promo');
+    expect(saved).toMatchObject({ cacheControl: 'no-store' });
+    // The flag is not a route field
+    expect(saved).not.toHaveProperty('expectedUpdatedAt');
+  });
+
+  it('refuses a route changed since the client loaded it, writing nothing', async () => {
+    const put = vi.spyOn(env.ROUTES, 'put');
+    const response = await call(
+      'PUT',
+      putPath,
+      { cacheControl: 'no-store', expectedUpdatedAt: STORED.updatedAt - 1 },
+      env.ROUTES,
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      success: false,
+      error: 'ROUTE_SOURCE_CHANGED',
+      message:
+        'This route changed while it was being edited, so nothing was saved. Reload it and try again.',
+    });
+    expect(put).not.toHaveBeenCalled();
+    expect(await stored(DOMAIN, '/promo')).toEqual(STORED);
+  });
+
+  it('refuses a precondition that is not a non-negative integer', async () => {
+    for (const expectedUpdatedAt of ['1000', -1, 1.5, null]) {
+      const response = await call(
+        'PUT',
+        putPath,
+        { cacheControl: 'no-store', expectedUpdatedAt },
+        env.ROUTES,
+      );
+      expect({ expectedUpdatedAt, status: response.status }).toEqual({
+        expectedUpdatedAt,
+        status: 400,
+      });
+    }
+    expect(await stored(DOMAIN, '/promo')).toEqual(STORED);
+  });
+
+  it('honours the precondition on a move too: refused when changed, moved when not', async () => {
+    const moveToSale = `/routes/migrate?oldPath=/promo&newPath=/sale&domain=${DOMAIN}`;
+    const put = vi.spyOn(env.ROUTES, 'put');
+    let response = await call(
+      'POST',
+      moveToSale,
+      { expectedUpdatedAt: STORED.updatedAt - 1 },
+      env.ROUTES,
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ success: false, error: 'ROUTE_SOURCE_CHANGED' });
+    expect(put).not.toHaveBeenCalled();
+    expect(await stored(DOMAIN, '/promo')).toEqual(STORED);
+
+    response = await call('POST', moveToSale, { expectedUpdatedAt: '1000' }, env.ROUTES);
+    expect(response.status).toBe(400);
+    expect(await stored(DOMAIN, '/promo')).toEqual(STORED);
+
+    response = await call('POST', moveToSale, { expectedUpdatedAt: STORED.updatedAt }, env.ROUTES);
+    expect(response.status).toBe(200);
+    expect(await stored(DOMAIN, '/promo')).toBeNull();
+    expect(await stored(DOMAIN, '/sale')).toMatchObject({ target: STORED.target });
+  });
+
+  it('still records a toggle sent with a precondition as a toggle', async () => {
+    const response = await call(
+      'PUT',
+      putPath,
+      { enabled: false, expectedUpdatedAt: STORED.updatedAt },
+      env.ROUTES,
+    );
+    expect(response.status).toBe(200);
+    const row = await env.DB.prepare(
+      'SELECT action FROM audit_logs ORDER BY id DESC LIMIT 1',
+    ).first<{
+      action: string;
+    }>();
+    expect(row?.action).toBe('toggle');
+  });
+});
+
 // v1.39.0: normalize-case listed every route, then wrote each mixed-case one
 // under its lowercase key and deleted the old key, so a route deleted after
 // the listing came back, and one replaced after it was overwritten by the

@@ -10,7 +10,7 @@ import type {
   PaginatedResponse,
   SlugStats,
 } from '@bifrost/shared';
-import { NO_DOMAIN_ERROR, requireDomain } from './routes.js';
+import { NO_DOMAIN_ERROR, requireDomain } from './domain.js';
 
 /**
  * Format a number with thousands separators

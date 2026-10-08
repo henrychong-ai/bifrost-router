@@ -2,11 +2,15 @@ import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   BACKUP_ERRORS,
-  BackupIntegrityError,
   BackupListingError,
   MAX_RECORD_LINE_BYTES,
 } from '../../src/backup/integrity';
-import { BACKUP_SKIPPED_NOT_JSON, backupKV, KV_BULK_GET_MAX_KEYS } from '../../src/backup/kv';
+import {
+  BACKUP_SKIPPED_NOT_JSON,
+  BACKUP_SKIPPED_OVER_LINE_LIMIT,
+  backupKV,
+  KV_BULK_GET_MAX_KEYS,
+} from '../../src/backup/kv';
 import { readBackupRecords } from './archive-records';
 
 /**
@@ -195,6 +199,8 @@ describe('backupKV', () => {
     expect(records.map(record => JSON.stringify(record))).toEqual(perKey);
   });
 
+  // v1.40.0: a record that would take the archive past the cap is skipped and
+  // reported by key; the run goes on and backs up every record that fits
   it('stops at the size cap while reading KV: no gzip, no R2 call, and the rest unread', async () => {
     // 1,000 records of about 100 serialised bytes against a 2,000-byte cap
     for (let i = 0; i < 1000; i++) {
@@ -232,6 +238,23 @@ describe('backupKV', () => {
     expect(bulkSizes).toEqual([KV_BULK_GET_MAX_KEYS]);
     expect(bucketCalls).toBe(0);
     expect((await env.BACKUP_BUCKET.list()).objects).toEqual([]);
+  });
+
+  // v1.40.0: the counter matches the joined NDJSON to the byte (n records,
+  // n - 1 newlines), so records filling the cap exactly are all kept
+  it('keeps records that fill the cap exactly, with no newline after the last', async () => {
+    const one = JSON.stringify({ key: 'links.example.com:/a', value: { t: 'x' } });
+    const two = JSON.stringify({ key: 'links.example.com:/b', value: { t: 'y' } });
+    await env.ROUTES.put('links.example.com:/a', JSON.stringify({ t: 'x' }));
+    await env.ROUTES.put('links.example.com:/b', JSON.stringify({ t: 'y' }));
+    const exact = one.length + 1 + two.length;
+    expect(await backupKV(env.ROUTES, env.BACKUP_BUCKET, '20260115', exact)).toMatchObject({
+      totalRoutes: 2,
+    });
+    // One byte less fails the run, as the size cap always has
+    await expect(backupKV(env.ROUTES, env.BACKUP_BUCKET, '20260116', exact - 1)).rejects.toThrow(
+      BACKUP_ERRORS.sizeLimit,
+    );
   });
 
   it.each([
@@ -327,30 +350,42 @@ describe('backupKV', () => {
     expect(await backupKV(env.ROUTES, env.BACKUP_BUCKET, '20260115')).toMatchObject({
       totalRoutes: 1,
       skippedNotJson: 0,
+      skippedOverLineLimit: 0,
+      skippedOverLineLimitKeys: [],
     });
   });
 
-  // v1.37.2: a record the verifier would refuse as an over-long line fails
-  // before any gzip, with its own fixed message, located but never named.
-  it('refuses a record over the line limit with fixed text, before writing', async () => {
+  // v1.40.0: a record the verifier would refuse as an over-long line is
+  // skipped and reported by its key, never its value; the rest is backed up.
+  // It used to fail the run (v1.37.2).
+  it('skips a record over the line limit, naming its key only, and backs up the rest', async () => {
     await env.ROUTES.put('links.example.com:/good', JSON.stringify({ target: 'x' }));
     await env.ROUTES.put(
       'links.example.com:/huge',
       JSON.stringify({ target: `https://app.example/${'a'.repeat(MAX_RECORD_LINE_BYTES)}` }),
     );
 
-    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const failure = await backupKV(env.ROUTES, env.BACKUP_BUCKET, '20260115').then(
-      () => undefined,
-      (error: unknown) => error,
-    );
-    expect(failure).toBeInstanceOf(BackupIntegrityError);
-    expect((failure as Error).message).toBe(BACKUP_ERRORS.recordTooLarge);
-    // `/good` sorts before `/huge`
-    expect(errorLog.mock.calls).toEqual([
-      [`[Backup] ${BACKUP_ERRORS.recordTooLarge}: prefix links.example.com:, listing index 1`],
+    const warnings: string[] = [];
+    vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      warnings.push(args.map(String).join(' '));
+    });
+    const result = await backupKV(env.ROUTES, env.BACKUP_BUCKET, '20260115');
+    expect(result).toMatchObject({
+      totalRoutes: 1,
+      skippedOverLineLimit: 1,
+      skippedOverLineLimitKeys: ['links.example.com:/huge'],
+    });
+    expect(warnings).toEqual([
+      `[Backup] ${BACKUP_SKIPPED_OVER_LINE_LIMIT}: links.example.com:/huge`,
     ]);
-    expect(await env.BACKUP_BUCKET.head('daily/20260115/kv-routes.ndjson.gz')).toBeNull();
+    expect(
+      await readBackupRecords(env.BACKUP_BUCKET, {
+        version: '2.0.0',
+        timestamp: 0,
+        date: '20260115',
+        kv: result,
+      }),
+    ).toEqual([{ key: 'links.example.com:/good', value: { target: 'x' } }]);
   });
 
   it('keeps a record just under the line limit', async () => {

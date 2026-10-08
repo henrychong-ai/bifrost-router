@@ -11,7 +11,10 @@ import {
 } from '@bifrost/shared';
 import { HTTPException } from 'hono/http-exception';
 import { type BoundaryRead, logInvalidBoundary, readKvJson } from '../utils/boundary';
+import { errorName } from '../utils/error-name';
 import { KVDeleteError, KVReadError, KVWriteError } from '../utils/kv-errors';
+import { kvListingPage, nextCursor } from '../utils/list-cursor';
+import { readRecentQRWrites } from './qr-recent';
 import { qrDomainPrefix, qrKey } from './schema';
 
 /**
@@ -87,10 +90,10 @@ export async function putQR(kv: KVNamespace, record: QRCode): Promise<QRCode> {
   }
   try {
     await kv.put(key, serialized);
-    return record;
   } catch (error) {
     throw new KVWriteError(key, error instanceof Error ? error : new Error(String(error)));
   }
+  return record;
 }
 
 /**
@@ -153,6 +156,7 @@ export async function listQRs(
   const records: QRCode[] = [];
   const invalid: InvalidQRRow[] = [];
   let cursor: string | undefined;
+  const seenCursors = new Set<string>();
 
   try {
     do {
@@ -165,7 +169,7 @@ export async function listQRs(
           invalid.push({ domain, id: (keys[index] ?? prefix).slice(prefix.length), invalid: true });
         }
       }
-      cursor = result.list_complete ? undefined : result.cursor;
+      cursor = nextCursor(kvListingPage(result), seenCursors);
     } while (cursor);
   } catch (error) {
     if (error instanceof KVReadError) throw error;
@@ -173,6 +177,32 @@ export async function listQRs(
       `list:${prefix}`,
       error instanceof Error ? error : new Error(String(error)),
     );
+  }
+
+  // Codes written in the last two minutes that the lagging listing lacks
+  // (v1.40.0): read by key, which sees a write at once at this location. Best
+  // effort, outside the listing's own error handling: an id whose read fails
+  // is skipped and logged by error class, so a transient KV failure here
+  // never fails the listing (the code shows once KV's listing catches up)
+  const listed = new Set([...records.map(qr => qr.id), ...invalid.map(row => row.id)]);
+  const unlisted = (await readRecentQRWrites(kv, domain))
+    .map(write => write.id)
+    .filter(id => !listed.has(id));
+  const recent = await Promise.all(
+    unlisted.map(async id => {
+      try {
+        return await readQRState(kv, qrKey(domain, id));
+      } catch (error) {
+        console.warn(`[QR] A recent code could not be read: ${errorName(error)}`);
+        return { status: 'missing' } as const;
+      }
+    }),
+  );
+  for (const [index, read] of recent.entries()) {
+    if (read.status === 'ok') records.push(read.value);
+    else if (read.status === 'invalid') {
+      invalid.push({ domain, id: unlisted[index] ?? '', invalid: true });
+    }
   }
 
   // Same predicate as the dashboard's QR store (shared), the query parsed once

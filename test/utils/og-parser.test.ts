@@ -256,6 +256,48 @@ describe('parseOpenGraph', () => {
       expect(preview.url).toBe('https://example.com/moved');
     });
 
+    // v1.40.0: one deadline for the whole preview. Each hop had its own 5 s,
+    // so five slow redirects could hold a preview for about 30 s.
+    it('gives every hop one shared 5 s deadline', async () => {
+      vi.useFakeTimers();
+      try {
+        const signals: AbortSignal[] = [];
+        // Each hop answers after 2 s with a redirect, until aborted
+        vi.mocked(fetch).mockImplementation(
+          (_input, init) =>
+            new Promise<Response>((resolve, reject) => {
+              const signal = init?.signal ?? undefined;
+              if (signal) signals.push(signal);
+              const timer = setTimeout(
+                () =>
+                  resolve(
+                    new Response(null, {
+                      status: 302,
+                      headers: { location: `/hop-${signals.length}` },
+                    }),
+                  ),
+                2000,
+              );
+              signal?.addEventListener('abort', () => {
+                clearTimeout(timer);
+                reject(signal.reason);
+              });
+            }),
+        );
+        const outcome = parseOpenGraph('https://example.com/start').then(
+          () => 'resolved',
+          (error: unknown) => (error as Error).name,
+        );
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(await outcome).toBe('AbortError');
+        // Three hops started (at 0, 2 and 4 s), all under the one signal
+        expect(signals).toHaveLength(3);
+        expect(new Set(signals).size).toBe(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it(`stops an A→B→A redirect loop after ${MAX_REDIRECTS} hops`, async () => {
       const cancelled: string[] = [];
       vi.mocked(fetch).mockImplementation(async input => {

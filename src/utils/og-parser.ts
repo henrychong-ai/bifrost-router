@@ -15,8 +15,8 @@ export interface OpenGraphData {
 export interface OpenGraphFetchOptions {
   /**
    * Redirect hops to follow before giving up (default {@link MAX_REDIRECTS}).
-   * Each hop costs one subrequest and its own timeout, so a loop must not run
-   * on.
+   * Each hop costs one subrequest, so a loop must not run on; all hops share
+   * one deadline (v1.40.0).
    */
   maxRedirects?: number;
   /**
@@ -32,10 +32,10 @@ export interface OpenGraphFetchOptions {
  * the subrequest does not reach the Worker, and the preview fails (typically
  * 502 or 522). The parser asks the resolver instead. A `response` is read
  * exactly like a fetched one: a 3xx is followed under the same hop cap, the
- * body is read under the same size cap, and the hop has the same timeout. An
+ * body is read under the same size cap, under the preview's one deadline. An
  * `upstream` (a proxy route) is fetched by the parser as a proxied hop: it and
  * every redirect after it pass validateProxyTarget, count against the same
- * cap and get their own timeout, the result is reported under the public URL,
+ * cap and share the deadline, the result is reported under the public URL,
  * and no error names the upstream (a refusal gives the minimal result, a
  * failed fetch `HTTP 502`); an og:image the page itself gives may still be an
  * absolute upstream URL. Every hop, own or not, passes the outbound host
@@ -44,7 +44,7 @@ export interface OpenGraphFetchOptions {
 export interface OwnHostResolver {
   /** Whether `url`'s host is served by this Worker. */
   serves(url: URL): boolean;
-  /** What a visitor of `url` would get. `signal` aborts at the hop's timeout. */
+  /** What a visitor of `url` would get. `signal` aborts at the preview's deadline. */
   resolve(url: URL, signal: AbortSignal): Promise<OwnHostAnswer>;
 }
 
@@ -80,9 +80,11 @@ export function minimalOpenGraph(url: string): OpenGraphData {
 const MAX_RESPONSE_SIZE = 1024 * 1024;
 
 /**
- * Request timeout in milliseconds
+ * The whole preview's deadline in milliseconds: every redirect hop and every
+ * body read share it (v1.40.0). Each hop used to get its own 5 s, so a
+ * preview that followed the five allowed redirects could take about 30 s.
  */
-const REQUEST_TIMEOUT_MS = 5000;
+const PREVIEW_DEADLINE_MS = 5000;
 
 /** Why a link-preview URL was refused (v1.38.0), for the fixed answer of each class. */
 export type SSRFRefusal = 'format' | 'scheme' | 'name' | 'ipv4' | 'ipv6';
@@ -636,7 +638,7 @@ async function readResponseWithSizeLimit(response: Response, maxSize: number): P
  * - SSRF protection: Blocks private IPs, localhost, cloud metadata endpoints
  * - Size limit: Maximum 1MB response to prevent memory exhaustion; an oversized
  *   body is cancelled, not left streaming
- * - Timeout: 5 second request timeout
+ * - Timeout: one 5 second deadline for the whole preview, every hop included
  * - Scheme validation: Only http/https allowed
  * - Redirects: each hop is validated, at most {@link MAX_REDIRECTS} are followed
  *
@@ -651,15 +653,17 @@ export function parseOpenGraph(
 ): Promise<OpenGraphData> {
   // The hop count lives only in the private recursion: a caller cannot pass
   // one (a stray third argument, as from `urls.map(parseOpenGraph)`), so the
-  // cap always counts from zero.
-  return fetchOpenGraph(url, options, 0);
+  // cap always counts from zero. One deadline covers every hop (v1.40.0).
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), PREVIEW_DEADLINE_MS);
+  return fetchOpenGraph(url, options, controller.signal, 0).finally(() => clearTimeout(timeoutId));
 }
 
 /**
- * `resolving`, or the abort reason once `signal` aborts (the hop's timeout),
+ * `resolving`, or the abort reason once `signal` aborts (the deadline),
  * whichever comes first: an in-process step that does not watch the signal
- * (a KV read) still cannot outlast the hop. A response that arrives after
- * the timeout is released.
+ * (a KV read) still cannot outlast the deadline. A response that arrives
+ * after it is released.
  */
 async function resolveWithin(
   resolving: Promise<OwnHostAnswer>,
@@ -687,19 +691,21 @@ async function resolveWithin(
   }
 }
 
-/** Whether `error` is the abort of a hop's timeout. */
+/** Whether `error` is the abort at the preview's deadline. */
 function isAbort(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
 }
 
 /**
- * One hop of {@link parseOpenGraph}; `hop` is the redirects already followed.
+ * One hop of {@link parseOpenGraph}; `hop` is the redirects already followed
+ * and `signal` aborts at the preview's one deadline.
  * `proxiedFor` is set on a proxy route's upstream hops (v1.37.2): the public
  * URL they are reported under, which also stands in for them in every error.
  */
 async function fetchOpenGraph(
   url: string,
   options: OpenGraphFetchOptions,
+  signal: AbortSignal,
   hop: number,
   proxiedFor?: string,
 ): Promise<OpenGraphData> {
@@ -720,113 +726,104 @@ async function fetchOpenGraph(
     if (options.ownHost?.serves(validatedUrl)) return minimalOpenGraph(reportUrl);
   }
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-  try {
-    let response: Response;
-    if (proxiedFor === undefined && options.ownHost?.serves(validatedUrl)) {
-      const answer = await resolveWithin(
-        options.ownHost.resolve(validatedUrl, controller.signal),
-        controller.signal,
-      );
-      if (answer.kind === 'minimal') return minimalOpenGraph(url);
-      // The same hop, served by the upstream: fetched as a proxied hop
-      if (answer.kind === 'upstream') return fetchOpenGraph(answer.url.href, options, hop, url);
-      response = answer.response;
-    } else {
-      try {
-        response = await fetch(validatedUrl.href, {
-          signal: controller.signal,
-          headers: OPEN_GRAPH_REQUEST_HEADERS,
-          // Don't follow redirects automatically - we need to validate each redirect target
-          redirect: 'manual',
-        });
-      } catch (error) {
-        // A network error can name the upstream, which a visitor never sees,
-        // so it is not kept as a cause either
-        if (proxiedFor !== undefined && !isAbort(error)) {
-          // eslint-disable-next-line preserve-caught-error -- the cause can name the upstream
-          throw new UpstreamStatusError(502);
-        }
-        throw error;
+  let response: Response;
+  if (proxiedFor === undefined && options.ownHost?.serves(validatedUrl)) {
+    const answer = await resolveWithin(options.ownHost.resolve(validatedUrl, signal), signal);
+    if (answer.kind === 'minimal') return minimalOpenGraph(url);
+    // The same hop, served by the upstream: fetched as a proxied hop
+    if (answer.kind === 'upstream') {
+      return fetchOpenGraph(answer.url.href, options, signal, hop, url);
+    }
+    response = answer.response;
+  } else {
+    try {
+      response = await fetch(validatedUrl.href, {
+        signal,
+        headers: OPEN_GRAPH_REQUEST_HEADERS,
+        // Don't follow redirects automatically - we need to validate each redirect target
+        redirect: 'manual',
+      });
+    } catch (error) {
+      // A network error can name the upstream, which a visitor never sees,
+      // so it is not kept as a cause either
+      if (proxiedFor !== undefined && !isAbort(error)) {
+        // eslint-disable-next-line preserve-caught-error -- the cause can name the upstream
+        throw new UpstreamStatusError(502);
       }
+      throw error;
     }
-
-    // Handle redirects manually to prevent SSRF via redirect. The body is
-    // released first on every path that will not read it, so no early return
-    // or throw (a bad Location, an SSRF refusal, the hop cap) leaves the
-    // connection open.
-    if (response.status >= 300 && response.status < 400) {
-      await releaseBody(response);
-      // Follow at most `maxRedirects` hops, each with its own timeout. The old
-      // recursion had no cap, so an A→B→A loop ran until the Worker's
-      // subrequest limit. The cap is checked BEFORE the Location is read, so
-      // at the cap every 3xx (no Location, a malformed one, or an SSRF target)
-      // ends as TooManyRedirects.
-      const cap = options.maxRedirects ?? MAX_REDIRECTS;
-      if (hop >= cap) {
-        // A proxy upstream's redirects are its own business: past the cap
-        // there is simply nothing to describe
-        if (proxiedFor !== undefined) return minimalOpenGraph(reportUrl);
-        throw new TooManyRedirectsError(cap);
-      }
-      const redirectUrl = response.headers.get('location');
-      if (!redirectUrl) throw new UpstreamStatusError(response.status);
-      // Resolve relative redirect URLs. The recursive call validates the
-      // target for SSRF on entry, before it fetches anything.
-      let next: string;
-      try {
-        next = new URL(redirectUrl, validatedUrl.href).href;
-      } catch (error) {
-        // An unparseable upstream Location would be quoted by the error
-        if (proxiedFor !== undefined) return minimalOpenGraph(reportUrl);
-        throw error;
-      }
-      return fetchOpenGraph(next, options, hop + 1, proxiedFor);
-    }
-
-    if (!response.ok) {
-      await releaseBody(response);
-      throw new UpstreamStatusError(response.status);
-    }
-
-    const contentType = response.headers.get('content-type') ?? '';
-    if (!contentType.includes('text/html')) {
-      await releaseBody(response);
-      return minimalOpenGraph(reportUrl);
-    }
-
-    // Read response with size limit
-    const html = await readResponseWithSizeLimit(response, MAX_RESPONSE_SIZE);
-
-    const meta = scanTags(html);
-    const ogTitle =
-      metaContent(meta, 'og:title') ?? metaContent(meta, 'twitter:title') ?? meta.title;
-
-    const ogDescription =
-      metaContent(meta, 'og:description') ??
-      metaContent(meta, 'twitter:description') ??
-      metaContent(meta, 'description');
-
-    const ogImage = metaContent(meta, 'og:image') ?? metaContent(meta, 'twitter:image');
-
-    const ogSiteName = metaContent(meta, 'og:site_name') ?? metaContent(meta, 'application-name');
-
-    const ogUrl = metaContent(meta, 'og:url');
-
-    return {
-      title: ogTitle,
-      description: ogDescription,
-      image: resolveHttpUrl(reportUrl, ogImage),
-      siteName: ogSiteName,
-      // A proxied page is reported under its public URL only: an og:url on
-      // the upstream would name it (v1.37.2)
-      url: proxiedFor === undefined ? (resolveHttpUrl(url, ogUrl) ?? url) : proxiedFor,
-    };
-  } finally {
-    clearTimeout(timeoutId);
   }
+
+  // Handle redirects manually to prevent SSRF via redirect. The body is
+  // released first on every path that will not read it, so no early return
+  // or throw (a bad Location, an SSRF refusal, the hop cap) leaves the
+  // connection open.
+  if (response.status >= 300 && response.status < 400) {
+    await releaseBody(response);
+    // Follow at most `maxRedirects` hops, all within the one deadline. The old
+    // recursion had no cap, so an A→B→A loop ran until the Worker's
+    // subrequest limit. The cap is checked BEFORE the Location is read, so
+    // at the cap every 3xx (no Location, a malformed one, or an SSRF target)
+    // ends as TooManyRedirects.
+    const cap = options.maxRedirects ?? MAX_REDIRECTS;
+    if (hop >= cap) {
+      // A proxy upstream's redirects are its own business: past the cap
+      // there is simply nothing to describe
+      if (proxiedFor !== undefined) return minimalOpenGraph(reportUrl);
+      throw new TooManyRedirectsError(cap);
+    }
+    const redirectUrl = response.headers.get('location');
+    if (!redirectUrl) throw new UpstreamStatusError(response.status);
+    // Resolve relative redirect URLs. The recursive call validates the
+    // target for SSRF on entry, before it fetches anything.
+    let next: string;
+    try {
+      next = new URL(redirectUrl, validatedUrl.href).href;
+    } catch (error) {
+      // An unparseable upstream Location would be quoted by the error
+      if (proxiedFor !== undefined) return minimalOpenGraph(reportUrl);
+      throw error;
+    }
+    return fetchOpenGraph(next, options, signal, hop + 1, proxiedFor);
+  }
+
+  if (!response.ok) {
+    await releaseBody(response);
+    throw new UpstreamStatusError(response.status);
+  }
+
+  const contentType = response.headers.get('content-type') ?? '';
+  if (!contentType.includes('text/html')) {
+    await releaseBody(response);
+    return minimalOpenGraph(reportUrl);
+  }
+
+  // Read response with size limit
+  const html = await readResponseWithSizeLimit(response, MAX_RESPONSE_SIZE);
+
+  const meta = scanTags(html);
+  const ogTitle = metaContent(meta, 'og:title') ?? metaContent(meta, 'twitter:title') ?? meta.title;
+
+  const ogDescription =
+    metaContent(meta, 'og:description') ??
+    metaContent(meta, 'twitter:description') ??
+    metaContent(meta, 'description');
+
+  const ogImage = metaContent(meta, 'og:image') ?? metaContent(meta, 'twitter:image');
+
+  const ogSiteName = metaContent(meta, 'og:site_name') ?? metaContent(meta, 'application-name');
+
+  const ogUrl = metaContent(meta, 'og:url');
+
+  return {
+    title: ogTitle,
+    description: ogDescription,
+    image: resolveHttpUrl(reportUrl, ogImage),
+    siteName: ogSiteName,
+    // A proxied page is reported under its public URL only: an og:url on
+    // the upstream would name it (v1.37.2)
+    url: proxiedFor === undefined ? (resolveHttpUrl(url, ogUrl) ?? url) : proxiedFor,
+  };
 }
 
 /** A failed preview as `GET /api/metadata/og` answers it. */

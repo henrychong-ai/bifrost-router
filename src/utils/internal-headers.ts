@@ -6,19 +6,12 @@
  * proxy route, a service-binding fallback or an own-host link preview (a
  * misrouted dashboard call, a visitor who sends one) must not hand it on.
  * One rule for every path that forwards a request: the proxy handler on each
- * hop, `safeServiceFetch`, and the preview resolver.
+ * hop, `safeServiceFetch`, and the preview resolver. The rule itself lives in
+ * `@bifrost/shared` (v1.40.0), shared with the dashboard's dev proxy and
+ * checked against the nginx template.
  */
+import { isInternalHeader } from '@bifrost/shared';
 import { validateApiKey } from './crypto';
-
-const INTERNAL_HEADER_PREFIXES = ['x-bifrost-', 'tailscale-user-'] as const;
-
-/** Whether `name` is one of this deployment's own headers (any case). */
-export function isInternalHeader(name: string): boolean {
-  const lower = name.toLowerCase();
-  return (
-    lower === 'x-admin-key' || INTERNAL_HEADER_PREFIXES.some(prefix => lower.startsWith(prefix))
-  );
-}
 
 /**
  * The admin key an `Authorization` header carries, read exactly as the admin

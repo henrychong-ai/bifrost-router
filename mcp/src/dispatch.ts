@@ -41,6 +41,7 @@ import {
 } from '@bifrost/shared';
 import type { z } from 'zod';
 import { getAnalyticsSummary, getClicks, getSlugStats, getViews } from './tools/analytics.js';
+import { NO_DOMAIN_ERROR, requireDomain } from './tools/domain.js';
 import { createQr, deleteQr, getQr, getRouteQr, listQrs, updateQr } from './tools/qr.js';
 import {
   createRoute,
@@ -49,8 +50,6 @@ import {
   handleTransferRoute,
   listRoutes,
   migrateRoute,
-  NO_DOMAIN_ERROR,
-  requireDomain,
   toggleRoute,
   transferDomainsError,
   updateRoute,

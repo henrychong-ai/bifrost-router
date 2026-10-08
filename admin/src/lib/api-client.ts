@@ -253,19 +253,24 @@ export const routesApi = {
    * @param path - Route path to update
    * @param data - Update data
    * @param domain - Target domain (required; the route's own in the all-domains view)
+   * @param expectedUpdatedAt - The `updatedAt` of the route as loaded (v1.40.0): the
+   *   Worker refuses the edit with 409 `ROUTE_SOURCE_CHANGED` if the route has changed since
    */
   async update(
     path: string,
     data: UpdateRouteInput,
     domain: string,
     acknowledgeCredentialTarget?: boolean,
+    expectedUpdatedAt?: number,
   ): Promise<Route> {
     const query = buildQueryString({ path, domain });
     const response = await fetchApi(`/api/routes${query}`, RouteResponseSchema, {
       method: 'PUT',
-      body: JSON.stringify(
-        acknowledgeCredentialTarget ? { ...data, acknowledgeCredentialTarget } : data,
-      ),
+      body: JSON.stringify({
+        ...data,
+        ...(acknowledgeCredentialTarget && { acknowledgeCredentialTarget }),
+        ...(expectedUpdatedAt !== undefined && { expectedUpdatedAt }),
+      }),
     });
     if (!response.success || !response.data) {
       throw new ApiError(400, response.error || 'Failed to update route');
@@ -312,6 +317,7 @@ export const routesApi = {
     domain: string,
     updates: UpdateRouteInput = {},
     acknowledgeCredentialTarget?: boolean,
+    expectedUpdatedAt?: number,
   ): Promise<Route> {
     const query = buildQueryString({ oldPath, newPath, domain });
     // The rest of the edit goes in the same request (v1.38.0): the Worker
@@ -321,6 +327,9 @@ export const routesApi = {
     const body = {
       ...updates,
       ...(acknowledgeCredentialTarget ? { acknowledgeCredentialTarget } : {}),
+      // The source's updatedAt as loaded (v1.40.0): a route changed since is
+      // refused (409 ROUTE_SOURCE_CHANGED) and nothing moves
+      ...(expectedUpdatedAt !== undefined ? { expectedUpdatedAt } : {}),
     };
     const response = await fetchApi(`/api/routes/migrate${query}`, RouteResponseSchema, {
       method: 'POST',

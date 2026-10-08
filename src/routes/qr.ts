@@ -50,6 +50,7 @@ import { z } from 'zod';
 import { type AuditAction, recordAuditLog } from '../db/analytics';
 import { normalizePath } from '../kv/lookup';
 import { deleteQR, getQR, listQRs, parseStoredQR, putQR } from '../kv/qr';
+import { recordRecentQRWrite } from '../kv/qr-recent';
 import { getRoute, InvalidStoredRouteError } from '../kv/routes';
 import { qrKey } from '../kv/schema';
 import type { AppEnv } from '../types';
@@ -412,6 +413,15 @@ qrRoutes.post('/', async c => {
 
   await putQR(c.env.ROUTES, record);
   auditQr(c, 'qr_create', domain, record, { qr: redactQrForAudit(record) });
+  // A new code is listed at once at this location (v1.40.0): its id goes
+  // into the recent-writes key after the answer, best effort, creates only
+  // (an update's key is already listed)
+  try {
+    c.executionCtx.waitUntil(recordRecentQRWrite(c.env.ROUTES, domain, record.id));
+  } catch {
+    // No execution context (some tests): record it inline
+    await recordRecentQRWrite(c.env.ROUTES, domain, record.id);
+  }
 
   return c.json({ success: true as const, data: record }, 201);
 });

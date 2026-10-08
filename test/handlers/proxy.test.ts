@@ -1,9 +1,9 @@
 import { env } from 'cloudflare:test';
+import { isInternalHeader } from '@bifrost/shared';
 import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
 import { handleProxy, leavesOrigin, MAX_PROXY_REDIRECTS } from '../../src/handlers/proxy';
 import type { AppEnv, KVRouteConfig } from '../../src/types';
-import { isInternalHeader } from '../../src/utils/internal-headers';
 
 const capturedUrl = (route: KVRouteConfig, requestUrl: string) => {
   const app = new Hono<AppEnv>();

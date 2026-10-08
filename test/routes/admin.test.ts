@@ -977,6 +977,19 @@ describe('admin routes', () => {
 
       expect(response.status).toBe(204);
       expect(response.headers.get('Access-Control-Allow-Origin')).toBe('');
+      // An hour (v1.40.0; was a day)
+      expect(response.headers.get('Access-Control-Max-Age')).toBe('3600');
+    });
+
+    // v1.40.0: the CORS middleware's preflight answer is the one bypass of
+    // authentication; any other OPTIONS request authenticates like the rest
+    it('refuses an OPTIONS request that is not a preflight without the key', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+      const response = await app.fetch(
+        new Request('http://example.com/api/routes?domain=example.com', { method: 'OPTIONS' }),
+        testEnv,
+      );
+      expect(response.status).toBe(401);
     });
   });
 

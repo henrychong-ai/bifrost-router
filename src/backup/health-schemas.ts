@@ -24,6 +24,8 @@ export {
   LastBackupInfoSchema,
   type ManifestSummary,
   ManifestSummarySchema,
+  type SkippedRecords,
+  SkippedRecordsSchema,
 } from '@bifrost/shared';
 
 /**

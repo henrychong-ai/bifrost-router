@@ -17,6 +17,12 @@ export const BackupFileStatusSchema = z.object({
   size: z.number(),
   /** Whether the file exists */
   exists: z.boolean(),
+  /**
+   * `present`, `missing`, or `unknown` when R2 failed to answer for it
+   * (v1.40.0; absent from an older Worker). An unknown file is not missing,
+   * but it leaves `filesComplete` false.
+   */
+  state: z.enum(['present', 'missing', 'unknown']).optional(),
 });
 
 export type BackupFileStatus = z.infer<typeof BackupFileStatusSchema>;
@@ -82,6 +88,26 @@ export const ArchiveInfoSchema = z.object({
 export type ArchiveInfo = z.infer<typeof ArchiveInfoSchema>;
 
 /**
+ * What the latest run left out of its archive (v1.40.0), read from the
+ * archive's own metadata (`source: 'archive'`), or from the manifest for an
+ * archive written before v1.40.0 (`source: 'manifest'`).
+ */
+export const SkippedRecordsSchema = z.object({
+  source: z.enum(['archive', 'manifest']),
+  /** Values that are not JSON (a warning) */
+  notJson: z.number(),
+  /** Single records over MAX_RECORD_LINE_BYTES (critical) */
+  overLineLimit: z.number(),
+  /**
+   * Up to 50 of their keys, from the manifest of the same run only. Key
+   * names, never a value.
+   */
+  overLineLimitKeys: z.array(z.string()).optional(),
+});
+
+export type SkippedRecords = z.infer<typeof SkippedRecordsSchema>;
+
+/**
  * Last backup information
  */
 export const LastBackupInfoSchema = z.object({
@@ -101,6 +127,8 @@ export const LastBackupInfoSchema = z.object({
    * accepted it absent; there is one definition now).
    */
   archive: ArchiveInfoSchema.nullable(),
+  /** What the run skipped (v1.40.0; absent from an older Worker) */
+  skipped: SkippedRecordsSchema.nullable().optional(),
 });
 
 export type LastBackupInfo = z.infer<typeof LastBackupInfoSchema>;
@@ -119,6 +147,12 @@ export const HealthChecksSchema = z.object({
   filesComplete: z.boolean(),
   /** Whether route count is within expected range */
   routeCountOk: z.boolean(),
+  /**
+   * Whether the archive's content was read back and verified (v1.40.0;
+   * absent from an older Worker). False when R2 could not deliver it, which
+   * health reports as a warning, or when verification failed (critical).
+   */
+  contentVerified: z.boolean().optional(),
 });
 
 export type HealthChecks = z.infer<typeof HealthChecksSchema>;

@@ -14,7 +14,7 @@
 
 import type { EdgeRouterClient, QRCode } from '@bifrost/shared';
 import { isInvalidQRRow } from '@bifrost/shared';
-import { NO_DOMAIN_ERROR, requireDomain } from './routes.js';
+import { NO_DOMAIN_ERROR, requireDomain } from './domain.js';
 
 /** A listed QR record that cannot be read (v1.38.0): marked, with the one thing to do. */
 export const UNREADABLE_QR_NOTE =

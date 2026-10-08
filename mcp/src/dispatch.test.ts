@@ -6,7 +6,7 @@
 import { DeleteRouteInputSchema, type EdgeRouterClient, toolDefinitions } from '@bifrost/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { callTool, isKnownTool } from './dispatch';
-import { NO_DOMAIN_ERROR } from './tools/routes';
+import { NO_DOMAIN_ERROR } from './tools/domain';
 
 const DOMAIN = 'links.example.com';
 

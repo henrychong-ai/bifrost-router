@@ -32,6 +32,7 @@ import {
   BACKUP_LISTING_CURSOR_INVALID,
   BACKUP_MANIFEST_VERSION,
   backupArchiveKey,
+  MAX_REPORTED_SKIPPED_KEYS,
 } from './constants';
 import type { BackupManifest } from './types';
 
@@ -45,6 +46,13 @@ const ManifestSchema = z.object({
     file: z.string(),
     // v1.38.0; absent from an older manifest
     skippedNotJson: z.number().int().nonnegative().optional(),
+    // v1.40.0; absent from an older manifest
+    skippedOverLineLimit: z.number().int().nonnegative().optional(),
+    skippedOverLineLimitKeys: z
+      .array(z.string().min(1).max(512))
+      .max(MAX_REPORTED_SKIPPED_KEYS)
+      .optional(),
+    runId: z.string().min(1).max(64).optional(),
   }),
 });
 
@@ -74,15 +82,6 @@ export const BACKUP_ERRORS = {
    * archive cannot be shown to be exactly one gzip member.
    */
   inflaterUnsupported: 'Backup verification cannot count compressed bytes (pako internals changed)',
-  /**
-   * A record backupKV read serialises to a line longer than
-   * MAX_RECORD_LINE_BYTES (v1.37.2), which verification would refuse. Raised
-   * before any gzip, naming no key; the log locates it by prefix and listing
-   * index. Every API write is now checked as stored far below the line limit
-   * (a route record at 64 KiB, a QR record at 192 KiB, both v1.37.2), so this
-   * means a record written before those caps or straight to KV.
-   */
-  recordTooLarge: 'Backup record exceeds the line limit (MAX_RECORD_LINE_BYTES)',
 } as const;
 
 /** A backup check failure with one of the fixed {@link BACKUP_ERRORS} messages. */
@@ -163,14 +162,16 @@ export interface StoredArchiveScan extends ArchiveScan {
  * logo QR codes take about 7 MiB. A route record is typically a few hundred
  * bytes: 10,000 routes at 600 bytes add about 5.7 MiB, and both together still
  * fit. Each route record is capped at 64 KiB on write (v1.37.2), but the
- * number of routes is not, so an unusually large route set can reach the cap. backupKV then stops while it is still reading KV, as soon
- * as the serialised records pass the cap, and fails with
+ * number of routes is not, so an unusually large route set can reach the cap.
+ * backupKV then stops while it is still reading KV, as soon as the
+ * serialised records pass the cap, and fails with
  * `Backup exceeds the size limit (MAX_BACKUP_BYTES)` (BACKUP_ERRORS.sizeLimit),
  * writing nothing for the day (earlier days stay intact). That message is the
  * signal to raise this constant.
- * Peak memory stays well inside the Worker's 128 MB: backupKV holds the NDJSON
- * text and its gzip, and verification keeps one line and the key set at a time.
- * The health check warns once an archive passes half the cap.
+ * Peak memory stays well inside the Worker's 128 MB: backupKV releases the
+ * record lines once joined, then the NDJSON text once compressed (v1.40.0),
+ * and verification keeps one line and the key set at a time. The health check
+ * warns once an archive passes half the cap.
  *
  * The byte cap is not the only limit. KV allows 1,000 operations per Worker
  * invocation on every plan, and backupKV spends them separately from bytes:
@@ -193,8 +194,8 @@ export const MAX_BACKUP_BYTES = 16 * 1024 * 1024;
  * its logo) stays under 140 KiB, so a longer line is not a record backupKV
  * wrote. In an archive it fails as BACKUP_ERRORS.content, and it bounds the
  * line buffer: without it, an archive with no newline would be held whole, up
- * to the inflated cap. backupKV refuses such a record before writing, with
- * BACKUP_ERRORS.recordTooLarge. Every API write is bounded far below it (a
+ * to the inflated cap. backupKV skips and reports such a record before any
+ * gzip (v1.40.0; it used to fail the run). Every API write is bounded far below it (a
  * route record at 64 KiB as stored, v1.37.2), so only a record written before
  * those caps or straight to KV can reach it.
  */
@@ -439,16 +440,81 @@ export function verifyArchiveBytes(
   return scanArchiveStream(body, bytes.byteLength, expectedCount, maxBytes);
 }
 
-/** The archive's own record count from its `routeCount` metadata, if well-formed. */
-function archiveRouteCount(object: R2Object): number | undefined {
-  const raw = object.customMetadata?.['routeCount'];
-  return raw !== undefined && /^\d+$/.test(raw) ? Number(raw) : undefined;
+/** What a run records about itself in its archive's R2 metadata (v1.40.0). */
+export interface ArchiveRun {
+  /** Ties the archive to the manifest of the same run. */
+  runId: string;
+  skippedNotJson: number;
+  skippedOverLineLimit: number;
 }
 
 /**
- * Verify the stored archive at `key` without building its records (the health
- * check). The expected count is the archive's own `routeCount` metadata, which
- * every archive backupKV writes carries; `fallbackCount` (the manifest's) is used
+ * The archive's `customMetadata`, written in the same put as its bytes
+ * (v1.40.0), so what the run skipped cannot disagree with the archive the way
+ * a separately written manifest can (a failed manifest write, a same-day
+ * re-run). Counts are decimal strings.
+ */
+export function archiveMetadata(run: ArchiveRun & { date: string; routeCount: number }) {
+  return {
+    date: run.date,
+    type: 'kv-routes',
+    routeCount: String(run.routeCount),
+    runId: run.runId,
+    skippedNotJson: String(run.skippedNotJson),
+    skippedOverLineLimit: String(run.skippedOverLineLimit),
+  };
+}
+
+const decimal = (raw: string | undefined): number | undefined =>
+  raw !== undefined && /^\d+$/.test(raw) ? Number(raw) : undefined;
+
+/**
+ * The run an archive's metadata records, or null for an archive written
+ * before v1.40.0 (or with metadata that is not well-formed).
+ */
+export function archiveRun(object: R2Object): ArchiveRun | null {
+  const meta = object.customMetadata ?? {};
+  const runId = meta['runId'];
+  const skippedNotJson = decimal(meta['skippedNotJson']);
+  const skippedOverLineLimit = decimal(meta['skippedOverLineLimit']);
+  if (
+    runId === undefined ||
+    runId === '' ||
+    skippedNotJson === undefined ||
+    skippedOverLineLimit === undefined
+  ) {
+    return null;
+  }
+  return { runId, skippedNotJson, skippedOverLineLimit };
+}
+
+/** The archive's own record count from its `routeCount` metadata, if well-formed. */
+export function archiveRouteCount(object: R2Object): number | undefined {
+  return decimal(object.customMetadata?.['routeCount']);
+}
+
+/**
+ * Verify an archive object already fetched from R2 without building its
+ * records (v1.40.0: health fetches it once, for its size and its body). The
+ * expected count is its own `routeCount` metadata; `fallbackCount` (the
+ * manifest's) is used only when that metadata is missing or malformed.
+ */
+export async function verifyArchiveObject(
+  object: R2ObjectBody,
+  fallbackCount: number,
+  maxBytes = MAX_BACKUP_BYTES,
+): Promise<StoredArchiveScan> {
+  const ownCount = archiveRouteCount(object);
+  // R2ObjectBody types its body as an untyped ReadableStream; it carries bytes
+  const body = object.body as ReadableStream<Uint8Array>;
+  const scan = await scanArchiveStream(body, object.size, ownCount ?? fallbackCount, maxBytes);
+  return { ...scan, countSource: ownCount === undefined ? 'manifest' : 'archive' };
+}
+
+/**
+ * Verify the stored archive at `key` without building its records. The
+ * expected count is the archive's own `routeCount` metadata, which every
+ * archive backupKV writes carries; `fallbackCount` (the manifest's) is used
  * only when that metadata is missing or malformed.
  */
 export async function verifyBackupArchive(
@@ -464,9 +530,5 @@ export async function verifyBackupArchive(
     throw new BackupReadError(error);
   }
   if (!object) throw new BackupIntegrityError(BACKUP_ERRORS.missing);
-  const ownCount = archiveRouteCount(object);
-  // R2ObjectBody types its body as an untyped ReadableStream; it carries bytes
-  const body = object.body as ReadableStream<Uint8Array>;
-  const scan = await scanArchiveStream(body, object.size, ownCount ?? fallbackCount, maxBytes);
-  return { ...scan, countSource: ownCount === undefined ? 'manifest' : 'archive' };
+  return verifyArchiveObject(object, fallbackCount, maxBytes);
 }

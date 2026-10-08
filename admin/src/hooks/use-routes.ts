@@ -2,7 +2,7 @@ import { canonicalJson } from '@bifrost/shared';
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { api } from '@/lib/api-client';
-import { isRouteAlreadyExistsError, RouteExistsError } from '@/lib/api-error';
+import { isRouteAlreadyExistsError, isRouteSourceChanged, RouteExistsError } from '@/lib/api-error';
 import type { CreateRouteInput, Route, UpdateRouteInput } from '@/lib/schemas';
 
 // =============================================================================
@@ -171,6 +171,24 @@ export function useCreateRoute() {
  * Update an existing route
  * @param domain - Target domain: required, never defaulted (the route's own in the all-domains view)
  */
+/**
+ * After a 409 `ROUTE_SOURCE_CHANGED` (v1.40.0): the route changed since the
+ * dashboard loaded it, so its list and detail queries are reloaded and the
+ * next edit or move starts from the current version and its `updatedAt`,
+ * never resends the stale one. Any other error is left alone. Whether it
+ * reloaded.
+ */
+export function reloadChangedRoute(
+  queryClient: QueryClient,
+  error: unknown,
+  path: string,
+): boolean {
+  if (!isRouteSourceChanged(error)) return false;
+  void queryClient.invalidateQueries({ queryKey: routeKeys.all });
+  void queryClient.invalidateQueries({ queryKey: routeKeys.detail(path) });
+  return true;
+}
+
 export function useUpdateRoute() {
   const queryClient = useQueryClient();
 
@@ -180,13 +198,16 @@ export function useUpdateRoute() {
       data,
       domain,
       acknowledgeCredentialTarget,
+      expectedUpdatedAt,
     }: {
       path: string;
       data: UpdateRouteInput;
       domain: string;
       /** Set only after the operator confirmed the credential-target dialog. */
       acknowledgeCredentialTarget?: boolean;
-    }) => api.routes.update(path, data, domain, acknowledgeCredentialTarget),
+      /** The route's `updatedAt` as loaded: a route changed since is refused (v1.40.0). */
+      expectedUpdatedAt?: number;
+    }) => api.routes.update(path, data, domain, acknowledgeCredentialTarget, expectedUpdatedAt),
     onSuccess: (_data, variables) => {
       // Invalidate both the list and the specific route
       void queryClient.invalidateQueries({ queryKey: routeKeys.all });
@@ -194,6 +215,7 @@ export function useUpdateRoute() {
         queryKey: routeKeys.detail(variables.path),
       });
     },
+    onError: (error, variables) => reloadChangedRoute(queryClient, error, variables.path),
   });
 }
 
@@ -265,6 +287,7 @@ export function useMigrateRoute() {
       domain,
       updates,
       acknowledgeCredentialTarget,
+      expectedUpdatedAt,
     }: {
       oldPath: string;
       newPath: string;
@@ -273,13 +296,24 @@ export function useMigrateRoute() {
       updates?: UpdateRouteInput;
       /** Set only after the operator confirmed the credential-target dialog. */
       acknowledgeCredentialTarget?: boolean;
-    }) => api.routes.migrate(oldPath, newPath, domain, updates, acknowledgeCredentialTarget),
+      /** The source's `updatedAt` as loaded: a route changed since is refused (v1.40.0). */
+      expectedUpdatedAt?: number;
+    }) =>
+      api.routes.migrate(
+        oldPath,
+        newPath,
+        domain,
+        updates,
+        acknowledgeCredentialTarget,
+        expectedUpdatedAt,
+      ),
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: routeKeys.all });
       queryClient.removeQueries({
         queryKey: routeKeys.detail(variables.oldPath),
       });
     },
+    onError: (error, variables) => reloadChangedRoute(queryClient, error, variables.oldPath),
   });
 }
 

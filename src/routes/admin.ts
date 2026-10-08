@@ -26,6 +26,8 @@ import {
   mergeRoutePatch,
   migrateRoute,
   presentRoute,
+  ROUTE_CHANGED_DURING_EDIT_MESSAGE,
+  RouteSourceChangedError,
   recoverInvalidRoute,
   seedRoutes,
   serializeStoredRoute,
@@ -273,15 +275,11 @@ adminRoutes.use('*', cors({ origins: [...ADMIN_API_CORS_ORIGINS] }));
 
 /**
  * API key authentication middleware (SECOND - after CORS handles preflight)
- * Uses timing-safe comparison to prevent timing attacks
+ * Uses timing-safe comparison to prevent timing attacks. A CORS preflight
+ * never gets here: the CORS middleware answers it, the one bypass (v1.40.0;
+ * this middleware used to skip every OPTIONS request as well).
  */
 adminRoutes.use('*', async (c, next) => {
-  // Skip auth for CORS preflight requests
-  if (c.req.method === 'OPTIONS') {
-    await next();
-    return;
-  }
-
   const apiKey =
     c.req.header('X-Admin-Key') || adminKeyFromAuthorization(c.req.header('Authorization'));
   const expectedKey = c.env.ADMIN_API_KEY;
@@ -626,6 +624,16 @@ adminRoutes.put('/routes', async c => {
   // The schema accepted an object, so its fields can be read for the audit row.
   const fields: Record<string, unknown> = isRecord(body) ? body : {};
 
+  // Optional client precondition (v1.40.0): the `updatedAt` of the route as
+  // the client loaded it. A route changed since (or with no such stamp) is
+  // refused with the same 409 as a change during the edit, so an edit made
+  // before the dialog was opened is caught too.
+  const expected = readExpectedUpdatedAt(fields);
+  if (!expected.valid) return c.json(EXPECTED_UPDATED_AT_REFUSAL, 400);
+  if (expected.value !== undefined && beforeRoute.updatedAt !== expected.value) {
+    throw new RouteSourceChangedError(ROUTE_CHANGED_DURING_EDIT_MESSAGE);
+  }
+
   // Credential-shaped target guard — on the EFFECTIVE post-update route, so a
   // patch that leaves a credential target in place, or a re-enable of a stored
   // one, is guarded exactly like a fresh target.
@@ -654,7 +662,9 @@ adminRoutes.put('/routes', async c => {
   // Determine if this is a toggle action or general update. The
   // acknowledgement is a request-only flag, not an edited field, so it must not
   // turn a toggle into an 'update' in the audit trail.
-  const editedKeys = Object.keys(fields).filter(key => key !== 'acknowledgeCredentialTarget');
+  const editedKeys = Object.keys(fields).filter(
+    key => key !== 'acknowledgeCredentialTarget' && key !== 'expectedUpdatedAt',
+  );
   const isToggle = editedKeys.length === 1 && editedKeys[0] === 'enabled';
   const action: AuditAction = isToggle ? 'toggle' : 'update';
 
@@ -701,6 +711,34 @@ adminRoutes.put('/routes', async c => {
     data: route,
   });
 });
+
+/**
+ * The optional client precondition of a route edit or move (v1.40.0),
+ * `expectedUpdatedAt`: the route's `updatedAt` as the client loaded it. Read
+ * off the raw body (a request flag, never a route field); absent is no
+ * precondition, anything but a non-negative integer is refused.
+ */
+function readExpectedUpdatedAt(
+  body: Record<string, unknown>,
+): { valid: true; value?: number } | { valid: false } {
+  if (!Object.hasOwn(body, 'expectedUpdatedAt')) return { valid: true };
+  const value = body['expectedUpdatedAt'];
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+    ? { valid: true, value }
+    : { valid: false };
+}
+
+/** The 400 answer to an `expectedUpdatedAt` that is not a non-negative integer. */
+const EXPECTED_UPDATED_AT_REFUSAL = {
+  success: false,
+  error: 'Validation failed',
+  details: [
+    {
+      path: ['expectedUpdatedAt'],
+      message: 'expectedUpdatedAt must be the route updatedAt (a non-negative integer)',
+    },
+  ],
+} as const;
 
 /**
  * DELETE /api/routes - Delete a route
@@ -1038,6 +1076,8 @@ adminRoutes.post('/routes/migrate', async c => {
   const rawBody = await c.req.text();
   let patch: Omit<UpdateRouteInput, 'path'> | undefined;
   let acknowledged = false;
+  // The client precondition (v1.40.0), as on PUT: checked against the source
+  let expectedUpdatedAt: number | undefined;
   if (rawBody.trim() !== '') {
     // A body is optional here; one that is sent says it is JSON (the body
     // guard refused anything else before this handler ran)
@@ -1059,6 +1099,9 @@ adminRoutes.post('/routes/migrate', async c => {
     const { path: _path, ...fields } = result.data;
     if (Object.values(fields).some(value => value !== undefined)) patch = fields;
     acknowledged = readCredentialAcknowledgement(body);
+    const expected = readExpectedUpdatedAt(isRecord(body) ? body : {});
+    if (!expected.valid) return c.json(EXPECTED_UPDATED_AT_REFUSAL, 400);
+    expectedUpdatedAt = expected.value;
   }
 
   // The source, read ONCE here (v1.38.0): the credential guard, the merge and
@@ -1069,6 +1112,10 @@ adminRoutes.post('/routes/migrate', async c => {
   const source = presentRoute(await getRoute(c.env.ROUTES, domain, oldPath));
   if (!source) {
     throw new HTTPException(404, { message: `Route not found: ${oldPath}` });
+  }
+  // Changed since the client loaded it: nothing moves (v1.40.0)
+  if (expectedUpdatedAt !== undefined && source.updatedAt !== expectedUpdatedAt) {
+    throw new RouteSourceChangedError();
   }
 
   let credentialParams: string[] = [];

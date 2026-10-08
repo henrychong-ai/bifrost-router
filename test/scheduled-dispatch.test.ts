@@ -116,6 +116,10 @@ describe('scheduled backup cron', () => {
       expect(logged).toContain(
         '[Backup] Skipped a KV record that is not JSON: links.example.com:/malformed',
       );
+      // v1.40.0: the completed run says at error level that it skipped records
+      expect(spies[2]?.mock.calls.map(args => String(args[0]))).toContain(
+        '[Scheduled] Backup skipped 1 record(s): 1 not JSON, 0 over the record line limit',
+      );
       expect(logged.join('\n')).not.toContain(secret);
     } finally {
       await env.ROUTES.delete('links.example.com:/malformed');

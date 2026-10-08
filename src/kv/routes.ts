@@ -12,6 +12,7 @@ import { isValidDomain } from '../types';
 import type { BoundaryRead } from '../utils/boundary';
 import { CodedHTTPException } from '../utils/coded-http-exception';
 import { KVDeleteError, KVReadError, KVWriteError } from '../utils/kv-errors';
+import { kvListingPage, nextCursor } from '../utils/list-cursor';
 import { normalizePath } from './lookup';
 import {
   type CreateRouteInput,
@@ -299,6 +300,7 @@ export async function listDomainRoutes(
     const prefix = domainPrefix(domain);
     const listing: RouteListing<KVRouteConfig> = { routes: [], invalid: [] };
     let cursor: string | undefined;
+    const seenCursors = new Set<string>();
 
     // List all keys with domain prefix
     do {
@@ -312,7 +314,7 @@ export async function listDomainRoutes(
         else if (read.status === 'invalid') listing.invalid.push(invalidRow(keys[index] ?? ''));
       }
 
-      cursor = result.list_complete ? undefined : result.cursor;
+      cursor = nextCursor(kvListingPage(result), seenCursors);
     } while (cursor);
 
     return listing;
@@ -343,6 +345,7 @@ export async function listAllDomainRoutes(
   try {
     const listing: RouteListing<KVRouteConfigWithDomain> = { routes: [], invalid: [] };
     let cursor: string | undefined;
+    const seenCursors = new Set<string>();
 
     // List all keys (no prefix = all domains)
     do {
@@ -369,7 +372,7 @@ export async function listAllDomainRoutes(
         else if (read.status === 'invalid') listing.invalid.push(invalidRow(entry.key));
       }
 
-      cursor = result.list_complete ? undefined : result.cursor;
+      cursor = nextCursor(kvListingPage(result), seenCursors);
     } while (cursor);
 
     return listing;

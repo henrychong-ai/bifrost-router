@@ -6,6 +6,146 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.40.0 (2026-10-08) — One oversized record no longer stops backups; MCP refusals as errors; new QR codes listed at once
+
+**Why:** one record over the line limit stopped every nightly backup until
+someone deleted it, backup health streamed and inflated the whole archive on
+every call and reported an R2 hiccup as a corrupt backup, and a link preview
+could take about 30 s. The stdio MCP server answered a refusal (a missing
+domain, an API error) as an ordinary result, a new QR code was missing from
+every listing but the dashboard that made it for about a minute, and a route
+edit could overwrite a change made after the dialog opened. No D1 migration.
+
+**Upgrading:** nothing is required. Worth knowing:
+
+- **MCP clients** now see a refusal as a failed call (`isError: true`) and
+  the server's real version (`1.40.0`, from `mcp/package.json`). Rebuild the
+  server and reconnect (`/mcp` in Claude Code).
+- **Browser clients on another origin** (none by default) cache a preflight
+  for one hour (`Access-Control-Max-Age: 3600`, was 24 hours), and an `OPTIONS`
+  request that is not a CORS preflight now needs the admin key (401 without).
+- **`PUT /api/routes` and `POST /api/routes/migrate`** take an optional
+  `expectedUpdatedAt`; a route whose `updatedAt` differs answers the existing
+  409 `ROUTE_SOURCE_CHANGED`.
+- **Backup health** answers `warning` where it answered `critical` for an R2
+  read failure of the manifest or the archive (GET or HEAD), lists that file
+  with `state: 'unknown'`, adds `checks.contentVerified` and
+  `lastBackup.skipped`, and reports records the run skipped over the line
+  limit as `critical`; an unreadable manifest, which leaves the archive
+  unverified, is still critical. A monitor that matched the old critical `Backup archive
+  could not be read` or `Backup manifest could not be read` should expect a
+  warning. A run that skipped records logs an error-level line with the
+  counts; the whole store passing `MAX_BACKUP_BYTES` still fails the run.
+- **The dashboard container** no longer forwards `X-Bifrost-Dashboard` to
+  the Worker (nothing in the Worker read it), and the plain compose files pass
+  `DASHBOARD_LISTEN_ADDRESS` from `.env`.
+- **Deployments upgraded from before v1.36.0** have three one-off jobs, now
+  written up as [After upgrading to v1.36.0 or
+  later](docs/upgrade-operations.md).
+
+### Backups
+
+- **A record over the line limit is skipped, not a failed run.** A single
+  record whose line passes `MAX_RECORD_LINE_BYTES` is left out, counted, its
+  key listed (at most 50; never a value) and logged as one fixed line naming
+  the key; the records after it are backed up. `BACKUP_ERRORS.recordTooLarge`
+  is gone.
+- **The size cap is unchanged:** the whole store passing `MAX_BACKUP_BYTES`
+  (16 MiB) still fails the run before anything is written.
+- **A run that skipped records completes**, and the cron logs one
+  error-level line with the counts (no key, no value).
+- **What a run skipped travels with its archive.** The counts and a run id
+  are in the archive's own R2 metadata, written in the same put, and health
+  reads them there; the manifest adds the key names only when it is the same
+  run's. A failed manifest write or a same-day re-run could otherwise leave an
+  earlier, clean manifest and a healthy answer with records missing.
+- **The byte counter matches the joined NDJSON** (n records, n - 1
+  newlines), so the backup and the verifier agree on the cap to the byte, and
+  the collected lines are released after the join and the NDJSON after the
+  gzip.
+- **Health reads each object once** and takes the sizes from the GETs (the
+  archive is HEADed only when no valid manifest names it), and **verifies an
+  archive once per isolate**: later calls GET it with `onlyIf: {
+  etagDoesNotMatch }` and reuse the result while it is unchanged.
+- **An R2 read failure is a warning**, for the manifest and the archive
+  alike (GET or HEAD), and the file keeps its row with `state: 'unknown'` (its
+  size kept when only the stream failed), so `filesComplete: false` is
+  explained; only a content or integrity failure, a missing file, or an
+  unreadable manifest (the archive then cannot be verified) is critical.
+
+### MCP server
+
+- **Refusals are failed calls** (`isError: true`): a missing domain,
+  arguments that fail the schema, an API error, an unknown tool. The server
+  moved out of `mcp/src/index.ts` into `mcp/src/server.ts`, and
+  `mcp/src/server.test.ts` checks the wire through the SDK's in-memory
+  transport.
+- **The server reports its package version**, not a fixed `1.0.0`;
+  `mcp/package.json` now follows the release version.
+- `requireDomain` and `NO_DOMAIN_ERROR` have their own module
+  (`mcp/src/tools/domain.ts`).
+
+### Worker
+
+- **New QR codes are listed at once** by MCP `list_qrs`, the REST API and
+  every dashboard tab at the same location: each write records its id in one
+  small key per domain (`qr-recent:{domain}`, two minutes, best effort, never
+  a failed write), and the listing fetches any recent id KV's listing still
+  lacks (an id whose read fails is skipped, never a failed listing). Only a
+  create records its id, after the answer.
+- **Route edits and moves take a client precondition**
+  (`expectedUpdatedAt`), which the dashboard sends on every edit and move, so
+  an edit made before the dialog opened is refused instead of overwritten. On
+  that 409 the dashboard reloads the route and closes the dialog, so a retry
+  never resends the stale stamp.
+- **Link previews have one 5 s deadline** for every hop and body read; each
+  redirect hop used to get its own 5 s.
+- **One CORS bypass:** only the CORS middleware's preflight answer skips
+  authentication; preflights are cached for one hour.
+- **One cursor check** (`src/utils/list-cursor.ts`) for every paged listing:
+  the route and QR listings now fail on a truncated page with no cursor or a
+  repeated one instead of stopping early or looping.
+- `getDomainFromRequest` reads each selector once; an own-host preview
+  passes its fixed headers once.
+
+### Dashboard and container
+
+- **One internal-header rule** in `@bifrost/shared` (`isInternalHeader`) for
+  the Worker and the dev proxy; `scripts/check-dashboard-security.test.mjs`
+  checks the nginx template against it, and nginx no longer forwards
+  `X-Bifrost-Dashboard`.
+- **A pending QR code is added to page 1 for 90 seconds**, not the
+  five-minute TTL, so it no longer lingers there after the server lists it on
+  another page (the store announces the expiry, so the page re-renders);
+  versions and deletion tombstones keep five minutes.
+- **The container check runs in CI**, in its own `dashboard-container` job.
+- The plain compose files pass `DASHBOARD_LISTEN_ADDRESS` into the container.
+
+### Gates and docs
+
+- **The routing benchmark compares within one run:** each lookup is divided
+  by a reference pass of the latency model measured in the same run, so
+  machine load no longer fails it; the 15% threshold stays (PERFORMANCE.md).
+  The reference reads a written-out list of wildcard candidates, never the
+  code under test, and a unit test pins the lookup's list to it.
+- **Decided and documented:** Cloudflare invocation logs stay on, with the
+  trade-off and how to restrict them (AGENTS.md → Worker logs); nginx's `/api`
+  error log stays as it is; object keys the dashboard cannot address are an
+  accepted limit (AGENTS.md → Dashboard).
+
+### Tracking
+
+Closed from TODO.md: every P1 and P2 item and every P3 item but one. Still
+open: dropping the `:tailscale` healthcheck's TCP branch, once no rollback
+target predates v1.39.0. Opened in review: typed MCP tool results instead of
+matching the `Error` prefix, the shared recent-writes key's contention, and
+the client-supplied audit actor for API-key callers (pre-existing), and
+per-benchmark baselines for the routing gate, a domain-keyed route cache
+against self-inflicted 409s, and clearing every `X-Bifrost-*` header in
+nginx.
+
+---
+
 ## v1.39.0 (2026-10-07) — The dashboard holds no admin key; one admin body guard; edits that write what they checked
 
 **Why:** the dashboard container served `/env-config.js`, which held the full

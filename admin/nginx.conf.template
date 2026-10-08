@@ -360,6 +360,12 @@ server {
         proxy_set_header Tailscale-User-Login $bifrost_tailscale_user_login;
         proxy_set_header Tailscale-User-Name $bifrost_tailscale_user_name;
         proxy_set_header Tailscale-User-Profile-Pic $bifrost_tailscale_user_profile_pic;
+        # The dashboard's request header has done its job (the cross-site
+        # maps above). nginx cannot match a header prefix: it clears the named
+        # internal headers (this one, and the identity and key headers set
+        # above and in the include); the Worker never trusts incoming
+        # X-Bifrost-* headers (v1.40.0)
+        proxy_set_header X-Bifrost-Dashboard "";
         include __ADMIN_KEY_INCLUDE__;
         proxy_hide_header Content-Security-Policy;
         proxy_hide_header Content-Security-Policy-Report-Only;

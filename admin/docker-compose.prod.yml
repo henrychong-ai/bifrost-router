@@ -22,6 +22,10 @@ services:
       # door, which must pass the browser's Host through unchanged; any other
       # Host gets no answer (/health aside).
       DASHBOARD_HOSTNAMES: ${DASHBOARD_HOSTNAMES:-}
+      # Optional: the IPv4 address nginx listens on, port 3001 (default
+      # 0.0.0.0, which Docker port publishing needs). The healthcheck below
+      # reads the same variable, so the two always agree.
+      DASHBOARD_LISTEN_ADDRESS: ${DASHBOARD_LISTEN_ADDRESS:-}
     ports:
       - "127.0.0.1:3001:3001"
     restart: unless-stopped

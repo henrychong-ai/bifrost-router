@@ -27,6 +27,8 @@ export {
   LastBackupInfoSchema,
   type ManifestSummary,
   ManifestSummarySchema,
+  type SkippedRecords,
+  SkippedRecordsSchema,
 } from './backup-health.js';
 // JSON with sorted keys at every level (v1.38.0): one serialiser for every
 // "is this the same value" comparison
@@ -109,6 +111,14 @@ export {
 // Plain type guards for values read as unknown (v1.38.0): one definition for
 // the Worker, the dashboard and the API client
 export { isFiniteNumber, isOptional, isRecord, isString } from './guards.js';
+// The one internal-header rule (v1.40.0): the Worker, the dashboard's dev
+// proxy and (checked) the nginx template
+export {
+  INTERNAL_HEADER_NAMES,
+  INTERNAL_HEADER_PREFIXES,
+  isInternalHeader,
+  KNOWN_INTERNAL_HEADERS,
+} from './internal-headers.js';
 // Link-naming advice (v1.38.0) — advisory warnings for link paths in the
 // route and QR dialogs; never blocks a write.
 export {

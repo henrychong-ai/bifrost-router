@@ -3,6 +3,7 @@
  * used by vite.config.ts only: server code, never part of the bundle. The
  * containers do the same in nginx (admin/nginx.conf.template).
  */
+import { isInternalHeader } from '@bifrost/shared';
 import type { ProxyOptions } from 'vite';
 import {
   CROSS_SITE_REFUSAL_BODY,
@@ -82,21 +83,12 @@ export interface ProxiedRequest {
 }
 
 /**
- * The client headers the dev proxy never forwards, by lower-case prefix
- * (v1.39.0): a client's `Tailscale-User-*` identity (no Tailscale Serve in
- * front of `pnpm dev`, so the Worker would record it as the audit actor) and
- * any `X-Bifrost-*` header, as the plain image's nginx sends no client
- * identity.
- */
-const DROPPED_CLIENT_HEADER_PREFIXES = ['tailscale-user-', 'x-bifrost-'] as const;
-
-/**
- * The client headers the dev proxy never forwards by name: any admin key, and
- * a front door's credentials, session cookie or access token, as the image's
- * nginx (`Authorization: Bearer <key>` would authenticate at the Worker).
+ * The client headers the dev proxy never forwards by name besides the
+ * internal ones (the shared rule above drops any admin key): a front door's
+ * credentials, session cookie or access token, as the image's nginx
+ * (`Authorization: Bearer <key>` would authenticate at the Worker).
  */
 const DROPPED_CLIENT_HEADERS = [
-  'x-admin-key',
   'authorization',
   'cookie',
   'proxy-authorization',
@@ -112,11 +104,12 @@ const DROPPED_CLIENT_HEADERS = [
  * removed too.
  */
 export function setProxiedAdminKey(proxyReq: ProxiedRequest, key: string | undefined): void {
+  // Every internal header by the shared rule (v1.40.0; the Worker's and
+  // nginx's too): a client's `Tailscale-User-*` identity (no Tailscale Serve
+  // in front of `pnpm dev`, so the Worker would record it as the audit
+  // actor), any `X-Bifrost-*` header, and the admin key, as the image's nginx
   for (const name of proxyReq.getHeaderNames()) {
-    const lower = name.toLowerCase();
-    if (DROPPED_CLIENT_HEADER_PREFIXES.some(prefix => lower.startsWith(prefix))) {
-      proxyReq.removeHeader(name);
-    }
+    if (isInternalHeader(name)) proxyReq.removeHeader(name);
   }
   for (const name of DROPPED_CLIENT_HEADERS) proxyReq.removeHeader(name);
   if (key) proxyReq.setHeader('X-Admin-Key', key);

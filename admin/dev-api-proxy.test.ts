@@ -117,7 +117,6 @@ describe('setProxiedAdminKey (pnpm dev)', () => {
     const request = proxied();
     setProxiedAdminKey(request, 'dev-key');
     expect(request.calls).toEqual([
-      'remove x-admin-key',
       'remove authorization',
       'remove cookie',
       'remove proxy-authorization',
@@ -132,7 +131,6 @@ describe('setProxiedAdminKey (pnpm dev)', () => {
       const request = proxied();
       setProxiedAdminKey(request, key);
       expect(request.calls).toEqual([
-        'remove x-admin-key',
         'remove authorization',
         'remove cookie',
         'remove proxy-authorization',
@@ -163,7 +161,6 @@ describe('setProxiedAdminKey (pnpm dev)', () => {
       'remove tailscale-user-profile-pic',
       'remove x-bifrost-dashboard',
       'remove X-Bifrost-Anything',
-      'remove x-admin-key',
       'remove authorization',
       'remove cookie',
       'remove proxy-authorization',
@@ -207,7 +204,6 @@ describe('devApiProxy (pnpm dev)', () => {
     expect(calls).toEqual([
       'remove tailscale-user-login',
       'remove x-bifrost-dashboard',
-      'remove x-admin-key',
       'remove authorization',
       'remove cookie',
       'remove proxy-authorization',
@@ -223,7 +219,6 @@ describe('devApiProxy (pnpm dev)', () => {
     expect(calls).toEqual([
       'remove tailscale-user-login',
       'remove x-bifrost-dashboard',
-      'remove x-admin-key',
       'remove authorization',
       'remove cookie',
       'remove proxy-authorization',

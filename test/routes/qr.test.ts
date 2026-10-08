@@ -74,6 +74,30 @@ describe('QR API (v1.30.0 port seams)', () => {
     return res;
   }
 
+  // v1.40.0 review: only a create records its id in the recent-writes key,
+  // after the answer (waitUntil); an update's key is already listed
+  it('records a created code in the recent-writes key, and never an update', async () => {
+    const recent = `qr-recent:${DOMAIN}`;
+    await env.ROUTES.delete(recent);
+    const created = await fetchSettled(
+      authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
+        id: 'recent-check',
+        type: 'url',
+        payload: { url: 'https://example.com/r' },
+      }),
+    );
+    expect(created.status).toBe(201);
+    const after = await env.ROUTES.get<Array<{ id: string }>>(recent, 'json');
+    expect(after?.map(write => write.id)).toEqual(['recent-check']);
+
+    await env.ROUTES.delete(recent);
+    const updated = await fetchSettled(
+      authedJson('PUT', `${BASE}/recent-check?domain=${DOMAIN}`, { description: 'edited' }),
+    );
+    expect(updated.status).toBe(200);
+    expect(await env.ROUTES.get(recent)).toBeNull();
+  });
+
   // ---------------------------------------------------------------------------
   // Auth inheritance — every QR endpoint sits behind the ADMIN_API_KEY chain
   // ---------------------------------------------------------------------------

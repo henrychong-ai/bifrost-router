@@ -48,7 +48,6 @@ import { lookupRoute } from '../kv/lookup';
 import { isSensitivePath, queryHasTraversal } from '../middleware/sensitive-paths';
 import { type Bindings, getServiceFallback, isValidDomain } from '../types';
 import { stripTrailingDot } from './host-policy';
-import { withoutInternalHeaders } from './internal-headers';
 import { OPEN_GRAPH_REQUEST_HEADERS, type OwnHostAnswer, type OwnHostResolver } from './og-parser';
 import { safeServiceFetch } from './safe-service-fetch';
 import { validateProxyTarget } from './url-validation';
@@ -124,9 +123,10 @@ async function resolveOwnHost(
     let request: Request;
     try {
       request = new Request(requestUrl.href, {
-        // The preview's own fixed headers; safeServiceFetch drops this
-        // deployment's internal ones whatever is passed
-        headers: withoutInternalHeaders(OPEN_GRAPH_REQUEST_HEADERS),
+        // The preview's own fixed headers, none of them internal;
+        // safeServiceFetch drops this deployment's internal ones whatever is
+        // passed, so they are filtered once, there (v1.40.0)
+        headers: OPEN_GRAPH_REQUEST_HEADERS,
         redirect: 'manual',
         signal,
       });

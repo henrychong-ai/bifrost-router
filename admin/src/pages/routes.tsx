@@ -93,6 +93,7 @@ import {
   useTransferRoute,
   useUpdateRoute,
 } from '@/hooks';
+import { isRouteSourceChanged } from '@/lib/api-error';
 import { getPersistedPageSize, getR2ObjectUrl, persistPageSize } from '@/lib/constants';
 import { credentialTargetParametersFromError } from '@/lib/credential-target';
 import { navEditRoute, useClearNavigationState } from '@/lib/navigation-state';
@@ -120,6 +121,10 @@ import {
   type UtmValues,
   uppercaseUtmKeys,
 } from '@/lib/utm';
+
+/** What the dashboard says when a route changed since its dialog opened (v1.40.0). */
+const ROUTE_CHANGED_TOAST =
+  'This route changed since you opened it, so nothing was saved. It has been reloaded: open it again to edit.';
 
 function RouteTypeBadge({ type }: { type: Route['type'] }) {
   const styles: Record<Route['type'], string> = {
@@ -1123,6 +1128,9 @@ export function RoutesPage() {
         data: updates,
         domain: requireWriteDomain(target.domain, filters.domain),
         acknowledgeCredentialTarget,
+        // The version this dialog edited (v1.40.0): a route changed since it
+        // was loaded, by anyone, is refused (409) instead of overwritten
+        expectedUpdatedAt: target.updatedAt,
       });
       toast.success('Route updated successfully');
       setEditRoute(null);
@@ -1138,6 +1146,14 @@ export function RoutesPage() {
         return;
       }
       setCredentialConfirm(null);
+      if (isRouteSourceChanged(err)) {
+        // v1.40.0: the route changed since this dialog loaded it. The hook
+        // reloads it; closing the dialog makes the next edit start from the
+        // current version, never resend the stale updatedAt
+        setEditRoute(null);
+        toast.error(ROUTE_CHANGED_TOAST);
+        return;
+      }
       toast.error(
         `Failed to update route: ${err instanceof Error ? err.message : 'Unknown error'}`,
       );
@@ -1237,6 +1253,8 @@ export function RoutesPage() {
         domain,
         updates,
         acknowledgeCredentialTarget,
+        // The version the dialog edited (v1.40.0), as for an edit
+        expectedUpdatedAt: route.updatedAt,
       });
     } catch (err) {
       const parameters = credentialTargetParametersFromError(err);
@@ -1250,6 +1268,13 @@ export function RoutesPage() {
         return;
       }
       setCredentialConfirm(null);
+      if (isRouteSourceChanged(err)) {
+        // Nothing moved; the source is reloaded and the dialogs close (v1.40.0)
+        setMigrationConfirm(null);
+        setEditRoute(null);
+        toast.error(ROUTE_CHANGED_TOAST);
+        return;
+      }
       toast.error(
         `Failed to migrate route: ${err instanceof Error ? err.message : 'Unknown error'}`,
       );

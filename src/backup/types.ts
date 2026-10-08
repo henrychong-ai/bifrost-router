@@ -24,6 +24,14 @@ export interface BackupManifest {
      * absent from an older manifest). Each was logged by its key.
      */
     skippedNotJson?: number | undefined;
+    /**
+     * Records over MAX_RECORD_LINE_BYTES, skipped (v1.40.0; absent from an
+     * older manifest), and up to MAX_REPORTED_SKIPPED_KEYS of their keys.
+     */
+    skippedOverLineLimit?: number | undefined;
+    skippedOverLineLimitKeys?: string[] | undefined;
+    /** The run that wrote this manifest and its archive (v1.40.0). */
+    runId?: string | undefined;
   };
 }
 
@@ -56,4 +64,9 @@ export interface KVBackupResult {
   file: string;
   /** KV values that were not JSON, skipped (v1.38.0) */
   skippedNotJson: number;
+  /** Records over MAX_RECORD_LINE_BYTES, skipped (v1.40.0), and their first keys */
+  skippedOverLineLimit: number;
+  skippedOverLineLimitKeys: string[];
+  /** The run id, also in the archive's metadata (v1.40.0) */
+  runId: string;
 }

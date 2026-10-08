@@ -315,7 +315,7 @@ browser).
 | `API_PROXY_ORIGIN` | **required** | The Worker the `/api` proxy reaches: an https origin with no port or path, such as `https://bifrost.yourdomain.com` (your `ADMIN_API_DOMAIN`). The container must be able to reach it (outbound HTTPS and DNS); its certificate is verified. |
 | `ADMIN_API_KEY` | **required** | The Worker's admin key, read at start. The container refuses to start without it, or with whitespace, `"`, `\` or `$` in it. |
 | `DASHBOARD_HOSTNAMES` | optional | The host names the browser opens the dashboard by, besides `localhost` and `127.0.0.1` (space-separated, such as `dashboard.yourdomain.com`; a single-label LAN, Docker or Kubernetes service name is accepted; never the Worker's own host). Any other `Host` gets no answer (`/health` aside, answered for any `Host`, so a load balancer or Kubernetes probe by address works), so set it whenever the dashboard sits behind a front door with its own name, and have that front door **pass the browser's `Host` header through unchanged**: the proxy compares a request's `Origin` with it. Not needed by the `:tailscale` image. |
-| `DASHBOARD_LISTEN_ADDRESS` | optional | The IPv4 address nginx listens on, port 3001 (default `0.0.0.0`, which Docker port publishing needs). |
+| `DASHBOARD_LISTEN_ADDRESS` | optional | The IPv4 address nginx listens on, port 3001 (default `0.0.0.0`, which Docker port publishing needs). Both plain compose files pass it from `.env` (v1.40.0), and their healthcheck reads the same value. Leave it unset with the `:tailscale` image. |
 | `DASHBOARD_TAILSCALE_SERVE` | optional | `off` (default) or `on`, which the `:tailscale` image sets: Tailscale Serve, in the same container, is the one way in, so nginx listens only on a root-only Unix socket and trusts the `Tailscale-User-*` identity and `X-Forwarded-Host` Serve sets. Never set it where anything else can reach nginx: off, a client's `Tailscale-User-*` headers are ignored, never forwarded. |
 | `CSP_MODE` | optional | `enforce` (default) or `report-only` for the page policy. `/api` answers always carry an enforced `default-src 'none'; sandbox` policy. |
 | `CSP_REPORT_ORIGIN` | optional | The dashboard's own https origin. Set, browsers report policy violations to `<origin>/csp-report` (a bounded, rate-limited receiver that logs metadata only); unset, no reporting. |
@@ -602,6 +602,10 @@ Disabling a route is never refused, `r2` targets are object keys rather than
 URLs and are not examined, and a transfer needs its own acknowledgement because
 it re-publishes the target to a different audience. The guard is write-time
 only — targets stored before v1.36.0 were never examined.
+
+**Upgrading from before v1.36.0:** review the stored targets, scrub the older
+analytics rows and repair any legacy `?`/`#` route key by its exact key, as
+[After upgrading to v1.36.0 or later](docs/upgrade-operations.md) describes.
 
 ### Optional: unified request analytics (v1.32.0)
 

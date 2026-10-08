@@ -7,6 +7,7 @@ import {
 } from '../../src/kv/lookup';
 import { routeKey } from '../../src/kv/schema';
 import type { KVRouteConfig } from '../../src/types';
+import { DEEP_PATH, DEEP_PATH_WILDCARD_CANDIDATES } from '../performance/route-lookup-fixture';
 
 describe('normalizePath', () => {
   describe('query strings and hashes', () => {
@@ -85,6 +86,14 @@ describe('normalizePath', () => {
 });
 
 describe('getWildcardCandidates', () => {
+  // v1.40.0: the routing benchmark's reference reads these exact candidates;
+  // a change in how many the lookup reads must show in the gate, not move
+  // both of its sides
+  it('gives the benchmark deep path exactly its eight written-out candidates', () => {
+    expect(getWildcardCandidates(DEEP_PATH)).toEqual([...DEEP_PATH_WILDCARD_CANDIDATES]);
+    expect(DEEP_PATH_WILDCARD_CANDIDATES).toHaveLength(8);
+  });
+
   it('generates candidates from most to least specific', () => {
     const candidates = getWildcardCandidates('/blog/post/123');
     expect(candidates).toEqual(['/blog/post/*', '/blog/*', '/*']);
