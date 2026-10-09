@@ -6,7 +6,7 @@ import { AppLayout } from '@/components/layout';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Toaster } from '@/components/ui/sonner';
 import { FilterProvider } from '@/context';
-import { CommandPaletteProvider } from '@/hooks';
+import { CommandPaletteProvider, useRouteExpiry } from '@/hooks';
 import { queryClient } from '@/lib/query-client';
 
 function lazyPage(loader: () => Promise<ComponentType>) {
@@ -41,6 +41,9 @@ function PageFallback() {
 }
 
 function App() {
+  // The route store's expiry refetch, registered once for the app's client
+  // (v1.41.2), whatever pages are mounted
+  useRouteExpiry(queryClient);
   return (
     <QueryClientProvider client={queryClient}>
       <FilterProvider>

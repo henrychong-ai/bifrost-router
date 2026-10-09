@@ -50,6 +50,7 @@ export {
   usePendingRouteAdmission,
   usePendingRouteView,
   usePrefetchAllDomainRoutes,
+  useRouteExpiry,
   useRoutes,
   useSearchRoutes,
   useToggleRoute,

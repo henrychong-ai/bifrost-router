@@ -1,20 +1,24 @@
 /**
- * The pending-route store (v1.41.1): this session's own write
+ * The pending-route store (v1.41.1; v1.41.2 ports the fixes a sibling
+ * deployment's review of the same design found): this session's own write
  * answers, applied to every route listing when it is read, with no clock
  * comparison anywhere. The clock is vitest's fake one (it drives both
- * `Date.now`, the store's default clock, and the expiry timer). An expiring
- * batch is dropped once its refetch settles, a promise: `advance` runs the
- * timers and then the promise callbacks they started.
+ * `performance.now`, the store's default monotonic clock, and the expiry
+ * timer). An expiring batch is dropped once its refetch settles, a promise:
+ * `advance` runs the timers and then the promise callbacks they started.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { RouteWriteRefusedError } from './api-error';
 import {
   createPendingRouteStore,
   keyOfInput,
   keyOfStored,
+  monotonicNow,
   PENDING_ROUTE_EXPIRY_RETRY_MS,
   PENDING_ROUTE_EXPIRY_WINDOW_MS,
   PENDING_ROUTE_TTL_MS,
   type RouteList,
+  RouteWritePendingError,
 } from './route-pending';
 import type { Route, RouteWithDomain } from './schemas';
 
@@ -61,17 +65,34 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/**
+ * When a lone entry's batch runs: its TTL plus the coalescing window
+ * (v1.41.2: coalescing never shortens protection).
+ */
+const EXPIRES = PENDING_ROUTE_TTL_MS + PENDING_ROUTE_EXPIRY_WINDOW_MS;
+
+/**
+ * A store with an expiry listener that refreshed every route query, as the
+ * app root registers one (v1.41.2: with no listener a batch is kept).
+ */
+function watchedStore() {
+  const store = createPendingRouteStore();
+  store.onExpire(() => true);
+  return store;
+}
+
 describe('an answer replaces the stale row, whatever its stamp', () => {
-  it('a stale page shows the answer, and its own row again after 90 s', async () => {
-    const store = createPendingRouteStore();
+  it('a stale page shows the answer, and its own row again once its batch runs', async () => {
+    const store = watchedStore();
     const stale = list([route({ updatedAt: 5 })]);
     store.observe(on(HC, { enabled: false, updatedAt: 6 }));
     // A domain list's rows carry no domain field of their own: the answer
     // keeps that shape
     expect(store.project(stale, HC).routes).toEqual([route({ enabled: false, updatedAt: 6 })]);
-    await advance(PENDING_ROUTE_TTL_MS);
+    await advance(PENDING_ROUTE_TTL_MS + 1);
+    // Due, but its batch runs a window later: still shown
     expect(store.project(stale, HC).routes).toEqual([route({ enabled: false, updatedAt: 6 })]);
-    await advance(1);
+    await advance(PENDING_ROUTE_EXPIRY_WINDOW_MS);
     expect(store.project(stale, HC)).toBe(stale);
   });
 
@@ -168,8 +189,8 @@ describe('a key marked gone', () => {
     expect(store.projectRows([on(HC), on(LINK)])).toEqual([on(LINK)]);
   });
 
-  it('survives a stale refetch, expires at 90 s, and a later answer at the key shows', async () => {
-    const store = createPendingRouteStore();
+  it('survives a stale refetch, expires after 90 s, and a later answer at the key shows', async () => {
+    const store = watchedStore();
     store.markGone(keyOfInput(HC, '/talk'));
     vi.advanceTimersByTime(30_000);
     // The refetch still lists it (KV lag): a new raw object, still hidden
@@ -179,7 +200,7 @@ describe('a key marked gone', () => {
       route({ target: 'https://recreated.example/' }),
     ]);
     store.markGone(keyOfInput(HC, '/talk'));
-    await advance(PENDING_ROUTE_TTL_MS + 1);
+    await advance(EXPIRES + 1);
     const lagging = list([route()]);
     expect(store.project(lagging, HC)).toBe(lagging);
   });
@@ -304,6 +325,35 @@ describe('writes in flight (acquire / release / isPending)', () => {
     expect(store.isPending(keyOfInput(HC, '/new'))).toBe(false);
   });
 
+  // v1.41.2: a snapshot answers for its own version
+  it('an admission snapshot is frozen: a later acquire or release does not change it', () => {
+    const store = createPendingRouteStore();
+    const idle = store.getAdmissionSnapshot();
+    const save = store.acquire([keyOfInput(HC, '/talk')])!;
+    const holding = store.getAdmissionSnapshot();
+    expect(idle.isPending(keyOfInput(HC, '/talk'))).toBe(false);
+    expect(holding.isPending(keyOfInput(HC, '/talk'))).toBe(true);
+    const other = store.acquire([keyOfInput(HC, '/other')])!;
+    expect(holding.isPending(keyOfInput(HC, '/other'))).toBe(false);
+    store.release(save);
+    expect(holding.isPending(keyOfInput(HC, '/talk'))).toBe(true);
+    expect(store.getAdmissionSnapshot().isPending(keyOfInput(HC, '/talk'))).toBe(false);
+    expect(store.getAdmissionSnapshot().isPending(keyOfInput(HC, '/other'))).toBe(true);
+    store.release(other);
+  });
+
+  // v1.41.2: a cheap "nothing held" check, frozen with the snapshot
+  it('an admission snapshot says whether anything is held', () => {
+    const store = createPendingRouteStore();
+    const idle = store.getAdmissionSnapshot();
+    expect(idle.isEmpty).toBe(true);
+    const move = store.acquire([keyOfInput(HC, '/talk'), keyOfInput(HC, '/new')])!;
+    expect(store.getAdmissionSnapshot().isEmpty).toBe(false);
+    expect(idle.isEmpty).toBe(true);
+    store.release(move);
+    expect(store.getAdmissionSnapshot().isEmpty).toBe(true);
+  });
+
   it('release frees only its own keys, once', () => {
     const store = createPendingRouteStore();
     const first = store.acquire([keyOfInput(HC, '/talk')])!;
@@ -354,7 +404,7 @@ describe('writes in flight (acquire / release / isPending)', () => {
 
 describe('generations (a dialog opened before an own answer)', () => {
   it('move whenever an own answer changes the key, and only then', async () => {
-    const store = createPendingRouteStore();
+    const store = watchedStore();
     expect(store.generation(keyOfInput(HC, '/talk'))).toBe(0);
     store.observe(on(HC, { updatedAt: 6 }));
     expect(store.generation(keyOfInput(HC, '/talk'))).toBe(1);
@@ -372,7 +422,7 @@ describe('generations (a dialog opened before an own answer)', () => {
     // A write in flight and an expiry are not answers
     store.release(store.acquire([keyOfInput(HC, '/talk')])!);
     store.observe(on(HC, { path: '/b' }));
-    await advance(PENDING_ROUTE_TTL_MS + 1);
+    await advance(EXPIRES + 1);
     expect(store.size()).toBe(0);
     expect(store.generation(keyOfInput(HC, '/talk'))).toBe(5);
   });
@@ -380,7 +430,7 @@ describe('generations (a dialog opened before an own answer)', () => {
 
 describe('an unreadable row at a key holding any entry', () => {
   it('is hidden after a recovery delete and a create at the same key', async () => {
-    const store = createPendingRouteStore();
+    const store = watchedStore();
     const page = list([], [{ domain: HC, path: '/talk', invalid: true }]);
     store.markGoneUnreadable(keyOfStored(HC, '/talk'));
     expect(store.project(page, HC).invalidRoutes).toEqual([]);
@@ -388,7 +438,7 @@ describe('an unreadable row at a key holding any entry', () => {
     // unreadable row a lagging refetch still lists stays hidden
     store.observe(on(HC, { updatedAt: 9 }));
     expect(store.project(page, HC).invalidRoutes).toEqual([]);
-    await advance(PENDING_ROUTE_TTL_MS + 1);
+    await advance(EXPIRES + 1);
     expect(store.project(page, HC)).toBe(page);
   });
 });
@@ -430,19 +480,20 @@ describe('expiry refetches (v1.41.1 review: protection until the refetch has ref
     const second = store.onExpire(refetch);
     store.observe(on(HC));
     order.length = 0;
-    await advance(PENDING_ROUTE_TTL_MS + 1);
+    await advance(EXPIRES + 1);
     expect(order).toEqual(['refetch', 'subscriber']);
     // One registration undone (twice: the second call is a no-op): still runs
     first();
     first();
     store.observe(on(HC));
-    await advance(PENDING_ROUTE_TTL_MS + 1);
+    await advance(EXPIRES + 1);
     expect(refetch).toHaveBeenCalledTimes(2);
     second();
     store.observe(on(HC));
-    await advance(PENDING_ROUTE_TTL_MS + 1);
+    await advance(EXPIRES + 1);
     expect(refetch).toHaveBeenCalledTimes(2);
-    expect(store.size()).toBe(0);
+    // No listener left: the batch is kept (v1.41.2)
+    expect(store.size()).toBe(1);
   });
 
   // v1.41.1 review: no clock decides whether a query was refreshed
@@ -451,7 +502,7 @@ describe('expiry refetches (v1.41.1 review: protection until the refetch has ref
     const listener = vi.fn<() => boolean>(() => true);
     store.onExpire(listener);
     store.observe(on(HC));
-    await advance(PENDING_ROUTE_TTL_MS + 1);
+    await advance(EXPIRES + 1);
     expect(listener).toHaveBeenCalledTimes(1);
     expect(listener.mock.calls[0]).toEqual([]);
   });
@@ -496,7 +547,7 @@ describe('expiry refetches (v1.41.1 review: protection until the refetch has ref
     store.onExpire(refetch);
     const stale = list([route({ updatedAt: 1 })]);
     store.observe(on(HC, { enabled: false, updatedAt: 2 }));
-    await advance(PENDING_ROUTE_TTL_MS + 1);
+    await advance(EXPIRES + 1);
     expect(refetch).toHaveBeenCalledTimes(1);
     // Kept, still projected, and no second refetch before the retry interval
     expect(store.size()).toBe(1);
@@ -527,16 +578,27 @@ describe('expiry refetches (v1.41.1 review: protection until the refetch has ref
       store.onExpire(refreshed);
       store.onExpire(failing);
       store.observe(on(HC));
-      await advance(PENDING_ROUTE_TTL_MS + 1);
+      await advance(EXPIRES + 1);
       expect(store.size()).toBe(1);
       store.clear();
     }
   });
 
-  it('drops the batch at once when no route query is mounted (nothing to refetch)', async () => {
+  // v1.41.2: nothing refetched, so nothing is known refreshed; the
+  // app root registers its listener for the app's life, so this is a gap
+  // before registration, never a reason to drop protection
+  it('keeps and retries a batch while no expiry listener is registered', async () => {
     const store = createPendingRouteStore();
     store.observe(on(HC));
-    await advance(PENDING_ROUTE_TTL_MS + 1);
+    await advance(EXPIRES + 1);
+    expect(store.size()).toBe(1);
+    await advance(PENDING_ROUTE_EXPIRY_RETRY_MS + 1);
+    expect(store.size()).toBe(1);
+    // Registered: the next retry runs it, and the batch drops
+    const listener = vi.fn<() => boolean>(() => true);
+    store.onExpire(listener);
+    await advance(PENDING_ROUTE_EXPIRY_RETRY_MS + 1);
+    expect(listener).toHaveBeenCalledTimes(1);
     expect(store.size()).toBe(0);
   });
 
@@ -548,8 +610,35 @@ describe('expiry refetches (v1.41.1 review: protection until the refetch has ref
       store.observe(on(HC, { path: `/p${index}` }));
       vi.advanceTimersByTime(200);
     }
-    await advance(PENDING_ROUTE_TTL_MS);
+    await advance(EXPIRES);
     expect(refetch).toHaveBeenCalledTimes(1);
+    expect(store.size()).toBe(0);
+  });
+
+  // v1.41.2: the batch runs a window AFTER the first due entry, so
+  // coalescing never cuts an entry's protection short
+  it('A due at T and B due at T + 4.9 s are both kept until T + 5 s, B never before its due time', async () => {
+    const store = createPendingRouteStore();
+    const refetch = vi.fn<() => boolean>(refreshed);
+    store.onExpire(refetch);
+    const start = Date.now();
+    store.observe(on(HC, { path: '/a' }));
+    vi.advanceTimersByTime(4_900);
+    store.observe(on(HC, { path: '/b' }));
+    const dueA = start + PENDING_ROUTE_TTL_MS;
+    const dueB = dueA + 4_900;
+    // At B's due time: nothing has run yet, both still held
+    await advance(dueB - Date.now());
+    expect(refetch).not.toHaveBeenCalled();
+    expect(store.size()).toBe(2);
+    // Just before T + 5 s: still both held
+    await advance(dueA + PENDING_ROUTE_EXPIRY_WINDOW_MS - Date.now() - 1);
+    expect(refetch).not.toHaveBeenCalled();
+    expect(store.size()).toBe(2);
+    // The batch runs once, a window after A came due, and takes both
+    await advance(2);
+    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(Date.now()).toBeGreaterThan(dueB);
     expect(store.size()).toBe(0);
   });
 
@@ -560,10 +649,11 @@ describe('expiry refetches (v1.41.1 review: protection until the refetch has ref
     store.observe(on(HC, { path: '/a' }));
     vi.advanceTimersByTime(PENDING_ROUTE_EXPIRY_WINDOW_MS + 2);
     store.observe(on(HC, { path: '/b' }));
-    await advance(PENDING_ROUTE_TTL_MS - PENDING_ROUTE_EXPIRY_WINDOW_MS);
+    // A's batch runs a window after A came due; B is not due yet
+    await advance(PENDING_ROUTE_TTL_MS - 1);
     expect(refetch).toHaveBeenCalledTimes(1);
     expect(store.size()).toBe(1);
-    await advance(PENDING_ROUTE_EXPIRY_WINDOW_MS + 1);
+    await advance(PENDING_ROUTE_EXPIRY_WINDOW_MS + 3);
     expect(refetch).toHaveBeenCalledTimes(2);
     expect(store.size()).toBe(0);
   });
@@ -578,7 +668,7 @@ describe('expiry refetches (v1.41.1 review: protection until the refetch has ref
         }),
     );
     store.observe(on(HC, { updatedAt: 2 }));
-    await advance(PENDING_ROUTE_TTL_MS + 1);
+    await advance(EXPIRES + 1);
     store.observe(on(HC, { updatedAt: 3 }));
     landed(true);
     await advance(0);
@@ -587,19 +677,22 @@ describe('expiry refetches (v1.41.1 review: protection until the refetch has ref
       route: on(HC, { updatedAt: 3 }),
     });
     // It expires on its own TTL
-    await advance(PENDING_ROUTE_TTL_MS + 1);
+    await advance(EXPIRES + 1);
     landed(true);
     await advance(0);
     expect(store.size()).toBe(0);
   });
 
   it('a late timer (a throttled background tab) expires the overdue entry on its next tick', async () => {
-    const store = createPendingRouteStore();
+    // The store's clock, moved by hand: the tab's time passes while its
+    // timer does not fire
+    let clock = 0;
+    const store = createPendingRouteStore({ monotonic: () => clock, wall: () => 0 });
     const refetch = vi.fn<() => boolean>(refreshed);
     store.onExpire(refetch);
     store.observe(on(HC));
     // The clock moved on without the timer firing
-    vi.setSystemTime(Date.now() + PENDING_ROUTE_TTL_MS * 2);
+    clock += PENDING_ROUTE_TTL_MS * 2;
     store.observe(on(HC, { path: '/b' }));
     // Still projected until its batch refetches
     expect(store.size()).toBe(2);
@@ -709,7 +802,7 @@ describe('keys say which path built them (v1.41.1 review)', () => {
 
 describe('apply (one own answer changing several keys)', () => {
   it('records every key with one snapshot change and one expiry timer', async () => {
-    const store = createPendingRouteStore();
+    const store = watchedStore();
     const listener = vi.fn<() => void>();
     store.subscribe(listener);
     const version = store.getSnapshot().version;
@@ -725,7 +818,7 @@ describe('apply (one own answer changing several keys)', () => {
     // Nothing to record: no change at all
     store.apply([]);
     expect(listener).toHaveBeenCalledTimes(1);
-    await advance(PENDING_ROUTE_TTL_MS + 1);
+    await advance(EXPIRES + 1);
     expect(store.size()).toBe(0);
   });
 });
@@ -786,14 +879,14 @@ describe('referential stability and expiry', () => {
   });
 
   it('tells subscribers when an entry expires, and prunes it', async () => {
-    const store = createPendingRouteStore();
+    const store = watchedStore();
     const listener = vi.fn<() => void>();
     const unsubscribe = store.subscribe(listener);
     store.observe(on(HC));
     vi.advanceTimersByTime(10_000);
     store.markGone(keyOfInput(HC, '/other'));
     listener.mockClear();
-    await advance(PENDING_ROUTE_TTL_MS - 10_000 + 1);
+    await advance(EXPIRES - 10_000 + 1);
     expect(listener).toHaveBeenCalledTimes(1);
     expect(store.size()).toBe(1);
     await advance(10_000);
@@ -812,5 +905,108 @@ describe('referential stability and expiry', () => {
     expect(store.size()).toBe(0);
     expect(store.isPending(keyOfInput(HC, '/talk'))).toBe(false);
     expect(store.generation(keyOfInput(HC, '/talk'))).toBe(0);
+  });
+});
+
+/** A store on two hand-moved clocks, with a refetch answering `answer`. */
+function clockedStore(answer = true) {
+  const clock = { monotonic: 0, wall: 1_000_000 };
+  const store = createPendingRouteStore({
+    monotonic: () => clock.monotonic,
+    wall: () => clock.wall,
+  });
+  const refetch = vi.fn<() => boolean>(() => answer);
+  store.onExpire(refetch);
+  return { clock, store, refetch };
+}
+
+// v1.41.2: no clock ever orders two writes. Expiry is due when EITHER the
+// monotonic or the wall-clock elapsed time (only when positive) reaches the
+// TTL, still gated on the refetch refresh
+describe('the store times expiry by the monotonic and the wall clock', () => {
+  it('a device sleep (wall +2 h, monotonic paused) leaves the entry due', async () => {
+    const { clock, store, refetch } = clockedStore();
+    store.observe(on(HC, { updatedAt: 6 }));
+    clock.wall += 2 * 60 * 60 * 1000;
+    // The timer fires; the monotonic clock has not moved at all
+    await advance(EXPIRES + 1);
+    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(store.size()).toBe(0);
+  });
+
+  it('a device sleep still waits for the refetch to refresh', async () => {
+    const { clock, store, refetch } = clockedStore(false);
+    store.observe(on(HC, { updatedAt: 6 }));
+    clock.wall += 2 * 60 * 60 * 1000;
+    await advance(EXPIRES + 1);
+    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(store.answerAt(keyOfStored(HC, '/talk'))?.state).toBe('live');
+  });
+
+  it('a wall clock set back an hour: the monotonic clock still expires the entry', async () => {
+    const { clock, store, refetch } = clockedStore();
+    store.observe(on(HC, { updatedAt: 6 }));
+    clock.wall -= 60 * 60 * 1000;
+    clock.monotonic += PENDING_ROUTE_TTL_MS - 1;
+    await advance(EXPIRES + 1);
+    // Not yet due on either clock: the batch takes nothing
+    expect(refetch).not.toHaveBeenCalled();
+    expect(store.size()).toBe(1);
+    clock.monotonic += 1;
+    // The timer rescheduled itself for the entry's hold plus its window
+    await advance(PENDING_ROUTE_EXPIRY_WINDOW_MS + 2);
+    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(store.size()).toBe(0);
+  });
+
+  it('neither clock alone short of the TTL makes an entry due', async () => {
+    const { clock, store, refetch } = clockedStore();
+    store.observe(on(HC, { updatedAt: 6 }));
+    clock.wall += PENDING_ROUTE_TTL_MS - 1;
+    clock.monotonic += PENDING_ROUTE_TTL_MS - 1;
+    await advance(EXPIRES + 1);
+    expect(refetch).not.toHaveBeenCalled();
+    expect(store.size()).toBe(1);
+  });
+
+  it('a wall clock set back an hour neither stretches nor shortens an entry’s hold', async () => {
+    const store = watchedStore();
+    store.observe(on(HC, { updatedAt: 6 }));
+    // A wall clock read would see the entry due an hour later
+    vi.setSystemTime(Date.now() - 60 * 60 * 1000);
+    await advance(EXPIRES - 1);
+    expect(store.size()).toBe(1);
+    await advance(2);
+    expect(store.size()).toBe(0);
+  });
+
+  it('a wall clock set forward an hour brings a later entry into an earlier batch', async () => {
+    const store = watchedStore();
+    store.observe(on(HC, { updatedAt: 6 }));
+    await advance(50_000);
+    store.observe(on(HC, { path: '/b', updatedAt: 6 }));
+    // The wall clock has run /b's TTL too: it is due when /talk's batch runs
+    // (early, but only once the refetch has refreshed)
+    vi.setSystemTime(Date.now() + 60 * 60 * 1000);
+    await advance(EXPIRES - 50_000 + 1);
+    expect(store.size()).toBe(0);
+  });
+
+  it('reads performance.now, and Date.now only where performance is unavailable', () => {
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(42);
+    expect(monotonicNow()).toBe(42);
+    clock.mockRestore();
+    vi.stubGlobal('performance', undefined);
+    try {
+      expect(monotonicNow()).toBe(Date.now());
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe('a write refused before any request', () => {
+  it('is a RouteWriteRefusedError', () => {
+    expect(new RouteWritePendingError()).toBeInstanceOf(RouteWriteRefusedError);
   });
 });

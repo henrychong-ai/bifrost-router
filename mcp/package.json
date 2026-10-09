@@ -1,6 +1,6 @@
 {
   "name": "@bifrost/mcp",
-  "version": "1.41.1",
+  "version": "1.41.2",
   "description": "MCP server for Bifrost - AI-powered route management",
   "type": "module",
   "main": "./dist/index.js",

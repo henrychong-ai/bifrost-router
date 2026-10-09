@@ -2,7 +2,8 @@
 
 /**
  * The route hooks and the pending-route store (v1.41.1, replacing v1.41.0's
- * patching of the cached listings): each write holds every route it affects
+ * patching of the cached listings; v1.41.2 ports a sibling deployment's
+ * review fixes): each write holds every route it affects
  * for its flight (acquire/release: refused with no request when another
  * write holds one), records its
  * answer (or a 409 verdict) in the store and invalidates the route queries;
@@ -44,13 +45,14 @@ vi.mock('@/lib/api-client', () => ({
 }));
 
 import { api } from '@/lib/api-client';
-import { ApiError } from '@/lib/api-error';
+import { ApiError, RouteWriteRefusedError, UNCONFIRMED_ANSWER_STATUS } from '@/lib/api-error';
 import {
   createPendingRouteStore,
   keyOfInput,
   keyOfStored,
   type OwnRouteAnswer,
   PENDING_ROUTE_EXPIRY_RETRY_MS,
+  PENDING_ROUTE_EXPIRY_WINDOW_MS,
   PENDING_ROUTE_TTL_MS,
   type PendingRouteStore,
   pendingRoutes,
@@ -63,13 +65,18 @@ import {
   createRouteMutationOptions,
   deleteRouteMutationOptions,
   migrateRouteMutationOptions,
+  type RouteQueryMark,
+  registerRouteExpiry,
   routeKeys,
+  routeQueriesRefreshed,
   toggleRouteMutationOptions,
   transferRouteMutationOptions,
   updateRouteMutationOptions,
   useCreateRoute,
   useDeleteRoute,
   useMigrateRoute,
+  usePendingRouteView,
+  useRouteExpiry,
   useRoutes,
   useSearchRoutes,
   useToggleRoute,
@@ -632,6 +639,66 @@ describe('a failed write', () => {
     store.release(held);
   });
 
+  // v1.41.2: the server answered 2xx, so nothing refused the write;
+  // api-client throws an unconfirmed ApiError (status 0) for it
+  it('an update answered 200 { success: false } drops the entry and refetches', async () => {
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    store.observe({ ...route({ updatedAt: 6 }), domain: HC });
+    calls.length = 0;
+    routes.update.mockRejectedValueOnce(
+      new ApiError(UNCONFIRMED_ANSWER_STATUS, 'Failed to update route'),
+    );
+    await expect(
+      run(updateRouteMutationOptions(client, store), {
+        path: '/talk',
+        data: {},
+        domain: HC,
+        expectedUpdatedAt: 6,
+      }),
+    ).rejects.toMatchObject({ status: UNCONFIRMED_ANSWER_STATUS });
+    expect(calls).toEqual([`acquire ${HC} /talk`, `dropHeld ${HC} /talk`, `release ${HC} /talk`]);
+    expect(store.answerAt(keyOfStored(HC, '/talk'))).toBeUndefined();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: routeKeys.all });
+  });
+
+  // v1.41.2: a delete answered 2xx { success: false } is unconfirmed
+  // (api-client throws status 0), so the route is not marked gone
+  it('a delete answered 200 { success: false } drops the entry and refetches, never marking it gone', async () => {
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    store.observe({ ...route({ updatedAt: 6 }), domain: HC });
+    calls.length = 0;
+    routes.delete.mockRejectedValueOnce(
+      new ApiError(UNCONFIRMED_ANSWER_STATUS, 'Failed to delete route'),
+    );
+    await expect(
+      run(deleteRouteMutationOptions(client, store), { path: '/talk', domain: HC }),
+    ).rejects.toMatchObject({ status: UNCONFIRMED_ANSWER_STATUS });
+    expect(calls).toEqual([`acquire ${HC} /talk`, `dropHeld ${HC} /talk`, `release ${HC} /talk`]);
+    expect(store.answerAt(keyOfStored(HC, '/talk'))).toBeUndefined();
+    expect(store.project(list([route()]), HC).routes).toEqual([route()]);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: routeKeys.all });
+  });
+
+  // v1.41.2: one marker for "refused before any request", whoever throws
+  // it, so a refusal from inside a held write is definite too
+  it('a RouteWriteRefusedError from a held write leaves the store untouched', async () => {
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    store.observe({ ...route({ updatedAt: 6 }), domain: HC });
+    calls.length = 0;
+    routes.update.mockRejectedValueOnce(new RouteWriteRefusedError('Refused before any request'));
+    await expect(
+      run(updateRouteMutationOptions(client, store), {
+        path: '/talk',
+        data: {},
+        domain: HC,
+        expectedUpdatedAt: 6,
+      }),
+    ).rejects.toBeInstanceOf(RouteWriteRefusedError);
+    expect(calls).toEqual([`acquire ${HC} /talk`, `release ${HC} /talk`]);
+    expect(store.answerAt(keyOfStored(HC, '/talk'))?.state).toBe('live');
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
   // v1.41.1 review: a toggle sends no precondition, so a 409 to it names no
   // refused version, and never forgets an entry (even one with no updatedAt)
   it('a 409 to a toggle refetches and forgets nothing', async () => {
@@ -789,7 +856,9 @@ describe('the route queries show their cached listing through the store', () => 
   // v1.41.1 review: the answer keeps showing until the refetch has landed,
   // then the listing shows the refetch's result
   it('an expired answer refetches the active route queries once, and shows until the refetch lands', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date', 'performance'] });
+    // The app root's registration (`useRouteExpiry` in App.tsx)
+    const unregister = registerRouteExpiry(client);
     try {
       const invalidate = vi.spyOn(client, 'invalidateQueries');
       const remove = vi.spyOn(client, 'removeQueries');
@@ -806,11 +875,16 @@ describe('the route queries show their cached listing through the store', () => 
       await act(async () => pendingRoutes.observe({ ...route({ updatedAt: 6 }), domain: HC }));
       expect(invalidate).not.toHaveBeenCalled();
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(PENDING_ROUTE_TTL_MS + 1);
+        await vi.advanceTimersByTimeAsync(
+          PENDING_ROUTE_TTL_MS + PENDING_ROUTE_EXPIRY_WINDOW_MS + 1,
+        );
       });
       expect(remove).toHaveBeenCalledWith({ queryKey: routeKeys.all, type: 'inactive' });
       expect(invalidate).toHaveBeenCalledTimes(1);
-      expect(invalidate).toHaveBeenCalledWith({ queryKey: routeKeys.all, refetchType: 'active' });
+      expect(invalidate).toHaveBeenCalledWith(
+        { queryKey: routeKeys.all, refetchType: 'active' },
+        { cancelRefetch: false },
+      );
       // The refetch is in flight: the answer still shows
       expect(listed.current.page).toEqual([route({ updatedAt: 6 })]);
       expect(pendingRoutes.size()).toBe(1);
@@ -821,6 +895,7 @@ describe('the route queries show their cached listing through the store', () => 
       await vi.waitFor(() => expect(listed.current.page).toEqual([route({ updatedAt: 9 })]));
       expect(pendingRoutes.size()).toBe(0);
     } finally {
+      unregister();
       vi.useRealTimers();
     }
   });
@@ -883,10 +958,10 @@ async function mount<T>(target: Root, use: () => T): Promise<{ current: T }> {
   return result;
 }
 
-/** Run the fake clock past the TTL: the store's expiry fires. */
+/** Run the fake clock past the TTL and the coalescing window: the store's expiry fires. */
 const expire = () =>
   act(async () => {
-    await vi.advanceTimersByTimeAsync(PENDING_ROUTE_TTL_MS + 1);
+    await vi.advanceTimersByTimeAsync(PENDING_ROUTE_TTL_MS + PENDING_ROUTE_EXPIRY_WINDOW_MS + 1);
   });
 
 /** The route query in the cache at exactly `queryKey`, if any. */
@@ -904,10 +979,13 @@ describe('expiry touches only what is on screen (v1.41.1 review)', () => {
   let root: Root;
   let panelContainer: HTMLDivElement;
   let panel: Root;
+  let unregister: () => void;
 
   beforeEach(() => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date', 'performance'] });
+    // The app root's registration (`useRouteExpiry` in App.tsx)
+    unregister = registerRouteExpiry(client);
     pendingRoutes.clear();
     container = document.createElement('div');
     panelContainer = document.createElement('div');
@@ -921,6 +999,7 @@ describe('expiry touches only what is on screen (v1.41.1 review)', () => {
       root.unmount();
       panel.unmount();
     });
+    unregister();
     container.remove();
     panelContainer.remove();
     pendingRoutes.clear();
@@ -1052,8 +1131,9 @@ describe('expiry touches only what is on screen (v1.41.1 review)', () => {
     expect(page.current).toEqual([route({ updatedAt: 6 })]);
   });
 
-  // A query holding data whose refetch is in flight is cancelled and fetched
-  // again (TanStack Query's cancelRefetch): counted conservatively, retried
+  // A query holding data whose refetch is in flight is joined, never
+  // cancelled (v1.41.2: `cancelRefetch: false`): counted conservatively,
+  // retried
   it('a refetch in flight at expiry counts as not refreshed; the retry drops the batch', async () => {
     routes.list.mockResolvedValue(list([route()]));
     const page = await mount(root, () => useRoutes(HC).data?.routes);
@@ -1067,15 +1147,66 @@ describe('expiry touches only what is on screen (v1.41.1 review)', () => {
     });
     routes.list.mockResolvedValue(list([route({ updatedAt: 6 })]));
     await expire();
+    // The expiry joined the fetch in flight: no request of its own
+    expect(routes.list).toHaveBeenCalledTimes(2);
+    // That fetch was sent while KV lagged: it answers the pre-write row
     await act(async () => {
+      inFlight.resolve(list([route()]));
       await vi.advanceTimersByTimeAsync(10);
     });
     expect(pendingRoutes.size()).toBe(1);
+    expect(page.current).toEqual([route({ updatedAt: 6 })]);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(PENDING_ROUTE_EXPIRY_RETRY_MS + 10);
     });
     await vi.waitFor(() => expect(pendingRoutes.size()).toBe(0));
     expect(page.current).toEqual([route({ updatedAt: 6 })]);
+  });
+
+  // v1.41.2: batch B's expiry joins batch A's slow refetch, never
+  // cancelling it and fetching again
+  it('a slow expiry refetch from one batch is not cancelled by the next batch', async () => {
+    routes.list.mockResolvedValue(list([route()]));
+    const page = await mount(root, () => useRoutes(HC).data?.routes);
+    await vi.waitFor(() => expect(page.current).toEqual([route()]));
+    await act(async () => pendingRoutes.observe({ ...route({ updatedAt: 6 }), domain: HC }));
+    // Batch B: another route, 10 s later, so it comes due in its own batch
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    await act(async () =>
+      pendingRoutes.observe({ ...route({ path: '/b', updatedAt: 6 }), domain: HC }),
+    );
+    routes.list.mockClear();
+    const slow = deferred<ReturnType<typeof list>>();
+    routes.list.mockReturnValueOnce(slow.promise);
+    // Batch A expires; its refetch is in flight
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(
+        PENDING_ROUTE_TTL_MS + PENDING_ROUTE_EXPIRY_WINDOW_MS - 10_000 + 1,
+      );
+    });
+    expect(routes.list).toHaveBeenCalledTimes(1);
+    expect(pendingRoutes.size()).toBe(2);
+    // Batch B expires while A's refetch is still in flight: it joins it
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(routes.list).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      slow.resolve(list([route({ updatedAt: 6 })]));
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    // A's refetch refreshed the page (idle at A's mark): A drops. B's mark
+    // saw it fetching: B is kept for its retry
+    await vi.waitFor(() => expect(pendingRoutes.size()).toBe(1));
+    expect(pendingRoutes.answerAt(keyOfStored(HC, '/b'))?.state).toBe('live');
+    routes.list.mockResolvedValue(list([route({ updatedAt: 6 })]));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(PENDING_ROUTE_EXPIRY_RETRY_MS + 10);
+    });
+    await vi.waitFor(() => expect(pendingRoutes.size()).toBe(0));
+    expect(routes.list).toHaveBeenCalledTimes(2);
   });
 
   it('the network down at expiry keeps a watched entry, retries it, and drops it after a refetch that lands', async () => {
@@ -1109,5 +1240,120 @@ describe('expiry touches only what is on screen (v1.41.1 review)', () => {
     expect(routes.list).toHaveBeenCalledTimes(3);
     await vi.waitFor(() => expect(pendingRoutes.size()).toBe(0));
     expect(page.current).toEqual([route({ updatedAt: 6 })]);
+  });
+});
+
+// v1.41.2: the expiry listener is registered once at the app root, not by
+// each route query's mount
+describe('expiry is registered once at the app root', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date', 'performance'] });
+    pendingRoutes.clear();
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    pendingRoutes.clear();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('the root registration removes and refetches once per expiry, whatever pages are mounted', async () => {
+    const remove = vi.spyOn(client, 'removeQueries');
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    routes.list.mockResolvedValue(list([route()]));
+    // The app root alone: no route query mounted
+    await mount(root, () => useRouteExpiry(client));
+    await act(async () => pendingRoutes.observe({ ...route({ updatedAt: 6 }), domain: HC }));
+    await expire();
+    await vi.waitFor(() => expect(pendingRoutes.size()).toBe(0));
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    // The root and two route queries (a page and a palette search): still once
+    remove.mockClear();
+    invalidate.mockClear();
+    await mount(root, () => {
+      useRouteExpiry(client);
+      return { page: useRoutes(HC).data, search: useSearchRoutes('talk').data };
+    });
+    await act(async () => pendingRoutes.observe({ ...route({ updatedAt: 7 }), domain: HC }));
+    await expire();
+    await vi.waitFor(() => expect(pendingRoutes.size()).toBe(0));
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(invalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it('a mounted route query registers nothing: without the root, the batch is kept', async () => {
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    routes.list.mockResolvedValue(list([route()]));
+    await mount(root, () => ({ view: usePendingRouteView(), page: useRoutes(HC).data }));
+    await act(async () => pendingRoutes.observe({ ...route({ updatedAt: 6 }), domain: HC }));
+    await expire();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(PENDING_ROUTE_EXPIRY_RETRY_MS + 10);
+    });
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(pendingRoutes.size()).toBe(1);
+  });
+
+  it('registerRouteExpiry on a store runs one listener per client however often it registers', async () => {
+    const own = createPendingRouteStore();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const first = registerRouteExpiry(client, own);
+    const second = registerRouteExpiry(client, own);
+    own.observe({ ...route(), domain: HC });
+    await expire();
+    await vi.waitFor(() => expect(own.size()).toBe(0));
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    first();
+    second();
+  });
+});
+
+/** A marked query, as `routeQueriesRefreshed` reads it. */
+function mark(
+  now: { dataUpdateCount: number; error?: Error | null },
+  dataUpdateCount: number,
+  wasFetching: boolean,
+): RouteQueryMark {
+  return {
+    query: {
+      state: { dataUpdateCount: now.dataUpdateCount, error: now.error ?? null },
+    } as unknown as RouteQueryMark['query'],
+    dataUpdateCount,
+    wasFetching,
+  };
+}
+
+// v1.41.2: the expiry's own refetch writes a query's data
+// exactly once, whether or not a fetch was in flight at the mark, so a count
+// cannot tell whose answer an in-flight query holds: it is never refreshed
+describe('routeQueriesRefreshed', () => {
+  it('an idle query is refreshed by one more data write with no error', () => {
+    expect(routeQueriesRefreshed([mark({ dataUpdateCount: 3 }, 2, false)])).toBe(true);
+    expect(routeQueriesRefreshed([mark({ dataUpdateCount: 2 }, 2, false)])).toBe(false);
+    expect(
+      routeQueriesRefreshed([mark({ dataUpdateCount: 3, error: new Error('x') }, 2, false)]),
+    ).toBe(false);
+  });
+
+  it('a query fetching at the mark is never refreshed, however many writes', () => {
+    expect(routeQueriesRefreshed([mark({ dataUpdateCount: 3 }, 2, true)])).toBe(false);
+    expect(routeQueriesRefreshed([mark({ dataUpdateCount: 9 }, 2, true)])).toBe(false);
+    expect(
+      routeQueriesRefreshed([
+        mark({ dataUpdateCount: 3 }, 2, false),
+        mark({ dataUpdateCount: 5 }, 2, true),
+      ]),
+    ).toBe(false);
+    expect(routeQueriesRefreshed([])).toBe(true);
   });
 });

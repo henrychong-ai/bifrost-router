@@ -36,6 +36,46 @@ export class ApiError extends Error {
 }
 
 /**
+ * The status of an {@link ApiError} the dashboard builds itself from an answer
+ * that says nothing definite (v1.41.2): a route write the server answered 2xx
+ * with `success: false` or no route. A 2xx means the request was not refused,
+ * so whether the write landed is unknown; status 0, like no answer at all,
+ * reads as uncertain ({@link isUncertainAnswer}), never as a 4xx refusal.
+ */
+export const UNCONFIRMED_ANSWER_STATUS = 0;
+
+/**
+ * A route write the dashboard refused itself, before any request was sent
+ * (v1.41.2): the one marker for "nothing went out", so nothing changed. Every
+ * such client-side refusal extends it (another write of this session holds
+ * the route, `RouteWritePendingError`; the write names no domain,
+ * `RouteWriteDomainError`), and {@link isUncertainAnswer} reads it as
+ * definite.
+ */
+export class RouteWriteRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RouteWriteRefusedError';
+  }
+}
+
+/**
+ * Whether `error` leaves it unknown if the server applied the write: anything
+ * but an `ApiError` with a 4xx status, the server's own refusal, after which
+ * nothing was written, or a {@link RouteWriteRefusedError}, refused before any
+ * request. So no HTTP answer (a network failure, an aborted request, an
+ * unreadable body), a 5xx (an edge or a Worker can send one after the write
+ * landed), and a 2xx the dashboard could not read as a success (status
+ * {@link UNCONFIRMED_ANSWER_STATUS}) are all uncertain. The one predicate the
+ * route writes, the Routes page and the QR page share (v1.41.2; each carried
+ * its own copy of the 4xx check before).
+ */
+export function isUncertainAnswer(error: unknown): boolean {
+  if (error instanceof RouteWriteRefusedError) return false;
+  return !(error instanceof ApiError && error.status >= 400 && error.status < 500);
+}
+
+/**
  * Whether an error is the server's own answer that a QR code does not exist
  * (v1.38.0): a 404 whose body names `QR_NOT_FOUND`. Any other 404 (a wrong
  * base URL, a proxy in front of the API) says nothing about the code.

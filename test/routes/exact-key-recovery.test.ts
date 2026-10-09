@@ -9,9 +9,9 @@
 import { env } from 'cloudflare:test';
 import { Hono } from 'hono';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { recoverInvalidRoute } from '../../src/kv/routes';
+import { getRouteAtExactKey, recoverInvalidRoute } from '../../src/kv/routes';
 import { routeKey } from '../../src/kv/schema';
-import { adminRoutes } from '../../src/routes/admin';
+import { adminRoutes, routeKeyNotNormalizedMessage } from '../../src/routes/admin';
 import { type AppEnv, CLOUDFLARE_ZONE_IDS } from '../../src/types';
 import {
   clearAllRoutes,
@@ -145,6 +145,125 @@ describe('exact-key recovery of an unreadable route record', () => {
     const response = await del(`path=/Promo/&domain=${DOMAIN}`);
     expect(response.status).toBe(200);
     expect(await env.ROUTES.get(routeKey(DOMAIN, '/promo'))).toBeNull();
+  });
+
+  // v1.41.2: the ordinary delete refuses a path that does not round-trip, as
+  // every other write does; it resolved `/p?x` to `/p` and deleted that route
+  it.each([
+    ['/p?x', 'Route path must not contain ? or #, or a double-encoded %'],
+    ['/p#x', 'Route path must not contain ? or #, or a double-encoded %'],
+    ['/p%253Fx', 'Route path must not contain ? or #, or a double-encoded %'],
+  ])(
+    'the ordinary delete refuses %s and the route it normalises to survives',
+    async (quoted, error) => {
+      const LIVE = JSON.stringify({
+        path: '/p',
+        type: 'redirect',
+        target: 'https://example.com/p',
+      });
+      await env.ROUTES.put(routeKey(DOMAIN, '/p'), LIVE);
+      await env.ROUTES.put(routeKey(DOMAIN, '/p%3Fx'), LIVE);
+      const response = await del(`path=${enc(quoted)}&domain=${DOMAIN}`);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ success: false, error });
+      expect(await env.ROUTES.get(routeKey(DOMAIN, '/p'))).toBe(LIVE);
+      expect(await env.ROUTES.get(routeKey(DOMAIN, '/p%3Fx'))).toBe(LIVE);
+      expect(purged).toEqual([]);
+      const audited = await env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM audit_logs WHERE action = 'delete'",
+      ).first<{ n: number }>();
+      expect(audited?.n).toBe(0);
+    },
+  );
+
+  // v1.41.2: a path not in normalised form never deletes the route it
+  // normalises to while a record is stored at that exact key, readable or not
+  it.each([
+    [
+      'readable',
+      JSON.stringify({ path: '/Promo', type: 'redirect', target: 'https://example.com/' }),
+    ],
+    ['unreadable', UNREADABLE],
+  ])(
+    'the ordinary delete of a %s legacy /Promo beside a live /promo is refused',
+    async (state, legacy) => {
+      await env.ROUTES.put(routeKey(DOMAIN, '/promo'), VALID);
+      await env.ROUTES.put(routeKey(DOMAIN, '/Promo'), legacy);
+      expect((await getRouteAtExactKey(env.ROUTES, DOMAIN, '/Promo')).status).toBe(
+        state === 'readable' ? 'ok' : 'invalid',
+      );
+      const response = await del(`path=/Promo&domain=${DOMAIN}`);
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({
+        success: false,
+        error: 'ROUTE_KEY_NOT_NORMALIZED',
+        message: routeKeyNotNormalizedMessage('/promo'),
+      });
+      expect(routeKeyNotNormalizedMessage('/promo')).toContain('would delete /promo instead');
+      expect(await env.ROUTES.get(routeKey(DOMAIN, '/promo'))).toBe(VALID);
+      expect(await env.ROUTES.get(routeKey(DOMAIN, '/Promo'))).toBe(legacy);
+      expect(purged).toEqual([]);
+      const audited = await env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM audit_logs WHERE action = 'delete'",
+      ).first<{ n: number }>();
+      expect(audited?.n).toBe(0);
+    },
+  );
+
+  it('a legacy key with no route at its normalised path is refused too, not a 404', async () => {
+    await env.ROUTES.put(routeKey(DOMAIN, '/promo/'), VALID);
+    const response = await del(`path=${enc('/promo/')}&domain=${DOMAIN}`);
+    expect(response.status).toBe(409);
+    expect(await env.ROUTES.get(routeKey(DOMAIN, '/promo/'))).toBe(VALID);
+  });
+
+  it('a non-normalised path with nothing at its exact key still deletes the normalised route', async () => {
+    await env.ROUTES.put(routeKey(DOMAIN, '/promo'), VALID);
+    const response = await del(`path=${enc('/promo/')}&domain=${DOMAIN}`);
+    expect(response.status).toBe(200);
+    expect(await env.ROUTES.get(routeKey(DOMAIN, '/promo'))).toBeNull();
+    expect(purged).toEqual([]);
+  });
+
+  it('an already-normalised path deletes with one read and no exact-key read', async () => {
+    await env.ROUTES.put(routeKey(DOMAIN, '/promo'), VALID);
+    const reads: string[] = [];
+    const counted = new Proxy(env.ROUTES, {
+      get(target, property) {
+        const value: unknown = Reflect.get(target, property);
+        if (typeof value !== 'function') return value;
+        return (...args: unknown[]) => {
+          if (property === 'get' || property === 'getWithMetadata') reads.push(String(args[0]));
+          return (value as (...a: unknown[]) => unknown).apply(target, args);
+        };
+      },
+    });
+    const { ctx, settled } = createSettlingExecutionContext();
+    const response = await app.fetch(
+      new Request(`https://example.com/api/routes?path=/promo&domain=${DOMAIN}`, {
+        method: 'DELETE',
+        headers,
+      }),
+      { ...env, ROUTES: counted, CLOUDFLARE_API_TOKEN: 'test-cloudflare-api-token' },
+      ctx,
+    );
+    await settled();
+    expect(response.status).toBe(200);
+    expect(reads).toEqual([routeKey(DOMAIN, '/promo')]);
+    expect(await env.ROUTES.get(routeKey(DOMAIN, '/promo'))).toBeNull();
+  });
+
+  it('the recovery delete still addresses a non-round-trip key exactly', async () => {
+    await env.ROUTES.put(
+      routeKey(DOMAIN, '/p'),
+      JSON.stringify({ path: '/p', type: 'redirect', target: 'https://example.com/p' }),
+    );
+    await env.ROUTES.put(routeKey(DOMAIN, '/p?x'), UNREADABLE);
+    expect((await del(`path=${enc('/p?x')}&domain=${DOMAIN}`)).status).toBe(400);
+    expect(await env.ROUTES.get(routeKey(DOMAIN, '/p?x'))).toBe(UNREADABLE);
+    expect((await del(`path=${enc('/p?x')}&domain=${DOMAIN}&recover=invalid`)).status).toBe(200);
+    expect(await env.ROUTES.get(routeKey(DOMAIN, '/p?x'))).toBeNull();
+    expect(await env.ROUTES.get(routeKey(DOMAIN, '/p'))).not.toBeNull();
   });
 
   it('recoverInvalidRoute names its outcome for the exact key', async () => {

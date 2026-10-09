@@ -780,6 +780,36 @@ adminRoutes.delete('/routes', async c => {
     return recoverInvalidRouteRecord(c, domain, path);
   }
 
+  // The ordinary delete never reaches a route other than the one it names
+  // (v1.41.2). `deleteRoute` normalises, so a DELETE quoting a LEGACY listed
+  // value would resolve to another key and delete a DIFFERENT, live record:
+  // - a path that does not round-trip (`/p?x` → `/p`) is REFUSED (400), as
+  //   create, update, migrate and transfer refuse it;
+  // - a path that is not in normalised form (`/Promo`, `/promo/`) is refused
+  //   (409 ROUTE_KEY_NOT_NORMALIZED) when a record is stored at that EXACT key,
+  //   readable or not, since that record is what the caller is looking at.
+  //   With nothing there it keeps normalising (`/Promo/` deletes `/promo`).
+  //   An already-normalised path costs no extra read.
+  // Such a record is removed by its exact key only when it cannot be read
+  // (`recover=invalid`); a readable one cannot be deleted at its own key
+  // through the API (`normalize-case` re-keys a capitalised one whose
+  // lower-case path is free, after which the ordinary delete reaches it).
+  const deletePath = RoutePathSchema.safeParse(path);
+  if (!deletePath.success) {
+    return c.json({ success: false, error: deletePath.error.issues[0].message }, 400);
+  }
+  const normalizedDeletePath = normalizePath(path);
+  if (normalizedDeletePath !== path) {
+    const atExactKey = await getRouteAtExactKey(c.env.ROUTES, domain, path);
+    if (atExactKey.status !== 'missing') {
+      throw new CodedHTTPException(
+        409,
+        'ROUTE_KEY_NOT_NORMALIZED',
+        routeKeyNotNormalizedMessage(normalizedDeletePath),
+      );
+    }
+  }
+
   // One read: the state the delete found, for the audit row and the purge.
   // A record that cannot be read is deleted too, which is how it is recovered
   // (v1.38.0)
@@ -823,6 +853,19 @@ adminRoutes.delete('/routes', async c => {
     message: `Route deleted: ${path}`,
   });
 });
+
+/**
+ * The refusal of an ordinary delete whose path names a stored record at a key
+ * that is not in normalised form (v1.41.2): the delete would normalise and
+ * remove the route at `normalizedPath` instead.
+ */
+export function routeKeyNotNormalizedMessage(normalizedPath: string): string {
+  return (
+    `A route is stored at this exact path, which is not in normalised form; deleting it here ` +
+    `would delete ${normalizedPath} instead, so nothing was deleted. If it cannot be read, ` +
+    `delete it with recover=invalid; a readable one cannot be deleted at its own key through the API.`
+  );
+}
 
 /** The fixed refusal of a recovery aimed at a readable route. */
 export const ROUTE_RECOVERY_READABLE =

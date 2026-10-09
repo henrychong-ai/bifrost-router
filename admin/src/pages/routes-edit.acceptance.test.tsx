@@ -293,8 +293,10 @@ describe('UTM tracking in the route dialog', () => {
     );
   });
 
-  it('a failed migration moved nothing, and says so once', async () => {
-    state.migrate.mockRejectedValueOnce(new Error('network down'));
+  it('a refused migration moved nothing, and says so once', async () => {
+    // A definite refusal (v1.41.2: an error with no answer reads as
+    // uncertain, "Could not confirm the migration")
+    state.migrate.mockRejectedValueOnce(new ApiError(400, 'Validation failed'));
     await editing(tagged);
     await typeInto(input('path'), '/promo-2');
     await typeInto(input('cacheControl'), 'no-store');
@@ -302,7 +304,7 @@ describe('UTM tracking in the route dialog', () => {
     await click(button('Migrate Route'));
     expect(state.update).not.toHaveBeenCalled();
     expect(toasts.error).toHaveBeenCalledTimes(1);
-    expect(toasts.error).toHaveBeenCalledWith('Failed to migrate route: network down');
+    expect(toasts.error).toHaveBeenCalledWith('Failed to migrate route: Validation failed');
   });
 
   it('reports moved-but-not-saved only when the server moved the route without the changes', async () => {

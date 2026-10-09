@@ -6,6 +6,181 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.41.2 (2026-10-09) — The route store's fixes from a sibling deployment's review of the same design
+
+**Why:** a sibling deployment ported v1.41.1's store of this session's own
+route write answers (`admin/src/lib/route-pending.ts`) and took it through
+three more review rounds, which found defects that apply here too. Expiry
+coalesced entries due up to 5 s AFTER the batch ran, so an entry could lose
+up to 5 s of its 90 s; it was timed by the wall clock alone; its listener was
+registered by each route query's mount, so a batch due while none was
+mounted was dropped with nothing refetched; a query fetching at the mark
+counted as refreshed after two data writes, which the expiry's refetch never
+makes and a write's own lagging refetch could supply; and a second batch's
+refetch cancelled an earlier batch's slow one and sent it again. A route
+write the Worker answered 2xx without a route was a synthetic 400, read as a
+definite refusal (a delete's `success: false` was taken as a delete), and the
+Routes page called a write that may have landed "Failed to …" and kept its
+dialog open. The Routes page's admission snapshot read the store's live map,
+so one render's snapshot changed under it, and a toggle from an older render
+was not checked at click time. **No clock ever orders two writes**, as in
+v1.41.1: versions are compared for equality only, and a refresh is decided
+by counting data writes, never by a clock. Also on the Worker: the
+ordinary route delete was the one write that did not refuse a path that
+does not round-trip, so `DELETE ?path=/p?x` normalised to `/p` and deleted
+that live route, and a listed legacy key not in normalised form (`/Promo`)
+likewise deleted the live `/promo`; both are now refused. **No migration.**
+No request or answer shape changes, but the ordinary delete now refuses
+those paths (Upgrading).
+
+### Upgrading
+
+- **`DELETE /api/routes` (without `recover=invalid`) refuses a path that does
+  not round-trip** (`?`, `#`, a `%` surviving one decode, a control
+  character): 400 `{ success: false, error: "Route path must not contain ? or
+  #, or a double-encoded %" }` (or the control-character message), and
+  nothing is deleted, as create, update, migrate and transfer already refuse
+  it (`RoutePathSchema`). Before, the path was normalised and the route at
+  the normalised key was deleted (`/p?x` deleted `/p`). An external caller
+  quoting such a path must use the exact-key recovery
+  (`recover=invalid`, only for a record that cannot be read) or the KV
+  console. The OpenAPI document lists the 400.
+- **`DELETE /api/routes` (without `recover=invalid`) refuses a path not in
+  normalised form when a record is stored at that exact key**, readable or
+  not: 409 `{ success: false, error: "ROUTE_KEY_NOT_NORMALIZED", message }`,
+  the message naming the normalised path the delete would have reached, and
+  nothing is deleted, purged or audited. Before, `DELETE ?path=/Promo` with a
+  legacy `/Promo` record beside a live `/promo` deleted `/promo`. With
+  nothing stored at the exact key the path is still normalised (`/promo/`
+  deletes `/promo`), and an already-normalised path is read once, as before.
+  An unreadable legacy record is removed with `recover=invalid`; a readable
+  one cannot be deleted at its own key through the API
+  (`POST /api/routes/normalize-case` re-keys a capitalised one whose
+  lower-case path is free, after which the ordinary delete reaches it). The
+  OpenAPI document lists the 409.
+
+### Worker
+
+- **The ordinary route delete refuses a path that does not round-trip**
+  (`src/routes/admin.ts`, after the domain check and the recovery branch, the
+  same 400 shape as transfer's), so a legacy listed path never reaches the
+  live route it normalises to. The recovery delete keeps addressing the
+  exact stored key, unvalidated. The dashboard's Delete on such a row now
+  says "Failed to delete route: …" and leaves the store as it was.
+- **The ordinary route delete never reaches another live route.** When the
+  path is not in normalised form (`normalizePath(path) !== path`) and a record
+  is stored at the exact raw key (`getRouteAtExactKey`, readable or not), it
+  answers 409 `ROUTE_KEY_NOT_NORMALIZED` (`routeKeyNotNormalizedMessage`)
+  instead of deleting the route at the normalised key. An already-normalised
+  path takes no extra read.
+
+### Dashboard
+
+- **Expiry never shortens protection, and runs whatever is mounted.** Once
+  the first entry is 90 s old, the expiry waits 5 s more
+  (`PENDING_ROUTE_EXPIRY_WINDOW_MS`) and takes every entry due by then, so
+  each entry is held 90 to 95 s and a burst still ends in one refetch. The
+  expiry listener is registered once at the app root for the app's query
+  client (`useRouteExpiry(queryClient)` in `admin/src/App.tsx`,
+  `registerRouteExpiry` in `use-routes.ts`), no longer by each route query's
+  mount, and a batch with no listener registered is kept and retried 30 s
+  later, never dropped unrefreshed. An entry is due when EITHER clock has
+  run its TTL (`PendingRouteClock`, both injectable for tests): the monotonic
+  elapsed time (`monotonicNow`: `performance.now()`, `Date.now()` only where
+  `performance` is unavailable), so a wall clock set back never stretches
+  the hold, or the wall-clock elapsed time (only when positive), so a
+  device's sleep, which can pause the monotonic clock, does not either. A
+  wall clock set forward can bring an expiry early; the batch is still
+  dropped only once its refetch has refreshed.
+- **A query fetching when the expiry began is never counted refreshed.**
+  `routeQueriesRefreshed` answers refreshed only when each active route query
+  was idle at its mark, has no error, and its data was written at least once
+  since; the expiry's refetch joins a fetch already in flight
+  (`invalidateQueries(…, { cancelRefetch: false })`), so an earlier batch's
+  slow refetch is never cancelled and sent again, and such a query's batch is
+  retried 30 s later.
+- **A route write answered 2xx without a route is uncertain.** One check,
+  `confirmRouteWrite` in `admin/src/lib/api-client.ts`, for all six route
+  writes (create, update, migration, transfer, delete, and the recovery
+  delete): a 2xx with `success: false` or no route throws an `ApiError` with
+  status 0 (`UNCONFIRMED_ANSWER_STATUS`), which reads as uncertain, not a
+  synthetic 400; a delete's `success: false` is no longer taken as a delete.
+  The QR editor's route create then marks its retry for the read-back, as for
+  a create with no answer.
+- **One predicate for "the write may have landed".** `isUncertainAnswer`
+  (`admin/src/lib/api-error.ts`) is anything but an `ApiError` with a 4xx
+  status or a `RouteWriteRefusedError`, the one marker for a write refused
+  before any request, which `RouteWritePendingError` and the new
+  `RouteWriteDomainError` (a write naming no domain) extend. The route hooks'
+  `settleFailure`, the Routes page and the QR page (three copies of the 4xx
+  check before) use it; a refused write leaves the store untouched.
+- **The Routes page says when a write could not be confirmed.** A create,
+  update, toggle, delete, migration or transfer with no definite answer
+  toasts "Could not confirm the …: it may have gone through. The list is
+  reloading." (`routeWriteFailureText`, `admin/src/lib/route-write-outcome.ts`)
+  instead of "Failed to …", and an uncertain create, update, delete,
+  migration or transfer closes its dialog (a reopen reads the refetched
+  route); a definite 4xx, and a write refused before any request, keep the
+  "Failed to …" text and the dialogs as they were (a write naming no domain
+  is a `RouteWriteDomainError`, so it keeps "Failed to …").
+- **Dialogs and row actions.** A migration is refused when the store holds a
+  `live` entry at its destination (this session created or moved a route
+  there within the 90 s, possibly before the confirmation opened): it sends
+  nothing, closes, and says "A route already exists at <path>. Reopen it to
+  choose another path." (A destination at the source's own key, another
+  spelling of its path, is left to the Worker, which refuses it as the same
+  path.) The admission snapshot is frozen at its version (it
+  holds its own copy of the held keys) and says whether anything is held
+  (`isEmpty`, so a row's check normalises no path when nothing is); the page
+  renders disabled actions from the snapshot it subscribed to, while a row
+  click, Edit, Enable/Disable and Delete, and an unreadable row's Delete,
+  read the store's live snapshot when clicked, so a handler from an older
+  render never opens or writes a held route. The check lives in the page's
+  openers and toggle (`openEditor`, `openDelete`, `toggleIfFree`, through
+  `refuseIfHeld`), one place for every entry point, and a refused click
+  toasts the hooks' own "Another change to this route is still saving"
+  rather than doing nothing.
+- **One resolution of a write's domain on the Routes page.** `writeDomainOf`
+  (`writeDomain` in `admin/src/lib/route-write-domain.ts`, which
+  `requireWriteDomain` now uses) serves the held-route checks, the
+  changed-while-open check, the migration destination's generation and its
+  own-route check, so each reads the key the write will hold (an empty
+  domain falls back to the page's domain, as the write does; they used
+  `??`, which kept it).
+- **One failure path for the dialogs' writes.** `onWriteFailure` in
+  `admin/src/pages/routes.tsx` serves create, update, delete, migration and
+  transfer, with the same behaviour as before (uncertain: close and "Could
+  not confirm …"; a credential refusal: the confirmation; a definite
+  refusal: "Failed to …" with the dialogs as they were), and a migration
+  that names no domain says so through `routeWriteFailureText`.
+- A migration's answer is recorded as the old key gone and the moved route
+  live, always: the branch for a move to the same key is gone (the Worker
+  refuses a move to the same normalised path with a 400).
+- Not ported (already here): keys by the Worker's path, the uncertain-create
+  read-back, dialog staleness by equality, projected totals.
+
+### TODO.md
+
+- Adds "v1.41.2 residuals" (P3): QR create and update still read a 2xx
+  without a record as a refusal; a request blocked before reaching the
+  Worker is classed uncertain, and dropping a failed write's held entries
+  discards an earlier confirmed own answer at that key, so the refetch can
+  show an older row while KV lags (an edit from it meets a 409, which heals
+  it); the store exposes live readers (`isPending`, `project`) beside the
+  frozen snapshots, which a render-time caller would bypass; an uncertain
+  create or edit closes its dialog, so input typed before a request that
+  never left the browser is lost, and the Routes page create does not pass
+  `afterUncertainAnswer`, so a retyped retry of a create that landed meets
+  409 "already exists" rather than a read-back. Corrects the
+  v1.41.1 residual on legacy stored paths that do not round-trip: every
+  ordinary write, the delete included since this release, refuses such a
+  path (no write at another key), so such a route cannot be managed through
+  ordinary writes; only the recovery delete addresses a stored key exactly,
+  and an ordinary delete never reaches another route (a non-normalised path
+  with a record at its exact key is refused, 409). Updates the expiry residuals for the
+  joined refetch (a listing fetch that never answers holds every later
+  batch).
+
 ## v1.41.1 (2026-10-09) — The route cache as a store of this session's own writes; QR deletes recorded before they answer
 
 **Why:** v1.41.0's review residuals, and defects a sibling deployment's

@@ -105,7 +105,12 @@ vi.mock('sonner', () => ({ toast: toasts }));
 
 import { routeKeys } from '@/hooks/use-routes';
 import { useRoutesByTarget } from '@/hooks/use-storage';
-import { keyOfInput, pendingRoutes } from '@/lib/route-pending';
+import {
+  keyOfInput,
+  keyOfStored,
+  pendingRoutes,
+  ROUTE_WRITE_PENDING_MESSAGE,
+} from '@/lib/route-pending';
 import { RoutesPage } from './routes';
 
 const DOMAIN = 'example.com';
@@ -531,6 +536,15 @@ describe('reading the listed row after a write, before and after a stale refetch
 const CHANGED_WHILE_OPEN =
   'This route changed while it was open. Reopen it to edit the current version.';
 
+const UNCERTAIN_MIGRATION =
+  'Could not confirm the migration: it may have gone through. The list is reloading.';
+
+/** The button labelled `text`, if one is rendered. */
+const findButton = (text: string) =>
+  [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+    item => item.textContent?.trim() === text,
+  );
+
 /** Remount the Routes page opened with `editRoute` in its navigation state. */
 async function openFromNavigation(editRoute: Route) {
   await act(async () => root.unmount());
@@ -631,7 +645,7 @@ describe('the route queries are keyed as the hooks key them', () => {
 // v1.41.1 review: an uncertain failure is not an answer, so it never makes
 // the write's own retry look like a change made while the dialog was open
 describe('an own uncertain failure never refuses its own retry', () => {
-  it('a migration answered 502, confirmed again, is sent', async () => {
+  it('a migration answered 502, reopened and confirmed again, is sent', async () => {
     state.migrate.mockRejectedValueOnce(new ApiError(502, 'Bad Gateway'));
     state.migrate.mockResolvedValueOnce(route({ path: '/new-talk', updatedAt: 3 }));
     await render();
@@ -642,12 +656,17 @@ describe('an own uncertain failure never refuses its own retry', () => {
     const generation = pendingRoutes.generation(destination);
     await click(button('Migrate Route'));
     expect(state.migrate).toHaveBeenCalledTimes(1);
-    expect(toasts.error).toHaveBeenLastCalledWith('Failed to migrate route: Bad Gateway');
+    expect(toasts.error).toHaveBeenLastCalledWith(UNCERTAIN_MIGRATION);
     // The failure is no answer: neither path's generation moved, so no
     // confirmation (open, or captured before it) reads it as a change
     expect(pendingRoutes.generation(destination)).toBe(generation);
     expect(pendingRoutes.generation(keyOfInput(DOMAIN, '/talk'))).toBe(0);
-    // The editor is still open on the typed path: confirmed again, it is sent
+    // v1.41.2: the route may have moved, so both dialogs closed
+    await shows(() => expect(document.querySelector('#path')).toBeNull());
+    expect(findButton('Migrate Route')).toBeUndefined();
+    // Reopened from the refetched list and confirmed again, it is sent
+    await clickRow('/talk');
+    await type('#path', '/new-talk');
     await click(button('Update'));
     await click(button('Migrate Route'));
     expect(state.migrate).toHaveBeenCalledTimes(2);
@@ -684,5 +703,265 @@ describe('a recovered unreadable record and a readable route at the same path', 
     await click(button('Update'));
     expect(sentStamps()).toEqual([3]);
     expect(toasts.error).not.toHaveBeenCalled();
+  });
+});
+
+// v1.41.2: a write that may have landed is never reported as failed; a
+// definite refusal still is
+describe('a route write with no definite answer says it could not be confirmed', () => {
+  it('a migration answered 502: the uncertain toast, and both dialogs close', async () => {
+    state.migrate.mockRejectedValueOnce(new ApiError(502, 'Bad Gateway'));
+    await openEdit('/talk');
+    await type('#path', '/new-talk');
+    await click(button('Update'));
+    await click(button('Migrate Route'));
+    expect(toasts.error).toHaveBeenLastCalledWith(UNCERTAIN_MIGRATION);
+    expect(toasts.error).not.toHaveBeenCalledWith(
+      expect.stringMatching(/^Failed to migrate route/),
+    );
+    await shows(() => expect(document.querySelector('#path')).toBeNull());
+    expect(findButton('Migrate Route')).toBeUndefined();
+  });
+
+  it('a migration answered 400: the failed toast, and the dialogs stay as before', async () => {
+    state.migrate.mockRejectedValueOnce(new ApiError(400, 'Validation failed'));
+    await openEdit('/talk');
+    await type('#path', '/new-talk');
+    await click(button('Update'));
+    await click(button('Migrate Route'));
+    expect(toasts.error).toHaveBeenLastCalledWith('Failed to migrate route: Validation failed');
+    // As before: the confirmation closed with its click, the editor stays
+    // open on the typed path for another try
+    expect(findButton('Migrate Route')).toBeUndefined();
+    expect(document.querySelector<HTMLInputElement>('#path')?.value).toBe('/new-talk');
+  });
+
+  it('an update, a toggle and a delete with no definite answer say so, and close', async () => {
+    state.update.mockRejectedValueOnce(new ApiError(503, 'Unavailable'));
+    state.toggle.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    state.remove.mockRejectedValueOnce(new ApiError(0, 'Failed to delete route'));
+    await openEdit('/talk');
+    await click(document.querySelector('#preserveQuery'));
+    await click(button('Update'));
+    expect(toasts.error).toHaveBeenLastCalledWith(
+      'Could not confirm the update: it may have gone through. The list is reloading.',
+    );
+    // The update may have landed: the editor closed
+    await shows(() => expect(document.querySelector('#preserveQuery')).toBeNull());
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await render();
+    await rowAction('/talk', 'Disable');
+    await shows(() =>
+      expect(toasts.error).toHaveBeenLastCalledWith(
+        'Could not confirm the change: it may have gone through. The list is reloading.',
+      ),
+    );
+    await rowAction('/talk', 'Delete');
+    await click(button('Delete'));
+    expect(toasts.error).toHaveBeenLastCalledWith(
+      'Could not confirm the delete: it may have gone through. The list is reloading.',
+    );
+    // The delete may have landed: its confirmation closed
+    await shows(() => expect(findButton('Delete')).toBeUndefined());
+  });
+
+  it('a create answered 502 says it could not be confirmed, and its dialog closes', async () => {
+    state.create.mockRejectedValueOnce(new ApiError(502, 'Bad Gateway'));
+    await render();
+    await click(button('New Route'));
+    await type('#path', '/new');
+    await type('#target', 'https://example.com/new');
+    await click(button('Create'));
+    expect(state.create).toHaveBeenCalledTimes(1);
+    expect(toasts.error).toHaveBeenLastCalledWith(
+      'Could not confirm the new route: it may have gone through. The list is reloading.',
+    );
+    await shows(() => expect(document.querySelector('#target')).toBeNull());
+  });
+
+  it('a definite refusal of a create keeps its dialog open', async () => {
+    state.create.mockRejectedValueOnce(new ApiError(409, 'Route already exists'));
+    await render();
+    await click(button('New Route'));
+    await type('#path', '/new');
+    await type('#target', 'https://example.com/new');
+    await click(button('Create'));
+    expect(toasts.error).toHaveBeenLastCalledWith('Failed to create route: Route already exists');
+    expect(document.querySelector('#target')).not.toBeNull();
+  });
+});
+
+// v1.41.2: a migration's destination where this session's own write answered
+// a route within the 90 s (a create KV does not list yet)
+describe('a migration into a route this session just wrote', () => {
+  it('create /new, then migrate /talk to /new: refused, no request', async () => {
+    state.create.mockResolvedValueOnce({
+      route: route({ path: '/new', updatedAt: 3 }),
+      readBack: false,
+    });
+    await render();
+    await click(button('New Route'));
+    await type('#path', '/new');
+    await type('#target', 'https://example.com/new');
+    await click(button('Create'));
+    expect(state.create).toHaveBeenCalledWith(expect.objectContaining({ domain: DOMAIN }));
+    expect(toasts.success).toHaveBeenLastCalledWith(`Route created successfully on ${DOMAIN}`);
+    // KV lags: the refetch does not list /new yet
+    expect(rowOf('/new')).toBeUndefined();
+    await clickRow('/talk');
+    await type('#path', '/new');
+    await click(button('Update'));
+    await click(button('Migrate Route'));
+    expect(state.migrate).not.toHaveBeenCalled();
+    expect(toasts.error).toHaveBeenLastCalledWith(
+      'A route already exists at /new. Reopen it to choose another path.',
+    );
+    expect(document.querySelector('#path')).toBeNull();
+    expect(findButton('Migrate Route')).toBeUndefined();
+  });
+});
+
+describe('a migration to another spelling of its own path', () => {
+  // The source's own key is not "a route this session wrote" at the
+  // destination: the Worker answers it (400, the same path)
+  it('is sent after a save of the route, and the Worker decides', async () => {
+    state.update.mockResolvedValueOnce(route({ preserveQuery: false, updatedAt: 3 }));
+    state.migrate.mockRejectedValueOnce(
+      new ApiError(400, 'Old path and new path cannot be the same'),
+    );
+    await openEdit('/talk');
+    await click(document.querySelector('#preserveQuery'));
+    await click(button('Update'));
+    expect(pendingRoutes.answerAt(keyOfStored(DOMAIN, '/talk'))?.state).toBe('live');
+    await clickRow('/talk');
+    await type('#path', '/talk/');
+    await click(button('Update'));
+    await click(button('Migrate Route'));
+    expect(state.migrate).toHaveBeenCalledTimes(1);
+    expect(toasts.error).toHaveBeenLastCalledWith(
+      'Failed to migrate route: Old path and new path cannot be the same',
+    );
+  });
+});
+
+// v1.41.2: a click reads the writes in flight NOW, not the snapshot its
+// render subscribed to; every row action is refused with the hooks' own
+// message ("Another change to this route is still saving"), never silently
+describe('a row handler from a render made before a write was acquired', () => {
+  it('refuses to open the editor on a route a write now holds', async () => {
+    await render();
+    const row = rowOf('/talk');
+    expect(row?.getAttribute('aria-busy')).toBeNull();
+    // Acquired outside React: the row's handler is still the one rendered
+    // with the old snapshot when it runs
+    const held = pendingRoutes.acquire([keyOfInput(DOMAIN, '/talk')]);
+    expect(held).not.toBeNull();
+    row?.click();
+    await settle();
+    expect(document.querySelector('#path')).toBeNull();
+    expect(toasts.error).toHaveBeenLastCalledWith(ROUTE_WRITE_PENDING_MESSAGE);
+    if (held) await act(async () => pendingRoutes.release(held));
+    await clickRow('/talk');
+    expect(document.querySelector('#path')).not.toBeNull();
+    expect(toasts.error).toHaveBeenCalledTimes(1);
+  });
+
+  it('a held row clicked in a current render is refused with the same toast', async () => {
+    await render();
+    const held = pendingRoutes.acquire([keyOfInput(DOMAIN, '/talk')]);
+    expect(held).not.toBeNull();
+    await shows(() => expect(rowOf('/talk')?.getAttribute('aria-busy')).toBe('true'));
+    await clickRow('/talk');
+    expect(document.querySelector('#path')).toBeNull();
+    expect(toasts.error).toHaveBeenLastCalledWith(ROUTE_WRITE_PENDING_MESSAGE);
+    if (held) await act(async () => pendingRoutes.release(held));
+  });
+
+  it.each(['Edit', 'Delete'])(
+    'the %s item from an older render opens nothing and says why',
+    async label => {
+      await render();
+      const trigger = rowOf('/talk')?.querySelector<HTMLElement>('td:last-child button');
+      await act(async () =>
+        trigger?.dispatchEvent(
+          new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }),
+        ),
+      );
+      const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+        element => element.textContent?.trim() === label,
+      );
+      expect(item?.hasAttribute('data-disabled')).toBe(false);
+      const held = pendingRoutes.acquire([keyOfInput(DOMAIN, '/talk')]);
+      expect(held).not.toBeNull();
+      item?.click();
+      await settle();
+      expect(document.querySelector('#path')).toBeNull();
+      expect(findButton('Delete')).toBeUndefined();
+      expect(toasts.error).toHaveBeenLastCalledWith(ROUTE_WRITE_PENDING_MESSAGE);
+      if (held) await act(async () => pendingRoutes.release(held));
+    },
+  );
+
+  it('a row toggle sends nothing and says why', async () => {
+    await render();
+    await rowAction('/talk', 'Disable');
+    await shows(() => expect(toasts.success).toHaveBeenCalledTimes(1));
+    state.toggle.mockClear();
+    // Open the menu, then acquire outside React: the item's handler is the
+    // one rendered with the old snapshot when it runs
+    const trigger = rowOf('/talk')?.querySelector<HTMLElement>('td:last-child button');
+    await act(async () =>
+      trigger?.dispatchEvent(
+        new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }),
+      ),
+    );
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(element =>
+      ['Disable', 'Enable'].includes(element.textContent?.trim() ?? ''),
+    );
+    expect(item?.hasAttribute('data-disabled')).toBe(false);
+    const held = pendingRoutes.acquire([keyOfInput(DOMAIN, '/talk')]);
+    expect(held).not.toBeNull();
+    item?.click();
+    await settle();
+    expect(state.toggle).not.toHaveBeenCalled();
+    expect(toasts.error).toHaveBeenCalledTimes(1);
+    expect(toasts.error).toHaveBeenLastCalledWith(ROUTE_WRITE_PENDING_MESSAGE);
+    if (held) await act(async () => pendingRoutes.release(held));
+  });
+
+  it('an unreadable row’s Delete opens nothing while its exact key is held', async () => {
+    state.invalid = [{ domain: DOMAIN, path: '/Promo', invalid: true }];
+    await render();
+    const remove = document.querySelector<HTMLButtonElement>(
+      '[aria-label="Delete unreadable record /Promo"]',
+    );
+    expect(remove?.disabled).toBe(false);
+    const held = pendingRoutes.acquire([keyOfStored(DOMAIN, '/Promo')]);
+    expect(held).not.toBeNull();
+    remove?.click();
+    await settle();
+    expect(findButton('Delete')).toBeUndefined();
+    expect(toasts.error).toHaveBeenLastCalledWith(ROUTE_WRITE_PENDING_MESSAGE);
+    if (held) await act(async () => pendingRoutes.release(held));
+  });
+
+  it('an unreadable /Promo whose recovery is in flight leaves a readable /promo writable', async () => {
+    state.routes = [route({ path: '/promo' })];
+    state.invalid = [{ domain: DOMAIN, path: '/Promo', invalid: true }];
+    const recovery = deferred<undefined>();
+    state.remove.mockReturnValueOnce(recovery.promise);
+    await render();
+    await click(document.querySelector('[aria-label="Delete unreadable record /Promo"]'));
+    await click(button('Delete'));
+    // The recovery holds its exact key: the readable /promo is another key
+    await shows(() =>
+      expect(
+        document.querySelector<HTMLButtonElement>('[aria-label="Delete unreadable record /Promo"]')
+          ?.disabled,
+      ).toBe(true),
+    );
+    expect(rowOf('/promo')?.getAttribute('aria-busy')).toBeNull();
+    await act(async () => recovery.resolve(undefined));
   });
 });

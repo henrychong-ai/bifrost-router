@@ -1,4 +1,5 @@
 import { normalizeRoutePath } from '@bifrost/shared';
+import { RouteWriteRefusedError } from './api-error';
 import type { InvalidRouteRow, Route, RouteWithDomain } from './schemas';
 
 /**
@@ -10,9 +11,14 @@ import type { InvalidRouteRow, Route, RouteWithDomain } from './schemas';
 export const PENDING_ROUTE_TTL_MS = 90 * 1000;
 
 /**
- * Entries that come due within this long of the first due one expire with it,
- * in one batch with one refetch (v1.41.1 review): a burst of writes ends in
- * one refetch of the route queries, not one per write.
+ * How long the expiry waits after the first entry comes due, so that the
+ * entries coming due meanwhile expire with it, in one batch with one refetch
+ * (v1.41.1 review): a burst of writes ends in one refetch of the route
+ * queries, not one per write. Coalescing never shortens protection (v1.41.2):
+ * the batch runs at the first due time plus this window and takes only the
+ * entries due by then, so every entry is held at least its full TTL (90 to
+ * 95 s). v1.41.1 took the entries due up to this window AFTER the batch ran,
+ * so an entry could expire up to 5 s before its own 90 s.
  */
 export const PENDING_ROUTE_EXPIRY_WINDOW_MS = 5 * 1000;
 
@@ -73,9 +79,10 @@ export const ROUTE_WRITE_PENDING_MESSAGE = 'Another change to this route is stil
  * A write refused before any request: another write of this session holds
  * one of the routes it affects ({@link PendingRouteStore.acquire}). The route
  * hooks throw it from `onMutate`, so the mutation fails without a request and
- * the page's own error handling shows its message.
+ * the page's own error handling shows its message. A
+ * {@link RouteWriteRefusedError} (v1.41.2): definite, never uncertain.
  */
-export class RouteWritePendingError extends Error {
+export class RouteWritePendingError extends RouteWriteRefusedError {
   readonly code = 'ROUTE_WRITE_PENDING';
   constructor() {
     super(ROUTE_WRITE_PENDING_MESSAGE);
@@ -125,11 +132,68 @@ export type OwnRouteAnswer =
 export type RouteExpiryListener = () => boolean | Promise<boolean>;
 
 /**
- * `due`: this tab's clock when the entry's expiry comes due (the TTL from the
- * answer, moved on by a failed expiry refetch). The clock only times expiry,
- * never orders two writes.
+ * The store's monotonic clock (v1.41.2): `performance.now()`, which only
+ * moves forward with the tab, whatever the wall clock does (but may pause
+ * while the device sleeps); `Date.now()` only where `performance` is
+ * unavailable. Read at each call, so a test's fake timers (which fake
+ * `performance` by default) drive it.
  */
-type Entry = PendingRouteAnswer & { due: number };
+export function monotonicNow(): number {
+  return typeof performance === 'undefined' ? Date.now() : performance.now();
+}
+
+/**
+ * The two clocks that time expiry (v1.41.2), injectable for tests. An entry
+ * is due when EITHER has run its hold since the answer: the monotonic one
+ * survives a wall clock set back, the wall one (only when it moved forward)
+ * counts a device's sleep, which can pause the monotonic one. Neither ever
+ * orders two writes.
+ */
+export interface PendingRouteClock {
+  monotonic: () => number;
+  wall: () => number;
+}
+
+const DEFAULT_CLOCK: PendingRouteClock = { monotonic: monotonicNow, wall: () => Date.now() };
+
+/**
+ * When the entry was answered (or last retried), on both clocks; `hold`: how
+ * long after that it is due ({@link PENDING_ROUTE_TTL_MS}, or
+ * {@link PENDING_ROUTE_EXPIRY_RETRY_MS} after a failed expiry refetch);
+ * `window`: how much later its batch runs
+ * ({@link PENDING_ROUTE_EXPIRY_WINDOW_MS} for a fresh entry, 0 for a retry).
+ * The clocks only time expiry, never order two writes.
+ */
+type Entry = PendingRouteAnswer & {
+  monotonicAt: number;
+  wallAt: number;
+  hold: number;
+  window: number;
+};
+
+/** One reading of both clocks. */
+interface ClockReading {
+  monotonic: number;
+  wall: number;
+}
+
+/** The entry's elapsed time on each clock; a wall clock set back counts as none. */
+function elapsedOf(entry: Entry, at: ClockReading): { monotonic: number; wall: number } {
+  const wall = at.wall - entry.wallAt;
+  return { monotonic: at.monotonic - entry.monotonicAt, wall: wall > 0 ? wall : 0 };
+}
+
+/** Due when either clock has run the entry's hold. */
+function isDue(entry: Entry, at: ClockReading): boolean {
+  const elapsed = elapsedOf(entry, at);
+  return elapsed.monotonic >= entry.hold || elapsed.wall >= entry.hold;
+}
+
+/** How long until the entry's batch should run, by whichever clock is further on. */
+function wakeIn(entry: Entry, at: ClockReading): number {
+  const elapsed = elapsedOf(entry, at);
+  return entry.hold + entry.window - Math.max(elapsed.monotonic, elapsed.wall);
+}
 
 /** The answer as a row of its listing, with the row's own `domain` field (present or absent). */
 function asRow(route: RouteWithDomain, row: Route): Route {
@@ -165,9 +229,18 @@ export interface PendingRouteView {
   ): RouteWithDomain[];
 }
 
-/** The writes in flight at one version (their own snapshot, for disabled buttons). */
+/**
+ * The writes in flight at one version (their own snapshot, for disabled
+ * buttons). Frozen (v1.41.2): it answers for the keys held when it was taken,
+ * whatever is acquired or released after.
+ */
 export interface PendingRouteAdmissionView {
   readonly version: number;
+  /**
+   * Whether no write held any key at this version (v1.41.2): a caller skips
+   * normalising a path when nothing is held.
+   */
+  readonly isEmpty: boolean;
   /**
    * Whether a write of this session holds the key: {@link keyOfInput} of a
    * readable row's path (what a write of it holds), {@link keyOfStored} of an
@@ -241,16 +314,18 @@ export interface PendingRouteAdmissionView {
  * returned as is (the same object).
  *
  * Expiry (90 s from the answer) keeps the protection until a refetch has
- * refreshed every route query on screen: the entries due within
- * {@link PENDING_ROUTE_EXPIRY_WINDOW_MS} of the first due one are marked
- * expiring (still projected, still read by the dialogs), and the expiry
- * listeners run once for the batch ({@link onExpire}; the route hooks remove
- * every inactive route query there, refetch the active ones, and answer
- * whether each active one was refreshed by a fetch sent after the expiry
- * began, by its count of data writes, with no error). The batch's entries are
- * dropped once every listener answers `true`; otherwise (a listener answers
- * `false`, rejects or throws: no network, an error answer, a fetch already in
- * flight) they stay projected and the batch is tried again
+ * refreshed every route query on screen: once the first entry comes due, the
+ * expiry waits {@link PENDING_ROUTE_EXPIRY_WINDOW_MS} more and takes every
+ * entry due by then (so none is held less than its 90 s; v1.41.2), marks them
+ * expiring (still projected, still read by the dialogs), and runs the expiry
+ * listeners once for the batch ({@link onExpire}; the app root registers one
+ * per query client, which removes every inactive route query, refetches the
+ * active ones, and answers whether each active one was refreshed by the
+ * expiry's own refetch, by its count of data writes, with no error). The
+ * batch's entries are dropped once every listener answers `true`; otherwise
+ * (a listener answers `false`, rejects or throws: no network, an error
+ * answer, a fetch already in flight; or no listener is registered at all,
+ * v1.41.2) they stay projected and the batch is tried again
  * {@link PENDING_ROUTE_EXPIRY_RETRY_MS} later. A newer own answer at an
  * expiring key replaces its entry and is kept on its own expiry. What shows
  * after the entries drop is the refetch's result, which still lags when KV
@@ -262,12 +337,19 @@ export interface PendingRouteAdmissionView {
  * the refetch.
  *
  * As for the QR store, this dashboard has no logout or identity switch, so
- * the store lives as long as the tab. The default clock reads `Date.now` at
- * each call, not once at creation, so the dashboard's one store follows a
- * test's fake clock; the clock only times expiry, and never orders two
- * writes or decides whether a query was refreshed.
+ * the store lives as long as the tab. Expiry is timed by two clocks
+ * ({@link PendingRouteClock}, v1.41.2): an entry is due when either the
+ * monotonic elapsed time or the wall-clock elapsed time (only when positive)
+ * reaches its hold, so a wall clock set back never stretches an entry's hold
+ * and a device's sleep (which can pause the monotonic clock) never does
+ * either; a wall clock set forward can bring the expiry early, which the
+ * refetch gate still covers. They are read at each call, not once at
+ * creation, so the dashboard's one store follows a test's fake clock; the
+ * clocks only time expiry, and never order two writes or decide whether a
+ * query was refreshed.
  */
-export function createPendingRouteStore(now: () => number = () => Date.now()) {
+export function createPendingRouteStore(clock: PendingRouteClock = DEFAULT_CLOCK) {
+  const read = (): ClockReading => ({ monotonic: clock.monotonic(), wall: clock.wall() });
   const entries = new Map<RouteStoreKey, Entry>();
   const generations = new Map<RouteStoreKey, number>();
   const admitted = new Map<RouteStoreKey, RouteWriteAdmission>();
@@ -341,7 +423,22 @@ export function createPendingRouteStore(now: () => number = () => Date.now()) {
   }
 
   let view: PendingRouteView = { version: 0, project, projectRows };
-  let admissionView: PendingRouteAdmissionView = { version: 0, isPending };
+  /**
+   * The writes in flight frozen at one version (v1.41.2): the view holds its
+   * own copy of the held keys, so a snapshot a render read keeps answering
+   * for that version after a later `acquire` or `release`. v1.41.1's view
+   * read the live map, so a render's snapshot changed under it.
+   */
+  function admissionAt(version: number): PendingRouteAdmissionView {
+    const held: ReadonlySet<RouteStoreKey> = new Set(admitted.keys());
+    return {
+      version,
+      isEmpty: held.size === 0,
+      isPending: key => held.has(key),
+    };
+  }
+
+  let admissionView: PendingRouteAdmissionView = admissionAt(0);
 
   /** A new snapshot of the entries, and every subscriber told: every listing is read again. */
   function changed(): void {
@@ -351,7 +448,7 @@ export function createPendingRouteStore(now: () => number = () => Date.now()) {
 
   /** A new snapshot of the writes in flight, and its subscribers told. */
   function admissionChanged(): void {
-    admissionView = { version: admissionView.version + 1, isPending };
+    admissionView = admissionAt(admissionView.version + 1);
     for (const listener of admissionListeners) listener();
   }
 
@@ -360,29 +457,33 @@ export function createPendingRouteStore(now: () => number = () => Date.now()) {
     generations.set(key, (generations.get(key) ?? 0) + 1);
   }
 
-  /** Wake when the first entry not yet expiring comes due (none: no timer). */
+  /**
+   * Wake when the first batch not yet expiring runs: the soonest entry's hold
+   * plus its window, by whichever clock is further on (none: no timer).
+   */
   function schedule(): void {
     if (expiry !== undefined) clearTimeout(expiry);
     expiry = undefined;
-    let earliest = Number.POSITIVE_INFINITY;
+    const at = read();
+    let soonest = Number.POSITIVE_INFINITY;
     for (const entry of entries.values()) {
-      if (!expiring.has(entry)) earliest = Math.min(earliest, entry.due);
+      if (!expiring.has(entry)) soonest = Math.min(soonest, wakeIn(entry, at));
     }
-    if (earliest === Number.POSITIVE_INFINITY) return;
-    expiry = setTimeout(
-      () => {
-        expiry = undefined;
-        expire();
-      },
-      Math.max(0, earliest - now()) + 1,
-    );
+    if (soonest === Number.POSITIVE_INFINITY) return;
+    expiry = setTimeout(() => {
+      expiry = undefined;
+      expire();
+    }, Math.max(0, soonest) + 1);
   }
 
   /**
    * Every expiry listener once; `true` only when every one answered `true`
-   * (a rejection or a throw counts as not refreshed). Never rejects.
+   * (a rejection or a throw counts as not refreshed). No listener at all is
+   * `false` (v1.41.2): nothing refetched, so the batch is kept and retried,
+   * never dropped unrefreshed. Never rejects.
    */
   async function refetch(): Promise<boolean> {
+    if (expiryListeners.size === 0) return false;
     const results = await Promise.allSettled(
       [...expiryListeners.keys()].map(async listener => listener()),
     );
@@ -390,15 +491,17 @@ export function createPendingRouteStore(now: () => number = () => Date.now()) {
   }
 
   /**
-   * The due entries, and those due within the window after them, expire as
-   * one batch: marked expiring (still projected), one refetch, and settled
-   * once it answers ({@link settleExpired}).
+   * Every entry due by now (the timer runs a window after the first due one,
+   * so this takes the entries that came due meanwhile, and never one before
+   * its hold has run on one of the clocks, {@link isDue}) expires as one batch: marked expiring (still
+   * projected), one refetch, and settled once it answers
+   * ({@link settleExpired}).
    */
   function expire(): void {
-    const at = now();
+    const at = read();
     const batch: Array<[RouteStoreKey, Entry]> = [];
     for (const [key, entry] of entries) {
-      if (!expiring.has(entry) && entry.due <= at + PENDING_ROUTE_EXPIRY_WINDOW_MS) {
+      if (!expiring.has(entry) && isDue(entry, at)) {
         batch.push([key, entry]);
       }
     }
@@ -420,7 +523,7 @@ export function createPendingRouteStore(now: () => number = () => Date.now()) {
     batch: ReadonlyArray<readonly [RouteStoreKey, Entry]>,
     refreshed: boolean,
   ): void {
-    const retryAt = now() + PENDING_ROUTE_EXPIRY_RETRY_MS;
+    const at = read();
     let dropped = false;
     for (const [key, entry] of batch) {
       expiring.delete(entry);
@@ -429,7 +532,11 @@ export function createPendingRouteStore(now: () => number = () => Date.now()) {
         entries.delete(key);
         dropped = true;
       } else {
-        entry.due = retryAt;
+        // A retry runs at its own time: it already had its full TTL
+        entry.monotonicAt = at.monotonic;
+        entry.wallAt = at.wall;
+        entry.hold = PENDING_ROUTE_EXPIRY_RETRY_MS;
+        entry.window = 0;
       }
     }
     if (dropped) changed();
@@ -442,14 +549,20 @@ export function createPendingRouteStore(now: () => number = () => Date.now()) {
    */
   function apply(answers: readonly OwnRouteAnswer[]): void {
     if (answers.length === 0) return;
-    const due = now() + PENDING_ROUTE_TTL_MS;
+    const at = read();
+    const timing = {
+      monotonicAt: at.monotonic,
+      wallAt: at.wall,
+      hold: PENDING_ROUTE_TTL_MS,
+      window: PENDING_ROUTE_EXPIRY_WINDOW_MS,
+    };
     for (const answer of answers) {
       if (answer.state === 'live') {
         const key = keyOfStored(answer.route.domain, answer.route.path);
-        entries.set(key, { state: 'live', route: answer.route, due });
+        entries.set(key, { state: 'live', route: answer.route, ...timing });
         bump(key);
       } else {
-        entries.set(answer.key, { state: answer.state, due });
+        entries.set(answer.key, { state: answer.state, ...timing });
         bump(answer.key);
       }
     }
@@ -487,7 +600,10 @@ export function createPendingRouteStore(now: () => number = () => Date.now()) {
     /**
      * Run `listener` once for each batch of entries coming due; the batch is
      * dropped once every listener has answered `true` (refreshed), and kept
-     * for a retry otherwise. Registering the same function again counts; each
+     * for a retry otherwise (with no listener registered, too). The app root
+     * registers the route hooks' listener once per query client
+     * (`useRouteExpiry`, v1.41.2), whatever pages are mounted. Registering
+     * the same function again counts; each
      * distinct function runs once per batch, until each registration is
      * undone.
      */

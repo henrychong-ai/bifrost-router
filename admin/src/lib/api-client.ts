@@ -23,7 +23,7 @@ import {
 } from '@bifrost/shared';
 import { z } from 'zod';
 import { env } from '@/env';
-import { ApiError } from './api-error';
+import { ApiError, UNCONFIRMED_ANSWER_STATUS } from './api-error';
 import { DASHBOARD_REQUEST_HEADER, DASHBOARD_REQUEST_VALUE } from './dashboard-request';
 import {
   type AnalyticsQueryParams,
@@ -153,6 +153,45 @@ function buildQueryString(params: Record<string, string | number | boolean | und
   return '?' + new URLSearchParams(filtered.map(([k, v]) => [k, String(v)])).toString();
 }
 
+/**
+ * A route write answered 2xx without confirming it (`success: false`, or no
+ * route where one is due; v1.41.2): the server did not refuse the request, so
+ * whether the write landed is unknown. The error carries no HTTP status of
+ * its own (`UNCONFIRMED_ANSWER_STATUS`), so the route hooks read it as
+ * uncertain (`isUncertainAnswer`: they drop what they knew and refetch), and
+ * the QR editor marks a route create's retry for the read-back, never as a
+ * 4xx refusal that changed nothing.
+ */
+function unconfirmedRouteWrite(message: string): ApiError {
+  return new ApiError(UNCONFIRMED_ANSWER_STATUS, message);
+}
+
+/**
+ * The one check every route write's 2xx answer passes (v1.41.2): it must say
+ * `success`, or the write is unconfirmed ({@link unconfirmedRouteWrite}). The
+ * deletes (the ordinary one and the recovery) need nothing more.
+ */
+function confirmRouteWrite(
+  answer: { success: boolean; error?: string | undefined },
+  fallback: string,
+): void {
+  if (!answer.success) throw unconfirmedRouteWrite(answer.error || fallback);
+}
+
+/**
+ * A route write that answers with the route (create, update, migrate,
+ * transfer): {@link confirmRouteWrite}, and the route itself, or the write is
+ * unconfirmed.
+ */
+function confirmedRoute<T>(
+  answer: { success: boolean; data?: T | undefined; error?: string | undefined },
+  fallback: string,
+): T {
+  confirmRouteWrite(answer, fallback);
+  if (!answer.data) throw unconfirmedRouteWrite(answer.error || fallback);
+  return answer.data;
+}
+
 // =============================================================================
 // Routes API
 // =============================================================================
@@ -242,10 +281,7 @@ export const routesApi = {
         acknowledgeCredentialTarget ? { ...data, acknowledgeCredentialTarget } : data,
       ),
     });
-    if (!response.success || !response.data) {
-      throw new ApiError(400, response.error || 'Failed to create route');
-    }
-    return response.data;
+    return confirmedRoute(response, 'Failed to create route');
   },
 
   /**
@@ -272,10 +308,7 @@ export const routesApi = {
         ...(expectedUpdatedAt !== undefined && { expectedUpdatedAt }),
       }),
     });
-    if (!response.success || !response.data) {
-      throw new ApiError(400, response.error || 'Failed to update route');
-    }
-    return response.data;
+    return confirmedRoute(response, 'Failed to update route');
   },
 
   /**
@@ -296,10 +329,16 @@ export const routesApi = {
       domain,
       ...(options.recoverInvalid ? { recover: 'invalid' } : {}),
     });
-    await fetchApi(
+    const response = await fetchApi(
       `/api/routes${query}`,
       z.object({ success: z.boolean(), error: z.string().optional() }),
       { method: 'DELETE' },
+    );
+    // A 2xx saying `success: false` confirms nothing (v1.41.2): it was taken
+    // as a delete before
+    confirmRouteWrite(
+      response,
+      options.recoverInvalid ? 'Failed to delete the unreadable record' : 'Failed to delete route',
     );
   },
 
@@ -335,10 +374,7 @@ export const routesApi = {
       method: 'POST',
       ...(Object.keys(body).length > 0 ? { body: JSON.stringify(body) } : {}),
     });
-    if (!response.success || !response.data) {
-      throw new ApiError(400, response.error || 'Failed to migrate route');
-    }
-    return response.data;
+    return confirmedRoute(response, 'Failed to migrate route');
   },
 
   /**
@@ -364,10 +400,7 @@ export const routesApi = {
         ...(acknowledgeCredentialTarget ? { acknowledgeCredentialTarget } : {}),
       }),
     });
-    if (!response.success || !response.data) {
-      throw new ApiError(400, response.error || 'Failed to transfer route');
-    }
-    return response.data;
+    return confirmedRoute(response, 'Failed to transfer route');
   },
 
   /**

@@ -14,16 +14,16 @@ import {
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { api } from '@/lib/api-client';
 import {
-  ApiError,
   isNotFoundError,
   isRouteAlreadyExistsError,
   isRouteSourceChanged,
+  isUncertainAnswer,
   RouteExistsError,
+  RouteWriteRefusedError,
 } from '@/lib/api-error';
 import {
   keyOfInput,
   keyOfStored,
-  type OwnRouteAnswer,
   type PendingRouteStore,
   pendingRoutes,
   type RouteList,
@@ -91,36 +91,43 @@ export function markActiveRouteQueries(queryClient: QueryClient): RouteQueryMark
 }
 
 /**
- * Whether every marked query was refreshed by a fetch SENT after its mark
- * (v1.41.1 review), by count, never by clock: no error, and its data written
- * once more than when marked, or twice more when a fetch was already in
- * flight then. That fetch may have been sent while KV lagged, and the
- * refetch reuses its promise (a query with no data yet), so its answer does
- * not count. A query holding data whose fetch was in flight is cancelled and
- * fetched again instead (TanStack Query's `cancelRefetch`), so its data is
- * written once, and it counts as not refreshed: conservative, and its batch
- * is retried 30 s later (`PENDING_ROUTE_EXPIRY_RETRY_MS`), when no fetch is in
- * flight. A failed or paused refetch writes no data, so it never counts.
+ * Whether every marked query was refreshed by the expiry's own refetch
+ * (v1.41.2), by count, never by clock: no fetch was in flight at its mark, it
+ * has no error, and its data was written at least once since. A query that
+ * was already fetching at the mark counts as NOT refreshed: that fetch may
+ * have been sent while KV lagged, and the refetch joins it
+ * (`cancelRefetch: false`, so it is never cancelled), so its data is written
+ * once, by that fetch's answer, and a count cannot tell whose answer it
+ * holds. Its batch is then retried 30 s later
+ * (`PENDING_ROUTE_EXPIRY_RETRY_MS`), when it is normally idle. A failed or
+ * paused refetch writes no data, so it never counts. v1.41.1 counted a
+ * second data write for such a query instead, which the joined fetch never
+ * makes, and which a fetch started elsewhere after the mark (a write's own
+ * invalidation, sent while KV lagged) could supply.
  */
 export function routeQueriesRefreshed(marks: readonly RouteQueryMark[]): boolean {
   return marks.every(
     ({ query, dataUpdateCount, wasFetching }) =>
+      !wasFetching &&
       query.state.error === null &&
-      query.state.dataUpdateCount >= dataUpdateCount + (wasFetching ? 2 : 1),
+      query.state.dataUpdateCount >= dataUpdateCount + 1,
   );
 }
 
 /**
  * Each query client's expiry listener, one function per client, so however
- * many route queries register it the store runs it once per expiring batch.
- * It touches only what is on screen (v1.41.1 review):
+ * often it is registered the store runs it once per expiring batch. It
+ * touches only what is on screen (v1.41.1 review):
  *  1. it REMOVES every inactive route query (no enabled observer: a closed
- *     search, an unmounted by-target answer, the other domains' prefetches),
- *     so no unwatched cache can show the raw rows cached while KV lagged once
- *     the batch drops; one mounted again fetches anew;
+ *     search, an unmounted by-target answer, the other domains' prefetches,
+ *     the QR editor's route picker while the code is unlinked), so no
+ *     unwatched cache can show the raw rows cached while KV lagged once the
+ *     batch drops; one mounted again fetches anew;
  *  2. it marks the active ones ({@link markActiveRouteQueries}) and refetches
- *     them;
- *  3. it answers whether they all refreshed ({@link routeQueriesRefreshed}).
+ *     them, joining a fetch already in flight rather than cancelling it
+ *     (v1.41.2: another batch's slow refetch is never cut short);
+ *  3. it answers whether they all refreshed ({@link routeQueriesRefreshed}:
+ *     one already fetching at the mark never has).
  * The store drops the batch only on `true`, and otherwise keeps it projected
  * and retries it 30 s later: a watched query whose refetch keeps failing
  * keeps the batch for as long as it fails.
@@ -133,7 +140,14 @@ function expiryRefetch(queryClient: QueryClient): () => Promise<boolean> {
     refetch = async () => {
       queryClient.removeQueries({ queryKey: routeKeys.all, type: 'inactive' });
       const marks = markActiveRouteQueries(queryClient);
-      await queryClient.invalidateQueries({ queryKey: routeKeys.all, refetchType: 'active' });
+      // `cancelRefetch: false` (v1.41.2): a fetch already in flight, an
+      // earlier batch's refetch or a write's, is joined, never cancelled and
+      // sent again (TanStack Query's `Query.fetch` returns its promise); such
+      // a query was fetching at its mark, so it still counts as not refreshed
+      await queryClient.invalidateQueries(
+        { queryKey: routeKeys.all, refetchType: 'active' },
+        { cancelRefetch: false },
+      );
       return routeQueriesRefreshed(marks);
     };
     expiryRefetches.set(queryClient, refetch);
@@ -142,17 +156,37 @@ function expiryRefetch(queryClient: QueryClient): () => Promise<boolean> {
 }
 
 /**
+ * Register the query client's expiry listener with the store (v1.41.2): when
+ * entries expire, it removes the inactive route queries and refetches the
+ * active ones (by-target answers included, under `routeKeys.all`), and the
+ * store drops the entries only once every active one has refreshed (retried
+ * every 30 s until they have), so what shows after the 90 s is the refetch's
+ * result. Returns the unregistration. Called once for the app's client at
+ * its root ({@link useRouteExpiry}), so expiry runs whatever pages are
+ * mounted; the listener is one function per client, so a second
+ * registration still runs it once per batch. v1.41.1 registered it from
+ * every route query's mount, so a batch due while no route query was mounted
+ * was dropped with nothing refetched.
+ */
+export function registerRouteExpiry(
+  queryClient: QueryClient,
+  store: PendingRouteStore = pendingRoutes,
+): () => void {
+  return store.onExpire(expiryRefetch(queryClient));
+}
+
+/** {@link registerRouteExpiry} for the app root's lifetime (`App.tsx`). */
+export function useRouteExpiry(queryClient: QueryClient): void {
+  useEffect(() => registerRouteExpiry(queryClient), [queryClient]);
+}
+
+/**
  * The pending-route store's current view of its entries (lib/route-pending.ts,
  * v1.41.1): a new object whenever they change, so a `select` built on it
- * re-runs then. While mounted it also has the store, when entries expire,
- * remove the inactive route queries and refetch the active ones, and the
- * store drops the entries only once every active one has refreshed (retried
- * every 30 s until they have), so what shows after the 90 s is the
- * refetch's result.
+ * re-runs then. Expiry is registered once at the app root
+ * ({@link useRouteExpiry}), not per mount (v1.41.2).
  */
 export function usePendingRouteView() {
-  const queryClient = useQueryClient();
-  useEffect(() => pendingRoutes.onExpire(expiryRefetch(queryClient)), [queryClient]);
   return useSyncExternalStore(pendingRoutes.subscribe, pendingRoutes.getSnapshot);
 }
 
@@ -305,22 +339,15 @@ function releaseAdmission(store: PendingRouteStore, admission: RouteWriteAdmissi
 }
 
 /**
- * Whether a failure is the server's definite answer, a 4xx refusal: nothing
- * was written. Anything else (no answer, a 5xx, an unreadable body, a 2xx
- * that failed validation) leaves unknown whether the write landed.
- */
-function isDefiniteRefusal(error: unknown): boolean {
-  return error instanceof ApiError && error.status >= 400 && error.status < 500;
-}
-
-/**
  * A failed write holding `admission` (`onError`; `undefined` when it was
  * refused before any request, which changed nothing and leaves the store
  * alone), whose precondition named the route at `refusedAt`:
- *  - no definite answer (no answer, a 5xx, an unreadable body; v1.41.1
- *    review): the write may have landed, so the store drops what it knew of
- *    EVERY route the write held (their generations stay: its own retry is not
- *    a change), and every route query is refetched;
+ *  - no definite answer ({@link isUncertainAnswer}, the predicate the Routes
+ *    and QR pages use too: no answer, a 5xx, an unreadable body, a 2xx that
+ *    confirmed nothing; v1.41.2): the write may have landed, so the store
+ *    drops what it knew of EVERY route the write held (their generations
+ *    stay: its own retry is not a change), and every route query is
+ *    invalidated (the active ones refetch);
  *  - 409 ROUTE_SOURCE_CHANGED: the server refused `refusedUpdatedAt`, the
  *    version the request expected; the store forgets the entry at
  *    `refusedAt` only when that entry is exactly this version (an editor
@@ -332,7 +359,8 @@ function isDefiniteRefusal(error: unknown): boolean {
  *    `Route not found: …` text and no code, and an unknown endpoint or a
  *    proxy in front of the API answers 404 too, so a 404 never says the route
  *    is gone, and the store never marks it gone from one.
- * Any other refusal changed nothing on the server and leaves the store alone.
+ * Any other refusal changed nothing on the server and leaves the store alone,
+ * as does a write refused before any request (a {@link RouteWriteRefusedError}).
  */
 function settleFailure(
   queryClient: QueryClient,
@@ -342,11 +370,12 @@ function settleFailure(
   refusedAt: RouteStoreKey,
   refusedUpdatedAt?: number,
 ): void {
-  // Refused before any request (RouteWritePendingError, thrown from
-  // `onMutate`): TanStack Query then has no context, so `admission` is
-  // undefined, and nothing was sent
-  if (!admission) return;
-  if (!isDefiniteRefusal(error)) {
+  // Refused before any request (a RouteWriteRefusedError, v1.41.2; the
+  // RouteWritePendingError thrown from `onMutate` leaves TanStack Query with
+  // no context, so `admission` is undefined too): nothing was sent, a
+  // definite answer, and the store is left alone
+  if (!admission || error instanceof RouteWriteRefusedError) return;
+  if (isUncertainAnswer(error)) {
     store.dropHeld(admission);
     invalidateRoutes(queryClient);
   } else if (isRouteSourceChanged(error)) {
@@ -628,17 +657,14 @@ export function migrateRouteMutationOptions(
     onMutate: ({ domain, oldPath, newPath }: MigrateVariables) =>
       admit(store, [keyOfInput(domain, oldPath), keyOfInput(domain, newPath)]),
     // The old path is gone; the moved route shows where a listing still has
-    // a row at its new path, and elsewhere on the refetch. A move to the same
-    // key (as the Worker normalises both) is a save: its answer is the entry.
-    // One answer, one snapshot change
+    // a row at its new path, and elsewhere on the refetch (the Worker refuses
+    // a move to the same normalised path, 400, so the two keys differ). One
+    // answer, one snapshot change
     onSuccess: (migrated: Route, { domain, oldPath }: MigrateVariables) => {
-      const answers: OwnRouteAnswer[] = [];
-      const source = keyOfInput(domain, oldPath);
-      if (keyOfStored(domain, migrated.path) !== source) {
-        answers.push({ state: 'gone', key: source });
-      }
-      answers.push({ state: 'live', route: { ...migrated, domain } });
-      store.apply(answers);
+      store.apply([
+        { state: 'gone', key: keyOfInput(domain, oldPath) },
+        { state: 'live', route: { ...migrated, domain } },
+      ]);
       invalidateRoutes(queryClient);
     },
     onError: (

@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Bifrost Admin API
   description: Edge router management API for route configuration and analytics
-  version: 1.41.1
+  version: 1.41.2
   contact:
     name: Bifrost Maintainers
     url: https://example.com
@@ -146,7 +146,13 @@ paths:
             the record stored at exactly `{domain}:{path}`, only when it cannot
             be read; a readable route there is refused (409
             `ROUTE_RECORD_READABLE`). Without it the path is normalised, as
-            every route write normalises it.
+            every route write normalises it, and a path that does not
+            round-trip (`?`, `#`, a `%` surviving one decode, a control
+            character) is refused (400, v1.41.2), as every other route write
+            refuses it, instead of deleting the route it normalises to; and a
+            path not in normalised form is refused (409
+            `ROUTE_KEY_NOT_NORMALIZED`, v1.41.2) when a record is stored at
+            that exact key, readable or not.
           schema:
             type: string
             enum: [invalid]
@@ -156,12 +162,21 @@ paths:
             Deleted, also a route whose stored record cannot be read (its public
             URL is purged, as stored and percent-encoded for a recovery, and its
             audit row names its key with `state: invalid`)
+        '400':
+          description: >-
+            No path, an unsupported domain, an invalid `recover` value, or (an
+            ordinary delete, v1.41.2) a path that does not round-trip; nothing
+            is deleted
         '404':
           description: Nothing is stored at the key
         '409':
           description: >-
             A recovery aimed at a readable route (`error: ROUTE_RECORD_READABLE`);
-            delete it with the ordinary delete
+            delete it with the ordinary delete. Or (an ordinary delete, v1.41.2,
+            `error: ROUTE_KEY_NOT_NORMALIZED`) a path not in normalised form
+            with a record stored at that exact key, readable or not: the delete
+            would normalise and remove another route, so nothing is deleted;
+            an unreadable record there is removed with `recover=invalid`
 
   /api/routes/seed:
     post:

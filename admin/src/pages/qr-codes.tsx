@@ -86,7 +86,7 @@ import {
   useUpdateQr,
 } from '@/hooks';
 import type { QrQueryParams } from '@/lib/api-client';
-import { ApiError, isQrNotFoundError, RouteExistsError } from '@/lib/api-error';
+import { isQrNotFoundError, isUncertainAnswer, RouteExistsError } from '@/lib/api-error';
 import { getPersistedPageSize, persistPageSize } from '@/lib/constants';
 import { credentialTargetParametersFromError } from '@/lib/credential-target';
 import { useClearNavigationState } from '@/lib/navigation-state';
@@ -417,10 +417,8 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
    */
   const reportRetainedRoute = (route: Route, error?: unknown) => {
     const url = linkedRouteUrl({ domain, path: route.path });
-    const refused =
-      error instanceof ApiError && error.status >= 400 && error.status < 500
-        ? error.message
-        : undefined;
+    // One predicate for what the server definitely refused (v1.41.2)
+    const refused = error instanceof Error && !isUncertainAnswer(error) ? error.message : undefined;
     toast.error(
       refused === undefined
         ? `Route ${url} was created, but the QR save could not be confirmed. The route is kept; retry the QR save or view the route.`
@@ -458,11 +456,11 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
         } catch (failure) {
           // Refused before any request (another write of this route is still
           // saving): nothing was sent, so nothing is uncertain and the mark
-          // stays as it was; the toast below says why (v1.41.1 review)
+          // stays as it was; the toast below says why (v1.41.1 review). A
+          // create answered 2xx without a route is uncertain since v1.41.2
+          // (status 0), so its retry reads the route back
           if (!(failure instanceof RouteWritePendingError)) {
-            const answered =
-              failure instanceof ApiError && failure.status >= 400 && failure.status < 500;
-            uncertainRoute.current = answered ? null : routeKey;
+            uncertainRoute.current = isUncertainAnswer(failure) ? routeKey : null;
           }
           throw failure;
         }
@@ -1038,8 +1036,7 @@ export function QrCodesPage() {
         afterUncertainAnswer: key !== undefined && uncertainCreate.current === key,
       });
     } catch (failure) {
-      const answered = failure instanceof ApiError && failure.status >= 400 && failure.status < 500;
-      uncertainCreate.current = !answered && key !== undefined ? key : null;
+      uncertainCreate.current = isUncertainAnswer(failure) && key !== undefined ? key : null;
       throw failure;
     }
     uncertainCreate.current = null;

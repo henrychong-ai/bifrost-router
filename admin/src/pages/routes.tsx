@@ -95,7 +95,7 @@ import {
   useTransferRoute,
   useUpdateRoute,
 } from '@/hooks';
-import { isRouteSourceChanged } from '@/lib/api-error';
+import { isRouteSourceChanged, isUncertainAnswer } from '@/lib/api-error';
 import { getPersistedPageSize, getR2ObjectUrl, persistPageSize } from '@/lib/constants';
 import { credentialTargetParametersFromError } from '@/lib/credential-target';
 import { navEditRoute, useClearNavigationState } from '@/lib/navigation-state';
@@ -109,8 +109,16 @@ import {
   unappliedPatchFields,
   unsupportedPatchFields,
 } from '@/lib/route-patch';
-import { keyOfInput, keyOfStored, pendingRoutes, type RouteList } from '@/lib/route-pending';
-import { requireWriteDomain } from '@/lib/route-write-domain';
+import {
+  keyOfInput,
+  keyOfStored,
+  type PendingRouteAdmissionView,
+  pendingRoutes,
+  ROUTE_WRITE_PENDING_MESSAGE,
+  type RouteList,
+} from '@/lib/route-pending';
+import { requireWriteDomain, writeDomain } from '@/lib/route-write-domain';
+import { routeWriteFailureText } from '@/lib/route-write-outcome';
 import type { CreateRouteInput, InvalidRouteRow, Route, UpdateRouteInput } from '@/lib/schemas';
 import { isR2BucketName, isRedirectStatusCode, R2_BUCKETS } from '@/lib/schemas';
 import { downloadPng, downloadSvg } from '@/lib/svg-to-png';
@@ -136,6 +144,24 @@ const ROUTE_CHANGED_TOAST =
  */
 const ROUTE_CHANGED_WHILE_OPEN_TOAST =
   'This route changed while it was open. Reopen it to edit the current version.';
+
+/**
+ * Whether `view` holds a write of the route at `domain` (its write domain,
+ * `writeDomainOf`; v1.41.2): a readable row is held at its path as a write of
+ * it sends it (normalised as the Worker normalises it); `exact`: an
+ * unreadable record's row, held by its exact stored key (its recovery
+ * delete's). Nothing held: `false` without normalising (it runs for every row
+ * on every render).
+ */
+function heldIn(
+  view: PendingRouteAdmissionView,
+  domain: string | undefined,
+  path: string,
+  options?: { exact?: boolean },
+): boolean {
+  if (view.isEmpty || domain === undefined) return false;
+  return view.isPending(options?.exact ? keyOfStored(domain, path) : keyOfInput(domain, path));
+}
 
 function RouteTypeBadge({ type }: { type: Route['type'] }) {
   const styles: Record<Route['type'], string> = {
@@ -976,23 +1002,40 @@ export function RoutesPage() {
   const pendingView = usePendingRouteView();
   const admission = usePendingRouteAdmission();
   /**
-   * Whether a write of this session at the route is in flight, from the
-   * admission snapshot this render subscribed to (it re-renders the row when
-   * the writes in flight change). A readable row is held at its path as a
-   * write of it sends it (normalised as the Worker normalises it); `exact`:
-   * an unreadable record's row, held by its exact stored key (its recovery
-   * delete's).
+   * The domain a write of the route targets, resolved exactly as
+   * `requireWriteDomain` resolves it (an empty string is no domain), so every
+   * check and store read below uses the key the write will hold (v1.41.2).
+   */
+  const writeDomainOf = useCallback(
+    (route: Pick<Route, 'domain'>) => writeDomain(route.domain, filters.domain),
+    [filters.domain],
+  );
+  /**
+   * Whether a write of this session at the route is in flight, read through
+   * the admission snapshot this render subscribed to (v1.41.2: frozen at its
+   * version, so it answers for this render however writes start or settle
+   * after; the subscription re-renders the row when they do). For what the
+   * render SHOWS (disabled buttons, `aria-busy`); see {@link heldIn}.
    */
   const isWritePending = useCallback(
-    (route: Pick<Route, 'path' | 'domain'>, options?: { exact?: boolean }) => {
-      const domain = route.domain ?? filters.domain;
-      if (domain === undefined) return false;
-      return admission.isPending(
-        options?.exact ? keyOfStored(domain, route.path) : keyOfInput(domain, route.path),
-      );
-    },
-    [admission, filters.domain],
+    (route: Pick<Route, 'path' | 'domain'>, options?: { exact?: boolean }) =>
+      heldIn(admission, writeDomainOf(route), route.path, options),
+    [admission, writeDomainOf],
   );
+  /**
+   * The same question at CLICK time (v1.41.2), read from the store's live
+   * snapshot so a handler from a render made before a write was acquired
+   * still sees it: a held route is refused with the hooks' own message, and
+   * `true` returned. The openers and the toggle below are the only entry
+   * points of a row's actions, so each checks here.
+   */
+  const refuseIfHeld = (route: Pick<Route, 'path' | 'domain'>, options?: { exact?: boolean }) => {
+    if (!heldIn(pendingRoutes.getAdmissionSnapshot(), writeDomainOf(route), route.path, options)) {
+      return false;
+    }
+    toast.error(ROUTE_WRITE_PENDING_MESSAGE);
+    return true;
+  };
   /**
    * Whether this session's own write answered at the route, since the
    * version a dialog was opened on, with another version or by removing it
@@ -1006,7 +1049,7 @@ export function RoutesPage() {
    * readable route's) says nothing about a readable route, so it is ignored.
    */
   const changedWhileOpen = (route: Route) => {
-    const domain = route.domain ?? filters.domain;
+    const domain = writeDomainOf(route);
     const answer =
       domain === undefined ? undefined : pendingRoutes.answerAt(keyOfStored(domain, route.path));
     if (answer === undefined || answer.state === 'gone-unreadable') return false;
@@ -1021,8 +1064,25 @@ export function RoutesPage() {
    * then refuses).
    */
   const destinationGeneration = (route: Pick<Route, 'domain'>, path: string) => {
-    const domain = route.domain ?? filters.domain;
+    const domain = writeDomainOf(route);
     return domain === undefined ? undefined : pendingRoutes.generation(keyOfInput(domain, path));
+  };
+  /**
+   * The route this session's own write answered at a migration's
+   * destination (v1.41.2), read at submit: a create, or another migration or
+   * transfer, landed there within the 90 s, possibly before the confirmation
+   * opened (which its generation alone misses). The server would refuse the
+   * move; the dialog sends nothing instead. A destination at the source's own
+   * key (another spelling of the same path) is left to the server, which
+   * refuses it as the same path.
+   */
+  const ownRouteAtDestination = (route: Pick<Route, 'domain' | 'path'>, path: string) => {
+    const domain = writeDomainOf(route);
+    if (domain === undefined) return undefined;
+    const destination = keyOfInput(domain, path);
+    if (destination === keyOfInput(domain, route.path)) return undefined;
+    const answer = pendingRoutes.answerAt(destination);
+    return answer?.state === 'live' ? answer.route : undefined;
   };
 
   // Build cross-domain routes map from TanStack Query cache: the raw
@@ -1087,6 +1147,61 @@ export function RoutesPage() {
     destinationGeneration: number | undefined;
   } | null>(null);
 
+  // Every way a row's actions start (v1.41.2): each refuses a route a write
+  // of this session holds when clicked, with the hooks' own message
+  // (`refuseIfHeld`), whatever render the handler came from
+  const openEditor = (route: Route) => {
+    if (!refuseIfHeld(route)) setEditRoute(route);
+  };
+  const openDelete = (row: { path: string; domain?: string | undefined; unreadable?: boolean }) => {
+    if (!refuseIfHeld(row, row.unreadable ? { exact: true } : undefined)) {
+      setDeleteConfirmRoute(row);
+    }
+  };
+  const toggleIfFree = (route: Route) => {
+    if (!refuseIfHeld(route)) void handleToggle(route);
+  };
+
+  /**
+   * One failure path for the dialogs' route writes (v1.41.2). No definite
+   * answer (`isUncertainAnswer`): the write may have landed, so `close` runs,
+   * any credential confirmation closes, and the toast says it could not be
+   * confirmed. Otherwise a refusal over a credential-named target parameter
+   * opens the confirmation (`credential`: absent once acknowledged, or for a
+   * write that has none); `sourceChanged`: a 409 `ROUTE_SOURCE_CHANGED`
+   * closes the dialogs (`close`) and says so; anything else says `failed`
+   * and its reason, leaving the dialogs as they are.
+   */
+  const onWriteFailure = (
+    err: unknown,
+    options: {
+      close: () => void;
+      action: string;
+      failed: string;
+      credential?: { verb: string; retry: () => Promise<void> } | undefined;
+      sourceChanged?: boolean;
+    },
+  ) => {
+    if (isUncertainAnswer(err)) {
+      options.close();
+      setCredentialConfirm(null);
+      toast.error(routeWriteFailureText(err, options.action, options.failed));
+      return;
+    }
+    const parameters = options.credential ? credentialTargetParametersFromError(err) : null;
+    if (parameters && options.credential) {
+      setCredentialConfirm({ parameters, ...options.credential });
+      return;
+    }
+    setCredentialConfirm(null);
+    if (options.sourceChanged && isRouteSourceChanged(err)) {
+      options.close();
+      toast.error(ROUTE_CHANGED_TOAST);
+      return;
+    }
+    toast.error(routeWriteFailureText(err, options.action, options.failed));
+  };
+
   // Auto-open edit dialog from navigate state (e.g., storage "View in Routes"),
   // once per navigation: opened during render, and the history entry's state
   // cleared through the router after commit so a reload does not reopen it.
@@ -1150,19 +1265,16 @@ export function RoutesPage() {
       setCreateDialogOpen(false);
       setCredentialConfirm(null);
     } catch (err) {
-      const parameters = credentialTargetParametersFromError(err);
-      if (parameters && !acknowledgeCredentialTarget) {
-        setCredentialConfirm({
-          parameters,
-          verb: 'Create',
-          retry: () => handleCreate(input, domain, true),
-        });
-        return;
-      }
-      setCredentialConfirm(null);
-      toast.error(
-        `Failed to create route: ${err instanceof Error ? err.message : 'Unknown error'}`,
-      );
+      // No definite answer (v1.41.2): the route may have been created, so the
+      // dialog closes; a new one reads the refetched list
+      onWriteFailure(err, {
+        close: () => setCreateDialogOpen(false),
+        action: 'new route',
+        failed: 'Failed to create route',
+        credential: acknowledgeCredentialTarget
+          ? undefined
+          : { verb: 'Create', retry: () => handleCreate(input, domain, true) },
+      });
     }
   };
 
@@ -1219,27 +1331,20 @@ export function RoutesPage() {
       setEditRoute(null);
       setCredentialConfirm(null);
     } catch (err) {
-      const parameters = credentialTargetParametersFromError(err);
-      if (parameters && !acknowledgeCredentialTarget) {
-        setCredentialConfirm({
-          parameters,
-          verb: 'Save',
-          retry: () => handleUpdate(updates, false, undefined, true),
-        });
-        return;
-      }
-      setCredentialConfirm(null);
-      if (isRouteSourceChanged(err)) {
-        // v1.40.0: the route changed since this dialog loaded it. The hook
-        // reloads it; closing the dialog makes the next edit start from the
-        // current version, never resend the stale updatedAt
-        setEditRoute(null);
-        toast.error(ROUTE_CHANGED_TOAST);
-        return;
-      }
-      toast.error(
-        `Failed to update route: ${err instanceof Error ? err.message : 'Unknown error'}`,
-      );
+      // No definite answer (v1.41.2): the update may have landed, so the
+      // editor closes; the hook dropped what the store knew and refetches,
+      // and a reopen reads the refetched route. A 409 ROUTE_SOURCE_CHANGED
+      // (v1.40.0): the hook reloads the route, and closing the dialog makes
+      // the next edit start from the current version
+      onWriteFailure(err, {
+        close: () => setEditRoute(null),
+        action: 'update',
+        failed: 'Failed to update route',
+        credential: acknowledgeCredentialTarget
+          ? undefined
+          : { verb: 'Save', retry: () => handleUpdate(updates, false, undefined, true) },
+        sourceChanged: true,
+      });
     }
   };
 
@@ -1255,15 +1360,21 @@ export function RoutesPage() {
       toast.success('Route deleted successfully');
       setDeleteConfirmRoute(null);
     } catch (err) {
-      toast.error(
-        `Failed to delete route: ${err instanceof Error ? err.message : 'Unknown error'}`,
-      );
+      // No definite answer (v1.41.2): the route may be gone, so the
+      // confirmation closes; the list is reloading
+      onWriteFailure(err, {
+        close: () => setDeleteConfirmRoute(null),
+        action: 'delete',
+        failed: 'Failed to delete route',
+      });
     }
   };
 
   const handleToggle = async (route: Route, acknowledgeCredentialTarget?: boolean) => {
-    // A write of this route already in flight refuses this one before any
-    // request (useToggleRoute), and the toast below says so. A route stored
+    // The row menu refuses a click on a held route (`toggleIfFree`, v1.41.2);
+    // a write of this route in flight still refuses this one before any
+    // request (useToggleRoute: the acknowledged retry), and the toast below
+    // says so. A route stored
     // without `enabled` is active (the row says so): its next state is
     // disabled (v1.41.1 review), and the toast and confirmation follow it
     const enabled = route.enabled === false;
@@ -1288,9 +1399,7 @@ export function RoutesPage() {
         return;
       }
       setCredentialConfirm(null);
-      toast.error(
-        `Failed to toggle route: ${err instanceof Error ? err.message : 'Unknown error'}`,
-      );
+      toast.error(routeWriteFailureText(err, 'change', 'Failed to toggle route'));
     }
   };
 
@@ -1334,15 +1443,24 @@ export function RoutesPage() {
       toast.error(ROUTE_CHANGED_WHILE_OPEN_TOAST);
       return;
     }
+    // This session's own write answered a route at the destination within
+    // the 90 s (v1.41.2: a create KV does not list yet): the server would
+    // refuse the move, so nothing is sent
+    const existing = ownRouteAtDestination(route, newPath);
+    if (existing) {
+      setMigrationConfirm(null);
+      setEditRoute(null);
+      setCredentialConfirm(null);
+      toast.error(`A route already exists at ${existing.path}. Reopen it to choose another path.`);
+      return;
+    }
 
     let domain: string;
     try {
       domain = requireWriteDomain(route.domain, filters.domain);
     } catch (err) {
       setMigrationConfirm(null);
-      toast.error(
-        `Failed to migrate route: ${err instanceof Error ? err.message : 'Unknown error'}`,
-      );
+      toast.error(routeWriteFailureText(err, 'migration', 'Failed to migrate route'));
       return;
     }
 
@@ -1358,27 +1476,26 @@ export function RoutesPage() {
         expectedUpdatedAt: route.updatedAt,
       });
     } catch (err) {
-      const parameters = credentialTargetParametersFromError(err);
-      if (parameters && !acknowledgeCredentialTarget) {
-        // Nothing has moved: the confirmation re-sends the same migration
-        setCredentialConfirm({
-          parameters,
-          verb: 'Migrate',
-          retry: () => handleConfirmMigration(plan, true),
-        });
-        return;
-      }
-      setCredentialConfirm(null);
-      if (isRouteSourceChanged(err)) {
-        // Nothing moved; the source is reloaded and the dialogs close (v1.40.0)
-        setMigrationConfirm(null);
-        setEditRoute(null);
-        toast.error(ROUTE_CHANGED_TOAST);
-        return;
-      }
-      toast.error(
-        `Failed to migrate route: ${err instanceof Error ? err.message : 'Unknown error'}`,
-      );
+      // No definite answer (v1.41.2): the route may have moved, so the
+      // confirmation and the editor close; the hook dropped what the store
+      // knew and refetches, and a reopen reads the refetched route. A credential
+      // refusal: nothing has moved, and the confirmation re-sends the same
+      // migration. A 409 ROUTE_SOURCE_CHANGED: nothing moved, the source is
+      // reloaded and the dialogs close (v1.40.0). Any other definite refusal
+      // (a 4xx answer, or refused before any request): nothing moved, and the
+      // dialogs stay as they are
+      onWriteFailure(err, {
+        close: () => {
+          setMigrationConfirm(null);
+          setEditRoute(null);
+        },
+        action: 'migration',
+        failed: 'Failed to migrate route',
+        credential: acknowledgeCredentialTarget
+          ? undefined
+          : { verb: 'Migrate', retry: () => handleConfirmMigration(plan, true) },
+        sourceChanged: true,
+      });
       return;
     }
 
@@ -1409,17 +1526,19 @@ export function RoutesPage() {
       setEditRoute(null);
       setCredentialConfirm(null);
     } catch (err) {
-      const parameters = credentialTargetParametersFromError(err);
-      if (parameters && !acknowledgeCredentialTarget) {
-        setCredentialConfirm({
-          parameters,
-          verb: 'Transfer',
-          retry: () => handleTransferConfirm(true),
-        });
-        return;
-      }
-      setCredentialConfirm(null);
-      toast.error(`Transfer failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      // No definite answer (v1.41.2): the route may have moved, so the
+      // confirmation and the editor close; a reopen reads the refetch
+      onWriteFailure(err, {
+        close: () => {
+          setTransferTarget(null);
+          setEditRoute(null);
+        },
+        action: 'transfer',
+        failed: 'Transfer failed',
+        credential: acknowledgeCredentialTarget
+          ? undefined
+          : { verb: 'Transfer', retry: () => handleTransferConfirm(true) },
+      });
     }
   };
 
@@ -1665,9 +1784,7 @@ export function RoutesPage() {
                       key={route.domain ? `${route.domain}:${route.path}` : route.path}
                       className="hover:bg-gold-50/50 transition-colors cursor-pointer"
                       aria-busy={pending || undefined}
-                      onClick={() => {
-                        if (!isWritePending(route)) setEditRoute(route);
-                      }}
+                      onClick={() => openEditor(route)}
                     >
                       {!filters.domain && (
                         <TableCell className="font-mono text-small text-charcoal-600">
@@ -1730,9 +1847,7 @@ export function RoutesPage() {
                             )}
                             <DropdownMenuItem
                               disabled={pending}
-                              onClick={() => {
-                                if (!isWritePending(route)) setEditRoute(route);
-                              }}
+                              onClick={() => openEditor(route)}
                               className="font-inter"
                             >
                               <Pencil className="h-4 w-4 mr-2" />
@@ -1740,7 +1855,7 @@ export function RoutesPage() {
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               disabled={pending}
-                              onClick={() => void handleToggle(route)}
+                              onClick={() => toggleIfFree(route)}
                               className="font-inter"
                             >
                               {route.enabled !== false ? (
@@ -1757,9 +1872,7 @@ export function RoutesPage() {
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               disabled={pending}
-                              onClick={() => {
-                                if (!isWritePending(route)) setDeleteConfirmRoute(route);
-                              }}
+                              onClick={() => openDelete(route)}
                               className="text-destructive font-inter"
                             >
                               <Trash2 className="h-4 w-4 mr-2" />
@@ -1801,7 +1914,7 @@ export function RoutesPage() {
                         className="text-destructive hover:bg-destructive/10"
                         aria-label={`Delete unreadable record ${row.path}`}
                         disabled={isWritePending(row, { exact: true })}
-                        onClick={() => setDeleteConfirmRoute({ ...row, unreadable: true })}
+                        onClick={() => openDelete({ ...row, unreadable: true })}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
