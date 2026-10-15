@@ -6,6 +6,37 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.41.3 (2026-10-15) — Minor/patch dependency sweep
+
+**Why:** routine in-range dependency maintenance. No source change, no
+migration, no API wire change. `pnpm audit` and `pnpm audit --prod` report no
+known vulnerabilities before and after.
+
+### Dependencies
+
+- **Wrangler 4.146.0 -> 4.151.0**, still pinned exactly, with
+  `worker-configuration.d.ts` regenerated (`pnpm run types:generate`).
+- **Worker and shared:** `hono` 4.13.13, `drizzle-orm` 0.45.4, `zod` 4.6.7.
+  The `hono` override floor is raised to `>=4.13.13 <5`: an override is a pin,
+  and the old floor held the Worker at 4.13.12.
+- **MCP:** `@modelcontextprotocol/sdk` 1.32.1.
+- **Dashboard:** `react` and `react-dom` 19.3.1, `@tanstack/react-query`
+  5.104.2, `react-hook-form` 7.90.0, the Radix packages
+  (`react-alert-dialog` 1.2.1, `react-dialog` 1.3.1, `react-dropdown-menu`
+  2.2.1, `react-label` 2.1.17, `react-select` 2.4.1, `react-separator` 1.2.0,
+  `react-slot` 1.5.0, `react-switch` 1.4.1, `react-tabs` 1.2.1,
+  `react-tooltip` 1.4.1), `vite` 8.3.4, `@vitejs/plugin-react` 6.1.2,
+  `happy-dom` 20.14.6.
+- **Tooling:** `oxlint` 1.88.0, `oxlint-tsgolint` 7.0.2004, `@types/node`
+  24.19.2.
+- **Held back:** releases under a day old (`vitest` and the coverage plugins
+  4.1.12, `@tanstack/react-query` 5.104.3); majors as before (TypeScript 7,
+  Vitest 5 and the coverage plugins, `@types/node` 25+, `happy-dom` 21,
+  `@tanstack/react-table` 9, `lucide-react` 1, and
+  `@cloudflare/vitest-pool-workers` past 0.18).
+
+---
+
 ## v1.41.2 (2026-10-09) — The route store's fixes from a sibling deployment's review of the same design
 
 **Why:** a sibling deployment ported v1.41.1's store of this session's own
