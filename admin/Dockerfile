@@ -13,6 +13,10 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY shared/package.json ./shared/
 COPY admin/package.json ./admin/
 
+# The patched dependencies package.json names (pnpm.patchedDependencies): the
+# install applies them, and fails without them (v1.42.0)
+COPY patches/ ./patches/
+
 # Install dependencies for both packages
 RUN pnpm install --frozen-lockfile --filter @bifrost/shared --filter bifrost-dashboard
 

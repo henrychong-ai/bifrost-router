@@ -1,3 +1,8 @@
+import {
+  MAX_QR_PAYLOAD_LENGTH,
+  QR_VCARD_FIELD_MAX_LENGTH,
+  QR_VCARD_MAX_PHONES,
+} from '@bifrost/shared';
 import { FactChip, GuideSection, Tip } from '../guide-primitives';
 import { GUIDE_SECTIONS } from '../guide-registry';
 
@@ -15,6 +20,21 @@ export function QrCodesSection() {
         <strong>Contact card</strong> (vCard). The editor shows a live preview exactly as it will
         scan: pick foreground/background colours (with a contrast warning when a combination risks
         scan failures), size, error-correction level, and an optional centre logo.
+      </p>
+      <p>
+        <strong>Contact cards.</strong> A contact card is encoded as a <strong>vCard 3.0</strong>,
+        the format phone cameras and common scanner apps import, so scanning it offers to save the
+        contact. Fill in what the printed card carries: first name and surname (a display name only
+        if the phone should show something other than "First Surname"), company, title, up to{' '}
+        {QR_VCARD_MAX_PHONES} phone numbers, email, website, and work address. Each phone has a
+        type: <strong>Work (own)</strong> is the person's own number and becomes the phone's
+        preferred number; <strong>Office line</strong> is the switchboard; <strong>Mobile</strong>{' '}
+        and <strong>Fax</strong> as named. A website without <FactChip>https://</FactChip> gets it
+        added. Each field takes up to {QR_VCARD_FIELD_MAX_LENGTH} characters, and the whole card
+        must stay within {MAX_QR_PAYLOAD_LENGTH} bytes: the editor shows the running size. Search
+        finds a contact card by the person's name as well as its description and Reference. Cards
+        made before contact cards became vCards still scan, now as vCards; opening one for editing
+        shows its name as the first name.
       </p>
       <p>
         <strong>Naming a code.</strong> The <strong>Reference</strong> is how you find a code later

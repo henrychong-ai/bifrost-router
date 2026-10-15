@@ -141,8 +141,9 @@ export const R2BucketSchema = z.enum(R2_BUCKETS);
  */
 // Tested by code point rather than by a regex character class: matching control
 // characters is exactly the point here, and a `no-control-regex` suppression
-// would read like an oversight rather than the intent.
-function hasControlCharacter(value: string): boolean {
+// would read like an oversight rather than the intent. Exported for the
+// contact-card schema (v1.42.0), which refuses the same characters.
+export function hasControlCharacter(value: string): boolean {
   for (const character of value) {
     const code = character.codePointAt(0) ?? 0;
     if (code < 0x20 || code === 0x7f) return true;

@@ -1,0 +1,16 @@
+diff --git a/lib/qrcode.js b/lib/qrcode.js
+index e5c7340b8dd2ac67cb3bbb21b441ab4747dd40a0..e63caf419cb32c791ba28e8192e772f3dec05950 100644
+--- a/lib/qrcode.js
++++ b/lib/qrcode.js
+@@ -58,11 +58,6 @@ function QR8bitByte(data) {
+ 
+   this.parsedData = Array.prototype.concat.apply([], this.parsedData);
+ 
+-  if (this.parsedData.length != this.data.length) {
+-    this.parsedData.unshift(191);
+-    this.parsedData.unshift(187);
+-    this.parsedData.unshift(239);
+-  }
+ }
+ 
+ QR8bitByte.prototype = {

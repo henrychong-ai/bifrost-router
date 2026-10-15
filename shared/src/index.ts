@@ -135,9 +135,11 @@ export { objectKeySegments, pathSegments, UNADDRESSABLE_OBJECT_KEY } from './pat
 // QR codes (v1.30.0) — the QR contract shared
 // by the Worker backend, the MCP server, and the admin dashboard: the type
 // enum, per-type payload schemas, design schema, stored-record +
-// create/update/list schemas, the WIFI:/MECARD: serializers, and id helpers.
+// create/update/list schemas, the serializers (WIFI: with MECARD escaping,
+// contact cards as vCard 3.0), and id helpers.
 export {
   base64DecodedBytes,
+  CREATE_QR_PAYLOAD_DESCRIPTION,
   type CreateQRInput,
   CreateQRInputSchema,
   type CreateQrToolInput,
@@ -145,6 +147,7 @@ export {
   type DeleteQrInput,
   DeleteQrInputSchema,
   escapeMecard,
+  escapeVcardText,
   type GetQrInput,
   GetQrInputSchema,
   type GetRouteQrInput,
@@ -172,6 +175,10 @@ export {
   QR_RECORD_INVALID_MESSAGE,
   QR_TAG_MAX_LENGTH,
   QR_TYPES,
+  QR_VCARD_FIELD_MAX_LENGTH,
+  QR_VCARD_MAX_PHONES,
+  QR_VCARD_PAYLOAD_DESCRIPTION,
+  QR_VCARD_PHONE_TYPES,
   type QRCode,
   QRCodeSchema,
   type QRDesign,
@@ -187,21 +194,29 @@ export {
   QRTypeSchema,
   type QRUrlPayload,
   type QRVcardPayload,
+  type QRVcardPhoneType,
   type QRWifiPayload,
   qrMatchesListFilters,
+  STORED_QR_PAYLOAD_SCHEMAS,
   StoredQRCodeSchema,
+  StoredVcardPayloadSchema,
   serializePayload,
+  serializeVcard,
   TextPayloadSchema,
+  UPDATE_QR_PAYLOAD_DESCRIPTION,
   type UpdateQRInput,
   UpdateQRInputSchema,
   type UpdateQrToolInput,
   UpdateQrToolInputSchema,
   UrlPayloadSchema,
+  VCARD_ADDRESS_PARTS,
+  type VcardAddressPart,
   VcardPayloadSchema,
   WifiAuthSchema,
   WifiEapMethodSchema,
   WifiPayloadSchema,
   WifiPhase2Schema,
+  withoutControlCharacters,
 } from './qr.js';
 // QR design presets (v1.30.0) — neutral by default (self-hosters add their
 // own), drift-guarded against SUPPORTED_DOMAINS.
@@ -378,3 +393,13 @@ export {
 } from './tools.js';
 // Types
 export * from './types.js';
+// Contact-card name rules (v1.42.0): the shown name (vCard FN) and the filled
+// test, one source for the serializer, QR search, and the dashboard form.
+export {
+  isFilled,
+  text as vcardText,
+  type VcardNameFields,
+  vcardFullName,
+  vcardGivenAndSurname,
+  vcardHasName,
+} from './vcard-name.js';

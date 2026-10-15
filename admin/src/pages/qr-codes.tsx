@@ -8,15 +8,19 @@
 
 import {
   CreateQRInputSchema,
+  canonicalJson,
   deriveBrandForDomain,
   generateQrId,
   type InvalidQRRow,
+  MAX_QR_PAYLOAD_LENGTH,
   NEUTRAL_QR_DESIGN,
   normalizeQrId,
   normalizeQrIdInput,
   QR_BRAND_PRESETS,
   QR_LOGO_MAX_BYTES,
   QR_PAYLOAD_SCHEMAS,
+  QR_VCARD_MAX_PHONES,
+  QR_VCARD_PHONE_TYPES,
   type QRCode,
   QRDesignSchema,
   type QRType,
@@ -25,8 +29,11 @@ import {
   renderQrSvg,
   serializePayload,
   UpdateQRInputSchema,
+  VCARD_ADDRESS_PARTS,
+  type VcardAddressPart,
+  vcardHasName,
 } from '@bifrost/shared';
-import { Download, Pencil, Plus, QrCode as QrCodeIcon, Trash2 } from 'lucide-react';
+import { Download, Pencil, Plus, QrCode as QrCodeIcon, Trash2, X } from 'lucide-react';
 import { type Dispatch, type SetStateAction, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
@@ -95,8 +102,10 @@ import {
   designFromState,
   linkedRouteFromState,
   linkedRouteUrl,
+  newPhoneRow,
   payloadFromState,
   type QrFormState,
+  type QrPhoneRow,
   qrEditPatch,
   stateFromQr,
   submittedPayload,
@@ -119,6 +128,23 @@ const TYPE_BADGE: Record<QRType, string> = {
   text: 'bg-slate-100 text-slate-800 border-slate-200',
   vcard: 'bg-emerald-100 text-emerald-800 border-emerald-200',
   wifi: 'bg-amber-100 text-amber-800 border-amber-200',
+};
+
+/** Contact-card phone types as the form names them (v1.42.0). */
+const PHONE_TYPE_LABELS: Record<QrPhoneRow['type'], string> = {
+  work: 'Work (own)',
+  main: 'Office line',
+  cell: 'Mobile',
+  fax: 'Fax',
+};
+
+/** The contact-card address parts as the form names them (v1.42.0). */
+const ADDRESS_PART_LABELS: Record<VcardAddressPart, string> = {
+  street: 'Street',
+  city: 'Town or city',
+  region: 'Region or state',
+  postcode: 'Postcode',
+  country: 'Country',
 };
 
 function QrTypeBadge({ type }: { type: QRType }) {
@@ -350,23 +376,75 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
 
   // Live preview content — invalid mid-typing states just blank the preview.
   // A route-linked QR encodes its short URL: the preview must agree with the
-  // list-row preview and the Worker render.
+  // list-row preview and the Worker render. A contact card edit whose payload
+  // is unchanged (compared as the save compares it) previews the stored
+  // payload, as the code renders until saved (v1.42.0): an untouched legacy
+  // card shows its WORK,VOICE phone, not the form's PREF. The opened payload
+  // is computed once.
+  const openedVcardPayload = useMemo(
+    () =>
+      mode === 'edit' && initial?.type === 'vcard'
+        ? canonicalJson(payloadFromState(stateFromQr(initial)))
+        : null,
+    [mode, initial],
+  );
   const preview = useMemo(() => {
     try {
       const design = QRDesignSchema.parse(designFromState(s));
       const selected = linkedRouteFromState(s, domain);
+      const stored =
+        openedVcardPayload !== null &&
+        s.type === 'vcard' &&
+        canonicalJson(payloadFromState(s)) === openedVcardPayload
+          ? initial
+          : undefined;
       const content = dynamic
         ? selected
           ? linkedRouteUrl(selected)
           : ''
-        : serializePayload(s.type, payloadFromState(s) as never);
+        : stored
+          ? serializePayload(stored.type, stored.payload)
+          : // A contact card waits for a name (v1.42.0): without one it cannot be saved
+            s.type === 'vcard' && !vcardHasName(s)
+            ? ''
+            : serializePayload(s.type, payloadFromState(s));
       return content ? { content, design } : null;
     } catch {
       return null;
     }
-  }, [s, domain, dynamic]);
+  }, [s, domain, dynamic, initial, openedVcardPayload]);
 
   const contrast = useMemo(() => qrContrastRatio(s.fg, s.bg), [s.fg, s.bg]);
+  // The contact card's encoded size against the 1 KB payload guard
+  const encodedBytes = useMemo(
+    () => (s.type === 'vcard' && preview ? new TextEncoder().encode(preview.content).length : 0),
+    [s.type, preview],
+  );
+
+  const setPhone = (index: number, patch: Partial<QrPhoneRow>) =>
+    setS(prev => ({
+      ...prev,
+      phones: prev.phones.map((phone, i) => (i === index ? { ...phone, ...patch } : phone)),
+    }));
+  // A second number is most often the office line
+  const addPhone = () =>
+    setS(prev =>
+      prev.phones.length >= QR_VCARD_MAX_PHONES
+        ? prev
+        : {
+            ...prev,
+            phones: [
+              ...prev.phones,
+              newPhoneRow('', prev.phones.some(phone => phone.type === 'main') ? 'cell' : 'main'),
+            ],
+          },
+    );
+  // The last row is emptied rather than removed, so there is always one to type into
+  const removePhone = (index: number) =>
+    setS(prev => {
+      const phones = prev.phones.filter((_, i) => i !== index);
+      return { ...prev, phones: phones.length > 0 ? phones : [newPhoneRow()] };
+    });
 
   const onLogoFile = (file: File | undefined) => {
     if (!file) {
@@ -758,29 +836,142 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
         {s.type === 'vcard' && (
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label htmlFor="qr-name">Name</Label>
-              <Input id="qr-name" value={s.name} onChange={e => set({ name: e.target.value })} />
+              <FieldHint
+                htmlFor="qr-first-name"
+                label="First name"
+                hint="As printed on the card. A contact card needs a first name, a surname, or a display name."
+              />
+              <Input
+                id="qr-first-name"
+                value={s.firstName}
+                onChange={e => set({ firstName: e.target.value })}
+              />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="qr-phone">Phone</Label>
-              <Input id="qr-phone" value={s.phone} onChange={e => set({ phone: e.target.value })} />
+              <FieldHint
+                htmlFor="qr-surname"
+                label="Surname"
+                hint="The family name. Phones file the contact under it, so for a name printed family name first, still put the family name here."
+              />
+              <Input
+                id="qr-surname"
+                value={s.surname}
+                onChange={e => set({ surname: e.target.value })}
+              />
+            </div>
+            <div className="col-span-2 space-y-1">
+              <FieldHint
+                htmlFor="qr-display-name"
+                label="Display name (optional)"
+                hint="The name the phone shows on the contact. Leave it empty to show “First name Surname”."
+              />
+              <Input
+                id="qr-display-name"
+                value={s.displayName}
+                onChange={e => set({ displayName: e.target.value })}
+              />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="qr-email">Email</Label>
-              <Input id="qr-email" value={s.email} onChange={e => set({ email: e.target.value })} />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="qr-org">Organisation</Label>
+              <FieldHint
+                htmlFor="qr-org"
+                label="Company"
+                hint="The organisation name as printed on the card."
+              />
               <Input id="qr-org" value={s.org} onChange={e => set({ org: e.target.value })} />
             </div>
             <div className="space-y-1">
               <Label htmlFor="qr-title">Title</Label>
               <Input id="qr-title" value={s.title} onChange={e => set({ title: e.target.value })} />
             </div>
+            <div className="col-span-2 space-y-2">
+              <FieldHint
+                label="Phones"
+                hint="Up to three numbers, in international (+CC) form. Work is the person's own number (the phone's preferred number); Office line is the main switchboard. Add only what the card prints."
+              />
+              {s.phones.map((phone, index) => (
+                <div key={phone.id} className="flex gap-2">
+                  <Input
+                    id={`qr-phone-${index}`}
+                    aria-label={`Phone ${index + 1}`}
+                    placeholder="+1 555 0100"
+                    value={phone.number}
+                    onChange={e => setPhone(index, { number: e.target.value })}
+                  />
+                  <Select
+                    value={phone.type}
+                    onValueChange={v => setPhone(index, { type: v as QrPhoneRow['type'] })}
+                  >
+                    <SelectTrigger className="w-40 shrink-0" aria-label={`Phone ${index + 1} type`}>
+                      <SelectValue>{PHONE_TYPE_LABELS[phone.type]}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {QR_VCARD_PHONE_TYPES.map(type => (
+                        <SelectItem key={type} value={type}>
+                          {PHONE_TYPE_LABELS[type]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Remove phone ${index + 1}`}
+                    onClick={() => removePhone(index)}
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </div>
+              ))}
+              {s.phones.length < QR_VCARD_MAX_PHONES && (
+                <Button type="button" variant="outline" size="sm" onClick={addPhone}>
+                  <Plus className="mr-1 size-4" /> Add phone
+                </Button>
+              )}
+            </div>
             <div className="space-y-1">
-              <Label htmlFor="qr-vurl">Website</Label>
+              <Label htmlFor="qr-email">Email</Label>
+              <Input id="qr-email" value={s.email} onChange={e => set({ email: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <FieldHint
+                htmlFor="qr-vurl"
+                label="Website"
+                hint="A bare domain is encoded with https:// added — “example.com” becomes “https://example.com”."
+              />
               <Input id="qr-vurl" value={s.vurl} onChange={e => set({ vurl: e.target.value })} />
             </div>
+            <div className="col-span-2 space-y-1">
+              <FieldHint
+                htmlFor="qr-street"
+                label="Work address (optional)"
+                hint="Street is the lines before the town, joined with commas. Leave out any part the card does not print."
+              />
+              <Input
+                id="qr-street"
+                placeholder={ADDRESS_PART_LABELS.street}
+                value={s.street}
+                onChange={e => set({ street: e.target.value })}
+              />
+            </div>
+            {VCARD_ADDRESS_PARTS.filter(part => part !== 'street').map(part => (
+              <Input
+                key={part}
+                id={`qr-${part}`}
+                aria-label={ADDRESS_PART_LABELS[part]}
+                placeholder={ADDRESS_PART_LABELS[part]}
+                value={s[part]}
+                onChange={e => set({ [part]: e.target.value })}
+              />
+            ))}
+            {preview && (
+              <p
+                className={`col-span-2 text-xs ${encodedBytes > MAX_QR_PAYLOAD_LENGTH ? 'text-destructive' : 'text-muted-foreground'}`}
+              >
+                vCard 3.0, {encodedBytes} of {MAX_QR_PAYLOAD_LENGTH} bytes.
+                {encodedBytes > MAX_QR_PAYLOAD_LENGTH ? ' Too long to save: shorten a field.' : ''}
+              </p>
+            )}
           </div>
         )}
 
@@ -1186,7 +1377,7 @@ export function QrCodesPage() {
               </SelectContent>
             </Select>
             <Input
-              placeholder="Search description or id…"
+              placeholder="Search description, id, or name…"
               className="w-64"
               value={search}
               onChange={e => {

@@ -136,8 +136,9 @@ export interface QRListResult {
  * fine — the same trade-off the routes listing makes.
  *
  * Filters: `type` exact; `tag` exact membership; `search` the shared matcher
- * (case and separators ignored, words in any order, v1.38.0) over description
- * AND id — `qrMatchesListFilters`, the predicate the dashboard's QR store
+ * (case and separators ignored, words in any order, v1.38.0) over description,
+ * id and, on a contact card, the person's names (v1.42.0) —
+ * `qrMatchesListFilters`, the predicate the dashboard's QR store
  * applies too, with the query parsed once for the list. Sorted by updatedAt
  * descending for a stable, recency-first listing. When `limit` is undefined,
  * returns ALL filtered items (offset still applies) — mirroring the routes

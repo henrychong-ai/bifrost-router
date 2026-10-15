@@ -36,6 +36,9 @@
  * `/tv` would match every route on `example.tv`.
  */
 
+import { isRecord } from './guards.js';
+import { vcardFullName, vcardGivenAndSurname } from './vcard-name.js';
+
 /** UTF-16 units of a query used for matching; longer queries are cut to this. */
 export const SEARCH_QUERY_MAX_LENGTH = 200;
 
@@ -58,7 +61,7 @@ const MATCHING_RULES = `Ignores case and separators (spaces, hyphens, underscore
 export const ROUTE_SEARCH_DESCRIPTION = `Search term to filter routes. Matches path, target URL, type, status code, bucket, and host header. ${MATCHING_RULES} The domain is matched as typed (case-insensitive substring). Results are ordered by relevance (path matches first), newest first on ties.`;
 
 /** MCP `list_qrs` search wording — one source for the catalog and the Zod tool schema. */
-export const QR_SEARCH_DESCRIPTION = `Search over description and id. ${MATCHING_RULES}`;
+export const QR_SEARCH_DESCRIPTION = `Search over description, id, and, on a contact card, the person's name (first name and surname, display name). ${MATCHING_RULES}`;
 
 /** `list_routes` tool description — one source for the tool catalog and the MCP server. */
 export const LIST_ROUTES_TOOL_DESCRIPTION =
@@ -66,7 +69,7 @@ export const LIST_ROUTES_TOOL_DESCRIPTION =
 
 /** `list_qrs` tool description — one source for the tool catalog and the MCP server. */
 export const LIST_QRS_TOOL_DESCRIPTION =
-  'List QR codes for a domain. Filter by type (url/text/vcard/wifi), exact tag, or a description/id search that ignores case and separators (words in any order); recency-sorted with offset/limit pagination.';
+  'List QR codes for a domain. Filter by type (url/text/vcard/wifi), exact tag, or a search over description, id, and contact-card names that ignores case and separators (words in any order); recency-sorted with offset/limit pagination.';
 
 // ASCII separators only: a non-ASCII class would cost ~20x more per character.
 const SEPARATORS = /[^a-z0-9\u0080-\uffff]+/;
@@ -138,7 +141,14 @@ export function parseSearchQuery(query: string | null | undefined): ParsedSearch
   return { raw, words, compact: words.join('') };
 }
 
-function resolveQuery(query: string | ParsedSearchQuery | null | undefined) {
+/**
+ * A query as the matchers use it: a parsed query as it is, a string parsed
+ * ({@link parseSearchQuery}); `null` when there is no search (missing, blank,
+ * or whitespace only), which matches everything.
+ */
+export function resolveQuery(
+  query: string | ParsedSearchQuery | null | undefined,
+): ParsedSearchQuery | null {
   return typeof query === 'object' ? query : parseSearchQuery(query);
 }
 
@@ -177,12 +187,29 @@ function routeDetailFields(route: SearchableRoute): Array<string | null | undefi
   return [route.target, route.type, route.statusCode?.toString(), route.bucket, route.hostHeader];
 }
 
-/** The searchable fields of a QR record — shared by the Worker and the dashboard. */
+/**
+ * The searchable fields of a QR record — shared by the Worker and the
+ * dashboard: the description and id and, on a contact card, its names
+ * (v1.42.0), so a card is found by the person's name: the name it shows
+ * (`vcardFullName`: display name, else legacy name, else "First Surname") and
+ * the first name and surname as ONE field (words must share a field, and
+ * "Jane Doe" spans both). Nothing else of a payload is searched (Wi-Fi
+ * payloads hold passwords).
+ */
 export function qrSearchFields(qr: {
   id: string;
   description?: string | null | undefined;
+  type?: string | undefined;
+  payload?: unknown;
 }): Array<string | null | undefined> {
-  return [qr.description, qr.id];
+  const fields: Array<string | null | undefined> = [qr.description, qr.id];
+  if (qr.type === 'vcard' && isRecord(qr.payload)) {
+    fields.push(
+      vcardFullName(qr.payload) || undefined,
+      vcardGivenAndSurname(qr.payload) || undefined,
+    );
+  }
+  return fields;
 }
 
 /**

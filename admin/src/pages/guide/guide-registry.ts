@@ -102,6 +102,7 @@ export const GUIDE_SECTIONS: GuideSectionMeta[] = [
       'wpa3',
       'enterprise',
       'vcard',
+      'contact card',
       'dynamic qr',
       'logo',
       'brand',

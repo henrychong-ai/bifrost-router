@@ -228,7 +228,7 @@ function redactQrForAudit(record: QRCode): QRCode {
       changed = true;
     }
   }
-  return changed ? ({ ...record, payload } as QRCode) : record;
+  return changed ? { ...record, payload } : record;
 }
 
 /** Record a QR audit row after the answer ({@link afterAnswer}), best effort. */

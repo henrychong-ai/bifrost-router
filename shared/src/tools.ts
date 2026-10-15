@@ -7,6 +7,7 @@
 
 // Single source for the wording — the Zod tool schemas describe the same flag,
 // and a drifted description is a drifted instruction to an agent.
+import { CREATE_QR_PAYLOAD_DESCRIPTION, UPDATE_QR_PAYLOAD_DESCRIPTION } from './qr.js';
 import {
   ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION,
   MAX_CACHE_CONTROL_LENGTH,
@@ -813,17 +814,13 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: 'create_qr',
     description:
-      'Create a QR code. Types: url (any URI incl. mailto:/tel:/https:), text, vcard (contact card), wifi (scan-to-join). A url QR may link to a Bifrost route (linkedRoute) so the image encodes the short URL — re-point the route later without reprinting (dynamic QR).',
+      'Create a QR code. Types: url (any URI incl. mailto:/tel:/https:), text, vcard (contact card, encoded as vCard 3.0), wifi (scan-to-join). A url QR may link to a Bifrost route (linkedRoute) so the image encodes the short URL — re-point the route later without reprinting (dynamic QR).',
     inputSchema: {
       type: 'object',
       properties: {
         domain: qrDomainProperty,
         type: { type: 'string', description: 'QR type', enum: ['url', 'text', 'vcard', 'wifi'] },
-        payload: {
-          type: 'object',
-          description:
-            'Type-shaped payload: url {url}; text {text}; wifi {ssid, auth: WPA|WEP|nopass|WPA2-EAP, password, hidden?, eapMethod? PEAP|TTLS|TLS|PWD, phase2? MSCHAPV2|GTC|PAP, identity?, anonymousIdentity? — enterprise fields WPA2-EAP only}; vcard {name, phone?, email?, org?, title?, url?}',
-        },
+        payload: { type: 'object', description: CREATE_QR_PAYLOAD_DESCRIPTION },
         id: {
           type: 'string',
           description: 'Optional slug (^[a-z0-9][a-z0-9-]{2,31}$); generated when omitted',
@@ -856,7 +853,7 @@ export const toolDefinitions: ToolDefinition[] = [
         domain: qrDomainProperty,
         description: { type: 'string', description: 'New description' },
         tags: { type: 'array', description: 'Replacement tag list' },
-        payload: { type: 'object', description: 'Replacement payload (same type as the record)' },
+        payload: { type: 'object', description: UPDATE_QR_PAYLOAD_DESCRIPTION },
         design: {
           type: 'object',
           description: 'FULL design replacement — omitted design fields reset to defaults',

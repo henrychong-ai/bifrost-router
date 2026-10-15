@@ -314,6 +314,31 @@ describe('search field lists', () => {
     ]);
     expect(qrSearchFields({ id: 'abc123' })).toEqual([undefined, 'abc123']);
   });
+
+  it('QR search adds a contact card\'s shown name and "First Surname" (v1.42.0)', () => {
+    expect(
+      qrSearchFields({
+        id: 'card',
+        type: 'vcard',
+        payload: { firstName: 'Jane', surname: 'Doe', displayName: 'Dr J. Doe' },
+      }),
+    ).toEqual([undefined, 'card', 'Dr J. Doe', 'Jane Doe']);
+    // A legacy card: its name is the shown name; no first name or surname
+    expect(qrSearchFields({ id: 'card', type: 'vcard', payload: { name: 'Jane Doe' } })).toEqual([
+      undefined,
+      'card',
+      'Jane Doe',
+      undefined,
+    ]);
+    // Nothing else of a payload is searched: never another type's (a Wi-Fi password)
+    expect(
+      qrSearchFields({ id: 'net', type: 'wifi', payload: { ssid: 'Office', password: 'pw' } }),
+    ).toEqual([undefined, 'net']);
+    expect(qrSearchFields({ id: 'card', type: 'vcard', payload: 'not-an-object' })).toEqual([
+      undefined,
+      'card',
+    ]);
+  });
 });
 
 const searchableRoute = (

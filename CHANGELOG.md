@@ -6,6 +6,102 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.42.0 (2026-10-15) — Contact card QR codes as vCard 3.0; no byte-order mark
+
+**Why:** the dashboard's Contact card wrote MECARD, whose escaping put a
+backslash into website links (`https\://…`), took one phone number, no
+address and one name string, while phones import a vCard 3.0 as a contact.
+Separately, the QR library put a UTF-8 byte-order mark before any non-ASCII
+content, so a card with an accented name did not start with `BEGIN:VCARD` and
+some scanners read it as plain text. This release upgrades the `vcard` type
+in place. **No migration**; no route, auth or storage change.
+
+### Contact cards (API, MCP and dashboard)
+
+- **Encoded as vCard 3.0** (RFC 2426) in the structure phones were tested
+  with: CRLF line ends, no folding, nothing after `END:VCARD`; lines N, FN,
+  ORG, TITLE, TEL…, EMAIL, URL and ADR; text values escaped (`\\`, `\;`, `\,`,
+  and a line break as `\n`), while the website, TEL and EMAIL are written
+  unescaped. `serializeVcard` (`shared/src/qr.ts`); golden vectors from a
+  reference generator for invented cards in `shared/src/qr-vcard.test.ts`.
+  MECARD escaping (`escapeMecard`) stays for Wi-Fi only.
+- **New fields** on the `vcard` payload: `firstName`, `surname`,
+  `displayName` (FN; default "First Surname"), `org`, `title`, up to 3
+  `phones` of `{number, type}`, `email`, `url` (a bare domain is encoded as
+  `https://<domain>`) and `address` `{street, city, region, postcode,
+  country}`. Every field is at most 128 characters, and at least one name
+  field is required. Phone types: `work` (the person's own number; the first
+  is `TEL;TYPE=WORK,VOICE,PREF`, any further one `TEL;TYPE=WORK,VOICE`),
+  `main` (the office line, `TEL;TYPE=WORK,MAIN`), `cell` and `fax`.
+- **Legacy fields still accepted on read and write.** `name` becomes FN and
+  the given part of N; `phone` a `TEL;TYPE=WORK,VOICE` line; each is refused
+  beside a filled field that replaces it, on write and on read: no release
+  writes such a card, and the editor cannot open one faithfully, so a stored
+  one is listed as unreadable (Delete only) rather than encoded with a
+  guessed precedence. A blank `phones` entry is no conflict: a stored legacy
+  phone beside it reads, and the editor opens it as a Work number.
+  Every record an earlier release wrote through the API still reads,
+  lists, renders (now as vCard 3.0) and keeps its payload when only its
+  description, tags or design are edited. A contact card written straight
+  to KV with a now-known key (`firstName`, `surname`, `displayName`,
+  `phones`, `address`) beside the legacy `name`, or with such a key of the
+  wrong type, is refused. A stored legacy name that is blank
+  still counts as the name, so such a card stays readable; a write needs a
+  filled one.
+- **Write rules.** A website, phone number (also the legacy phone) or email
+  holding a line break or other control character is refused at write (they
+  are not escaped), as is a blank phone number; every other text field
+  refuses control characters other than CR and LF, which are escaped as `\n`.
+  None of these rules applies to a stored record (`StoredVcardPayloadSchema`, read through
+  `STORED_QR_PAYLOAD_SCHEMAS`), whose control characters are dropped and
+  whose blank phone numbers are left out when it is encoded. The 1,024-byte serialised-payload guard is
+  unchanged. A stored card's address and phone entries keep only their known
+  keys, as its top-level fields do.
+- **Search** (the QR list, MCP `list_qrs` and the dashboard's QR store) also
+  matches a contact card's shown name and its first name and surname as one
+  field (`qrSearchFields`); nothing else of a payload is searched.
+- **MCP:** the `create_qr` and `update_qr` payload descriptions list the
+  vCard fields, one text for the tool catalogue and the Zod tool schemas
+  (`CREATE_QR_PAYLOAD_DESCRIPTION`, `UPDATE_QR_PAYLOAD_DESCRIPTION`).
+
+### Dashboard
+
+- **Contact card form:** first name, surname, display name, company, title,
+  phone rows (up to three, each with a type; a second row defaults to Office
+  line; each row keeps its own state when another is removed), email, website
+  and a work address, with a live preview (once a name is entered) and the
+  encoded size against the 1,024-byte guard. The Reference is suggested from
+  the card's name. Editing a legacy card shows its name as the first name and
+  its phone as a Work number, every field without control characters; it is
+  saved in the new fields only when the card itself changes, and until then
+  the preview shows the stored card as it encodes.
+- **User guide** (QR codes): contact cards, its facts read from the shared
+  constants.
+
+### No byte-order mark
+
+- **qrcode-svg 1.1.0 is patched** (`patches/qrcode-svg-1.1.0.patch` under
+  `pnpm.patchedDependencies`) to drop the five-line block in `lib/qrcode.js`
+  that put `EF BB BF` before non-ASCII content, so an accented contact card
+  starts with `BEGIN:VCARD` at byte 0. ASCII content renders byte for byte as
+  before (`shared/src/qr-render-bom.test.ts` pins the unpatched library's
+  SVG hashes). Both dashboard Dockerfiles copy `patches/` before
+  `pnpm install`.
+
+### Upgrading
+
+- **Rollback:** a contact card saved with the new name fields (`firstName`,
+  `surname`, `displayName`) is unreadable to v1.41.x: it is listed as
+  unreadable (nothing is deleted unless someone deletes it) and reads again
+  once v1.42.0 is redeployed. A card saved with the legacy `name` plus
+  `phones` or `address` reads on v1.41.x as a name-only MECARD without those
+  fields, and any v1.41.x update to it, even a description-only one,
+  permanently erases them: do not edit such cards while rolled back. Cards
+  written in the legacy shape alone stay readable on both. A dashboard tab
+  still running an older bundle needs a reload.
+- **A forked deployment's own Docker build** that copies only the manifests
+  before `pnpm install` must copy `patches/` too, or the install fails.
+
 ## v1.41.2 (2026-10-09) — The route store's fixes from a sibling deployment's review of the same design
 
 **Why:** a sibling deployment ported v1.41.1's store of this session's own

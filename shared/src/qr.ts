@@ -6,7 +6,8 @@
  * Holds: the type enum, the per-type payload schemas (discriminated on `type`),
  * the design schema (colors / size / margin / error correction / logo), the
  * stored-record + create/update/list schemas, the payload serializers (raw URI,
- * plain text, WIFI:, MECARD:), and the id helpers.
+ * plain text, WIFI:, and vCard 3.0 for contact cards since v1.42.0; MECARD
+ * escaping is Wi-Fi only), and the id helpers.
  *
  * Domain travels via `?domain` / `X-Domain` exactly like routes — NEVER in a
  * request body. QR records live in KV under `qr:{domain}:{id}` (key helpers in
@@ -16,6 +17,7 @@
 import { z } from 'zod';
 import { isOptional, isRecord } from './guards.js';
 import {
+  hasControlCharacter,
   MAX_ROUTE_KEY_BYTES,
   mcpBoolean,
   mcpNumber,
@@ -27,10 +29,12 @@ import {
   type ParsedSearchQuery,
   QR_SEARCH_DESCRIPTION,
   qrSearchFields,
+  resolveQuery,
   SEARCH_PARAM_MAX_LENGTH,
 } from './search.js';
 import { trimEndChars } from './trim-chars.js';
 import { SUPPORTED_DOMAINS, SUPPORTED_DOMAINS_LIST } from './types.js';
+import { isFilled, vcardFullName, vcardHasName } from './vcard-name.js';
 
 // ---------------------------------------------------------------------------
 // Types + limits
@@ -133,6 +137,68 @@ export const QR_LOGO_MAX_BYTES = 102400;
  * data URI, and the whole record is checked as stored.
  */
 export const MAX_QR_RECORD_BYTES = 192 * 1024;
+
+/** Max length of every contact-card text field (v1.42.0). */
+export const QR_VCARD_FIELD_MAX_LENGTH = 128;
+/** Max number of phone numbers on a contact card. */
+export const QR_VCARD_MAX_PHONES = 3;
+/**
+ * Contact-card phone types, each a vCard 3.0 TEL line (see
+ * {@link serializeVcard}): `work` is the person's own number, `main` the
+ * office line, `cell` a mobile, `fax` a fax.
+ */
+export const QR_VCARD_PHONE_TYPES = ['work', 'main', 'cell', 'fax'] as const;
+export type QRVcardPhoneType = (typeof QR_VCARD_PHONE_TYPES)[number];
+
+/**
+ * The parts of a contact card's work address, in vCard ADR order (after the
+ * empty post-office box and extended address): one list for the serializer
+ * and the dashboard form.
+ */
+export const VCARD_ADDRESS_PARTS = ['street', 'city', 'region', 'postcode', 'country'] as const;
+export type VcardAddressPart = (typeof VCARD_ADDRESS_PARTS)[number];
+
+/** The contact-card text fields other than the website, phones and address. */
+const VCARD_TEXT_FIELDS = [
+  'firstName',
+  'surname',
+  'displayName',
+  'name',
+  'org',
+  'title',
+  'phone',
+  'email',
+] as const;
+
+/** The contact-card fields written unescaped (TEL and EMAIL). */
+const VCARD_RAW_FIELDS: ReadonlySet<string> = new Set(['phone', 'email']);
+
+/**
+ * `value` without its C0 control characters and DEL; with `keepLineBreaks`,
+ * CR and LF are kept (a vCard text value escapes them as `\n`).
+ */
+export function withoutControlCharacters(
+  value: string,
+  options: { keepLineBreaks?: boolean } = {},
+): string {
+  let out = '';
+  for (const character of value) {
+    const lineBreak = character === '\r' || character === '\n';
+    if (!hasControlCharacter(character) || (options.keepLineBreaks === true && lineBreak)) {
+      out += character;
+    }
+  }
+  return out;
+}
+
+/** Whether a vCard text value holds a control character other than CR or LF. */
+function hasVcardTextControl(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  for (const character of value) {
+    if (character !== '\r' && character !== '\n' && hasControlCharacter(character)) return true;
+  }
+  return false;
+}
 
 // ---------------------------------------------------------------------------
 // Per-type payload schemas
@@ -259,17 +325,160 @@ export const WifiPayloadSchema = z
     }
   });
 
-/** `vcard` payload — serialized to the compact MECARD: contact format. */
-export const VcardPayloadSchema = z
-  .object({
-    name: z.string().min(1).max(128).describe('Contact name'),
-    phone: z.string().max(128).optional().describe('Phone number'),
-    email: z.string().max(128).optional().describe('Email address'),
-    org: z.string().max(128).optional().describe('Organisation'),
-    title: z.string().max(128).optional().describe('Job title'),
-    url: z.string().max(128).optional().describe('Website URL'),
-  })
-  .strict();
+/**
+ * The `vcard` payload schema (v1.42.0), built twice: with `write` for create
+ * and update bodies ({@link VcardPayloadSchema}), and without it for stored
+ * records ({@link parseStoredQR}), which skips the rules a write adds so
+ * every record an earlier release wrote through the API still reads. A
+ * contact card written straight to KV with a now-known key (firstName,
+ * surname, displayName, phones, address) beside the legacy name, or with such
+ * a key of the wrong type, is refused. Length and count caps are in both; the
+ * stored read ignores them as for every type.
+ *
+ * Every field is optional text of at most {@link QR_VCARD_FIELD_MAX_LENGTH}
+ * characters; at least one name field is required. `name` and `phone` are the
+ * legacy (MECARD-era) fields, still accepted on read and write: `name` becomes
+ * FN and the given part of N, `phone` a `TEL;TYPE=WORK,VOICE` line.
+ *
+ * A legacy field beside its replacement is refused on write AND on read: no
+ * release writes one, and the editor cannot open one faithfully, so a stored
+ * one is unreadable (Delete only) rather than encoded with a guessed
+ * precedence. Only a write refuses a blank phone number (a stored one reads,
+ * and {@link serializeVcard} leaves it out) and control characters.
+ */
+function vcardPayloadSchema(write: boolean) {
+  const field = (description: string) =>
+    z.string().max(QR_VCARD_FIELD_MAX_LENGTH).optional().describe(description);
+  const phoneNumber = z.string().max(QR_VCARD_FIELD_MAX_LENGTH).describe('Phone number');
+  const phoneEntry = z
+    .object({
+      number: write ? phoneNumber.min(1) : phoneNumber,
+      type: z
+        .enum(QR_VCARD_PHONE_TYPES)
+        .describe("work = the person's own number; main = the office line; cell = mobile; fax"),
+    })
+    .strict();
+  return z
+    .object({
+      firstName: field('First (given) name'),
+      surname: field('Surname (family name)'),
+      displayName: field('Name as shown on the contact (FN); default "First Surname"'),
+      name: field('Legacy full name: becomes FN and the given part of N'),
+      org: field('Company (ORG)'),
+      title: field('Job title (TITLE)'),
+      phones: z
+        .array(phoneEntry)
+        .max(QR_VCARD_MAX_PHONES)
+        .optional()
+        .describe(`Up to ${QR_VCARD_MAX_PHONES} phone numbers, each {number, type}`),
+      phone: field('Legacy single phone number: becomes TEL;TYPE=WORK,VOICE'),
+      email: field('Email address'),
+      url: field('Website; a bare domain is encoded as https://<domain>'),
+      address: z
+        .object({
+          street: field('Street (the lines before the town)'),
+          city: field('Town or city'),
+          region: field('Region or state'),
+          postcode: field('Postcode'),
+          country: field('Country'),
+        })
+        .strict()
+        .optional()
+        .describe('Work address (ADR;TYPE=WORK)'),
+    })
+    .strict()
+    .superRefine((card, ctx) => {
+      const names = vcardHasName(card);
+      // A stored legacy name is a name when it is any non-empty text: the
+      // MECARD-era write rule was min(1), untrimmed, so a blank one was
+      // written and must stay readable. A write needs a filled one.
+      const legacyName = write ? isFilled(card.name) : (card.name ?? '') !== '';
+      if (!names && !legacyName) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['firstName'],
+          message: 'A contact card needs a first name, surname, or display name',
+        });
+      }
+      // A legacy field cannot be combined with the fields that replace it, on
+      // read as on write: no release writes such a record (every write
+      // refuses it), and the editor cannot open one faithfully, so it reads
+      // as unreadable (Delete only) rather than re-encoded with a guessed
+      // precedence.
+      if (names && isFilled(card.name)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['name'],
+          message: 'name (legacy) cannot be combined with firstName, surname, or displayName',
+        });
+      }
+      if (isFilled(card.phone) && (card.phones ?? []).some(phone => isFilled(phone.number))) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['phone'],
+          message: 'phone (legacy) cannot be combined with phones',
+        });
+      }
+      // The rest are write rules only: earlier releases accepted any text, and
+      // the serializer drops control characters from a stored record.
+      if (!write) return;
+      // The website is written unescaped, so a line break would end the line
+      if (card.url !== undefined && hasControlCharacter(card.url)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['url'],
+          message: 'Website must not contain line breaks or control characters',
+        });
+      }
+      // Text values: no control characters but CR and LF (escaped as \n).
+      // Phone numbers and email are written unescaped: no line break either.
+      const texts: Array<[Array<string | number>, string | undefined]> = [
+        ...VCARD_TEXT_FIELDS.map((key): [Array<string | number>, string | undefined] => [
+          [key],
+          card[key],
+        ]),
+        ...(card.phones ?? []).map((phone, index): [Array<string | number>, string | undefined] => [
+          ['phones', index, 'number'],
+          phone.number,
+        ]),
+        ...VCARD_ADDRESS_PARTS.map((part): [Array<string | number>, string | undefined] => [
+          ['address', part],
+          card.address?.[part],
+        ]),
+      ];
+      for (const [path, value] of texts) {
+        const raw = path[0] === 'phones' || VCARD_RAW_FIELDS.has(String(path[0]));
+        if (raw ? value !== undefined && hasControlCharacter(value) : hasVcardTextControl(value)) {
+          ctx.addIssue({
+            code: 'custom',
+            path,
+            message: raw
+              ? 'Phone numbers and email must not contain line breaks or control characters'
+              : 'Contact card text must not contain control characters other than line breaks',
+          });
+        }
+      }
+      // A phone row needs a number (a blank one would be left out)
+      for (const [index, phone] of (card.phones ?? []).entries()) {
+        if (!isFilled(phone.number)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['phones', index, 'number'],
+            message: 'Phone number must not be blank',
+          });
+        }
+      }
+    });
+}
+
+/** `vcard` payload — serialized to vCard 3.0 (v1.42.0; MECARD before). */
+export const VcardPayloadSchema = vcardPayloadSchema(true);
+
+/**
+ * The `vcard` payload as stored records are read: {@link VcardPayloadSchema}
+ * without its write-only rules (v1.42.0).
+ */
+export const StoredVcardPayloadSchema = vcardPayloadSchema(false);
 
 /** Any valid payload (variant selected by the record's `type`). */
 export const QRPayloadSchema = z.union([
@@ -288,6 +497,16 @@ export const QR_PAYLOAD_SCHEMAS: Record<QRType, z.ZodType> = {
   text: TextPayloadSchema,
   wifi: WifiPayloadSchema,
   vcard: VcardPayloadSchema,
+};
+
+/**
+ * The payload schemas stored records are read with ({@link parseStoredQR}):
+ * the write schemas, except a contact card's, whose write-only rules are left
+ * out (v1.42.0, {@link StoredVcardPayloadSchema}).
+ */
+export const STORED_QR_PAYLOAD_SCHEMAS: Record<QRType, z.ZodType> = {
+  ...QR_PAYLOAD_SCHEMAS,
+  vcard: StoredVcardPayloadSchema,
 };
 
 // ---------------------------------------------------------------------------
@@ -511,6 +730,25 @@ function pick(source: Record<string, unknown>, keys: readonly string[]): Record<
   return out;
 }
 
+/** A phone entry's fields, from the write schema (v1.42.0). */
+const VCARD_PHONE_KEYS: readonly string[] = ['number', 'type'];
+
+/**
+ * A stored contact card's nested parts keep only the keys they define
+ * (v1.42.0), as the top-level payload does: the address parts, and each phone
+ * entry's number and type. Anything that is not an object is left for the
+ * schema to refuse.
+ */
+function normaliseVcardParts(payload: Record<string, unknown>): void {
+  const { address, phones } = payload;
+  if (isRecord(address)) payload['address'] = pick(address, VCARD_ADDRESS_PARTS);
+  if (Array.isArray(phones)) {
+    payload['phones'] = phones.map((phone: unknown) =>
+      isRecord(phone) ? pick(phone, VCARD_PHONE_KEYS) : phone,
+    );
+  }
+}
+
 /**
  * A stored QR record validated and normalised into the shape every reader
  * expects, or null when it is not one (v1.38.0). The ONE read shape, used by
@@ -523,7 +761,8 @@ function pick(source: Record<string, unknown>, keys: readonly string[]): Record<
  * the fields a write sets. Everything else is checked as on write, from the
  * write schemas themselves: the record's fields and their types (`createdBy`
  * included: a record without it is not readable), the payload of its type
- * (the URI scheme, the Wi-Fi enums and rules, required fields non-empty), the
+ * (the URI scheme, the Wi-Fi enums and rules, required fields non-empty; a
+ * contact card without its write-only rules, v1.42.0), the
  * design (hex colours, the logo data-URI pattern, the error-correction level,
  * the size, margin and aspect-ratio ranges; the renderer writes them into SVG
  * markup), a linked route's `domain` and `path`, and a linked route only on a
@@ -534,7 +773,8 @@ function pick(source: Record<string, unknown>, keys: readonly string[]): Record<
  *
  * Normalised first: only the fields a record defines are kept (an unknown
  * top-level field, a payload key the type does not define and an unknown
- * design key are dropped, so an update never writes them back); a missing or
+ * design key are dropped, as is an unknown key in a contact card's address or
+ * phone entry, so an update never writes them back); a missing or
  * null `design` or design field takes its default; a Wi-Fi payload without
  * `auth` reads as the write default `WPA`; null optional fields are dropped.
  * Nothing is written back by reading.
@@ -555,6 +795,7 @@ export function parseStoredQR(value: unknown): QRCode | null {
   if (recordType === 'wifi' && normalisedPayload['auth'] === undefined) {
     normalisedPayload['auth'] = 'WPA';
   }
+  if (recordType === 'vcard') normaliseVcardParts(normalisedPayload);
   const out: Record<string, unknown> = {
     ...pick(value, ['id', 'domain']),
     type: recordType,
@@ -572,7 +813,7 @@ export function parseStoredQR(value: unknown): QRCode | null {
   };
   if (
     !passesFormats(StoredQRRecordSchema, out) ||
-    !passesFormats(QR_PAYLOAD_SCHEMAS[recordType], normalisedPayload) ||
+    !passesFormats(STORED_QR_PAYLOAD_SCHEMAS[recordType], normalisedPayload) ||
     (out['linkedRoute'] !== undefined && recordType !== 'url')
   ) {
     return null;
@@ -714,13 +955,20 @@ export type QRListQuery = z.infer<typeof QRListQuerySchema>;
 /**
  * The QR list filters: `type` exact, `tag` exact membership, and `search` with
  * the shared matcher (`search.ts`: case and separators ignored, words in any
- * order) over the description and the id. One predicate for the Worker's
+ * order) over the description, the id and, on a contact card, the person's
+ * names (`qrSearchFields`, v1.42.0). One predicate for the Worker's
  * listQRs and the dashboard's QR store, so a code the server would list is
  * the code the dashboard shows. A list parses its `search` once
  * (`parseSearchQuery`) and passes the parsed query for every record.
  */
 export function qrMatchesListFilters(
-  qr: { id: string; type: string; tags?: string[] | undefined; description?: string | undefined },
+  qr: {
+    id: string;
+    type: string;
+    tags?: string[] | undefined;
+    description?: string | undefined;
+    payload?: unknown;
+  },
   query: {
     type?: string | undefined;
     tag?: string | undefined;
@@ -729,7 +977,10 @@ export function qrMatchesListFilters(
 ): boolean {
   if (query.type && qr.type !== query.type) return false;
   if (query.tag && !(qr.tags ?? []).includes(query.tag)) return false;
-  return matchesSearchFields(qrSearchFields(qr), query.search);
+  // No search (missing, blank, or parsed as none): the fields are not built
+  const search = resolveQuery(query.search);
+  if (!search) return true;
+  return matchesSearchFields(qrSearchFields(qr), search);
 }
 
 // Inferred payload types
@@ -744,11 +995,133 @@ export type QRPayload = z.infer<typeof QRPayloadSchema>;
 // ---------------------------------------------------------------------------
 
 /**
- * Escape the MECARD/WIFI special characters (backslash, semicolon, comma,
- * colon, double-quote) with a leading backslash.
+ * Escape the WIFI: special characters (backslash, semicolon, comma, colon,
+ * double-quote) with a leading backslash. Wi-Fi only since v1.42.0: contact
+ * cards are vCard 3.0, escaped with {@link escapeVcardText} (MECARD's `\:`
+ * broke website links on phones).
  */
 export function escapeMecard(value: string): string {
   return value.replace(/([\\;,:"])/g, '\\$1');
+}
+
+const VCARD_TEXT_ESCAPES: Readonly<Record<string, string>> = {
+  '\\': '\\\\',
+  ';': '\\;',
+  ',': '\\,',
+};
+
+/**
+ * Escape a vCard 3.0 text value (RFC 2426 §4): backslash, semicolon, and comma
+ * take a leading backslash, and a line break (CRLF, CR, or LF) becomes `\n`.
+ */
+export function escapeVcardText(value: string): string {
+  return value.replace(/\r\n|[\\;,\r\n]/g, match => VCARD_TEXT_ESCAPES[match] ?? '\\n');
+}
+
+/** The vCard TEL line prefix of each phone type. */
+const VCARD_TEL_TYPES: Readonly<Record<QRVcardPhoneType, string>> = {
+  work: 'TEL;TYPE=WORK,VOICE',
+  main: 'TEL;TYPE=WORK,MAIN',
+  cell: 'TEL;TYPE=CELL',
+  fax: 'TEL;TYPE=WORK,FAX',
+};
+
+/**
+ * A contact-card text value as encoded: control characters other than CR and
+ * LF dropped (a stored record may hold them; writes refuse them), then
+ * trimmed; absent is empty.
+ */
+function vcardValue(value: string | undefined): string {
+  return withoutControlCharacters(value ?? '', { keepLineBreaks: true }).trim();
+}
+
+/**
+ * A TEL or EMAIL value as encoded: written unescaped, so EVERY control
+ * character is dropped, CR and LF included (a line break would end the line,
+ * as in the website), then trimmed.
+ */
+function vcardRawValue(value: string | undefined): string {
+  return withoutControlCharacters(value ?? '').trim();
+}
+
+/**
+ * The website as encoded: control characters dropped first (a URL value is
+ * not escaped, so a line break would end the line), then trimmed, then
+ * `https://` added to a value without a `scheme://` (`example.com` →
+ * `https://example.com`).
+ */
+function vcardWebsite(value: string): string {
+  const url = withoutControlCharacters(value).trim();
+  if (url === '' || /^[a-z][a-z0-9+.-]*:\/\//i.test(url)) return url;
+  return `https://${url}`;
+}
+
+/**
+ * Serialize a contact card to vCard 3.0 (v1.42.0): CRLF line ends, no
+ * folding, no line break after `END:VCARD`, text values escaped
+ * ({@link escapeVcardText}), the website, TEL, and EMAIL not. Lines in the
+ * order phones were tested with: N, FN, ORG, TITLE, TEL…, EMAIL, URL, ADR.
+ * Values are trimmed; a blank field is left out.
+ *
+ *  - N is `surname;given;;;`. The given part is the first name; with neither
+ *    a first name nor a surname it is the display name (or the legacy name),
+ *    so N is not empty for any card a write accepts. The exception: a stored
+ *    legacy card whose name is blank (the MECARD-era schema accepted any
+ *    non-empty name) encodes an empty N and FN, as its MECARD did.
+ *  - FN is {@link vcardFullName}: the display name, else the legacy name,
+ *    else "First Surname".
+ *  - Text values have their control characters other than CR and LF dropped
+ *    (writes refuse them; a stored record may hold them), then are trimmed.
+ *  - TEL and EMAIL values are written unescaped, with every control character
+ *    dropped (CR and LF too).
+ *  - Phones in the order given. `work` is the person's own number: the first
+ *    is `TEL;TYPE=WORK,VOICE,PREF`, any further one `TEL;TYPE=WORK,VOICE`.
+ *    `main` is `TEL;TYPE=WORK,MAIN`, `cell` `TEL;TYPE=CELL`, `fax`
+ *    `TEL;TYPE=WORK,FAX`. The legacy `phone` is `TEL;TYPE=WORK,VOICE`. A
+ *    phone whose number is blank is left out (a write refuses one; a stored
+ *    record may hold one).
+ *  - ADR is `ADR;TYPE=WORK:;;street;city;region;postcode;country`, written
+ *    when any part is filled.
+ */
+export function serializeVcard(card: QRVcardPayload): string {
+  const name = {
+    firstName: vcardValue(card.firstName),
+    surname: vcardValue(card.surname),
+    displayName: vcardValue(card.displayName),
+    name: vcardValue(card.name),
+  };
+  const given = name.firstName || (name.surname ? '' : name.displayName || name.name);
+  const lines = [
+    'BEGIN:VCARD',
+    'VERSION:3.0',
+    `N:${escapeVcardText(name.surname)};${escapeVcardText(given)};;;`,
+    `FN:${escapeVcardText(vcardFullName(name))}`,
+  ];
+  const org = vcardValue(card.org);
+  if (org) lines.push(`ORG:${escapeVcardText(org)}`);
+  const title = vcardValue(card.title);
+  if (title) lines.push(`TITLE:${escapeVcardText(title)}`);
+  const legacyPhone = vcardRawValue(card.phone);
+  if (legacyPhone) lines.push(`TEL;TYPE=WORK,VOICE:${legacyPhone}`);
+  let preferred = false;
+  for (const phone of card.phones ?? []) {
+    const number = vcardRawValue(phone.number);
+    if (!number) continue;
+    let prefix = VCARD_TEL_TYPES[phone.type];
+    if (phone.type === 'work' && !preferred) {
+      prefix += ',PREF';
+      preferred = true;
+    }
+    lines.push(`${prefix}:${number}`);
+  }
+  const email = vcardRawValue(card.email);
+  if (email) lines.push(`EMAIL;TYPE=INTERNET,WORK:${email}`);
+  const url = vcardWebsite(card.url ?? '');
+  if (url) lines.push(`URL:${url}`);
+  const parts = VCARD_ADDRESS_PARTS.map(part => vcardValue(card.address?.[part]));
+  if (parts.some(Boolean)) lines.push(`ADR;TYPE=WORK:;;${parts.map(escapeVcardText).join(';')}`);
+  lines.push('END:VCARD');
+  return lines.join('\r\n');
 }
 
 /**
@@ -759,8 +1132,7 @@ export function escapeMecard(value: string): string {
  *             (P: omitted when nopass; H: omitted when not hidden; WPA2-EAP
  *             additionally emits `E:{eapMethod};PH2:{phase2};A:{anonymousIdentity};I:{identity}`
  *             per the ZXing enterprise extension — Android-only)
- *   - vcard → `MECARD:N:{name};TEL:...;EMAIL:...;ORG:...;TITLE:...;URL:...;;`
- *             (optional fields omitted)
+ *   - vcard → vCard 3.0 ({@link serializeVcard}; MECARD before v1.42.0)
  * Callers must enforce {@link MAX_QR_PAYLOAD_LENGTH} on the result
  * (QR_PAYLOAD_TOO_LARGE).
  */
@@ -785,16 +1157,8 @@ export function serializePayload(type: QRType, payload: QRPayload): string {
       if (wifi.hidden) parts.push('H:true');
       return `WIFI:${parts.join(';')};;`;
     }
-    case 'vcard': {
-      const vcard = payload as QRVcardPayload;
-      const parts = [`N:${escapeMecard(vcard.name)}`];
-      if (vcard.phone) parts.push(`TEL:${escapeMecard(vcard.phone)}`);
-      if (vcard.email) parts.push(`EMAIL:${escapeMecard(vcard.email)}`);
-      if (vcard.org) parts.push(`ORG:${escapeMecard(vcard.org)}`);
-      if (vcard.title) parts.push(`TITLE:${escapeMecard(vcard.title)}`);
-      if (vcard.url) parts.push(`URL:${escapeMecard(vcard.url)}`);
-      return `MECARD:${parts.join(';')};;`;
-    }
+    case 'vcard':
+      return serializeVcard(payload as QRVcardPayload);
     default: {
       const unsupported: never = type;
       throw new Error(`Unsupported QR type: ${String(unsupported)}`);
@@ -855,14 +1219,22 @@ export const GetQrInputSchema = z.object({
 });
 export type GetQrInput = z.infer<typeof GetQrInputSchema>;
 
+/**
+ * The contact-card payload as the MCP tools describe it (v1.42.0) — one
+ * source for the Zod tool schemas and the tool catalogue.
+ */
+export const QR_VCARD_PAYLOAD_DESCRIPTION = `vcard (encoded as vCard 3.0) {firstName?, surname?, displayName? (FN; default "First Surname"), org? (company), title?, phones? [{number, type work|main|cell|fax}] (up to ${QR_VCARD_MAX_PHONES}; work = the person's own number, main = the office line), email?, url? (website; a bare domain gets https://), address? {street?, city?, region?, postcode?, country?}} — at least one of firstName, surname, or displayName; every field at most ${QR_VCARD_FIELD_MAX_LENGTH} characters; legacy name (instead of the name fields) and phone (instead of phones) are still accepted`;
+
+/** The `create_qr` payload description, shared with the tool catalogue. */
+export const CREATE_QR_PAYLOAD_DESCRIPTION = `Type-shaped payload: url {url}; text {text}; wifi {ssid, auth WPA|WEP|nopass|WPA2-EAP, password, hidden?, eapMethod? PEAP|TTLS|TLS|PWD, phase2? MSCHAPV2|GTC|PAP, identity?, anonymousIdentity? — enterprise fields WPA2-EAP only}; ${QR_VCARD_PAYLOAD_DESCRIPTION}. The serialised content is at most ${MAX_QR_PAYLOAD_LENGTH} bytes.`;
+
+/** The `update_qr` payload description, shared with the tool catalogue. */
+export const UPDATE_QR_PAYLOAD_DESCRIPTION = `Replacement payload, whole (validated against the existing type — type itself is immutable). Shapes as create_qr; ${QR_VCARD_PAYLOAD_DESCRIPTION}`;
+
 export const CreateQrToolInputSchema = z.object({
   domain: mcpDomainField,
   type: QRTypeSchema.describe('QR type: url, text, vcard, or wifi'),
-  payload: z
-    .record(z.string(), z.unknown())
-    .describe(
-      'Type-shaped payload: url {url}; text {text}; wifi {ssid, auth WPA|WEP|nopass|WPA2-EAP, password, hidden?, eapMethod? PEAP|TTLS|TLS|PWD, phase2? MSCHAPV2|GTC|PAP, identity?, anonymousIdentity? — enterprise fields WPA2-EAP only}; vcard {name, phone?, email?, org?, title?, url?}',
-    ),
+  payload: z.record(z.string(), z.unknown()).describe(CREATE_QR_PAYLOAD_DESCRIPTION),
   id: z
     .string()
     .optional()
@@ -889,12 +1261,7 @@ export const UpdateQrToolInputSchema = z.object({
   domain: mcpDomainField,
   description: z.string().optional().describe('New description'),
   tags: z.array(z.string()).optional().describe('Replacement tag list'),
-  payload: z
-    .record(z.string(), z.unknown())
-    .optional()
-    .describe(
-      'Replacement payload (validated against the existing type — type itself is immutable)',
-    ),
+  payload: z.record(z.string(), z.unknown()).optional().describe(UPDATE_QR_PAYLOAD_DESCRIPTION),
   design: z
     .record(z.string(), z.unknown())
     .optional()

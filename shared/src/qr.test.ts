@@ -205,27 +205,104 @@ describe('qr contract', () => {
   });
 
   describe('VcardPayloadSchema', () => {
-    it('requires name; all other fields optional', () => {
-      expect(VcardPayloadSchema.safeParse({ name: 'Ada Lovelace' }).success).toBe(true);
+    it('requires a filled name field; all other fields optional', () => {
+      expect(VcardPayloadSchema.safeParse({ name: 'Jane Doe' }).success).toBe(true);
+      expect(VcardPayloadSchema.safeParse({ firstName: 'Jane' }).success).toBe(true);
+      expect(VcardPayloadSchema.safeParse({ surname: 'Doe' }).success).toBe(true);
+      expect(VcardPayloadSchema.safeParse({ displayName: 'Jane D.' }).success).toBe(true);
       expect(VcardPayloadSchema.safeParse({}).success).toBe(false);
       expect(VcardPayloadSchema.safeParse({ name: '' }).success).toBe(false);
+      // A write needs a FILLED name: blank text is no name
+      expect(VcardPayloadSchema.safeParse({ name: ' ' }).success).toBe(false);
+      expect(VcardPayloadSchema.safeParse({ firstName: ' ', org: 'Example' }).success).toBe(false);
     });
 
-    it('enforces the 128-char cap on every field', () => {
+    it('enforces the 128-char cap on every field and at most 3 phones', () => {
       expect(VcardPayloadSchema.safeParse({ name: 'n'.repeat(129) }).success).toBe(false);
       expect(VcardPayloadSchema.safeParse({ name: 'x', phone: 'p'.repeat(129) }).success).toBe(
         false,
       );
+      for (const key of ['firstName', 'surname', 'displayName', 'org', 'title', 'email', 'url']) {
+        expect(
+          VcardPayloadSchema.safeParse({ firstName: 'A', [key]: 'x'.repeat(129) }).success,
+        ).toBe(false);
+        expect(
+          VcardPayloadSchema.safeParse({ firstName: 'A', [key]: 'x'.repeat(128) }).success,
+        ).toBe(true);
+      }
+      expect(
+        VcardPayloadSchema.safeParse({ firstName: 'A', address: { city: 'c'.repeat(129) } })
+          .success,
+      ).toBe(false);
       expect(
         VcardPayloadSchema.safeParse({
-          name: 'Ada',
-          phone: '+65 1234 5678',
+          firstName: 'A',
+          phones: [{ number: '1'.repeat(129), type: 'work' }],
+        }).success,
+      ).toBe(false);
+      const phone = { number: '+1 555 0100', type: 'cell' };
+      expect(
+        VcardPayloadSchema.safeParse({ firstName: 'A', phones: [phone, phone, phone] }).success,
+      ).toBe(true);
+      expect(
+        VcardPayloadSchema.safeParse({ firstName: 'A', phones: [phone, phone, phone, phone] })
+          .success,
+      ).toBe(false);
+      expect(
+        VcardPayloadSchema.safeParse({
+          name: 'Jane',
+          phone: '+1 555 0100',
           email: 'user@example.com',
           org: 'Example Co',
           title: 'CEO',
           url: 'https://example.com',
         }).success,
       ).toBe(true);
+    });
+
+    it('refuses an unknown phone type and unknown keys in a phone or the address', () => {
+      expect(
+        VcardPayloadSchema.safeParse({
+          firstName: 'A',
+          phones: [{ number: '+1 555 0100', type: 'home' }],
+        }).success,
+      ).toBe(false);
+      expect(
+        VcardPayloadSchema.safeParse({
+          firstName: 'A',
+          phones: [{ number: '+1 555 0100', type: 'work', ext: '1' }],
+        }).success,
+      ).toBe(false);
+      expect(
+        VcardPayloadSchema.safeParse({ firstName: 'A', address: { planet: 'Earth' } }).success,
+      ).toBe(false);
+    });
+
+    it('refuses a legacy field beside the field that replaces it', () => {
+      const name = VcardPayloadSchema.safeParse({ name: 'Jane', firstName: 'Jane' });
+      expect(name.error?.issues.map(issue => issue.path)).toEqual([['name']]);
+      const phone = VcardPayloadSchema.safeParse({
+        name: 'Jane',
+        phone: '+1 555 0100',
+        phones: [{ number: '+1 555 0199', type: 'work' }],
+      });
+      expect(phone.error?.issues.map(issue => issue.path)).toEqual([['phone']]);
+      // A blank legacy field is not a conflict
+      expect(VcardPayloadSchema.safeParse({ name: ' ', firstName: 'Jane' }).success).toBe(true);
+      expect(
+        VcardPayloadSchema.safeParse({
+          firstName: 'Jane',
+          phone: '',
+          phones: [{ number: '+1 555 0199', type: 'work' }],
+        }).success,
+      ).toBe(true);
+    });
+
+    it('refuses a website holding a line break or control character', () => {
+      for (const url of ['https://a.example\nB', 'https://a.example\u0000']) {
+        const result = VcardPayloadSchema.safeParse({ firstName: 'A', url });
+        expect(result.error?.issues.map(issue => issue.path)).toEqual([['url']]);
+      }
     });
   });
 
@@ -316,7 +393,7 @@ describe('qr contract', () => {
         }).success,
       ).toBe(true);
       expect(
-        QRCodeSchema.safeParse({ ...base, type: 'vcard', payload: { name: 'Ada' } }).success,
+        QRCodeSchema.safeParse({ ...base, type: 'vcard', payload: { name: 'Jane' } }).success,
       ).toBe(true);
     });
 
@@ -375,7 +452,7 @@ describe('qr contract', () => {
         true,
       );
       expect(
-        CreateQRInputSchema.safeParse({ type: 'vcard', payload: { name: 'Ada' } }).success,
+        CreateQRInputSchema.safeParse({ type: 'vcard', payload: { name: 'Jane' } }).success,
       ).toBe(true);
       expect(
         CreateQRInputSchema.safeParse({ type: 'wifi', payload: { ssid: 'Office', password: 'p' } })
@@ -521,7 +598,7 @@ describe('qr contract', () => {
     });
 
     it('leaves plain text untouched', () => {
-      expect(escapeMecard('Ada Lovelace +65')).toBe('Ada Lovelace +65');
+      expect(escapeMecard('Jane Doe +65')).toBe('Jane Doe +65');
     });
   });
 
@@ -598,34 +675,28 @@ describe('qr contract', () => {
       expect(serialized.length).toBeLessThanOrEqual(MAX_QR_PAYLOAD_LENGTH);
     });
 
-    it('serializes vcard as MECARD with optional fields omitted', () => {
-      expect(serializePayload('vcard', { name: 'Ada Lovelace' })).toBe('MECARD:N:Ada Lovelace;;');
-      expect(
-        serializePayload('vcard', {
-          name: 'Lovelace; Ada',
-          phone: '+6512345678',
-          email: 'user@example.com',
-          org: 'Example, Ltd',
-          title: 'CEO',
-          url: 'https://example.com',
-        }),
-      ).toBe(
-        'MECARD:N:Lovelace\\; Ada;TEL:+6512345678;EMAIL:user@example.com;ORG:Example\\, Ltd;TITLE:CEO;URL:https\\://example.com;;',
+    it('serializes vcard as vCard 3.0 (serializeVcard), never MECARD', () => {
+      expect(serializePayload('vcard', { name: 'Jane Doe' })).toBe(
+        'BEGIN:VCARD\r\nVERSION:3.0\r\nN:;Jane Doe;;;\r\nFN:Jane Doe\r\nEND:VCARD',
       );
+      // The website is never escaped: MECARD's `\:` broke links on phones
+      expect(
+        serializePayload('vcard', { firstName: 'Jane', url: 'https://example.com' }),
+      ).toContain('\r\nURL:https://example.com\r\n');
     });
 
     it('can exceed MAX_QR_PAYLOAD_LENGTH for a maxed-out vcard (handler guard)', () => {
-      // Escaping doubles each ';' — six maxed 128-char fields serialize to ~1.5 KB.
+      // Escaping doubles each ';': five maxed 128-char text fields and the
+      // address serialize to well over 1 KB.
       const serialized = serializePayload('vcard', {
-        name: ';'.repeat(128),
-        phone: ';'.repeat(128),
-        email: ';'.repeat(128),
+        firstName: ';'.repeat(128),
+        surname: ';'.repeat(128),
         org: ';'.repeat(128),
         title: ';'.repeat(128),
-        url: ';'.repeat(128),
+        address: { street: ';'.repeat(128) },
       });
       expect(MAX_QR_PAYLOAD_LENGTH).toBe(1024);
-      expect(serialized.length).toBeGreaterThan(MAX_QR_PAYLOAD_LENGTH);
+      expect(new TextEncoder().encode(serialized).length).toBeGreaterThan(MAX_QR_PAYLOAD_LENGTH);
     });
   });
 
@@ -787,6 +858,39 @@ describe('qrMatchesListFilters', () => {
     expect(qrMatchesListFilters(qr, { search: 'cover brochure' })).toBe(true);
     // Words never combine across the description and the id
     expect(qrMatchesListFilters(qr, { search: 'spring cover' })).toBe(false);
+  });
+
+  it("finds a contact card by the person's name, words in any order (v1.42.0)", () => {
+    const card = {
+      id: 'card-1',
+      type: 'vcard',
+      payload: { firstName: 'Jane', surname: 'Doe', org: 'Example Widgets' },
+    };
+    expect(qrMatchesListFilters(card, { search: 'jane doe' })).toBe(true);
+    expect(qrMatchesListFilters(card, { search: 'doe jane' })).toBe(true);
+    expect(qrMatchesListFilters(card, { search: 'janedoe' })).toBe(true);
+    // The company is not a searched field
+    expect(qrMatchesListFilters(card, { search: 'widgets' })).toBe(false);
+  });
+
+  it('builds no search fields when there is no search', () => {
+    const read: PropertyKey[] = [];
+    const payload = new Proxy(
+      { firstName: 'Jane', surname: 'Doe' },
+      {
+        get(target, key, receiver) {
+          read.push(key);
+          return Reflect.get(target, key, receiver) as unknown;
+        },
+      },
+    );
+    const card = { id: 'card-1', type: 'vcard', payload };
+    for (const search of [undefined, null, '', '   ']) {
+      expect(qrMatchesListFilters(card, { search })).toBe(true);
+    }
+    expect(read).toEqual([]);
+    expect(qrMatchesListFilters(card, { search: 'jane' })).toBe(true);
+    expect(read).not.toEqual([]);
   });
 });
 

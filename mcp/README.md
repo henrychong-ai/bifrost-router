@@ -178,10 +178,33 @@ with an error and the route is left untouched.
 |------|-------------|
 | `list_qrs` | List QR codes for a domain (filter by type/tag/search, paginated; search ignores case and separators) |
 | `get_qr` | Get a QR code record (payload, design, linked route) |
-| `create_qr` | Create a QR code (url/text/vcard/wifi; url may link a route for dynamic-QR semantics) |
+| `create_qr` | Create a QR code (url/text/vcard/wifi; url may link a route for dynamic-QR semantics; vcard is encoded as vCard 3.0) |
 | `update_qr` | Update description/tags/payload/design/route link (type is immutable) |
 | `delete_qr` | Delete a QR code (hard delete; the audit log preserves the record) |
 | `get_route_qr` | Render an ephemeral QR SVG for an existing route |
+
+**Contact cards (v1.42.0).** A `vcard` payload is encoded as a vCard 3.0. Fields: `firstName`, `surname`, `displayName` (optional; the name the phone shows, default "First Surname"), `org` (company), `title`, `phones` (up to 3, each `{number, type}`: `work` is the person's own number and becomes the preferred one, `main` the office line, `cell`, and `fax`), `email`, `url` (a bare domain gets `https://`), and `address` (`street`, `city`, `region`, `postcode`, `country`). At least one of `firstName`, `surname`, or `displayName`; each field at most 128 characters; the encoded card at most 1,024 bytes. The legacy `name` (instead of the name fields) and `phone` (instead of `phones`) are still accepted. `update_qr` replaces the payload whole. Example:
+
+```json
+{
+  "domain": "links.example.com",
+  "type": "vcard",
+  "id": "card-jane-doe",
+  "payload": {
+    "firstName": "Jane",
+    "surname": "Doe",
+    "org": "Example Widgets, Inc.",
+    "title": "Head of Operations",
+    "phones": [
+      { "number": "+1 555 0100", "type": "work" },
+      { "number": "+1 555 0199", "type": "main" }
+    ],
+    "email": "jane.doe@example.com",
+    "url": "example.com",
+    "address": { "street": "Suite 12, 100 Main Street", "city": "Springfield", "country": "Exampleland" }
+  }
+}
+```
 
 
 > Feedback-queue triage has no MCP tools — use the REST API or the dashboard Feedback page (see `AGENTS.md`).

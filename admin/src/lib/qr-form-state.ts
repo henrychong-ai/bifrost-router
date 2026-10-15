@@ -11,8 +11,19 @@
  * methods (PEAP/TTLS).
  */
 
-import type { QRCode, QRType } from '@bifrost/shared';
-import { isSupportedDomain, normalizeQrId, WifiAuthSchema } from '@bifrost/shared';
+import type { QRCode, QRType, QRVcardPhoneType, VcardAddressPart } from '@bifrost/shared';
+import {
+  isFilled,
+  isRecord,
+  isSupportedDomain,
+  normalizeQrId,
+  QR_VCARD_PHONE_TYPES,
+  VCARD_ADDRESS_PARTS,
+  vcardFullName,
+  vcardText,
+  WifiAuthSchema,
+  withoutControlCharacters,
+} from '@bifrost/shared';
 
 /**
  * Derived from the canonical schema rather than hand-duplicated:
@@ -24,6 +35,24 @@ export type WifiAuthOption = (typeof WifiAuthSchema.options)[number];
 
 /** Brand-design selector value: resolve-by-domain, a preset id, or free-form. */
 export type BrandSelection = 'auto' | 'custom' | (string & {});
+
+/**
+ * One phone row of the contact-card form. `id` is form-only (the React key, so
+ * a removed row never hands its state to the next one); it is never sent.
+ */
+export interface QrPhoneRow {
+  id: number;
+  number: string;
+  type: QRVcardPhoneType;
+}
+
+let lastPhoneRowId = 0;
+
+/** A new phone row with its own form-only id. */
+export function newPhoneRow(number = '', type: QRVcardPhoneType = 'work'): QrPhoneRow {
+  lastPhoneRowId += 1;
+  return { id: lastPhoneRowId, number, type };
+}
 
 /** EAP methods that tunnel a phase-2 inner auth (PH2 applies to these only). */
 export const TUNNELED_EAP_METHODS = ['PEAP', 'TTLS'] as const;
@@ -74,12 +103,21 @@ export interface QrFormState {
   phase2: string;
   identity: string;
   anonymousIdentity: string;
-  name: string;
-  phone: string;
+  /** Contact card (v1.42.0): first name, surname, and display name. */
+  firstName: string;
+  surname: string;
+  displayName: string;
+  /** Up to three phone rows; blank rows are not submitted. */
+  phones: QrPhoneRow[];
   email: string;
   org: string;
   title: string;
   vurl: string;
+  street: string;
+  city: string;
+  region: string;
+  postcode: string;
+  country: string;
   brandSel: BrandSelection;
   fg: string;
   bg: string;
@@ -89,6 +127,59 @@ export interface QrFormState {
   logoDataUri: string;
   /** Client-computed intrinsic w/h of the embedded logo (wide-logo mode). */
   logoAspectRatio: number | null;
+}
+
+/**
+ * A stored contact-card text value as the form shows it (v1.42.0): without
+ * control characters, as encoded, so an edit of another field never fails
+ * the write schema on a value the card was stored with. CR and LF stay
+ * (escaped as \n), except in a phone number, email or website, written
+ * unescaped, where they are dropped too.
+ */
+const text = (value: unknown): string =>
+  withoutControlCharacters(vcardText(value), { keepLineBreaks: true });
+const rawText = (value: unknown): string => withoutControlCharacters(vcardText(value));
+
+/** A stored phone type, or `work` for one the form does not know. */
+function phoneType(value: unknown): QRVcardPhoneType {
+  return QR_VCARD_PHONE_TYPES.find(type => type === value) ?? 'work';
+}
+
+/**
+ * The phone rows of a stored card: its filled phones, or a legacy single phone
+ * as a `work` row (the person's own number; saved again it becomes the
+ * preferred `WORK,VOICE,PREF` line), or one blank `work` row to type into. A
+ * stored entry with a blank number is skipped: the encoded card leaves it out,
+ * so it neither shows as a row nor hides the legacy phone.
+ */
+function phoneRows(payload: Record<string, unknown>): QrPhoneRow[] {
+  const rows: QrPhoneRow[] = [];
+  const phones = payload['phones'];
+  if (Array.isArray(phones)) {
+    for (const entry of phones as unknown[]) {
+      if (!isRecord(entry)) continue;
+      const number = rawText(entry['number']);
+      if (!isFilled(number)) continue;
+      rows.push(newPhoneRow(number, phoneType(entry['type'])));
+    }
+  }
+  const legacy = rawText(payload['phone']);
+  if (rows.length === 0 && isFilled(legacy)) rows.push(newPhoneRow(legacy));
+  return rows.length > 0 ? rows : [newPhoneRow()];
+}
+
+/** The address parts of a stored card, each as the form shows it. */
+function addressFields(address: unknown): Record<VcardAddressPart, string> {
+  const parts = isRecord(address) ? address : {};
+  const out: Record<VcardAddressPart, string> = {
+    street: '',
+    city: '',
+    region: '',
+    postcode: '',
+    country: '',
+  };
+  for (const part of VCARD_ADDRESS_PARTS) out[part] = text(parts[part]);
+  return out;
 }
 
 export function stateFromQr(qr?: QRCode): QrFormState {
@@ -116,12 +207,23 @@ export function stateFromQr(qr?: QRCode): QrFormState {
     phase2: typeof p['phase2'] === 'string' ? p['phase2'] : 'MSCHAPV2',
     identity: typeof p['identity'] === 'string' ? p['identity'] : '',
     anonymousIdentity: typeof p['anonymousIdentity'] === 'string' ? p['anonymousIdentity'] : '',
-    name: typeof p['name'] === 'string' ? p['name'] : '',
-    phone: typeof p['phone'] === 'string' ? p['phone'] : '',
-    email: typeof p['email'] === 'string' ? p['email'] : '',
-    org: typeof p['org'] === 'string' ? p['org'] : '',
-    title: typeof p['title'] === 'string' ? p['title'] : '',
-    vurl: qr?.type === 'vcard' && typeof p['url'] === 'string' ? p['url'] : '',
+    // A legacy (MECARD-era) card's single name is shown as the first name:
+    // it encodes exactly as before (FN and the given part of N). Chosen by
+    // filled, not truthy: a blank first name beside a legacy name shows the name
+    firstName: isFilled(text(p['firstName']))
+      ? text(p['firstName'])
+      : text(p['name']) || text(p['firstName']),
+    surname: text(p['surname']),
+    displayName: text(p['displayName']),
+    phones: phoneRows(p),
+    email: rawText(p['email']),
+    org: text(p['org']),
+    title: text(p['title']),
+    // Without control characters: a stored website from before the write rule
+    // can hold them, the encoded code already drops them, and keeping them
+    // would make any edit of the card fail validation
+    vurl: qr?.type === 'vcard' ? rawText(p['url']) : '',
+    ...addressFields(p['address']),
     // Edit shows the stored design as-is (Custom); create resolves the brand
     // preset from the selected domain until the user says otherwise.
     brandSel: qr ? 'custom' : 'auto',
@@ -250,9 +352,18 @@ export function suggestQrId(s: QrFormState): string {
   const source =
     (s.type === 'wifi' ? s.ssid : '') ||
     (s.type === 'url' ? hostFromUrl(s.url) : '') ||
-    (s.type === 'vcard' ? s.name : '') ||
+    (s.type === 'vcard' ? vcardFullName(s) : '') ||
     (s.type === 'text' ? s.text : '');
   return normalizeQrId(source);
+}
+
+/** The fields among `values` that are filled, trimmed. */
+function filledFields(values: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (isFilled(value)) out[key] = value.trim();
+  }
+  return out;
 }
 
 export function payloadFromState(s: QrFormState): Record<string, unknown> {
@@ -285,15 +396,28 @@ export function payloadFromState(s: QrFormState): Record<string, unknown> {
         ...(s.auth !== 'nopass' && s.password ? { password: s.password } : {}),
         hidden: s.hidden,
       };
-    case 'vcard':
+    case 'vcard': {
+      // vCard 3.0 (v1.42.0): the new fields only, blank ones left out, so an
+      // edit never sends the legacy name or phone back
+      const phones = s.phones
+        .map(phone => ({ number: phone.number.trim(), type: phone.type }))
+        .filter(phone => phone.number);
+      const address = filledFields(
+        Object.fromEntries(VCARD_ADDRESS_PARTS.map(part => [part, s[part]])),
+      );
       return {
-        name: s.name,
-        ...(s.phone ? { phone: s.phone } : {}),
-        ...(s.email ? { email: s.email } : {}),
-        ...(s.org ? { org: s.org } : {}),
-        ...(s.title ? { title: s.title } : {}),
-        ...(s.vurl ? { url: s.vurl } : {}),
+        ...filledFields({
+          firstName: s.firstName,
+          surname: s.surname,
+          displayName: s.displayName,
+          org: s.org,
+          title: s.title,
+        }),
+        ...(phones.length > 0 ? { phones } : {}),
+        ...filledFields({ email: s.email, url: s.vurl }),
+        ...(Object.keys(address).length > 0 ? { address } : {}),
       };
+    }
     default: {
       const unsupported: never = s.type;
       throw new Error(`Unsupported QR type: ${String(unsupported)}`);

@@ -14,6 +14,10 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY shared/package.json ./shared/
 COPY admin/package.json ./admin/
 
+# The patched dependencies package.json names (pnpm.patchedDependencies): the
+# install applies them, and fails without them (v1.42.0)
+COPY patches/ ./patches/
+
 # Install dependencies with a persistent pnpm store cache mount — even when the
 # layer itself invalidates (e.g. root package.json version bump on a release
 # tag), packages are served from the mount instead of re-downloaded.
