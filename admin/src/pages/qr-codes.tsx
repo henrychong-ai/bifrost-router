@@ -26,6 +26,7 @@ import {
   type QRType,
   type QrBrandPreset,
   qrContrastRatio,
+  qrIssueMessage,
   renderQrSvg,
   serializePayload,
   UpdateQRInputSchema,
@@ -611,7 +612,8 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
       // route behind
       const valid = CreateQRInputSchema.safeParse(input);
       if (!valid.success) {
-        toast.error(valid.error.issues[0]?.message ?? 'The QR code is not valid');
+        const issue = valid.error.issues[0];
+        toast.error(issue ? qrIssueMessage(issue) : 'The QR code is not valid');
         return;
       }
     } else {
@@ -625,7 +627,7 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
           : (QR_PAYLOAD_SCHEMAS[s.type].safeParse(input['payload']).error?.issues ?? [])),
       ];
       if (issues.length > 0) {
-        toast.error(issues[0]?.message ?? 'The QR code is not valid');
+        toast.error(issues[0] ? qrIssueMessage(issues[0]) : 'The QR code is not valid');
         return;
       }
     }

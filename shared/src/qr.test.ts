@@ -13,20 +13,26 @@ import {
   parseStoredQR,
   QR_ID_REGEX,
   QR_LOGO_MAX_BYTES,
+  QR_PAYLOAD_SCHEMAS,
+  QR_TEXT_MALFORMED_MESSAGE,
   QR_TYPES,
   QRCodeSchema,
   QRDesignSchema,
   QRLinkedRouteInputSchema,
   QRLinkedRouteSchema,
   QRListQuerySchema,
+  type QRType,
   QRTypeSchema,
+  qrIssueMessage,
   qrMatchesListFilters,
+  STORED_QR_PAYLOAD_SCHEMAS,
   StoredQRCodeSchema,
   serializePayload,
   TextPayloadSchema,
   UpdateQRInputSchema,
   UpdateQrToolInputSchema,
   UrlPayloadSchema,
+  VCARD_ADDRESS_PARTS,
   VcardPayloadSchema,
   WifiPayloadSchema,
 } from './qr.js';
@@ -1143,5 +1149,122 @@ describe('unreadable QR listing rows are told apart by shape (v1.38.0)', () => {
     const readable = { ...row, type: 'text', payload: { text: 'x' } };
     expect(isInvalidQRRow(readable)).toBe(false);
     expect(InvalidQRRowSchema.safeParse(readable).success).toBe(false);
+  });
+});
+
+const HIGH_SURROGATE = '\ud83d';
+const LOW_SURROGATE = '\ude00';
+/** Every text-bearing payload field of every type, each holding `bad`. */
+const surrogateCases = (
+  bad: string,
+): Array<[QRType, Record<string, unknown>, Array<string | number>]> => [
+  ['url', { url: `https://example.com/${bad}` }, ['url']],
+  ['text', { text: `a${bad}b` }, ['text']],
+  ['wifi', { ssid: `Net${bad}`, password: 'secret' }, ['ssid']],
+  ['wifi', { ssid: 'Net', password: `p${bad}` }, ['password']],
+  ['wifi', { ssid: 'Net', auth: 'WPA2-EAP', eapMethod: 'TLS', identity: `i${bad}` }, ['identity']],
+  [
+    'wifi',
+    {
+      ssid: 'Net',
+      auth: 'WPA2-EAP',
+      eapMethod: 'TLS',
+      identity: 'i',
+      anonymousIdentity: `a${bad}`,
+    },
+    ['anonymousIdentity'],
+  ],
+  ['vcard', { firstName: `A${bad}` }, ['firstName']],
+  ['vcard', { firstName: 'A', surname: `S${bad}` }, ['surname']],
+  ['vcard', { firstName: 'A', displayName: `D${bad}` }, ['displayName']],
+  ['vcard', { name: `N${bad}` }, ['name']],
+  ['vcard', { firstName: 'A', org: `O${bad}` }, ['org']],
+  ['vcard', { firstName: 'A', title: `T${bad}` }, ['title']],
+  ['vcard', { name: 'A', phone: `+1${bad}` }, ['phone']],
+  ['vcard', { firstName: 'A', email: `a${bad}@example.com` }, ['email']],
+  ['vcard', { firstName: 'A', url: `example.com/${bad}` }, ['url']],
+  [
+    'vcard',
+    { firstName: 'A', phones: [{ number: `+1${bad}`, type: 'work' }] },
+    ['phones', 0, 'number'],
+  ],
+  ...VCARD_ADDRESS_PARTS.map((part): [QRType, Record<string, unknown>, Array<string | number>] => [
+    'vcard',
+    { firstName: 'A', address: { [part]: `x${bad}` } },
+    ['address', part],
+  ]),
+];
+
+describe('unpaired surrogates in payload text (v1.42.1)', () => {
+  it.each([
+    ['a lone high surrogate', HIGH_SURROGATE],
+    ['a lone low surrogate', LOW_SURROGATE],
+    ['a reversed pair', LOW_SURROGATE + HIGH_SURROGATE],
+    ['a high surrogate at the end', `x${HIGH_SURROGATE}`],
+  ])('a write refuses %s in every text field, with one fixed message', (_label, bad) => {
+    for (const [type, payload, path] of surrogateCases(bad)) {
+      const result = QR_PAYLOAD_SCHEMAS[type].safeParse(payload);
+      expect(result.success).toBe(false);
+      expect(result.error?.issues).toContainEqual(
+        expect.objectContaining({ path, message: QR_TEXT_MALFORMED_MESSAGE }),
+      );
+      // The create schema (the Worker's and the dashboard's) refuses it too
+      expect(CreateQRInputSchema.safeParse({ type, payload }).success).toBe(false);
+    }
+  });
+
+  it('accepts a well-formed pair (an emoji) in every text field', () => {
+    for (const [type, payload] of surrogateCases(HIGH_SURROGATE + LOW_SURROGATE)) {
+      expect(QR_PAYLOAD_SCHEMAS[type].safeParse(payload).success).toBe(true);
+    }
+  });
+
+  it('a stored record holding one still reads (read never refuses)', () => {
+    for (const [type, payload] of surrogateCases(HIGH_SURROGATE)) {
+      expect(STORED_QR_PAYLOAD_SCHEMAS[type].safeParse(payload).success).toBe(true);
+      const record = {
+        id: 'stored',
+        domain: 'example.com',
+        type,
+        payload,
+        design: QRDesignSchema.parse({}),
+        createdAt: 1,
+        updatedAt: 1,
+        createdBy: 'test',
+      };
+      expect(parseStoredQR(record)).not.toBeNull();
+    }
+  });
+});
+
+describe('qrIssueMessage (v1.42.1)', () => {
+  it('names the field of an unpaired-surrogate refusal, from names and indexes only', () => {
+    const nested = VcardPayloadSchema.safeParse({
+      firstName: 'A',
+      phones: [{ number: '+1\ud83d', type: 'work' }],
+    });
+    const nestedIssue = nested.error?.issues[0];
+    assert(nestedIssue);
+    expect(qrIssueMessage(nestedIssue)).toBe(
+      `${QR_TEXT_MALFORMED_MESSAGE} (field: phones.0.number)`,
+    );
+    // A create's leading `payload` is dropped, so create and update read alike
+    const created = CreateQRInputSchema.safeParse({
+      type: 'vcard',
+      payload: { firstName: 'A', address: { city: 'K\ude00' } },
+    });
+    const createdIssue = created.error?.issues[0];
+    assert(createdIssue);
+    expect(qrIssueMessage(createdIssue)).toBe(`${QR_TEXT_MALFORMED_MESSAGE} (field: address.city)`);
+    expect(qrIssueMessage(createdIssue)).not.toContain('K');
+  });
+
+  it('leaves every other issue as it is', () => {
+    expect(qrIssueMessage({ message: 'URL must be x', path: ['payload', 'url'] })).toBe(
+      'URL must be x',
+    );
+    expect(qrIssueMessage({ message: QR_TEXT_MALFORMED_MESSAGE, path: [] })).toBe(
+      QR_TEXT_MALFORMED_MESSAGE,
+    );
   });
 });

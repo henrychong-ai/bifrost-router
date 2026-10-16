@@ -18,6 +18,7 @@ import {
   isSupportedDomain,
   normalizeQrId,
   QR_VCARD_PHONE_TYPES,
+  replaceLoneSurrogates,
   VCARD_ADDRESS_PARTS,
   vcardFullName,
   vcardText,
@@ -137,8 +138,17 @@ export interface QrFormState {
  * unescaped, where they are dropped too.
  */
 const text = (value: unknown): string =>
-  withoutControlCharacters(vcardText(value), { keepLineBreaks: true });
-const rawText = (value: unknown): string => withoutControlCharacters(vcardText(value));
+  replaceLoneSurrogates(withoutControlCharacters(vcardText(value), { keepLineBreaks: true }));
+const rawText = (value: unknown): string =>
+  replaceLoneSurrogates(withoutControlCharacters(vcardText(value)));
+/**
+ * A stored url, text or Wi-Fi value as the form shows it (v1.42.1): an
+ * unpaired surrogate (writes refuse them; earlier releases did not) becomes
+ * U+FFFD, as the code encodes it, so an edit of another field passes the
+ * write rule.
+ */
+const stored = (value: unknown): string =>
+  typeof value === 'string' ? replaceLoneSurrogates(value) : '';
 
 /** A stored phone type, or `work` for one the form does not know. */
 function phoneType(value: unknown): QRVcardPhoneType {
@@ -190,23 +200,23 @@ export function stateFromQr(qr?: QRCode): QrFormState {
     idTouched: Boolean(qr),
     description: qr?.description ?? '',
     tags: (qr?.tags ?? []).join(', '),
-    url: typeof p['url'] === 'string' ? p['url'] : '',
+    url: stored(p['url']),
     linkMode: qr?.linkedRoute ? 'existing' : 'static',
     linkedRoute: qr?.linkedRoute ?? null,
     newRoutePath: '',
     newRouteTarget: '',
-    text: typeof p['text'] === 'string' ? p['text'] : '',
-    ssid: typeof p['ssid'] === 'string' ? p['ssid'] : '',
+    text: stored(p['text']),
+    ssid: stored(p['ssid']),
     // Validated, not cast: every sibling field type-guards, and an
     // out-of-enum stored value would now render a BLANK security trigger
     // (SelectValue takes explicit children) plus an unexplainable 400 on save.
     auth: WifiAuthSchema.catch('WPA').parse(p['auth']),
-    password: typeof p['password'] === 'string' ? p['password'] : '',
+    password: stored(p['password']),
     hidden: p['hidden'] === true,
     eapMethod: typeof p['eapMethod'] === 'string' ? p['eapMethod'] : 'PEAP',
     phase2: typeof p['phase2'] === 'string' ? p['phase2'] : 'MSCHAPV2',
-    identity: typeof p['identity'] === 'string' ? p['identity'] : '',
-    anonymousIdentity: typeof p['anonymousIdentity'] === 'string' ? p['anonymousIdentity'] : '',
+    identity: stored(p['identity']),
+    anonymousIdentity: stored(p['anonymousIdentity']),
     // A legacy (MECARD-era) card's single name is shown as the first name:
     // it encodes exactly as before (FN and the given part of N). Chosen by
     // filled, not truthy: a blank first name beside a legacy name shows the name

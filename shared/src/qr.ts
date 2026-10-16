@@ -32,6 +32,7 @@ import {
   resolveQuery,
   SEARCH_PARAM_MAX_LENGTH,
 } from './search.js';
+import { hasLoneSurrogate } from './text-scan.js';
 import { trimEndChars } from './trim-chars.js';
 import { SUPPORTED_DOMAINS, SUPPORTED_DOMAINS_LIST } from './types.js';
 import { isFilled, vcardFullName, vcardHasName } from './vcard-name.js';
@@ -210,31 +211,6 @@ function hasVcardTextControl(value: string | undefined): boolean {
  */
 const URI_SCHEME_REGEX = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 
-/** `url` payload — any free-form scheme-bearing URI. */
-// All payload schemas are .strict(): the QRPayloadSchema
-// union is first-match-wins, and non-strict z.object STRIPS unknown keys — a
-// vcard payload whose website is a scheme-bearing `url` matched UrlPayloadSchema
-// first and silently lost name/phone/org. Strict members make a mismatched
-// variant REJECT instead, so the union falls through to the right shape and no
-// caller ever loses keys silently.
-export const UrlPayloadSchema = z
-  .object({
-    url: z
-      .string()
-      .min(1)
-      .max(1024)
-      .regex(URI_SCHEME_REGEX, 'URL must be a scheme-bearing URI (e.g. https:, mailto:, tel:)')
-      .describe('Target URI encoded in the QR code (any scheme: https:, mailto:, tel:, ...)'),
-  })
-  .strict();
-
-/** `text` payload — free-form plain text. */
-export const TextPayloadSchema = z
-  .object({
-    text: z.string().min(1).max(800).describe('Plain text encoded in the QR code'),
-  })
-  .strict();
-
 /**
  * Wi-Fi auth mode (WIFI: `T:` field). Interop doctrine (researched):
  *  - `WPA` is the wildcard token for EVERY password-secured PERSONAL network —
@@ -254,102 +230,164 @@ export const WifiEapMethodSchema = z.enum(['PEAP', 'TTLS', 'TLS', 'PWD']);
 /** Phase-2 (inner) auth for enterprise networks (WifiEnterpriseConfig.Phase2). */
 export const WifiPhase2Schema = z.enum(['MSCHAPV2', 'GTC', 'PAP']);
 
-/** `wifi` payload — serialized to the WIFI: network-join format. */
-export const WifiPayloadSchema = z
-  .object({
-    ssid: z.string().min(1).max(64).describe('Network SSID'),
-    auth: WifiAuthSchema.default('WPA').describe(
-      'Authentication type (default: WPA — covers WPA/WPA2/WPA3 personal; WPA2-EAP = enterprise 802.1X, Android-only)',
-    ),
-    password: z
-      .string()
-      .max(128)
-      .optional()
-      .describe('Network password (omit for nopass; optional for WPA2-EAP with eapMethod TLS)'),
-    hidden: z.boolean().default(false).describe('Network is hidden (SSID not broadcast)'),
-    eapMethod: WifiEapMethodSchema.optional().describe(
-      'EAP method (WPA2-EAP only; required for enterprise networks)',
-    ),
-    phase2: WifiPhase2Schema.optional().describe('Phase-2 inner auth (WPA2-EAP only)'),
-    identity: z.string().max(128).optional().describe('Login identity (WPA2-EAP only; required)'),
-    anonymousIdentity: z
-      .string()
-      .max(128)
-      .optional()
-      .describe('Anonymous outer identity (WPA2-EAP only)'),
-  })
-  .strict()
-  .superRefine((wifi, ctx) => {
-    if (wifi.auth === 'WPA2-EAP') {
-      if (!wifi.eapMethod) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['eapMethod'],
-          message: 'EAP method is required for enterprise (WPA2-EAP) networks',
-        });
-      }
-      if (!wifi.identity) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['identity'],
-          message: 'Identity is required for enterprise (WPA2-EAP) networks',
-        });
-      }
-      // TLS is certificate-based — password optional; other EAP methods need one.
-      if (wifi.eapMethod && wifi.eapMethod !== 'TLS' && !wifi.password) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['password'],
-          message: 'Password is required for this EAP method',
-        });
-      }
-    } else {
-      if (wifi.auth !== 'nopass' && !wifi.password) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['password'],
-          message: 'Password is required unless auth is "nopass"',
-        });
-      }
-      // Enterprise-only fields are rejected on non-enterprise auth so a
-      // mis-set auth can never silently drop identity data from the QR.
-      for (const field of ['eapMethod', 'phase2', 'identity', 'anonymousIdentity'] as const) {
-        if (wifi[field] !== undefined) {
-          ctx.addIssue({
-            code: 'custom',
-            path: [field],
-            message: `${field} is only valid when auth is "WPA2-EAP"`,
-          });
-        }
-      }
-    }
-  });
+/**
+ * The unpaired-surrogate refusal of a payload text field (v1.42.1): such text
+ * has no UTF-8 form, so the code would encode U+FFFD in its place.
+ */
+export const QR_TEXT_MALFORMED_MESSAGE =
+  'Text must be valid Unicode (it holds an unpaired surrogate character)';
 
 /**
- * The `vcard` payload schema (v1.42.0), built twice: with `write` for create
- * and update bodies ({@link VcardPayloadSchema}), and without it for stored
- * records ({@link parseStoredQR}), which skips the rules a write adds so
- * every record an earlier release wrote through the API still reads. A
- * contact card written straight to KV with a now-known key (firstName,
- * surname, displayName, phones, address) beside the legacy name, or with such
- * a key of the wrong type, is refused. Length and count caps are in both; the
- * stored read ignores them as for every type.
- *
- * Every field is optional text of at most {@link QR_VCARD_FIELD_MAX_LENGTH}
- * characters; at least one name field is required. `name` and `phone` are the
- * legacy (MECARD-era) fields, still accepted on read and write: `name` becomes
- * FN and the given part of N, `phone` a `TEL;TYPE=WORK,VOICE` line.
- *
- * A legacy field beside its replacement is refused on write AND on read: no
- * release writes one, and the editor cannot open one faithfully, so a stored
- * one is unreadable (Delete only) rather than encoded with a guessed
- * precedence. Only a write refuses a blank phone number (a stored one reads,
- * and {@link serializeVcard} leaves it out) and control characters.
+ * The text of a QR validation issue (v1.42.1): the unpaired-surrogate refusal
+ * names its field, from the issue path's field names and indexes only (never
+ * a value; a leading `payload` is dropped, so create and update read alike),
+ * e.g. "… (field: address.city)"; any other issue keeps its message.
  */
-function vcardPayloadSchema(write: boolean) {
+export function qrIssueMessage(issue: {
+  message: string;
+  path: ReadonlyArray<PropertyKey>;
+}): string {
+  if (issue.message !== QR_TEXT_MALFORMED_MESSAGE) return issue.message;
+  const segments = issue.path.filter(
+    (segment): segment is string | number =>
+      typeof segment === 'string' || typeof segment === 'number',
+  );
+  if (segments[0] === 'payload') segments.shift();
+  return segments.length > 0 ? `${issue.message} (field: ${segments.join('.')})` : issue.message;
+}
+
+/**
+ * The per-type payload schemas, built twice (v1.42.1): with `write` for create
+ * and update bodies ({@link QR_PAYLOAD_SCHEMAS}), and without it for stored
+ * records ({@link STORED_QR_PAYLOAD_SCHEMAS}), which skip the rules a write
+ * adds so every record an earlier release wrote through the API still reads.
+ * Length and count caps are in both; the stored read ignores them as for
+ * every type.
+ */
+function buildPayloadSchemas(write: boolean) {
+  // Every payload text field passes through here: its length cap and, on a
+  // write, the unpaired-surrogate refusal (v1.42.1). A stored one stays
+  // readable and renders as U+FFFD.
+  const text = (schema: z.ZodString, limit: number) =>
+    write
+      ? schema.max(limit).refine(value => !hasLoneSurrogate(value), QR_TEXT_MALFORMED_MESSAGE)
+      : schema.max(limit);
+
+  /** `url` payload — any free-form scheme-bearing URI. */
+  // All payload schemas are .strict(): the QRPayloadSchema
+  // union is first-match-wins, and non-strict z.object STRIPS unknown keys — a
+  // vcard payload whose website is a scheme-bearing `url` matched UrlPayloadSchema
+  // first and silently lost name/phone/org. Strict members make a mismatched
+  // variant REJECT instead, so the union falls through to the right shape and no
+  // caller ever loses keys silently.
+  const url = z
+    .object({
+      url: text(z.string().min(1), 1024)
+        .regex(URI_SCHEME_REGEX, 'URL must be a scheme-bearing URI (e.g. https:, mailto:, tel:)')
+        .describe('Target URI encoded in the QR code (any scheme: https:, mailto:, tel:, ...)'),
+    })
+    .strict();
+
+  /** `text` payload — free-form plain text. */
+  const plain = z
+    .object({
+      text: text(z.string().min(1), 800).describe('Plain text encoded in the QR code'),
+    })
+    .strict();
+
+  /** `wifi` payload — serialized to the WIFI: network-join format. */
+  const network = z
+    .object({
+      ssid: text(z.string().min(1), 64).describe('Network SSID'),
+      auth: WifiAuthSchema.default('WPA').describe(
+        'Authentication type (default: WPA — covers WPA/WPA2/WPA3 personal; WPA2-EAP = enterprise 802.1X, Android-only)',
+      ),
+      password: text(z.string(), 128)
+        .optional()
+        .describe('Network password (omit for nopass; optional for WPA2-EAP with eapMethod TLS)'),
+      hidden: z.boolean().default(false).describe('Network is hidden (SSID not broadcast)'),
+      eapMethod: WifiEapMethodSchema.optional().describe(
+        'EAP method (WPA2-EAP only; required for enterprise networks)',
+      ),
+      phase2: WifiPhase2Schema.optional().describe('Phase-2 inner auth (WPA2-EAP only)'),
+      identity: text(z.string(), 128)
+        .optional()
+        .describe('Login identity (WPA2-EAP only; required)'),
+      anonymousIdentity: text(z.string(), 128)
+        .optional()
+        .describe('Anonymous outer identity (WPA2-EAP only)'),
+    })
+    .strict()
+    .superRefine((wifi, ctx) => {
+      if (wifi.auth === 'WPA2-EAP') {
+        if (!wifi.eapMethod) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['eapMethod'],
+            message: 'EAP method is required for enterprise (WPA2-EAP) networks',
+          });
+        }
+        if (!wifi.identity) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['identity'],
+            message: 'Identity is required for enterprise (WPA2-EAP) networks',
+          });
+        }
+        // TLS is certificate-based — password optional; other EAP methods need one.
+        if (wifi.eapMethod && wifi.eapMethod !== 'TLS' && !wifi.password) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['password'],
+            message: 'Password is required for this EAP method',
+          });
+        }
+      } else {
+        if (wifi.auth !== 'nopass' && !wifi.password) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['password'],
+            message: 'Password is required unless auth is "nopass"',
+          });
+        }
+        // Enterprise-only fields are rejected on non-enterprise auth so a
+        // mis-set auth can never silently drop identity data from the QR.
+        for (const field of ['eapMethod', 'phase2', 'identity', 'anonymousIdentity'] as const) {
+          if (wifi[field] !== undefined) {
+            ctx.addIssue({
+              code: 'custom',
+              path: [field],
+              message: `${field} is only valid when auth is "WPA2-EAP"`,
+            });
+          }
+        }
+      }
+    });
+
+  /**
+   * The `vcard` payload schema (v1.42.0): with `write` for create and update
+   * bodies ({@link VcardPayloadSchema}), and without it for stored records
+   * ({@link StoredVcardPayloadSchema}), which skips the rules a write adds so
+   * every record an earlier release wrote through the API still reads. A
+   * contact card written straight to KV with a now-known key (firstName,
+   * surname, displayName, phones, address) beside the legacy name, or with such
+   * a key of the wrong type, is refused. Length and count caps are in both; the
+   * stored read ignores them as for every type.
+   *
+   * Every field is optional text of at most {@link QR_VCARD_FIELD_MAX_LENGTH}
+   * characters; at least one name field is required. `name` and `phone` are the
+   * legacy (MECARD-era) fields, still accepted on read and write: `name` becomes
+   * FN and the given part of N, `phone` a `TEL;TYPE=WORK,VOICE` line.
+   *
+   * A legacy field beside its replacement is refused on write AND on read: no
+   * release writes one, and the editor cannot open one faithfully, so a stored
+   * one is unreadable (Delete only) rather than encoded with a guessed
+   * precedence. Only a write refuses a blank phone number (a stored one reads,
+   * and {@link serializeVcard} leaves it out) and control characters.
+   */
   const field = (description: string) =>
-    z.string().max(QR_VCARD_FIELD_MAX_LENGTH).optional().describe(description);
-  const phoneNumber = z.string().max(QR_VCARD_FIELD_MAX_LENGTH).describe('Phone number');
+    text(z.string(), QR_VCARD_FIELD_MAX_LENGTH).optional().describe(description);
+  const phoneNumber = text(z.string(), QR_VCARD_FIELD_MAX_LENGTH).describe('Phone number');
   const phoneEntry = z
     .object({
       number: write ? phoneNumber.min(1) : phoneNumber,
@@ -358,7 +396,7 @@ function vcardPayloadSchema(write: boolean) {
         .describe("work = the person's own number; main = the office line; cell = mobile; fax"),
     })
     .strict();
-  return z
+  const vcard = z
     .object({
       firstName: field('First (given) name'),
       surname: field('Surname (family name)'),
@@ -469,16 +507,27 @@ function vcardPayloadSchema(write: boolean) {
         }
       }
     });
+
+  return { url, text: plain, wifi: network, vcard };
 }
 
+const WRITE_PAYLOADS = buildPayloadSchemas(true);
+const STORED_PAYLOADS = buildPayloadSchemas(false);
+
+/** `url` payload — any free-form scheme-bearing URI. */
+export const UrlPayloadSchema = WRITE_PAYLOADS.url;
+/** `text` payload — free-form plain text. */
+export const TextPayloadSchema = WRITE_PAYLOADS.text;
+/** `wifi` payload — serialized to the WIFI: network-join format. */
+export const WifiPayloadSchema = WRITE_PAYLOADS.wifi;
 /** `vcard` payload — serialized to vCard 3.0 (v1.42.0; MECARD before). */
-export const VcardPayloadSchema = vcardPayloadSchema(true);
+export const VcardPayloadSchema = WRITE_PAYLOADS.vcard;
 
 /**
  * The `vcard` payload as stored records are read: {@link VcardPayloadSchema}
  * without its write-only rules (v1.42.0).
  */
-export const StoredVcardPayloadSchema = vcardPayloadSchema(false);
+export const StoredVcardPayloadSchema = STORED_PAYLOADS.vcard;
 
 /** Any valid payload (variant selected by the record's `type`). */
 export const QRPayloadSchema = z.union([
@@ -501,11 +550,13 @@ export const QR_PAYLOAD_SCHEMAS: Record<QRType, z.ZodType> = {
 
 /**
  * The payload schemas stored records are read with ({@link parseStoredQR}):
- * the write schemas, except a contact card's, whose write-only rules are left
- * out (v1.42.0, {@link StoredVcardPayloadSchema}).
+ * the write schemas without their write-only rules (a contact card's, v1.42.0,
+ * and every text field's unpaired-surrogate refusal, v1.42.1).
  */
 export const STORED_QR_PAYLOAD_SCHEMAS: Record<QRType, z.ZodType> = {
-  ...QR_PAYLOAD_SCHEMAS,
+  url: STORED_PAYLOADS.url,
+  text: STORED_PAYLOADS.text,
+  wifi: STORED_PAYLOADS.wifi,
   vcard: StoredVcardPayloadSchema,
 };
 

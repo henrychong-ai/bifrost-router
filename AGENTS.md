@@ -2,7 +2,7 @@
 
 Guidance for AI coding agents (Claude Code, Codex and others) working with this repository. This is the canonical instruction file; `CLAUDE.md` only imports it (`@AGENTS.md`), so edit this file.
 
-**Version:** 1.42.0 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
+**Version:** 1.42.1 | **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ## Public repository — sanitisation (MANDATORY)
 
@@ -1010,7 +1010,8 @@ If the domain is missing from this list, the binding was never created.
 | `scripts/check-boundary-reads.mjs` | Boundary-read gate |
 | `shared/src/search.ts` | The one search matcher and ranking (routes, QR codes, Cmd+K) |
 | `shared/src/vcard-name.ts` | Contact-card name rules (FN, the filled and name tests) shared by the vCard serializer, QR search and the dashboard (v1.42.0) |
-| `patches/qrcode-svg-1.1.0.patch` | Drops qrcode-svg's UTF-8 byte-order mark before non-ASCII content (v1.42.0) |
+| `patches/qrcode-svg-1.1.0.patch` | Drops qrcode-svg's UTF-8 byte-order mark before non-ASCII content (v1.42.0) and makes it encode and size real UTF-8 (v1.42.1) |
+| `shared/src/text-scan.ts` | Linear unpaired-surrogate scans: the QR payload write rule and the dashboard's edit form (v1.42.1) |
 | `admin/src/lib/qr-pending.ts` | Dashboard QR store: latest known versions and a tombstone per deleted incarnation |
 | `src/db/qr-recent.ts` | Recent QR creates in D1 (`qr_recent`, migration 0013): one row per incarnation, merged into the Worker's QR listing only for the readable incarnation KV serves; a delete, awaited before its answer, marks every recorded incarnation |
 | `admin/src/hooks/use-routes.ts` | Route queries (raw listings shown through the pending-route store) and mutations (each holding every route it affects) |
@@ -1134,6 +1135,8 @@ Unified QR resource with optional route linking. Feature files: `shared/src/qr.t
 **Dashboard contact card (v1.42.0).** The contact form (`admin/src/lib/qr-form-state.ts`) has phone rows, each with a form-only `id` as its React key and never sent, and the address parts; a legacy card opens with its name as the first name (chosen by filled, not truthy), its phone as a `work` row, and every field without control characters, as encoded (CR and LF kept only where escaped); it is written in the new fields only when the payload changes, and until then the edit preview renders the stored payload. The preview waits for a name and shows the encoded size against `MAX_QR_PAYLOAD_LENGTH`.
 
 **No byte-order mark (v1.42.0).** qrcode-svg 1.1.0 is patched (`patches/qrcode-svg-1.1.0.patch`, `pnpm.patchedDependencies`) to drop the UTF-8 byte-order mark it put before any non-ASCII content (the five-line block in `lib/qrcode.js`, the entry point the Worker and the dashboard bundle), so an accented contact card starts with `BEGIN:VCARD` at byte 0 as scanners such as ZXing require; ASCII content renders byte for byte as before (`shared/src/qr-render-bom.test.ts` pins the unpatched library's SVG hashes). Both dashboard Dockerfiles copy `patches/` before `pnpm install`, which fails without it. On a qrcode-svg upgrade, re-check the mark before dropping the patch.
+
+**Real UTF-8 (v1.42.1).** The same patch makes `QR8bitByte` encode with `TextEncoder` and sizes the symbol (`_getUTF8Length`) from those bytes plus the library's own 3-byte allowance, kept so ASCII and other BMP text render byte for byte as before. ⚠️ The allowance is a quirk to keep, not a bug to fix: `result.length != content` compares a byte count with the content string, which is coerced to a number (NaN for nearly all text), so the 3 bytes are added to almost all content, ASCII and non-ASCII alike, except a string whose numeric value equals its byte length (such as `"1"`). Never "fix" it to `content.length` or drop it: that changes the version of every ASCII code near a capacity limit, and the `qr-render-bom.test.ts` SHA-256 pins would catch it only after the edit. Unpatched, an emoji was written as six CESU-8 bytes, U+0080 and U+0800 took the wrong branch (`>` for `>=`), a short emoji card could throw `code length overflow` (a 500 from the image route), and a lone surrogate threw `URIError` on every render (`shared/src/qr-render-utf8.test.ts`). Writes refuse an unpaired surrogate in every payload text field with `QR_TEXT_MALFORMED_MESSAGE` (the `text` length-cap helper in `buildPayloadSchemas`, `shared/src/qr.ts`, which builds the write and the stored payload schemas, and `hasLoneSurrogate` in `shared/src/text-scan.ts`; never `String.prototype.isWellFormed` or `toWellFormed`, which the dashboard's build target lacks). `qrIssueMessage` (`shared/src/qr.ts`) adds the field to that refusal, from the issue path's names and indexes only (`… (field: address.city)`), in the create and update handlers (`src/routes/qr.ts`) and the dashboard's pre-save check. Stored records stay readable (`STORED_QR_PAYLOAD_SCHEMAS` carries no such rule), a stored one renders as U+FFFD, and the dashboard's edit form opens stored payload text through `replaceLoneSurrogates` (`admin/src/lib/qr-form-state.ts`), so it shows U+FFFD, as the code encodes it, and an edit that resends the payload passes the write rule.
 
 ## User Guide + Resources (v1.30.0)
 

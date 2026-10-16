@@ -56,8 +56,6 @@ None open.
 ### v1.42.0 residuals
 
 - **A legacy contact card near the old limit can outgrow the QR.** A MECARD-era card close to the 1,024-byte payload limit can exceed QR capacity once re-encoded as vCard 3.0: its image endpoint then answers 500, and the editor shows "Too long to save" on the untouched card (a description-only save still works). Re-save such a card with shorter fields.
-- **The QR library's encoder is not UTF-8.** qrcode-svg encodes characters outside the BMP (emoji) as CESU-8, is off by one at U+0080 and U+0800, and sizes the symbol from an `encodeURI` length that differs from the bytes it writes, so emoji scan garbled and can overflow. Pre-existing for every QR type; the root fix is a TextEncoder-based encoder in `patches/qrcode-svg-1.1.0.patch`.
-- **Contact-card writes accept lone UTF-16 surrogates.** The create succeeds and every later render throws (500). Add a write-only well-formed-string check, needed for the other text QR types too.
 - **EMAIL and TEL are written unescaped, and the write rules allow `;`, `,` and `\` in them.** Separately, a website with no `//` (`mailto:`, `tel:`) gets `https://` prepended.
 - **`QRVcardPayload` is all-optional (a weak type)**, so any record object type-checks as `QRPayload`. Typing `serializePayload` per QR type would restore compile-time checks.
 - **Contact-card key lists are kept by hand.** The phone keys, address keys and vCard text-field list in `shared/src/qr.ts` are not derived from the schema `.shape`, so a new schema field missing from them is dropped on read.
@@ -71,3 +69,12 @@ None open.
 - **Design simplifications.** One vCard schema whose write-only issues carry a tag that `passesFormats` skips would replace the twin stored schema; the edit preview's "payload unchanged" test duplicates `qrEditPatch`'s comparison; `qrSearchFields` adds "First Surname" twice when a card has no display name.
 - **The read-time conflict and name checks use whitespace-only `isFilled`,** while the serializer and the editor drop control characters first, so a value that encodes as blank can count as filled: a card can be wrongly refused, and a name of only control characters passes. Fix: one "filled as encoded" test shared by the schema, the serializer and the form.
 - **A write accepts the legacy `name` beside `phones` or `address`,** which a v1.41.x rollback reads with those fields dropped (and erases on any update there). A possible write rule: refuse the legacy `name` beside any new field.
+
+(v1.42.1 closed "The QR library's encoder is not UTF-8" and "Contact-card writes accept lone UTF-16 surrogates": the patched encoder writes real UTF-8, and every QR payload text field refuses an unpaired surrogate on write.)
+
+### v1.42.1 residuals
+
+- **Route paths accept unpaired surrogates.** `RoutePathSchema` and `QRLinkedRouteInputSchema` do not refuse them. A URL code linked to such a route used to fail visibly (`URIError`, a 500); since v1.42.1 it encodes U+FFFD, a URL that does not match the stored route path. Refuse them on route writes too.
+- **The QR write rule lives in the payload length-cap helper** (`text` in `buildPayloadSchemas`, `shared/src/qr.ts`). A future payload text field built without it would skip the rule, and the hand-written field list in `shared/src/qr.test.ts` would not notice. Derive the test's field list from the schemas, or check every string field of every payload schema.
+- **Two test helpers reach into qrcode-svg internals.** `shared/src/qr-render-utf8.test.ts` and `shared/src/qr-render-bom.test.ts` each read the library's segments their own way; move that into one test-only fixture.
+- **Each render encodes the content to UTF-8 twice** (`QR8bitByte` and `_getUTF8Length` in the patch each run a `TextEncoder`). Minor.

@@ -38,6 +38,7 @@ import {
   type QRDesign,
   QRDesignSchema,
   QRTypeSchema,
+  qrIssueMessage,
   renderQrSvg,
   SEARCH_PARAM_MAX_LENGTH,
   serializePayload,
@@ -411,8 +412,10 @@ qrRoutes.post('/', async c => {
   });
   const parsedInput = CreateQRInputSchema.safeParse(body);
   if (!parsedInput.success) {
+    const issue = parsedInput.error.issues[0];
     throw new HTTPException(400, {
-      message: parsedInput.error.issues[0]?.message ?? 'validation failed',
+      // An unpaired-surrogate refusal names its field, never its value (v1.42.1)
+      message: issue ? qrIssueMessage(issue) : 'validation failed',
     });
   }
   const input = parsedInput.data;
@@ -469,8 +472,9 @@ qrRoutes.put('/:id', async c => {
   });
   const parsedInput = UpdateQRInputSchema.safeParse(body);
   if (!parsedInput.success) {
+    const issue = parsedInput.error.issues[0];
     throw new HTTPException(400, {
-      message: parsedInput.error.issues[0]?.message ?? 'validation failed',
+      message: issue ? qrIssueMessage(issue) : 'validation failed',
     });
   }
   const input = parsedInput.data;
@@ -488,7 +492,9 @@ qrRoutes.put('/:id', async c => {
     const parsed = QR_PAYLOAD_SCHEMAS[existing.type].safeParse(input.payload);
     if (!parsed.success) {
       throw new HTTPException(400, {
-        message: parsed.error.issues[0]?.message ?? `payload does not match type ${existing.type}`,
+        message: parsed.error.issues[0]
+          ? qrIssueMessage(parsed.error.issues[0])
+          : `payload does not match type ${existing.type}`,
       });
     }
     payload = parsed.data as QRCode['payload'];

@@ -1,16 +1,56 @@
 diff --git a/lib/qrcode.js b/lib/qrcode.js
-index e5c7340b8dd2ac67cb3bbb21b441ab4747dd40a0..e63caf419cb32c791ba28e8192e772f3dec05950 100644
+index e5c7340b8dd2ac67cb3bbb21b441ab4747dd40a0..5e772b801219d5307e48f2f46174404099c4025f 100644
 --- a/lib/qrcode.js
 +++ b/lib/qrcode.js
-@@ -58,11 +58,6 @@ function QR8bitByte(data) {
- 
-   this.parsedData = Array.prototype.concat.apply([], this.parsedData);
- 
+@@ -30,39 +30,8 @@
+ function QR8bitByte(data) {
+   this.mode = QRMode.MODE_8BIT_BYTE;
+   this.data = data;
+-  this.parsedData = [];
+-
+-  // Added to support UTF-8 Characters
+-  for (var i = 0, l = this.data.length; i < l; i++) {
+-    var byteArray = [];
+-    var code = this.data.charCodeAt(i);
+-
+-    if (code > 0x10000) {
+-      byteArray[0] = 0xF0 | ((code & 0x1C0000) >>> 18);
+-      byteArray[1] = 0x80 | ((code & 0x3F000) >>> 12);
+-      byteArray[2] = 0x80 | ((code & 0xFC0) >>> 6);
+-      byteArray[3] = 0x80 | (code & 0x3F);
+-    } else if (code > 0x800) {
+-      byteArray[0] = 0xE0 | ((code & 0xF000) >>> 12);
+-      byteArray[1] = 0x80 | ((code & 0xFC0) >>> 6);
+-      byteArray[2] = 0x80 | (code & 0x3F);
+-    } else if (code > 0x80) {
+-      byteArray[0] = 0xC0 | ((code & 0x7C0) >>> 6);
+-      byteArray[1] = 0x80 | (code & 0x3F);
+-    } else {
+-      byteArray[0] = code;
+-    }
+-
+-    this.parsedData.push(byteArray);
+-  }
+-
+-  this.parsedData = Array.prototype.concat.apply([], this.parsedData);
+-
 -  if (this.parsedData.length != this.data.length) {
 -    this.parsedData.unshift(191);
 -    this.parsedData.unshift(187);
 -    this.parsedData.unshift(239);
 -  }
++  // Real UTF-8 (TextEncoder); _getUTF8Length sizes the symbol from the same bytes.
++  this.parsedData = Array.from(new TextEncoder().encode(data));
  }
  
  QR8bitByte.prototype = {
+@@ -267,7 +236,8 @@ function QRCode(options) {
+ 
+   //Gets text length
+   function _getUTF8Length(content) {
+-    var result = encodeURI(content).toString().replace(/\%[0-9a-fA-F]{2}/g, 'a');
++    // UTF-8 byte count; the 3-byte allowance is kept so ASCII sizes as before.
++    var result = new TextEncoder().encode(content);
+     return result.length + (result.length != content ? 3 : 0);
+   }
+   

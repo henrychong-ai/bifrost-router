@@ -1,6 +1,7 @@
 import type { QRCode } from '@bifrost/shared';
 import {
   parseStoredQR,
+  QR_PAYLOAD_SCHEMAS,
   QRDesignSchema,
   serializePayload,
   VcardPayloadSchema,
@@ -395,5 +396,66 @@ describe('contact card form (vCard 3.0, v1.42.0)', () => {
       serializePayload('vcard', stored.payload),
     );
     expect(serializePayload('vcard', stored.payload)).toContain('\r\nURL:https://a.exampleB\r\n');
+  });
+});
+
+const LONE = '\ud83d';
+
+/** A stored record of `type` holding `payload`. */
+const stored = (type: QRCode['type'], payload: Record<string, unknown>): QRCode => ({
+  ...card(payload),
+  type,
+});
+
+describe('a stored payload holding an unpaired surrogate (v1.42.1)', () => {
+  it('opens with U+FFFD in its place, as the code encodes it', () => {
+    const vcard = stateFromQr(
+      stored('vcard', {
+        firstName: `Jane${LONE}`,
+        email: `a${LONE}@example.com`,
+        phones: [{ number: `+1${LONE}`, type: 'work' }],
+        address: { city: `K${LONE}L` },
+      }),
+    );
+    expect(vcard.firstName).toBe('Jane\ufffd');
+    expect(vcard.email).toBe('a\ufffd@example.com');
+    expect(vcard.phones[0]?.number).toBe('+1\ufffd');
+    expect(vcard.city).toBe('K\ufffdL');
+    expect(stateFromQr(stored('text', { text: `a${LONE}` })).text).toBe('a\ufffd');
+    expect(stateFromQr(stored('url', { url: `https://example.com/${LONE}` })).url).toBe(
+      'https://example.com/\ufffd',
+    );
+    const wifi = stateFromQr(
+      stored('wifi', {
+        ssid: `N${LONE}`,
+        auth: 'WPA2-EAP',
+        eapMethod: 'PEAP',
+        password: `p${LONE}`,
+        identity: `i${LONE}`,
+        anonymousIdentity: `a${LONE}`,
+      }),
+    );
+    expect([wifi.ssid, wifi.password, wifi.identity, wifi.anonymousIdentity]).toEqual([
+      'N\ufffd',
+      'p\ufffd',
+      'i\ufffd',
+      'a\ufffd',
+    ]);
+  });
+
+  it('an edit of another field sends a payload the write schema accepts', () => {
+    const record = stored('vcard', { firstName: 'Jane', address: { city: `K${LONE}L` } });
+    const patch = qrEditPatch(record, { ...stateFromQr(record), title: 'Lead' }, record.domain);
+    expect(patch['payload']).toEqual({
+      firstName: 'Jane',
+      title: 'Lead',
+      address: { city: 'K\ufffdL' },
+    });
+    expect(QR_PAYLOAD_SCHEMAS.vcard.safeParse(patch['payload']).success).toBe(true);
+
+    const text = stored('text', { text: `a${LONE}b` });
+    const opened = stateFromQr(text);
+    const textPatch = qrEditPatch(text, { ...opened, text: `${opened.text}!` }, text.domain);
+    expect(QR_PAYLOAD_SCHEMAS.text.safeParse(textPatch['payload']).success).toBe(true);
   });
 });

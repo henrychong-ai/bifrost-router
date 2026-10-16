@@ -6,6 +6,119 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.42.1 (2026-10-16) — QR codes encode real UTF-8, so emoji codes render and scan
+
+**Why:** the QR renderer's library, qrcode-svg 1.1.0, did not write real
+UTF-8. It encoded each UTF-16 unit on its own, so an emoji became six CESU-8
+bytes (`ED A0 BD ED B8 80`) instead of its four UTF-8 bytes (`F0 9F 98 80`),
+and U+0080 and U+0800 took the wrong branch (`>` where `>=` was needed:
+U+0080 was written as one byte). It also sized the symbol from an `encodeURI`
+length that differed from the bytes it wrote, so a short emoji card could
+throw `code length overflow`, which the image route answered with a 500, and
+a lone surrogate passed the write rules and then made every render of that
+code throw `URIError`. **No migration**; no API shape, MCP tool or
+stored-record change.
+
+### QR rendering
+
+- **Real UTF-8 for every QR type.** The pnpm patch
+  `patches/qrcode-svg-1.1.0.patch` (still on `lib/qrcode.js`, the entry point
+  the Worker and the dashboard bundle) keeps its v1.42.0 removal of the
+  byte-order mark and now makes `QR8bitByte` encode with `TextEncoder`, its
+  length and `write` using those bytes, and sizes the symbol
+  (`_getUTF8Length`) from the same UTF-8 byte count. `pnpm-lock.yaml` records
+  the new patch hash.
+- **ASCII and other BMP text are unchanged.** The sizing keeps the library's
+  own 3-byte allowance, so ASCII sizes and renders byte for byte as before:
+  the `qr-render-bom.test.ts` SHA-256 pins pass unchanged. Content with emoji
+  or other characters beyond U+FFFF, or with U+0080 or U+0800, now encodes
+  its real UTF-8 bytes. Such a code saved before this release keeps its
+  record and renders correctly from now on, so its image changes; a copy
+  already printed or downloaded keeps the old bytes and should be downloaded
+  again, and a dashboard tab on an older bundle previews the old bytes until
+  it is reloaded.
+- **A stored lone surrogate renders, as U+FFFD.** `TextEncoder` replaces it,
+  so the image route and the dashboard preview no longer throw.
+
+### Write rule
+
+- **Payload text must be valid Unicode.** Every text-bearing payload field of
+  every type (url; text; Wi-Fi SSID, password, identity and anonymous
+  identity; every contact-card field, phone number and address part, the
+  legacy name and phone included) refuses an unpaired surrogate on create
+  and update with the fixed message "Text must be valid Unicode (it holds an
+  unpaired surrogate character)" (`QR_TEXT_MALFORMED_MESSAGE`,
+  `shared/src/qr.ts`). The test is `hasLoneSurrogate`
+  (`shared/src/text-scan.ts`), a linear scan:
+  `String.prototype.isWellFormed` is not in the dashboard's build target. The
+  url, text and Wi-Fi payload schemas are now built like the contact card's,
+  once for writes and once for stored records (`buildPayloadSchemas`), and
+  stored records stay tolerant (read never refuses). The REST API, the MCP
+  server (it writes through it) and the dashboard's own pre-save check
+  (`CreateQRInputSchema` and `QR_PAYLOAD_SCHEMAS`) all apply it.
+- **The refusal names the field.** `qrIssueMessage` (`shared/src/qr.ts`)
+  appends the field to that message from the issue path's names and indexes
+  only, never a value, for example "… (field: address.city)" or "(field:
+  phones.0.number)"; every other validation message is unchanged. The create
+  and update handlers in `src/routes/qr.ts` and the dashboard's pre-save
+  check use it, and the MCP server, which writes through the REST API, gets
+  the same text.
+- **A stored record holding one can be edited in the dashboard.** An edit
+  that changes the payload resends all of it, so an untouched field holding
+  an unpaired surrogate would be refused. The edit form now opens stored
+  payload text through `replaceLoneSurrogates` (`shared/src/text-scan.ts`, a
+  linear scan that writes U+FFFD for each one, as `TextEncoder` does), so it
+  shows what the code encodes and a changed payload passes the write rule.
+  An edit that leaves the payload alone (description, tags or design) sends
+  no payload and keeps the record as stored.
+
+### Tests
+
+- `shared/src/qr-render-utf8.test.ts` (new): an emoji text and an emoji
+  contact card write exactly their UTF-8 bytes (captured from the library's
+  `write`); U+007F, U+0080, U+07FF, U+0800, U+FFFF, U+10000 and U+10FFFF
+  encode correctly; five emoji fit version 2 at EC M (the old encoder wrote
+  30 bytes into 26 and threw); an emoji card that exactly fills version 10 at
+  EC M renders there and one byte more moves to version 11; content is sized
+  from its UTF-8 byte count; a stored lone surrogate renders as U+FFFD
+  without throwing.
+- `shared/src/qr.test.ts`: every text-bearing field of every type refuses a
+  lone high surrogate, a lone low one, a reversed pair and a trailing high
+  surrogate with the fixed message (also through `CreateQRInputSchema`),
+  accepts an emoji, and the stored schemas and `parseStoredQR` still read
+  them; `qrIssueMessage` names the field and echoes no value.
+  `shared/src/text-scan.test.ts` (new): `hasLoneSurrogate` agrees with
+  `encodeURIComponent`, and `replaceLoneSurrogates` with a `TextEncoder`
+  round trip, on every short string of surrogates.
+  `test/routes/qr-utf8.test.ts` (new): create and update of each type refuse
+  one with a 400 carrying the message; an emoji card creates and renders; a
+  stored record holding one reads, renders as U+FFFD and accepts a
+  description edit; a refusal names its contact-card field on create
+  (`address.city`) and update (`phones.0.number`), never its value.
+  `admin/src/lib/qr-form-state.test.ts`: a stored payload holding one opens
+  with U+FFFD in every text field, and an edit of another field sends a
+  payload the write schema accepts.
+
+### Upgrading
+
+- **Rollback:** going back to v1.42.0 brings back the `code length overflow`
+  500 for emoji codes saved under v1.42.1 (their records stay readable).
+  Records saved before v1.42.1 may hold an unpaired surrogate (earlier
+  releases accepted one, and v1.42.1 deliberately keeps such records
+  readable): v1.42.1 renders it as U+FFFD, and a rollback brings back the
+  `URIError` on every render of such a record. v1.42.1 refuses new ones.
+
+### Also in this release
+
+- **TODO.md:** closes the v1.42.0 residuals on the encoder and on lone
+  surrogates in contact cards, and records four v1.42.1 residuals (route
+  paths still accept unpaired surrogates, the write rule lives in the length
+  helper, two tests read the library's internals, and each render encodes
+  the content twice).
+- **AGENTS.md** (QR Codes) records the real-UTF-8 patch, why the 3-byte
+  allowance must stay, the write rule, the named field and the edit form's
+  U+FFFD.
+
 ## v1.42.0 (2026-10-15) — Contact card QR codes as vCard 3.0; no byte-order mark
 
 **Why:** the dashboard's Contact card wrote MECARD, whose escaping put a

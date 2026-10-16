@@ -174,6 +174,7 @@ export {
   QR_RECORD_INVALID_ERROR,
   QR_RECORD_INVALID_MESSAGE,
   QR_TAG_MAX_LENGTH,
+  QR_TEXT_MALFORMED_MESSAGE,
   QR_TYPES,
   QR_VCARD_FIELD_MAX_LENGTH,
   QR_VCARD_MAX_PHONES,
@@ -196,6 +197,7 @@ export {
   type QRVcardPayload,
   type QRVcardPhoneType,
   type QRWifiPayload,
+  qrIssueMessage,
   qrMatchesListFilters,
   STORED_QR_PAYLOAD_SCHEMAS,
   StoredQRCodeSchema,
@@ -374,6 +376,8 @@ export {
   type StoredRoute,
   StoredRouteSchema,
 } from './stored-route.js';
+// Unpaired-surrogate scans (v1.42.1): the QR write rule and the dashboard's edit form
+export { hasLoneSurrogate, replaceLoneSurrogates } from './text-scan.js';
 export type {
   JsonSchemaObject,
   JsonSchemaProperty,
