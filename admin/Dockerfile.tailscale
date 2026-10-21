@@ -59,7 +59,7 @@ COPY --link --from=docker.io/tailscale/tailscale:stable /usr/local/bin/tailscale
 # apk package cache mount — avoids re-downloading packages on layer invalidation.
 RUN --mount=type=cache,id=apk-cache,target=/var/cache/apk \
     ln -s /var/cache/apk /etc/apk/cache \
-    && apk add ca-certificates iptables ip6tables \
+    && apk add --upgrade ca-certificates iptables ip6tables \
     && mkdir -p /var/run/tailscale /var/cache/tailscale /var/lib/tailscale
 
 # Copy built assets

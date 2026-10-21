@@ -6,6 +6,70 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.42.2 (2026-10-21) — Dependency maintenance and security fixes; the dashboard image upgrades its CA bundle
+
+**Why:** `pnpm audit` reported 13 advisories (5 high, 8 moderate):
+`@modelcontextprotocol/sdk` 1.31.0 (GHSA-22jm-h49p-29qw, GHSA-46jr-4wx8-v453,
+GHSA-6prh-2h8m-c8cw, GHSA-rvq5-wwqv-78pq) and `vite` 8.3.2 and 7.3.5 through
+`launch-editor` (GHSA-587h-7wmj-h5pm, GHSA-r825-w8mm-5pxw,
+GHSA-698v-4r3x-3vcv). None is reachable in a deployment: the MCP server is a
+local stdio server and uses none of the affected HTTP transport, OAuth or
+tasks code, and `vite` and `launch-editor` run only in development and tests.
+Separately, on 20 October eight eMudhra intermediate CA keys were found to be
+trivially recoverable, so certificates chaining to `emSign ECC Root CA - G3`,
+or to the cross-signed copies under `AAA Certificate Services`, can be forged
+until a client distrusts them. The dashboard's `/api` proxy verifies the
+Worker's certificate against the image's CA bundle, which this release makes
+sure is current. Also the routine minor and patch updates within the declared
+ranges. **No migration**; no API, schema, MCP tool or behaviour change.
+
+### Security
+
+- `@modelcontextprotocol/sdk` 1.31.0 → 1.32.1 (`mcp`).
+- `vite` 8.3.2 → 8.3.4 (`admin`); the root override for the 7.x line
+  `vitest` resolves moves from `vite@>=7.0.0 <7.3.5 → 7.3.5` to
+  `vite@>=7.0.0 <7.3.7 → 7.3.7`. `pnpm audit`: no known vulnerabilities.
+- **Dashboard image CA bundle:** `admin/Dockerfile.tailscale` now runs
+  `apk add --upgrade ca-certificates` (`apk add` leaves an already installed
+  package at the base image's version), so every image build takes the newest
+  `ca-certificates` in its Alpine branch, the one that distrusts the eMudhra
+  roots (Alpine `20261020-r0`) once the branch carries it. Rebuild and
+  redeploy a running dashboard to pick it up.
+
+### Dependencies
+
+- Root: `hono` 4.13.12 → 4.13.13, `drizzle-orm` 0.45.3 → 0.45.4, `zod`
+  4.6.5 → 4.6.7, `wrangler` (exact pin) 4.146.0 → 4.151.2 (workerd
+  1.20261019.1; `worker-configuration.d.ts` regenerated), `oxlint` 1.86.0 →
+  1.89.0, `oxlint-tsgolint` 7.0.2003 → 7.0.2004, `vitest` and both coverage
+  providers 4.1.11 → 4.1.12. `pako` stays exactly 3.0.2.
+- `admin`: React and React DOM 19.3.0 → 19.3.1, `react-router` 8.4.0 →
+  8.5.0, `@tanstack/react-query` 5.104.0 → 5.104.5, `react-hook-form` 7.89.0
+  → 7.90.0, `@hookform/resolvers` 5.9.1 → 5.9.2, the Radix primitives
+  (`react-alert-dialog` 1.2.1, `react-dialog` 1.3.1, `react-dropdown-menu`
+  2.2.1, `react-label` 2.1.17, `react-select` 2.4.1, `react-separator` 1.2.0,
+  `react-slot` 1.5.0, `react-switch` 1.4.1, `react-tabs` 1.2.1,
+  `react-tooltip` 1.4.1), `@vitejs/plugin-react` 6.1.1 → 6.1.2, `happy-dom`
+  20.14.5 → 20.14.6.
+- `@types/node` 24.19.1 → 24.19.2 (`admin`, `mcp`, `shared`).
+- No release published less than a day before was taken
+  (`pnpm update --config.minimum-release-age=1440`).
+- **Not taken (major versions, each its own change):** TypeScript 7,
+  `vitest` 5 (needs a `@cloudflare/vitest-pool-workers` that supports it),
+  `@types/node` 25 and 26 (the runtime is Node 24), `lucide-react` 1,
+  `@tanstack/react-table` 9, `@hookform/resolvers` 6 and `happy-dom` 21.
+  Recorded in TODO.md.
+
+### Also in this release
+
+- **TODO.md** (P2) records the eMudhra follow-ups: take the first Node.js 24
+  release that blocks the eight keys (Node 24.22.0's bundled root store still
+  holds `emSign ECC Root CA - G3`; the MCP server and `wrangler` run on
+  Node), and confirm a redeployed dashboard image carries the fixed
+  `ca-certificates`; (P3) the major upgrades above.
+
+---
+
 ## v1.42.1 (2026-10-16) — QR codes encode real UTF-8, so emoji codes render and scan
 
 **Why:** the QR renderer's library, qrcode-svg 1.1.0, did not write real
