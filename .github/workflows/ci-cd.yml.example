@@ -54,6 +54,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version-file: '.nvmrc'
+          check-latest: true
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -97,6 +98,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version-file: '.nvmrc'
+          check-latest: true
           cache: 'pnpm'
 
       - name: Install dependencies
