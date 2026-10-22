@@ -6,6 +6,36 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.42.3 (2026-10-22) — Dependency maintenance: `ip-address` advisory
+
+**Why:** `pnpm audit` reported one moderate advisory, `ip-address` 10.7.3
+(GHSA-rxp7-6hxx-x8q5: an IPv6 zone identifier is matched in quadratic time
+ahead of the length limit, so one long string can stall the process). It
+reaches the tree only through `@modelcontextprotocol/sdk` →
+`express-rate-limit` in `mcp`, the HTTP transport the stdio MCP server does
+not use, so it is not reachable in a deployment. Also the routine in-range
+updates of transitive dependencies. **No migration**; no API, schema, MCP
+tool or behaviour change.
+
+### Security
+
+- `ip-address` 10.7.3 → 10.7.4: the root override moves from
+  `ip-address@<=10.7.0 → 10.7.3` to `ip-address@<=10.7.3 → 10.7.4`.
+  `pnpm audit`: no known vulnerabilities.
+
+### Dependencies
+
+- Transitive only: `immer` 11.1.21 → 11.2.3, `caniuse-lite` 1.0.30001816 →
+  1.0.30001817, `electron-to-chromium` 1.5.460 → 1.5.462.
+- Every direct dependency was already on the newest release within its range
+  that is at least two days old (`pnpm update -r
+  --config.minimum-release-age=2880`). **Not taken, as too new** (published
+  on 2026-10-21 or 2026-10-22): `vite` 8.3.5, `@biomejs/biome` 2.6.x and
+  `wrangler` 4.152.0 (exact pin).
+- **Not taken (major versions, each its own change):** as in v1.42.2, see
+  `TODO.md`. `@cloudflare/vitest-pool-workers` 0.23.0 is a breaking 0.x
+  minor and is marked deprecated on npm.
+
 ## v1.42.2 (2026-10-21) — Dependency maintenance and security fixes; the dashboard image upgrades its CA bundle
 
 **Why:** `pnpm audit` reported 13 advisories (5 high, 8 moderate):
