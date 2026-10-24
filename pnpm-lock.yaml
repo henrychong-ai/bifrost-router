@@ -110,8 +110,8 @@ importers:
         specifier: workspace:*
         version: link:../shared
       '@hookform/resolvers':
-        specifier: ^5.9.2
-        version: 5.9.2(@standard-schema/spec@1.1.0)(ajv@8.20.0)(react-hook-form@7.90.0(@types/react@19.3.0)(react@19.3.1))(zod@4.6.7)
+        specifier: ^6.0.0
+        version: 6.0.0(@standard-schema/spec@1.1.0)(ajv@8.20.0)(react-hook-form@7.90.0(@types/react@19.3.0)(react@19.3.1))(zod@4.6.7)
       '@radix-ui/react-alert-dialog':
         specifier: ^1.2.1
         version: 1.2.1(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -996,8 +996,8 @@ packages:
     peerDependencies:
       hono: '>=4.13.12 <5'
 
-  '@hookform/resolvers@5.9.2':
-    resolution: {integrity: sha512-RtjTnZqsC38s4NKp2XO3fD8IA5uyN4tB7McQ5C6uiMPcV+WWO8F+wVa3e+BXUpH2ScgxghAlwFRMVqjT9WChAQ==}
+  '@hookform/resolvers@6.0.0':
+    resolution: {integrity: sha512-6iBzQnB+YwAveVc8HUi6QYLITn5X+xNKRMFIcNXHZlvp2aTI7yWbj4n/JodXxirMCcBc4VCjb2aYAJh4x07mVw==}
     peerDependencies:
       '@sinclair/typebox': '>=0.25.24'
       '@standard-schema/spec': ^1.0.0
@@ -1011,7 +1011,7 @@ packages:
       class-transformer: '>=0.4.0'
       class-validator: '>=0.12.0'
       computed-types: ^1.0.0
-      effect: ^3.10.3
+      effect: ^4.0.0
       fluentvalidation-ts: ^3.0.0
       fp-ts: ^2.7.0
       io-ts: ^2.0.0
@@ -4227,7 +4227,7 @@ snapshots:
     dependencies:
       hono: 4.13.13
 
-  '@hookform/resolvers@5.9.2(@standard-schema/spec@1.1.0)(ajv@8.20.0)(react-hook-form@7.90.0(@types/react@19.3.0)(react@19.3.1))(zod@4.6.7)':
+  '@hookform/resolvers@6.0.0(@standard-schema/spec@1.1.0)(ajv@8.20.0)(react-hook-form@7.90.0(@types/react@19.3.0)(react@19.3.1))(zod@4.6.7)':
     dependencies:
       '@standard-schema/utils': 0.3.0
       react-hook-form: 7.90.0(@types/react@19.3.0)(react@19.3.1)
@@ -5175,7 +5175,7 @@ snapshots:
       magicast: 0.5.5
       obug: 2.2.1
       tinyrainbow: 3.2.0
-      vitest: 4.1.12(@types/node@25.9.6)(@vitest/coverage-istanbul@4.1.12)(@vitest/coverage-v8@4.1.12)(happy-dom@20.14.6)(vite@7.3.7(@types/node@25.9.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1))
+      vitest: 4.1.12(@types/node@24.19.2)(@vitest/coverage-istanbul@4.1.12)(@vitest/coverage-v8@4.1.12)(happy-dom@20.14.6)(vite@8.3.4(@types/node@24.19.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
     transitivePeerDependencies:
       - supports-color
 
@@ -5191,7 +5191,7 @@ snapshots:
       obug: 2.2.1
       std-env: 4.3.0
       tinyrainbow: 3.2.0
-      vitest: 4.1.12(@types/node@25.9.6)(@vitest/coverage-istanbul@4.1.12)(@vitest/coverage-v8@4.1.12)(happy-dom@20.14.6)(vite@7.3.7(@types/node@25.9.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1))
+      vitest: 4.1.12(@types/node@24.19.2)(@vitest/coverage-istanbul@4.1.12)(@vitest/coverage-v8@4.1.12)(happy-dom@20.14.6)(vite@8.3.4(@types/node@24.19.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
 
   '@vitest/expect@4.1.12':
     dependencies:
