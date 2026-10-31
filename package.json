@@ -67,8 +67,8 @@
   "dependencies": {
     "@bifrost/shared": "workspace:*",
     "drizzle-orm": "^0.45.4",
-    "hono": "^4.13.13",
-    "pako": "3.0.2",
+    "hono": "^4.13.14",
+    "pako": "3.0.3",
     "zod": "^4.6.7"
   },
   "devDependencies": {
