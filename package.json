@@ -72,20 +72,20 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.15",
-    "@cloudflare/vitest-pool-workers": "^0.18.8",
+    "@biomejs/biome": "^2.6.3",
+    "@cloudflare/vitest-pool-workers": "^0.23.0",
     "@vitest/coverage-istanbul": "^4.1.12",
     "@vitest/coverage-v8": "^4.1.12",
     "drizzle-kit": "^0.31.11",
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
-    "oxlint": "^1.89.0",
-    "oxlint-tsgolint": "^7.0.2004",
+    "oxlint": "^1.90.0",
+    "oxlint-tsgolint": "^7.0.2005",
     "parse5": "^8.0.1",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",
     "vitest": "^4.1.12",
-    "wrangler": "4.151.2",
+    "wrangler": "4.154.0",
     "yaml": "^2.9.1"
   },
   "pnpm": {
