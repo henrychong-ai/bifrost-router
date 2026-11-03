@@ -6,6 +6,54 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.42.3 (2026-11-02) — Dependency maintenance and security fixes
+
+**Why:** `pnpm audit` reported 13 advisories (8 high, 5 moderate): `undici`
+7.29.1 through `@cloudflare/vitest-pool-workers` > `miniflare`
+(GHSA-xjj6-f33q-929c, GHSA-4w7w-5xrc-9h26, GHSA-2m5v-pch6-74hx,
+GHSA-qrxm-fqhp-jwvm, GHSA-4qv8-2p9j-2685, GHSA-f72v-6w45-q472,
+GHSA-9fm3-97px-rjf6, GHSA-55wc-3pg8-jfw6), `happy-dom` 20.14.6
+(GHSA-834v-8h66-3h79, GHSA-c8p4-j97h-3vg8), `body-parser` 2.3.0 and
+`ip-address` 10.7.3 through the MCP SDK's HTTP stack (GHSA-27r3-jxmh-p828,
+GHSA-rxp7-6hxx-x8q5), and `zod` 3.25.76 inside
+`@cloudflare/vitest-pool-workers` (GHSA-mrhx-c7xc-m3w5). None is reachable in
+a deployment: `undici`, `happy-dom` and the pool's `zod` run only in tests,
+and the MCP server is a local stdio server that never loads the SDK's HTTP
+transport. Also the routine minor and patch updates. **No migration**; no
+API, schema, MCP tool or behaviour change.
+
+### Security
+
+- Root overrides: `undici@>=7.0.0 <7.30.1 → 7.30.1` (was `<7.29.1 → 7.29.1`),
+  `ip-address@<=10.7.3 → 10.7.4` (was `<=10.7.0 → 10.7.3`), and a new
+  `body-parser@>=2.0.0 <2.4.0 → 2.4.0`.
+- `happy-dom` 20.14.6 → 21.0.4 (`admin`, dev only; a major, taken because
+  every 20.x release is affected; the dashboard suite passes unchanged).
+- The `path-to-regexp` override gains a ceiling (`>=8.4.0 <9`): unbounded, it
+  floated `router`'s `^8.0.0` dependency to 9.0.0 on a refresh.
+- **Not fixed:** `zod` 3.25.76 (GHSA-mrhx-c7xc-m3w5, high) is pinned exactly
+  by `@cloudflare/vitest-pool-workers` 0.18.8 and patched only in 4.6.6; it
+  runs only in tests. `pnpm audit --prod`: no known vulnerabilities.
+
+### Dependencies
+
+- Root: `hono` 4.13.13 → 4.13.14, `pako` (exact pin) 3.0.2 → 3.0.3,
+  `wrangler` (exact pin) 4.151.2 → 4.156.0 (`worker-configuration.d.ts`
+  regenerated), `oxlint` 1.89.0 → 1.90.0, `oxlint-tsgolint` 7.0.2004 →
+  7.0.2005.
+- `admin`: `react-router` 8.5.0 → 8.5.1, `@tanstack/react-query` 5.104.5 →
+  5.105.0, `react-hook-form` 7.90.0 → 7.91.0, `lucide-react` 0.575.0 →
+  0.577.0, `vite` 8.3.4 → 8.3.5.
+- `mcp`: `@modelcontextprotocol/sdk` 1.32.1 → 1.32.2.
+- No release published less than two days before was taken
+  (`--config.minimumReleaseAge=2880`).
+- **Not taken:** `@biomejs/biome` 2.6 (it starts formatting YAML, which would
+  rewrite `openapi/bifrost-api.yaml`; its own change), and the majors already
+  in TODO.md (TypeScript 7, `vitest` 5, `@types/node` 25/26, `lucide-react` 1,
+  `@tanstack/react-table` 9, `@hookform/resolvers` 6).
+
+---
+
 ## v1.42.2 (2026-10-21) — Dependency maintenance and security fixes; the dashboard image upgrades its CA bundle
 
 **Why:** `pnpm audit` reported 13 advisories (5 high, 8 moderate):
