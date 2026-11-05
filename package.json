@@ -1,6 +1,6 @@
 {
   "name": "bifrost",
-  "version": "1.42.2",
+  "version": "1.42.3",
   "description": "Bifrost - Edge router with Cloudflare Workers and Hono",
   "type": "module",
   "private": true,
@@ -67,8 +67,8 @@
   "dependencies": {
     "@bifrost/shared": "workspace:*",
     "drizzle-orm": "^0.45.4",
-    "hono": "^4.13.13",
-    "pako": "3.0.2",
+    "hono": "^4.13.14",
+    "pako": "3.0.3",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -79,18 +79,18 @@
     "drizzle-kit": "^0.31.11",
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
-    "oxlint": "^1.89.0",
-    "oxlint-tsgolint": "^7.0.2004",
+    "oxlint": "^1.90.0",
+    "oxlint-tsgolint": "^7.0.2005",
     "parse5": "^8.0.1",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",
     "vitest": "^4.1.12",
-    "wrangler": "4.151.2",
+    "wrangler": "4.156.0",
     "yaml": "^2.9.1"
   },
   "pnpm": {
     "overrides": {
-      "undici@>=7.0.0 <7.29.1": "7.29.1",
+      "undici@>=7.0.0 <7.30.1": "7.30.1",
       "undici@>=8.0.0 <8.10.2": "8.10.2",
       "flatted": ">=3.4.2",
       "picomatch": ">=4.0.4",
@@ -103,11 +103,12 @@
       "ajv@^6": "^6.14.0",
       "hono": ">=4.13.12 <5",
       "@hono/node-server": ">=1.19.13",
-      "path-to-regexp@>=8.0.0 <8.4.0": ">=8.4.0",
+      "path-to-regexp@>=8.0.0 <8.4.0": ">=8.4.0 <9",
+      "body-parser@>=2.0.0 <2.4.0": "2.4.0",
       "brace-expansion@>=5.0.0 <5.0.12": "5.0.12",
       "vite@>=7.0.0 <7.3.7": "7.3.7",
       "vite@>=8.0.0 <8.0.16": "8.0.16",
-      "ip-address@<=10.7.0": "10.7.3",
+      "ip-address@<=10.7.3": "10.7.4",
       "fast-uri": ">=4.1.5 <5",
       "nanoid@>=3.0.0 <3.3.18": "3.3.18",
       "postcss": ">=8.5.23",
