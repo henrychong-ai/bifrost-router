@@ -1121,21 +1121,22 @@ export function StoragePage() {
     // Wait for the correct bucket to be selected before resolving.
     if (openBucket && selectedBucket !== openBucket) return undefined;
     openConsumed.current = true;
-    let cancelled = false;
+    // A cleanup flag the effect never reassigns (oxlint react/immutability).
+    const cleanup = new AbortController();
     void (async () => {
       try {
         const obj = await storageApi.getObjectMeta(selectedBucket, openKey);
-        if (cancelled) return;
+        if (cleanup.signal.aborted) return;
         setEditTarget(obj);
         setSearchParams({}, { replace: true });
       } catch {
-        if (cancelled) return;
+        if (cleanup.signal.aborted) return;
         toast.error(`Object "${openKey}" not found in storage`);
         setSearchParams({}, { replace: true });
       }
     })();
     return () => {
-      cancelled = true;
+      cleanup.abort();
     };
   }, [openKey, openBucket, selectedBucket, setSearchParams]);
 

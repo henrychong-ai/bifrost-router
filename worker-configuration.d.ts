@@ -1,5 +1,5 @@
 /* eslint-disable */
-// Runtime types generated with workerd@1.20261023.1 2026-07-22
+// Runtime types generated with workerd@1.20261103.1 2026-07-22
 // Begin runtime types
 /*! *****************************************************************************
 Copyright (c) Cloudflare. All rights reserved.
@@ -426,6 +426,7 @@ interface ExecutionContext<Props = unknown> {
     readonly props: Props;
     cache?: CacheContext;
     readonly access?: CloudflareAccessContext;
+    mapVirtualHost(fetcher: Fetcher, port: number): string;
     tracing: Tracing;
     abort(reason?: any): void;
 }
@@ -3443,7 +3444,7 @@ interface ContainerSnapshotOptions {
 }
 type ContainerStartupOptions = {
     entrypoint?: string[];
-    enableInternet: boolean;
+    enableInternet?: boolean;
     env?: Record<string, string>;
     instance?: "lite" | "basic" | "standard-1" | "standard-2" | "standard-3" | "standard-4" | ContainerStartResources;
     labels?: Record<string, string>;
@@ -15364,7 +15365,7 @@ declare namespace TailStream {
     }
     type EventOutcome = "ok" | "canceled" | "exception" | "unknown" | "killSwitch" | "daemonDown" | "exceededCpu" | "exceededMemory" | "loadShed" | "responseStreamDisconnected" | "scriptNotFound" | "internalError" | "exceededWallTime" | "aborted";
     interface ScriptVersion {
-        readonly id: string;
+        readonly id?: string;
         readonly tag?: string;
         readonly message?: string;
     }
@@ -15375,7 +15376,7 @@ declare namespace TailStream {
     }
     interface Onset {
         readonly type: "onset";
-        readonly attributes: Attribute[];
+        readonly attributes?: Attribute[];
         // id for the span being opened by this Onset event.
         readonly spanId: string;
         readonly dispatchNamespace?: string;
@@ -15514,6 +15515,7 @@ declare namespace TailStream {
         diagnosticChannel?: TailEventHandler<DiagnosticChannelEvent>;
         exception?: TailEventHandler<Exception>;
         log?: TailEventHandler<Log>;
+        streamDiagEvent?: TailEventHandler<StreamDiagnostic>;
         return?: TailEventHandler<Return>;
         attributes?: TailEventHandler<Attributes>;
     };

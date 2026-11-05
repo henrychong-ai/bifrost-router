@@ -6,6 +6,47 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.42.4 (2026-11-05) — Dependency maintenance and security fixes
+
+**Why:** `hono` 4.13.16 fixes five advisories (GHSA-4m76-xfj5-7975 `mount()`
+prefix handling, GHSA-h7mg-cq63-vhpq RegExpRouter wildcard middleware,
+GHSA-4h7h-rv7c-7m2v `validator('form')` with multipart parameters,
+GHSA-3gg2-335m-rxc6 the `css` helper, GHSA-46wx-v44x-9hh2 `csrf()` and
+`text/ping`). The Worker uses the default router with wildcard middleware, so
+the RegExpRouter fix is the relevant one; it uses no `mount()`, `css`,
+`csrf()` or `validator('form')`. Also the routine minor and patch updates.
+**No migration**; no API, schema, MCP tool or behaviour change.
+
+### Security
+
+- `hono` 4.13.14 → 4.13.16; the root override floor moves from
+  `hono@>=4.13.12 <5` to `>=4.13.16 <5`, so the MCP SDK's copy follows.
+- **Not fixed (unchanged):** `zod` 3.25.76 (GHSA-mrhx-c7xc-m3w5, high) is pinned
+  exactly by `@cloudflare/vitest-pool-workers` 0.18.8 and runs only in tests.
+  `pnpm audit --prod`: no known vulnerabilities.
+
+### Dependencies
+
+- Root: `wrangler` (exact pin) 4.156.0 → 4.157.0 (`worker-configuration.d.ts`
+  regenerated), `oxlint` 1.90.0 → 1.91.0, `parse5` 8.0.1 → 8.1.0. Oxlint
+  1.91 reports `react/immutability` on the Storage page's deep-link effect,
+  which reassigned a `cancelled` flag in its cleanup; the flag is now an
+  `AbortController` the cleanup aborts (`admin/src/pages/storage.tsx`), with
+  the same behaviour.
+- `admin`: `@tanstack/react-query` 5.105.0 → 5.105.3, `@vitejs/plugin-react`
+  6.1.2 → 6.2.1, `tailwindcss` and `@tailwindcss/vite` 4.3.3 → 4.3.4.
+- Transitive refreshes within range (d3, rollup, semver, jose and others).
+- No release published less than two days before was taken
+  (`--config.minimumReleaseAge=2880`): `wrangler` 4.158.0, `vite` 8.3.6,
+  `@tanstack/react-query` 5.106, `oxlint-tsgolint` 7.0.2006 wait for the next
+  sweep.
+- **Not taken:** `@biomejs/biome` 2.6 (formats YAML; TODO.md),
+  `@cloudflare/vitest-pool-workers` 0.23 (deprecated on npm), and the majors in
+  TODO.md (TypeScript 7, `vitest` 5, `@types/node` 25/26, `lucide-react` 1,
+  `@tanstack/react-table` 9, `@hookform/resolvers` 6/7).
+
+---
+
 ## v1.42.3 (2026-11-02) — Dependency maintenance and security fixes
 
 **Why:** `pnpm audit` reported 13 advisories (8 high, 5 moderate): `undici`
