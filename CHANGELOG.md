@@ -6,6 +6,43 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.42.4 (2026-11-12) — Dependency maintenance and security fixes
+
+**Why:** `hono` 4.13.16 fixed five advisories (GHSA-4m76-xfj5-7975,
+GHSA-h7mg-cq63-vhpq, GHSA-4h7h-rv7c-7m2v, GHSA-3gg2-335m-rxc6,
+GHSA-46wx-v44x-9hh2); the RegExpRouter one (wildcard middleware skipped for
+some paths) is the one relevant here, since the Worker uses the default router
+with wildcard middleware. Also the routine minor and patch updates. **No
+migration**; no API, schema, MCP tool or behaviour change.
+
+### Security
+
+- `hono` 4.13.14 → 4.13.17; the root override floor moves to `>=4.13.16 <5`
+  (was `>=4.13.12 <5`).
+- **Not fixed:** `zod` 3.25.76 (GHSA-mrhx-c7xc-m3w5, high), pinned exactly by
+  `@cloudflare/vitest-pool-workers` 0.18.8; it runs only in tests.
+  `pnpm audit --prod`: no known vulnerabilities.
+
+### Dependencies
+
+- Root: `wrangler` (exact pin) 4.156.0 → 4.159.0 (`worker-configuration.d.ts`
+  regenerated), `oxlint` 1.90.0 → 1.93.0, `oxlint-tsgolint` 7.0.2005 →
+  7.0.2006, `parse5` 8.0.1 → 8.1.1.
+- `admin`: `@tanstack/react-query` 5.105.0 → 5.107.1, `vite` 8.3.5 → 8.3.7,
+  `@vitejs/plugin-react` 6.1.2 → 6.3.0, `tailwindcss` and `@tailwindcss/vite`
+  4.3.3 → 4.3.5.
+- Transitive refreshes through the lockfile (`workerd`, `rollup`, `rolldown`,
+  Babel and others).
+- No release published less than two days before was taken
+  (`--config.minimum-release-age=2880`).
+- **Not taken:** `@biomejs/biome` 2.6 (it formats YAML and would rewrite
+  `openapi/bifrost-api.yaml`), `@cloudflare/vitest-pool-workers` 0.23 (marked
+  deprecated on npm), and the majors already in TODO.md (TypeScript 7,
+  `vitest` 5, `@types/node` 25/26, `lucide-react` 1, `@tanstack/react-table`
+  9, `@hookform/resolvers` 6 and 7).
+
+---
+
 ## v1.42.3 (2026-11-02) — Dependency maintenance and security fixes
 
 **Why:** `pnpm audit` reported 13 advisories (8 high, 5 moderate): `undici`
