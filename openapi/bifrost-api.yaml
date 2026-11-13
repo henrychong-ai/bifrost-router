@@ -1112,6 +1112,11 @@ paths:
       responses:
         '201':
           description: QR code created
+        '400':
+          description: >-
+            The body fails validation, or the id does not match
+            `^[a-z0-9][a-z0-9-]{2,31}$` or is reserved (`from-route`, the
+            path of the ephemeral image endpoint)
         '409':
           description: >-
             The id is taken by a readable code (JSON `error: QR_ALREADY_EXISTS`),

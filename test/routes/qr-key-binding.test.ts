@@ -1,5 +1,6 @@
 /**
- * QR record keys: an update writes under the key it read.
+ * QR record keys: an update writes under the key it read, and the id
+ * `from-route` is reserved.
  *
  * - `PUT /api/qr/:id` read the record at `qr:{domain}:{id}` but wrote the
  *   merged record to the key rebuilt from the stored record's own `domain` and
@@ -8,6 +9,10 @@
  *   written elsewhere: under another code's key (overwriting it) or another
  *   domain's. The update now writes under the key it read, and the record's
  *   fields follow that key.
+ * - `GET /api/qr/from-route` is the ephemeral SVG endpoint, so a record with
+ *   the id `from-route` could be created and then never read by id. A new
+ *   record cannot take it; one stored before the reservation still updates,
+ *   lists and deletes.
  */
 import { env } from 'cloudflare:test';
 import { QRDesignSchema } from '@bifrost/shared';
@@ -129,5 +134,57 @@ describe('QR update writes under the key it read', () => {
       description: 'edited',
       payload: { text: 'hello' },
     });
+  });
+});
+
+describe('the QR id from-route is reserved', () => {
+  beforeAll(async () => {
+    await createAuditLogsTable();
+  });
+  beforeEach(async () => {
+    await clearAllRoutes();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  it('a new code cannot take it, and nothing is written', async () => {
+    const answer = await call('POST', `/qr?domain=${DOMAIN}`, {
+      id: 'from-route',
+      type: 'text',
+      payload: { text: 'hello' },
+    });
+    expect(answer.status).toBe(400);
+    expect(await answer.text()).toContain('QR id is reserved: from-route');
+    expect(await env.ROUTES.get(qrKey(DOMAIN, 'from-route'))).toBeNull();
+  });
+
+  it('a similar id is not reserved', async () => {
+    const answer = await call('POST', `/qr?domain=${DOMAIN}`, {
+      id: 'from-routes',
+      type: 'text',
+      payload: { text: 'hello' },
+    });
+    expect(answer.status).toBe(201);
+  });
+
+  it('a code stored with it before the reservation still updates, lists and deletes', async () => {
+    await env.ROUTES.put(
+      qrKey(DOMAIN, 'from-route'),
+      JSON.stringify(storedText('from-route', DOMAIN, 'legacy')),
+    );
+
+    const updated = await call('PUT', `/qr/from-route?domain=${DOMAIN}`, {
+      description: 'edited',
+    });
+    expect(updated.status).toBe(200);
+    expect(await readKey(qrKey(DOMAIN, 'from-route'))).toMatchObject({ description: 'edited' });
+
+    const listed = await call('GET', `/qr?domain=${DOMAIN}`);
+    const { data } = (await listed.json()) as { data: { id: string }[] };
+    expect(data.map(item => item.id)).toContain('from-route');
+
+    const deleted = await call('DELETE', `/qr/from-route?domain=${DOMAIN}`);
+    expect(deleted.status).toBe(200);
+    expect(await env.ROUTES.get(qrKey(DOMAIN, 'from-route'))).toBeNull();
   });
 });

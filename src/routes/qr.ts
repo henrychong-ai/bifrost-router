@@ -285,6 +285,14 @@ async function auditInvalidQrDelete(c: Context<AppEnv>, domain: string, id: stri
 // 'from-route' never matches as an id.
 // =============================================================================
 
+/**
+ * Ids a new QR record cannot take: the fixed names under `/api/qr`.
+ * `GET /api/qr/from-route` is the ephemeral-SVG route, so a record with that
+ * id could never be read by id. A record stored before this reservation still
+ * lists, renders, updates and deletes: only creation is refused.
+ */
+export const RESERVED_QR_IDS: ReadonlySet<string> = new Set(['from-route']);
+
 const FromRouteQuerySchema = z.object({
   domain: z.string().optional(),
   path: z.string().min(1).startsWith('/'),
@@ -423,6 +431,9 @@ qrRoutes.post('/', async c => {
   const id = input.id ?? generateQrId();
   if (!QR_ID_REGEX.test(id)) {
     throw new HTTPException(400, { message: `QR id must match ${QR_ID_REGEX}` });
+  }
+  if (RESERVED_QR_IDS.has(id)) {
+    throw new HTTPException(400, { message: `QR id is reserved: ${id}` });
   }
 
   // An unreadable stored record is present too (v1.38.0): never overwritten
