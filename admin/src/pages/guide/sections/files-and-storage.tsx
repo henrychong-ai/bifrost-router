@@ -1,7 +1,9 @@
+import { STORAGE_LIST_MATERIALISE_CAP } from '@bifrost/shared';
 import { GuideSection, MediaSlot, Tip, Warn } from '../guide-primitives';
 import { GUIDE_SECTIONS } from '../guide-registry';
 
 const meta = GUIDE_SECTIONS.find(s => s.id === 'files-and-storage')!;
+const listCap = STORAGE_LIST_MATERIALISE_CAP.toLocaleString('en-GB');
 
 export function FilesAndStorageSection() {
   return (
@@ -18,6 +20,13 @@ export function FilesAndStorageSection() {
         <strong>Edit metadata</strong> (content type, caching, plus a free-text comment), and{' '}
         <strong>Delete</strong>. Click a file to see its details, an inline preview, and the routes
         that serve it — with a jump straight to those routes.
+      </p>
+      <p>
+        <strong>Very large folders:</strong> one listing reads up to {listCap} entries of a folder.
+        When a folder holds more, the item count shows a <strong>+</strong> and a notice says{' '}
+        <strong>More beyond the first {listCap}</strong>: paging stops there. Choose{' '}
+        <strong>Narrow prefix</strong> and type more of the file name after the folder (for example{' '}
+        <code>reports/2026</code>) to reach the rest.
       </p>
       <p>
         <strong>Uploading:</strong> the upload dialog normalises file keys as you type (shown as a

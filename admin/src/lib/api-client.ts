@@ -698,6 +698,8 @@ export interface R2ListResponse {
     offset: number;
     limit: number;
     hasMore: boolean;
+    /** False when the folder exceeds the materialise cap; absent from older servers. */
+    totalIsExact?: boolean;
   };
   /** Offset mode: folder exceeds the materialise cap; total is a floor (first N). */
   capped?: boolean;
@@ -798,6 +800,9 @@ export const storageApi = {
               offset: z.number(),
               limit: z.number(),
               hasMore: z.boolean(),
+              // False when the folder exceeds the materialise cap. Declared
+              // here too, or Zod strips it before the page reads it.
+              totalIsExact: z.boolean().optional(),
             })
             .optional(),
           capped: z.boolean().optional(),

@@ -1037,6 +1037,13 @@ export function StoragePage() {
   const { data, isLoading, error } = useStorageObjects(selectedBucket, params);
   const deleteObject = useDeleteObject();
   const meta = data?.meta;
+  // The folder holds more direct entries than one listing materialises, so
+  // `meta.total` is a floor and paging stops at it. `capped` is the older
+  // signal, kept so a server without `meta.totalIsExact` still shows the notice.
+  const beyondCap = meta?.totalIsExact === false || data?.capped === true;
+  const shownCount = (
+    meta?.total ?? (data?.delimitedPrefixes.length ?? 0) + (data?.objects.length ?? 0)
+  ).toLocaleString('en-GB');
 
   const handleLimitChange = (newLimit: number) => {
     setLimit(newLimit);
@@ -1342,7 +1349,7 @@ export function StoragePage() {
           <CardDescription className="font-inter">
             {isLoading
               ? 'Loading...'
-              : `${meta?.total ?? (data?.delimitedPrefixes.length ?? 0) + (data?.objects.length ?? 0)}${data?.capped ? '+' : ''} items${prefix ? ` in ${prefix}` : ''}`}
+              : `${meta?.total ?? (data?.delimitedPrefixes.length ?? 0) + (data?.objects.length ?? 0)}${beyondCap ? '+' : ''} items${prefix ? ` in ${prefix}` : ''}`}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -1522,11 +1529,29 @@ export function StoragePage() {
             />
           )}
 
-          {data?.capped && (
-            <p className="mt-4 text-center font-inter text-tiny text-muted-foreground">
-              This folder has more than {meta?.total} items — showing the first {meta?.total}. Use a
-              more specific prefix to see the rest.
-            </p>
+          {beyondCap && (
+            <output
+              data-testid="storage-beyond-cap"
+              className="mt-4 flex flex-col items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-center font-inter text-small text-amber-800 sm:flex-row sm:justify-center"
+            >
+              <span>
+                <strong className="font-semibold">More beyond the first {shownCount}.</strong> This
+                folder holds more than {shownCount} entries and paging stops there. Narrow the
+                prefix to reach the rest.
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="font-inter"
+                onClick={() => {
+                  setPrefixSearch(prefix);
+                  prefixInputRef.current?.focus();
+                }}
+              >
+                Narrow prefix
+              </Button>
+            </output>
           )}
         </CardContent>
       </Card>

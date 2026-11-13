@@ -8,6 +8,7 @@ import {
   R2UpdateCommentRequestSchema,
   R2UpdateMetadataRequestSchema,
   READ_ONLY_BUCKETS,
+  STORAGE_LIST_MATERIALISE_CAP,
 } from '@bifrost/shared';
 import type { Context } from 'hono';
 import { Hono } from 'hono';
@@ -165,9 +166,10 @@ storageRoutes.get('/buckets', async c => {
  * Storage lists with delimiter='/', so this bounds a single folder, not the
  * whole bucket. Set to the R2 per-call ceiling (1000) so offset mode is always a
  * SINGLE `bucket.list` call — no cursor loop. Folders larger than this surface
- * `capped:true` and an honest "first N" disclosure in the dashboard.
+ * `capped:true` and `meta.totalIsExact:false`, and the dashboard says so. The
+ * value is the shared `STORAGE_LIST_MATERIALISE_CAP`, which the User Guide reads.
  */
-const LIST_MATERIALISE_CAP = 1000;
+const LIST_MATERIALISE_CAP = STORAGE_LIST_MATERIALISE_CAP;
 
 // GET /:bucket/objects - List objects
 //
@@ -176,8 +178,11 @@ const LIST_MATERIALISE_CAP = 1000;
 //    listing (delimiter='/') is materialised in ONE capped R2 list call, a
 //    `total` is synthesised (R2 has no count API), and the COMBINED folders-first
 //    list is sliced [offset, offset+limit]. Returns `meta:{total,count,offset,
-//    limit,hasMore}` plus `capped:true` when the folder exceeds the cap. Powers
-//    the Storage tab's prev/next + page-size pagination.
+//    limit,hasMore,totalIsExact}` plus `capped:true` when the folder exceeds
+//    the cap. When capped, `total` is a floor, `hasMore` turns false at the cap
+//    and `meta.totalIsExact` is false: entries past the cap exist but cannot be
+//    reached by paging (narrow the prefix instead). Powers the Storage tab's
+//    prev/next + page-size pagination.
 //  - Cursor mode (MCP / programmatic, back-compat): when no `offset` is supplied,
 //    a single R2 list returns {objects, truncated, cursor, delimitedPrefixes}
 //    exactly as before — no `meta`. Unchanged for MCP callers.
@@ -283,6 +288,9 @@ storageRoutes.get('/:bucket/objects', async c => {
         offset,
         limit,
         hasMore: pageEnd < total,
+        // False when the folder holds more entries than were materialised:
+        // `total` is then a floor and `hasMore` describes only those entries.
+        totalIsExact: !capped,
       },
     },
   });

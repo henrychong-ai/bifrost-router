@@ -579,7 +579,19 @@ paths:
         - $ref: '#/components/parameters/OffsetQuery'
       responses:
         '200':
-          description: Object listing (offset mode adds meta + capped)
+          description: >-
+            Object listing. Without an `offset` (cursor mode) the answer is
+            `objects`, `truncated`, `cursor` and `delimitedPrefixes`, with no
+            `meta`. With one (offset mode) the folder is listed in ONE R2 call
+            of at most 1,000 direct entries, and the answer adds `meta` and
+            `capped`. When the folder holds more than that, `capped` is true,
+            `meta.totalIsExact` is false, `meta.total` is a floor and
+            `meta.hasMore` turns false at the cap: entries past it cannot be
+            reached by paging, only by a narrower `prefix`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageListResponse'
 
   /api/storage/{bucket}/meta/{key}:
     get:
@@ -1870,6 +1882,55 @@ components:
           type: object
         error:
           type: string
+
+    StorageListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            objects:
+              type: array
+              items:
+                type: object
+            truncated:
+              type: boolean
+            cursor:
+              type: string
+              description: Cursor mode only, when `truncated` is true.
+            delimitedPrefixes:
+              type: array
+              items:
+                type: string
+            capped:
+              type: boolean
+              description: >-
+                Offset mode only: the folder holds more direct entries than one
+                listing materialises (1,000).
+            meta:
+              type: object
+              description: Offset mode only.
+              required: [total, count, offset, limit, hasMore, totalIsExact]
+              properties:
+                total:
+                  type: integer
+                  description: Entries in the folder; a floor when `totalIsExact` is false.
+                count:
+                  type: integer
+                offset:
+                  type: integer
+                limit:
+                  type: integer
+                hasMore:
+                  type: boolean
+                totalIsExact:
+                  type: boolean
+                  description: >-
+                    False when the folder holds more than 1,000 direct entries:
+                    `total` is then a floor and `hasMore` covers only the first
+                    1,000.
 
     TriageFeedbackInput:
       type: object

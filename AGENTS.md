@@ -249,7 +249,7 @@ interface KVRouteConfig {
 | `GET /api/changelog` | The engineering changelog as Markdown (authenticated) |
 | `GET /api/analytics/*` | Analytics endpoints |
 | `GET /api/storage/buckets` | List R2 buckets |
-| `GET /api/storage/:bucket/objects` | List objects |
+| `GET /api/storage/:bucket/objects` | List objects. Without `offset`, cursor mode (MCP `list_objects`, the shared client): no `meta`. With `offset`, offset mode (the Storage tab): the folder is read in ONE R2 call of at most `STORAGE_LIST_MATERIALISE_CAP` (1,000, `@bifrost/shared`) direct entries and the answer adds `meta` (`total`, `count`, `offset`, `limit`, `hasMore`, `totalIsExact`) and `capped`. A larger folder answers `capped: true` and `meta.totalIsExact: false`: `total` is a floor and paging stops at the cap, so the Storage tab shows "More beyond the first 1,000" with a **Narrow prefix** button. The dashboard client declares `totalIsExact` in its Zod schema too, or it would be stripped |
 | `GET /api/storage/:bucket/meta/:key` | Get object metadata |
 | `GET /api/storage/:bucket/objects/:key` | Download object |
 | `POST /api/storage/:bucket/upload` | Upload object |
