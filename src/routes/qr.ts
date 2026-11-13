@@ -465,7 +465,8 @@ qrRoutes.post('/', async c => {
 
 qrRoutes.put('/:id', async c => {
   const domain = requireDomain(c);
-  const existing = await requireQR(c, domain, c.req.param('id'));
+  const id = c.req.param('id');
+  const existing = await requireQR(c, domain, id);
 
   const body: unknown = await c.req.json<unknown>().catch(() => {
     throw new HTTPException(400, { message: 'Invalid JSON body' });
@@ -526,8 +527,13 @@ qrRoutes.put('/:id', async c => {
   // unknown field, top-level or nested, is dropped rather than written back;
   // putQR then checks the record's size.
   const merged: Record<string, unknown> = {
-    id: existing.id,
-    domain: existing.domain,
+    // The id and domain of the key the record was read from, not the stored
+    // fields: putQR writes to `qr:{record.domain}:{record.id}`, so a record
+    // written straight to KV whose fields named another code or domain would
+    // otherwise be written there (overwriting that code). Equal for every
+    // record the API wrote.
+    id,
+    domain,
     type: existing.type,
     // Explicit '' clears the description; undefined preserves it.
     description:
