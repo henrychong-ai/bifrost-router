@@ -492,6 +492,8 @@ The nightly KV backup can post to a Slack channel when a run fails, or when the 
 
 Only an `https://hooks.slack.com/services/…` URL is accepted; anything else logs `Alert not sent: … is not a Slack webhook URL` and sends nothing. An alert carries the status, the reason or the health issues, the last backup's date, age and route count, and never a route key, a stored value or the webhook URL. The health check warns when the backup holds fewer than 100 routes (`minExpectedRoutes`), so a small deployment gets that warning every night once alerting is on. To turn alerting off, `wrangler secret delete BACKUP_ALERT_SLACK_WEBHOOK`.
 
+**The webhook URL and traces.** The Worker never writes the webhook URL to its own logs. Cloudflare documents that Workers traces, when enabled, record the full URL of every outbound request, this delivery included (the example `wrangler.toml` enables them, with `persist = true`), so anyone who can read the account's Workers Observability, or a configured trace export destination, can read the webhook URL. Restrict that access, turn traces off, or accept it.
+
 ## Usage
 
 ### Add a Redirect

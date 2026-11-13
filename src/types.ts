@@ -239,7 +239,9 @@ export type Bindings = {
    * Slack incoming-webhook URL for backup alerts (optional secret: `wrangler
    * secret put BACKUP_ALERT_SLACK_WEBHOOK`). Unset, the nightly backup sends
    * no alert, runs no extra health check and logs nothing about it. Only an
-   * https://hooks.slack.com/services/ URL is used; the URL is never logged.
+   * https://hooks.slack.com/services/ URL is used; the Worker never writes the
+   * URL to its logs (Workers traces, when enabled, record it as the URL of the
+   * outbound request: README "Optional: Backup failure alerts").
    */
   BACKUP_ALERT_SLACK_WEBHOOK?: string;
 

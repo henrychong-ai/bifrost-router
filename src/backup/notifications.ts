@@ -6,8 +6,10 @@
  * `BACKUP_ALERT_SLACK_WEBHOOK` is set; unset, it is a silent no-op (no health
  * check, no request, no log line), like the other optional features that ship
  * off. An alert carries counts and fixed texts only, never a key, a stored
- * value, the manifest's domain list or an error message, and the webhook URL
- * is never logged.
+ * value, the manifest's domain list or an error message, and the Worker never
+ * writes the webhook URL to its logs. Workers traces, when enabled, still record
+ * it as the URL of the outbound request (README "Optional: Backup failure
+ * alerts").
  */
 
 import type { Bindings } from '../types';
