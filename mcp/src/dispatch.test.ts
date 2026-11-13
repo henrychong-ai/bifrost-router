@@ -61,6 +61,23 @@ describe('callTool validates the raw arguments with the shared schema', () => {
     expect(calls).toEqual([]);
   });
 
+  it('answers a whitespace-only domain with the no-domain error, not the enum error', async () => {
+    for (const domain of [' ', '   ', '\t\n']) {
+      expect(await callTool(client, 'list_routes', { domain })).toBe(NO_DOMAIN_ERROR);
+    }
+    expect(
+      await callTool(client, 'transfer_route', { path: '/x', from_domain: ' ', to_domain: DOMAIN }),
+    ).toMatch(/transfer_route is missing from_domain\./);
+    expect(calls).toEqual([]);
+  });
+
+  it('passes a padded domain on unchanged, so the schema still refuses it', async () => {
+    expect(await callTool(client, 'list_routes', { domain: ` ${DOMAIN} ` })).toMatch(
+      /^Error: invalid arguments for list_routes: domain: /,
+    );
+    expect(calls).toEqual([]);
+  });
+
   it('runs the handler with the parsed arguments', async () => {
     await callTool(client, 'delete_route', {
       path: '/p?x',
