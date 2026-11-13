@@ -1,3 +1,4 @@
+import { formatByteSize } from '@bifrost/shared';
 import { ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
@@ -24,12 +25,9 @@ function formatDate(timestamp: number): string {
   return new Date(timestamp * 1000).toLocaleString();
 }
 
+/** A proxied answer's length; the analytics tables show two decimals from GB up. */
 function formatContentLength(bytes: number | null): string {
-  if (bytes === null) return '-';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  return bytes === null ? '-' : formatByteSize(bytes, { gigabyteDigits: 2 });
 }
 
 function getStatusColor(status: number | null): string {

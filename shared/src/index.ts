@@ -30,6 +30,8 @@ export {
   type SkippedRecords,
   SkippedRecordsSchema,
 } from './backup-health.js';
+// The one byte-size formatter (MCP storage tools and the dashboard)
+export { type ByteSizeOptions, formatByteSize } from './byte-size.js';
 // JSON with sorted keys at every level (v1.38.0): one serialiser for every
 // "is this the same value" comparison
 export { canonicalJson } from './canonical-json.js';

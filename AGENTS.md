@@ -1009,6 +1009,7 @@ If the domain is missing from this list, the binding was never created.
 | `src/kv/stored-route.ts` | Stored route reads; invalid records fail closed |
 | `scripts/check-boundary-reads.mjs` | Boundary-read gate |
 | `shared/src/search.ts` | The one search matcher and ranking (routes, QR codes, Cmd+K) |
+| `shared/src/byte-size.ts` | The one byte-size formatter, `formatByteSize` (MCP storage tools; the Dashboard, Storage, Downloads and Proxy pages). Binary steps, whole bytes below 1 KB, one decimal from KB, TB the largest unit; the Downloads and Proxy tables pass `gigabyteDigits: 2` |
 | `shared/src/vcard-name.ts` | Contact-card name rules (FN, the filled and name tests) shared by the vCard serializer, QR search and the dashboard (v1.42.0) |
 | `patches/qrcode-svg-1.1.0.patch` | Drops qrcode-svg's UTF-8 byte-order mark before non-ASCII content (v1.42.0) and makes it encode and size real UTF-8 (v1.42.1) |
 | `shared/src/text-scan.ts` | Linear unpaired-surrogate scans: the QR payload write rule and the dashboard's edit form (v1.42.1) |
