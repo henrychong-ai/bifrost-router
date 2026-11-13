@@ -6,6 +6,58 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.44.0 (2026-11-13) — Feedback export writes free text as code; oldest-first queue order and priority filter
+
+**Why:** the feedback Markdown export, which administrators and AI triage
+agents read, wrote the description as it was submitted and the title, area
+and linked PR with only their newlines touched, so submitted text could add
+headings, a forged `F-<n>` item, links, images or HTML to the document. And
+the triage queue was always newest first, so the longest-waiting item was the
+hardest to reach, and the API's `?priority=` filter had no dashboard control.
+**No migration**; nothing newly refused; stored records are not touched.
+
+### Feedback
+
+- **The Markdown export writes free text as code.**
+  `GET /api/feedback/export?format=md` writes the title, submitter email,
+  area and linked PR as inline code spans (line breaks of every kind as
+  spaces) and the description as a fenced code block with the info string
+  `text`. Each delimiter is a backtick run one longer than the longest run in
+  the value (a fence at least three), so the text cannot close its own
+  literal; line endings are normalised first, since CommonMark also ends a
+  line at a bare carriage return. The text itself is unchanged: it shows
+  exactly as typed. The linked PR is still exported only when it is an
+  http(s) link. The JSON export, the API and the dashboard are unchanged.
+  New module `src/utils/markdown-literal.ts`.
+- **Oldest-first queue order.** `GET /api/feedback?sort=oldest` lists the
+  oldest item first; the default, and any other value, stays newest first
+  (the same lenient coercion as every other filter on that route, so the
+  OpenAPI parameter `FeedbackSortQuery` is a plain string). The order is
+  applied in SQL before `limit` and `offset`, so oldest first pages through
+  the whole queue, and the item id breaks a timestamp tie in the same
+  direction, so pages never repeat or skip a row (newest first gained the
+  same tie-break). `FEEDBACK_SORTS` and `FeedbackSort` in `@bifrost/shared`.
+- **Dashboard: priority filter and order.** The Feedback page's triage queue
+  has a Priority select (All priorities, then P0 to P3 by their labels) and
+  an Order select (Newest first, Oldest first) beside Status and Type. The
+  User Guide's "Feedback and help" section says so.
+
+### Tests
+
+- `test/routes/feedback.test.ts`: hostile Markdown, HTML and link text in
+  every exported field stays inside one code literal and comes back as typed
+  (read with the CommonMark fence and code-span rules); the queue's two
+  orders, paging, the priority filter combined with the order, unrecognised
+  values, and the same-timestamp tie-break.
+- `test/utils/markdown-literal.test.ts`: delimiter length, padding and line
+  breaks.
+- `admin/src/lib/feedback-list.test.ts`: the queue controls' query, and that
+  the priority and order reach the request URL.
+- `scripts/check-openapi.test.mjs`: the `sort` parameter on
+  `GET /api/feedback`.
+
+---
+
 ## v1.43.0 (2026-11-13) — Backup failure alerts (optional, ships dormant)
 
 **Why:** nothing alerted on a failed or unhealthy nightly backup. A Slack
