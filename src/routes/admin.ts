@@ -45,6 +45,7 @@ import {
 import { ADMIN_API_CORS_ORIGINS, cors } from '../middleware/cors';
 import type { AppEnv, KVRouteConfig } from '../types';
 import { isValidDomain, SUPPORTED_DOMAINS } from '../types';
+import { servesAdminApi } from '../utils/admin-host';
 import { isRecord } from '../utils/boundary';
 import { purgeRouteUrl } from '../utils/cache';
 import { CodedHTTPException } from '../utils/coded-http-exception';
@@ -110,10 +111,12 @@ function purgeRoutePublicUrl(c: Context<AppEnv>, domain: string, path: string): 
  * {@link purgeRouteUrlIfR2}.
  */
 function purgeStoredPathUrl(c: Context<AppEnv>, domain: string, storedPath: string): void {
-  // Cloudflare's purge-by-URL does not expand wildcards, and purge-by-prefix is
-  // an Enterprise feature. Issuing the purge anyway would delete nothing while
-  // reporting success — worse than an honest skip, because an operator would
-  // believe the cache was cleared.
+  // Cloudflare's purge-by-URL does not expand wildcards. Purge by prefix is
+  // offered on every plan (rate-limited) but is not used: whether it evicts
+  // entries this Worker wrote with the Cache API is unverified (TODO.md).
+  // Issuing the URL purge anyway would delete nothing while reporting success
+  // — worse than an honest skip, because an operator would believe the cache
+  // was cleared.
   if (storedPath.includes('*')) {
     console.warn(
       JSON.stringify({
@@ -251,7 +254,7 @@ adminRoutes.use('*', async (c, next) => {
   const adminDomain = c.env.ADMIN_API_DOMAIN;
 
   // If ADMIN_API_DOMAIN is not set, allow all domains (for development)
-  if (adminDomain && url.hostname !== adminDomain) {
+  if (!servesAdminApi(url.hostname, adminDomain)) {
     // Return 404 to hide existence of admin API on other domains
     return c.json(
       {
@@ -1533,8 +1536,11 @@ adminRoutes.post('/routes/normalize-case', async c => {
 
       // A lower-cased path can be longer in UTF-8 (v1.37.2)
       assertRouteKeyFits(newKey);
+      // Present is `!== null`, as migrateRoute checks it: KV returns '' for an
+      // empty stored value, which a truthiness check took as a free key, then
+      // wrote over it and deleted the source
       const existingLower = await c.env.ROUTES.get(newKey);
-      if (existingLower) {
+      if (existingLower !== null) {
         errors.push(`${oldKey} → ${newKey}: lowercase route already exists, skipping`);
         continue;
       }

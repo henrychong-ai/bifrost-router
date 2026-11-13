@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { handleR2 } from '../../src/handlers/r2';
+import { handleR2, unmetPreconditionStatus } from '../../src/handlers/r2';
 import r2HandlerSource from '../../src/handlers/r2.ts?raw';
 import type { AppEnv, KVRouteConfig } from '../../src/types';
 
@@ -529,6 +529,55 @@ describe('handleR2', () => {
       );
 
       expect(response.status).toBe(412);
+    });
+
+    it('returns 412 for an If-Match tag whose quoted value contains a comma', async () => {
+      // `"x,abc123"` is ONE entity-tag. A split on every comma read it as `"x`
+      // and `abc123"`, matched the second fragment and answered 304 instead.
+      const app = new Hono<AppEnv>();
+      const route: KVRouteConfig = {
+        path: '/media',
+        type: 'r2',
+        target: 'file.txt',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      const mockBucket = {
+        get: vi.fn<BucketGet>().mockResolvedValue(createMockR2ObjectHead()),
+      };
+      app.get('/media', c => handleR2(c, route));
+
+      const response = await app.fetch(
+        new Request('http://localhost/media', { headers: { 'If-Match': '"x,abc123"' } }),
+        { ENVIRONMENT: 'development', FILES_BUCKET: mockBucket as unknown as R2Bucket },
+      );
+
+      expect(response.status).toBe(412);
+    });
+
+    it('still matches a tag in a comma-separated If-Match list', async () => {
+      const app = new Hono<AppEnv>();
+      const route: KVRouteConfig = {
+        path: '/media',
+        type: 'r2',
+        target: 'file.txt',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      const mockBucket = {
+        get: vi.fn<BucketGet>().mockResolvedValue(createMockR2ObjectHead()),
+      };
+      app.get('/media', c => handleR2(c, route));
+
+      const response = await app.fetch(
+        new Request('http://localhost/media', {
+          headers: { 'If-Match': '"x,y", "abc123"', 'If-None-Match': '"abc123"' },
+        }),
+        { ENVIRONMENT: 'development', FILES_BUCKET: mockBucket as unknown as R2Bucket },
+      );
+
+      // If-Match passes on the second tag, so the bodiless result is a 304
+      expect(response.status).toBe(304);
     });
 
     it('returns 412 when a bare If-Unmodified-Since predates the upload', async () => {
@@ -1197,6 +1246,28 @@ describe('handleR2', () => {
       expect(mockBucket.get).toHaveBeenCalledTimes(1);
     });
 
+    it('treats an If-Range tag whose quoted value contains a comma as stale', async () => {
+      // `"x,abc123"` is ONE entity-tag that is not the stored one. A split on
+      // every comma matched its `abc123"` fragment and served the slice.
+      const app = new Hono<AppEnv>();
+      const full = createMockR2Object('a'.repeat(4096), 'text/plain');
+      const mockBucket = {
+        get: vi.fn<BucketGet>().mockResolvedValueOnce(sliceObject()).mockResolvedValueOnce(full),
+      };
+      app.get('/media', c => handleR2(c, rangeRoute));
+
+      const response = await app.fetch(
+        new Request('http://localhost/media', {
+          headers: { Range: 'bytes=0-1023', 'If-Range': '"x,abc123"' },
+        }),
+        { ENVIRONMENT: 'development', FILES_BUCKET: mockBucket as unknown as R2Bucket },
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Range')).toBeNull();
+      expect(mockBucket.get).toHaveBeenCalledTimes(2);
+    });
+
     it('ignores the Range and serves a full 200 when the entity-tag is stale', async () => {
       const app = new Hono<AppEnv>();
       const full = createMockR2Object('a'.repeat(4096), 'text/plain');
@@ -1751,8 +1822,11 @@ describe('handleR2', () => {
     });
 
     describe('method semantics', () => {
-      it('returns 412, never 304, for a failed precondition on a non-GET/HEAD method', async () => {
-        // 304 is defined for GET and HEAD only (RFC 9110 §15.4.5).
+      it('never returns 304 to a conditional non-GET/HEAD method: 405 before any R2 read', async () => {
+        // 304 is defined for GET and HEAD only (RFC 9110 §15.4.5). A file route
+        // answers every other method 405 (OPTIONS 204) before it reads R2, so a
+        // conditional writer never reaches the precondition evaluation; see
+        // test/handlers/r2-methods.test.ts for the full method matrix.
         const app = new Hono<AppEnv>();
         const mockBucket = { get: vi.fn<BucketGet>().mockResolvedValue(createMockR2ObjectHead()) };
         app.post('/media', c => handleR2(c, baseRoute));
@@ -1765,7 +1839,24 @@ describe('handleR2', () => {
           { ENVIRONMENT: 'development', FILES_BUCKET: mockBucket as unknown as R2Bucket },
         );
 
-        expect(response.status).toBe(412);
+        expect(response.status).toBe(405);
+        expect(mockBucket.get).not.toHaveBeenCalled();
+      });
+
+      it('keeps 412, never 304, for an unmet precondition on any non-GET/HEAD method', () => {
+        // The second line of defence behind the method check: should anything
+        // but GET or HEAD ever reach the R2 read again, an unmet weak
+        // precondition is still a 412, never a 304.
+        const head = createMockR2ObjectHead();
+        const weakOnly = new Headers({ 'If-None-Match': '"abc123"' });
+        const methods = ['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
+        expect(methods.map(method => unmetPreconditionStatus(method, weakOnly, head))).toEqual(
+          methods.map(() => 412),
+        );
+        expect(unmetPreconditionStatus('GET', weakOnly, head)).toBe(304);
+        expect(unmetPreconditionStatus('HEAD', weakOnly, head)).toBe(304);
+        const failingIfMatch = new Headers({ 'If-Match': '"other"' });
+        expect(unmetPreconditionStatus('GET', failingIfMatch, head)).toBe(412);
       });
 
       it('still returns 304 for a failed weak precondition on HEAD', async () => {

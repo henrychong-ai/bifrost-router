@@ -823,7 +823,8 @@ export const toolDefinitions: ToolDefinition[] = [
         payload: { type: 'object', description: CREATE_QR_PAYLOAD_DESCRIPTION },
         id: {
           type: 'string',
-          description: 'Optional slug (^[a-z0-9][a-z0-9-]{2,31}$); generated when omitted',
+          description:
+            'Optional slug (^[a-z0-9][a-z0-9-]{2,31}$); generated when omitted. `from-route` is reserved',
         },
         description: {
           type: 'string',

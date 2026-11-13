@@ -56,8 +56,10 @@ export async function purgeR2CacheForObject(
   // 1a. Bifrost KV route URLs.
   //
   // Two paths are unusable and must never enter the batch. A WILDCARD path
-  // purges nothing — Cloudflare's purge-by-URL does not expand `*`, and
-  // purge-by-prefix is an Enterprise feature. A path with a raw space (or any
+  // purges nothing — Cloudflare's purge-by-URL does not expand `*`. (Purge by
+  // prefix is offered on every plan, rate-limited, but is not used: whether it
+  // evicts entries this Worker wrote with the Cache API is unverified; see
+  // TODO.md.) A path with a raw space (or any
   // character the request URL percent-encodes) is rejected by the API, and the
   // rejection fails the WHOLE 30-URL batch — taking the correctly-encoded
   // custom-domain URLs down with it. So: encode every segment, and drop

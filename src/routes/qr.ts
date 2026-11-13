@@ -285,6 +285,14 @@ async function auditInvalidQrDelete(c: Context<AppEnv>, domain: string, id: stri
 // 'from-route' never matches as an id.
 // =============================================================================
 
+/**
+ * Ids a new QR record cannot take: the fixed names under `/api/qr`.
+ * `GET /api/qr/from-route` is the ephemeral-SVG route, so a record with that
+ * id could never be read by id. A record stored before this reservation still
+ * lists, renders, updates and deletes: only creation is refused.
+ */
+export const RESERVED_QR_IDS: ReadonlySet<string> = new Set(['from-route']);
+
 const FromRouteQuerySchema = z.object({
   domain: z.string().optional(),
   path: z.string().min(1).startsWith('/'),
@@ -424,6 +432,9 @@ qrRoutes.post('/', async c => {
   if (!QR_ID_REGEX.test(id)) {
     throw new HTTPException(400, { message: `QR id must match ${QR_ID_REGEX}` });
   }
+  if (RESERVED_QR_IDS.has(id)) {
+    throw new HTTPException(400, { message: `QR id is reserved: ${id}` });
+  }
 
   // An unreadable stored record is present too (v1.38.0): never overwritten
   const existing = await getQR(c.env.ROUTES, domain, id);
@@ -465,7 +476,8 @@ qrRoutes.post('/', async c => {
 
 qrRoutes.put('/:id', async c => {
   const domain = requireDomain(c);
-  const existing = await requireQR(c, domain, c.req.param('id'));
+  const id = c.req.param('id');
+  const existing = await requireQR(c, domain, id);
 
   const body: unknown = await c.req.json<unknown>().catch(() => {
     throw new HTTPException(400, { message: 'Invalid JSON body' });
@@ -526,8 +538,13 @@ qrRoutes.put('/:id', async c => {
   // unknown field, top-level or nested, is dropped rather than written back;
   // putQR then checks the record's size.
   const merged: Record<string, unknown> = {
-    id: existing.id,
-    domain: existing.domain,
+    // The id and domain of the key the record was read from, not the stored
+    // fields: putQR writes to `qr:{record.domain}:{record.id}`, so a record
+    // written straight to KV whose fields named another code or domain would
+    // otherwise be written there (overwriting that code). Equal for every
+    // record the API wrote.
+    id,
+    domain,
     type: existing.type,
     // Explicit '' clears the description; undefined preserves it.
     description:

@@ -2268,8 +2268,8 @@ describe('admin routes', () => {
     });
 
     it('SKIPS the purge for a wildcard route and warns instead', async () => {
-      // Cloudflare's purge-by-URL does not expand `*`, and purge-by-prefix is an
-      // Enterprise feature. Issuing the call would delete nothing while
+      // Cloudflare's purge-by-URL does not expand `*` (purge by prefix is not
+      // used, see TODO.md). Issuing the call would delete nothing while
       // reporting success — an operator would believe the cache was cleared.
       const app = new Hono<AppEnv>().route('/api', adminRoutes);
       const warnings: string[] = [];

@@ -41,7 +41,8 @@ export function QrCodesSection() {
         and how the API and AI agents address it — it's prefilled from the code's own content (the
         Wi-Fi SSID, the URL's hostname, the contact's name, or the text content) and tidied to
         lowercase-with-hyphens automatically, so "Office WiFi" becomes{' '}
-        <FactChip>office-wifi</FactChip>. It's fixed once the code is created. The{' '}
+        <FactChip>office-wifi</FactChip>. It's fixed once the code is created, and{' '}
+        <FactChip>from-route</FactChip> is reserved, so a new code cannot take it. The{' '}
         <strong>Description</strong> and <strong>Tags</strong> are independent of the Reference —
         they're for finding and grouping codes in the list; neither is encoded into the QR, so you
         can reword them any time without reprinting. Hover the ⓘ beside any field for details.
