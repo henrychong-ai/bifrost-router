@@ -670,12 +670,18 @@ paths:
                 key:
                   type: string
       responses:
-        '200':
-          description: Upload successful
+        '201':
+          description: Uploaded; `data` is the stored object's metadata
         '403':
           description: Read-only bucket
         '400':
-          description: Invalid R2 key
+          description: Missing file or key, invalid R2 key, or invalid comment
+        '404':
+          description: Bucket not found
+        '409':
+          description: >-
+            An object already exists at the key and `overwrite` was not
+            `true`; nothing written
         '415':
           description: >-
             The body is not `multipart/form-data` (`error:
