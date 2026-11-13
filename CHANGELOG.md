@@ -6,6 +6,74 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.42.4 (2026-11-13) — Dependency maintenance and security fixes; Select ellipsis; QR decoder test
+
+**Why:** `pnpm audit` reported 8 advisories (1 high, 6 moderate, 1 low):
+`hono` 4.13.14 (GHSA-h7mg-cq63-vhpq, GHSA-46wx-v44x-9hh2, GHSA-4h7h-rv7c-7m2v,
+GHSA-4m76-xfj5-7975, GHSA-3gg2-335m-rxc6; fixed in 4.13.16),
+`@hono/node-server` 2.1.5 through the MCP SDK (GHSA-qv5m-9pm6-hqp3,
+GHSA-jpvv-r467-5p4w; fixed in 2.1.6), and `zod` 3.25.76 inside
+`@cloudflare/vitest-pool-workers` (GHSA-mrhx-c7xc-m3w5, left unfixed in
+v1.42.3 because every pool-workers release pins a `zod` below 4.6.6). Also the
+routine minor and patch updates, a Select fix in the dashboard, and a decoder
+test for QR codes with a logo. **No migration**; no API, schema or MCP tool
+change.
+
+### Security
+
+- `hono` 4.13.14 → 4.13.18 (the Worker's router and middleware; the override
+  floor moves to `>=4.13.18 <5`).
+- `@hono/node-server` 2.1.5 → 2.1.7 through a selector override
+  (`@hono/node-server@>=2.0.0 <2.1.7 → 2.1.7`, replacing the unbounded
+  `>=1.19.13` floor). The MCP server is a local stdio server and never loads
+  the SDK's HTTP transport.
+- The Workers test pool moves from `@cloudflare/vitest-pool-workers` 0.18.8 to
+  its renamed successor `@cloudflare/vitest-plugin` 1.7.0, which ships `zod`
+  4.6.6: the old package is deprecated and every release of it carries an
+  affected `zod` (tests only). The plugin is pinned exactly, with `wrangler`
+  pinned to the 4.160.0 it is built against, so a plain update cannot split
+  the test runtime from the CLI's `workerd`. `vitest.config.ts` imports
+  `cloudflareTest` from the new package; nothing else in the suite changed.
+- `pnpm audit` and `pnpm audit --prod`: no known vulnerabilities.
+
+### Dependencies
+
+- Root: `wrangler` (exact pin) 4.156.0 → 4.160.0 (`worker-configuration.d.ts`
+  regenerated), `oxlint` 1.90.0 → 1.93.0, `oxlint-tsgolint` 7.0.2005 →
+  7.0.2006, `parse5` 8.0.1 → 8.1.1.
+- `admin`: `@tanstack/react-query` 5.105.0 → 5.107.1, `react-hook-form`
+  7.91.0 → 7.92.0, `vite` 8.3.5 → 8.3.8, `@vitejs/plugin-react` 6.1.2 →
+  6.3.0, `tailwindcss` and `@tailwindcss/vite` 4.3.3 → 4.3.5.
+- **Removed:** `@tanstack/react-table` and `@hookform/resolvers` from the
+  dashboard; nothing imported either.
+- `shared` (dev): `jsqr` 1.4.0 (new) and `sharp` 0.35.5 (already in the
+  lockfile), for the decoder test below.
+- No release published less than two days before was taken.
+- **Not taken:** `@biomejs/biome` 2.6 (formats YAML, so it would rewrite
+  `openapi/bifrost-api.yaml`), and the majors in TODO.md (TypeScript 7,
+  `vitest` 5, `@types/node` 25/26, `lucide-react` 1).
+
+### Dashboard
+
+- **A long value in a Select shows an ellipsis.** The trigger's value slot
+  was also a flex container, and `display: flex` overrode its
+  `line-clamp-1`, so a long value was cut at the border with no ellipsis. The
+  slot now truncates (`truncate`, with `min-w-0` so it can shrink).
+  `admin/src/components/ui/select.test.tsx` pins the classes and the slot
+  structure (happy-dom compiles no Tailwind; the look was not checked in a
+  browser).
+
+### Tests
+
+- **QR codes with a logo are decoded.** `shared/src/qr-render-scan.test.ts`
+  rasterises the shared renderer's SVG with `sharp` and decodes it with
+  `jsqr` across payload sizes, logo ratios 1 to 12 (square and wide
+  windows), both rendered sizes and a fully opaque dark or light logo at the
+  default margin, checking each plate stays inside the documented footprint;
+  a block far past the error-correction budget must not decode.
+
+---
+
 ## v1.42.3 (2026-11-02) — Dependency maintenance and security fixes
 
 **Why:** `pnpm audit` reported 13 advisories (8 high, 5 moderate): `undici`
