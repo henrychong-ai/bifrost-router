@@ -355,6 +355,9 @@ feedbackRoutes.get('/', async c => {
   }
   const since = c.req.query('since');
   if (since) filters.since = since;
+  // `sort=oldest` lists the longest-waiting item first; any other value keeps
+  // the newest-first default (the same lenient coercion as the filters above).
+  if (c.req.query('sort') === 'oldest') filters.sort = 'oldest';
   const limitRaw = c.req.query('limit');
   if (limitRaw && /^\d+$/.test(limitRaw)) filters.limit = Number(limitRaw);
   const offsetRaw = c.req.query('offset');

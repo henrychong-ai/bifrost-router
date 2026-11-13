@@ -460,4 +460,13 @@ export interface FeedbackListParams {
   since?: string;
   limit?: number;
   offset?: number;
+  /** Queue order: newest first (the default) or oldest first. */
+  sort?: FeedbackSort;
 }
+
+/**
+ * The queue orders `GET /api/feedback?sort=` accepts. Any other value keeps
+ * the default, newest first (the route's lenient per-field coercion).
+ */
+export const FEEDBACK_SORTS = ['newest', 'oldest'] as const;
+export type FeedbackSort = (typeof FEEDBACK_SORTS)[number];

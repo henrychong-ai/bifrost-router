@@ -16,13 +16,14 @@ import {
   type FeedbackContext,
   FeedbackContextSchema,
   type FeedbackItem,
+  type FeedbackSort,
   type FeedbackStatus,
   FeedbackStringListSchema,
   type FeedbackType,
   formatFeedbackShortId,
   type TriageFeedbackInput,
 } from '@bifrost/shared';
-import { and, desc, eq, gte } from 'drizzle-orm';
+import { and, asc, desc, eq, gte } from 'drizzle-orm';
 import { logInvalidBoundary, readStoredJson, type Validator } from '../utils/boundary';
 import { errorName } from '../utils/error-name';
 import { createDb } from './index';
@@ -168,6 +169,13 @@ export interface ListFeedbackFilters {
   since?: string;
   limit?: number;
   offset?: number;
+  /**
+   * Queue order: `newest` (the default) or `oldest`, so the longest-waiting
+   * item can be worked first. Applied in SQL before limit and offset, so it
+   * holds across pages. Ties break on the id in the same direction, so a page
+   * boundary never repeats or skips a row with the same timestamp.
+   */
+  sort?: FeedbackSort;
 }
 
 /** List feedback rows (filtered). READ — swallows errors → []. */
@@ -192,7 +200,11 @@ export async function listFeedback(
       .select()
       .from(feedback)
       .where(conditions.length ? and(...conditions) : undefined)
-      .orderBy(desc(feedback.createdAt))
+      .orderBy(
+        ...(filters.sort === 'oldest'
+          ? [asc(feedback.createdAt), asc(feedback.id)]
+          : [desc(feedback.createdAt), desc(feedback.id)]),
+      )
       .limit(limit)
       .offset(offset);
     return rows.map(rowToFeedbackItem);

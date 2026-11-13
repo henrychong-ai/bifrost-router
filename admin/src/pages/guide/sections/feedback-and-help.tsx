@@ -29,7 +29,9 @@ export function FeedbackAndHelpSection() {
       <p>
         Track your submissions on the Feedback page under <strong>My feedback</strong> — each moves
         through a visible lifecycle (new → triaged → in progress → resolved). Administrators (and
-        the AI agents working the queue) see, prioritise, and action every report.
+        the AI agents working the queue) see, prioritise, and action every report. The triage queue
+        filters by status, type and priority, and its order switches to{' '}
+        <strong>Oldest first</strong>, so the longest-waiting report is never buried.
       </p>
       <p>
         Wondering what changed since you last logged in? The{' '}

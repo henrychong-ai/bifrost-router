@@ -105,6 +105,15 @@ function stripCodeSpans(line: string): string {
   return out;
 }
 
+/** Set each named item's `created_at`, so an order test does not depend on the clock. */
+async function stamp(createdAt: Record<string, string>): Promise<void> {
+  for (const [title, at] of Object.entries(createdAt)) {
+    await env.DB.prepare('UPDATE feedback SET created_at = ? WHERE title = ?')
+      .bind(at, title)
+      .run();
+  }
+}
+
 describe('feedback API - auth + lifecycle', () => {
   let app: Hono<AppEnv>;
 
@@ -402,6 +411,56 @@ describe('feedback API - auth + lifecycle', () => {
     expect(body).toContain('- submitter: ``a`b <i>x</i>@example.com``');
     expect(body).toContain('- area: `ui # area heading [a](https://evil.example)`');
     expect(body).toContain('- linked PR: `https://example.com/pr/1 <b>bold</b>`');
+  });
+
+  async function titles(query: string): Promise<string[]> {
+    const res = await fetchSettled(jsonReq('GET', `${BASE_URL}${query}`));
+    expect(res.status).toBe(200);
+    const listed = (await res.json()) as { data: { feedback: { title: string }[] } };
+    return listed.data.feedback.map(item => item.title);
+  }
+
+  // The queue has two orders, applied in SQL before limit and offset, so
+  // oldest first pages through the whole queue, not only the fetched page.
+  it('lists newest first by default and oldest first with ?sort=oldest', async () => {
+    for (const title of ['first', 'second', 'third']) await submit({ ...BASE, title });
+    await stamp({
+      first: '2026-01-01T00:00:00.000Z',
+      second: '2026-02-01T00:00:00.000Z',
+      third: '2026-03-01T00:00:00.000Z',
+    });
+    expect(await titles('')).toEqual(['third', 'second', 'first']);
+    expect(await titles('?sort=newest')).toEqual(['third', 'second', 'first']);
+    expect(await titles('?sort=oldest')).toEqual(['first', 'second', 'third']);
+    // An unrecognised value keeps the default, as every other filter here.
+    for (const sort of ['sideways', 'OLDEST', 'asc', '']) {
+      expect(await titles(`?sort=${sort}`)).toEqual(['third', 'second', 'first']);
+    }
+    // The order applies before paging, and combines with the priority filter.
+    expect(await titles('?sort=oldest&limit=2')).toEqual(['first', 'second']);
+    expect(await titles('?sort=oldest&limit=2&offset=2')).toEqual(['third']);
+    await fetchSettled(submitReq({ ...BASE, title: 'urgent', priority: '0' }));
+    await stamp({ urgent: '2025-12-01T00:00:00.000Z' });
+    expect(await titles('?sort=oldest&priority=3&limit=2')).toEqual(['first', 'second']);
+    expect(await titles('?sort=oldest&priority=0')).toEqual(['urgent']);
+  });
+
+  it('breaks a same-timestamp tie on the id, in the order asked for', async () => {
+    for (const title of ['a', 'b', 'c']) await submit({ ...BASE, title });
+    const at = '2026-01-01T00:00:00.000Z';
+    await stamp({ a: at, b: at, c: at });
+    const { results } = await env.DB.prepare('SELECT title FROM feedback ORDER BY id ASC').all<{
+      title: string;
+    }>();
+    const byId = results.map(row => row.title);
+    expect(await titles('?sort=oldest')).toEqual(byId);
+    expect(await titles('')).toEqual(byId.toReversed());
+    // Pages of one never repeat or skip a row.
+    const paged: string[] = [];
+    for (let offset = 0; offset < 3; offset += 1) {
+      paged.push(...(await titles(`?sort=oldest&limit=1&offset=${offset}`)));
+    }
+    expect(paged).toEqual(byId);
   });
 
   it('rejects an empty triage patch (400)', async () => {

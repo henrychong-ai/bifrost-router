@@ -910,6 +910,7 @@ paths:
         - $ref: '#/components/parameters/FeedbackTypeQuery'
         - $ref: '#/components/parameters/FeedbackPriorityQuery'
         - $ref: '#/components/parameters/FeedbackSinceQuery'
+        - $ref: '#/components/parameters/FeedbackSortQuery'
         - $ref: '#/components/parameters/LimitQuery'
         - $ref: '#/components/parameters/OffsetQuery'
       responses:
@@ -1575,6 +1576,18 @@ components:
       name: since
       in: query
       description: Filter to items created at or after this timestamp
+      schema:
+        type: string
+
+    FeedbackSortQuery:
+      name: sort
+      in: query
+      description: >-
+        Queue order: `newest` first (the default) or `oldest` first, applied
+        before `limit` and `offset`, with the item id breaking a tie on the
+        timestamp. Any other value falls back to newest first (the same
+        lenient coercion as the other feedback filters), so the schema is a
+        plain string.
       schema:
         type: string
 

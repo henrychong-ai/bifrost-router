@@ -1,7 +1,9 @@
 import {
+  FEEDBACK_PRIORITIES,
   FEEDBACK_STATUSES,
   FEEDBACK_TYPES,
   type FeedbackItem,
+  type FeedbackSort,
   type FeedbackStatus,
   type FeedbackType,
   formatFeedbackAge,
@@ -29,6 +31,7 @@ import {
 } from '@/components/ui/table';
 import { useFeedbackList } from '@/hooks/use-feedback';
 import { openFeedbackDialog } from '@/lib/feedback-dialog';
+import { feedbackListParams } from '@/lib/feedback-list';
 
 const STATUS_COLORS: Record<FeedbackStatus, string> = {
   new: 'bg-blue-100 text-blue-800 border-blue-200',
@@ -50,10 +53,12 @@ function StatusBadge({ status }: { status: FeedbackStatus }) {
 function TriageQueue({ onOpen }: { onOpen: (id: string) => void }) {
   const [status, setStatus] = useState<FeedbackStatus | 'all'>('all');
   const [type, setType] = useState<FeedbackType | 'all'>('all');
-  const { data, isLoading } = useFeedbackList({
-    status: status === 'all' ? undefined : status,
-    type: type === 'all' ? undefined : type,
-  });
+  // A priority filter and the queue order. Oldest first works the
+  // longest-waiting item first; the server orders before paging, so it holds
+  // past the first page.
+  const [priority, setPriority] = useState<string>('all');
+  const [sort, setSort] = useState<FeedbackSort>('newest');
+  const { data, isLoading } = useFeedbackList(feedbackListParams({ status, type, priority, sort }));
 
   const items: FeedbackItem[] = data?.feedback ?? [];
   // ONE clock read for the whole table. `formatFeedbackAge` defaults `now` to a
@@ -93,6 +98,34 @@ function TriageQueue({ onOpen }: { onOpen: (id: string) => void }) {
                 {t}
               </SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+        <Select value={priority} onValueChange={setPriority}>
+          <SelectTrigger className="w-48 font-inter" aria-label="Priority">
+            <SelectValue placeholder="Priority" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all" className="font-inter">
+              All priorities
+            </SelectItem>
+            {FEEDBACK_PRIORITIES.map(p => (
+              <SelectItem key={p.value} value={String(p.value)} className="font-inter">
+                {p.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={sort} onValueChange={v => setSort(v === 'oldest' ? 'oldest' : 'newest')}>
+          <SelectTrigger className="w-40 font-inter" aria-label="Order">
+            <SelectValue placeholder="Order" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="newest" className="font-inter">
+              Newest first
+            </SelectItem>
+            <SelectItem value="oldest" className="font-inter">
+              Oldest first
+            </SelectItem>
           </SelectContent>
         </Select>
       </div>
