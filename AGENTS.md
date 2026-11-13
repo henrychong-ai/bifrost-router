@@ -1395,6 +1395,14 @@ If switching to Workers Static Assets in future, add a KV-route-precedence check
 
 ## Versioning
 
+**Which number moves: Semantic Versioning 2.0.0 (`MAJOR.MINOR.PATCH`).** The public interface is the Admin API (`openapi/bifrost-api.yaml`), the MCP tool catalogue (`shared/src/tools.ts`), and what a route serves to a visitor.
+- **PATCH:** backward-compatible fixes, security fixes, dependency updates, and changes with no behaviour change (tests, CI, docs, refactors, log text). A security fix that refuses requests which were never valid is a PATCH.
+- **MINOR:** backward-compatible new functionality (a new endpoint, parameter, response field, MCP tool, dashboard feature or setting), or a deprecation. PATCH resets to 0.
+- **MAJOR:** anything that breaks an existing client (removing or renaming an endpoint, tool or parameter; changing a response shape; changing what an existing URL serves to a valid request). MINOR and PATCH reset to 0.
+- A release carrying several changes takes the highest of them. When unsure between two, take the higher.
+
+**How to release:**
+
 1. Update `version` in `package.json`
 2. Update `VERSION` in both production and development `wrangler.toml` `[vars]` sections
 3. Update `admin/package.json` and `mcp/package.json` versions (the MCP server reports its package version, v1.40.0)
