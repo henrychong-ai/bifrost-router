@@ -61,14 +61,10 @@ None open.
 
 - **A legacy contact card near the old limit can outgrow the QR.** A MECARD-era card close to the 1,024-byte payload limit can exceed QR capacity once re-encoded as vCard 3.0: its image endpoint then answers 500, and the editor shows "Too long to save" on the untouched card (a description-only save still works). Re-save such a card with shorter fields.
 - **EMAIL and TEL are written unescaped, and the write rules allow `;`, `,` and `\` in them.** Separately, a website with no `//` (`mailto:`, `tel:`) gets `https://` prepended.
-- **`QRVcardPayload` is all-optional (a weak type)**, so any record object type-checks as `QRPayload`. Typing `serializePayload` per QR type would restore compile-time checks.
-- **Contact-card key lists are kept by hand.** The phone keys, address keys and vCard text-field list in `shared/src/qr.ts` are not derived from the schema `.shape`, so a new schema field missing from them is dropped on read.
 - **The dashboard form re-implements the serializer's per-field normalisers** (`admin/src/lib/qr-form-state.ts`). Export them from `shared/src/qr.ts` and reuse them.
 - **A line break in a single-line contact field is lost on edit.** A card written through the API with CR or LF in a text field shows the parts joined in the dashboard's single-line input, and editing that field drops the break.
 - **A now-known key makes a contact card written straight to KV unreadable.** A `vcard` record written straight to KV with `firstName`, `surname`, `displayName`, `phones` or `address` beside the legacy `name`, or with such a key of the wrong type, is now refused; v1.41.x dropped those keys. url, text and wifi records holding such keys still read (the keys are dropped).
 - **NEL, LS and PS pass the contact-card write rules** (U+0085, U+2028, U+2029) and are written unescaped, including in TEL, EMAIL and URL.
-- **A protocol-relative website encodes as `https:////example.com`.** `//example.com` has no `scheme://`, so `https://` is prepended to it whole.
-- **A name of only zero-width characters passes the name rule** (`isFilled` trims whitespace only).
 - **`hasVcardTextControl` duplicates the control-character helpers** (`hasControlCharacter`, `withoutControlCharacters`) in `shared/src/qr.ts`.
 - **Design simplifications.** One vCard schema whose write-only issues carry a tag that `passesFormats` skips would replace the twin stored schema; the edit preview's "payload unchanged" test duplicates `qrEditPatch`'s comparison; `qrSearchFields` adds "First Surname" twice when a card has no display name.
 - **The read-time conflict and name checks use whitespace-only `isFilled`,** while the serializer and the editor drop control characters first, so a value that encodes as blank can count as filled: a card can be wrongly refused, and a name of only control characters passes. Fix: one "filled as encoded" test shared by the schema, the serializer and the form.
@@ -76,9 +72,3 @@ None open.
 
 (v1.42.1 closed "The QR library's encoder is not UTF-8" and "Contact-card writes accept lone UTF-16 surrogates": the patched encoder writes real UTF-8, and every QR payload text field refuses an unpaired surrogate on write.)
 
-### v1.42.1 residuals
-
-- **Route paths accept unpaired surrogates.** `RoutePathSchema` and `QRLinkedRouteInputSchema` do not refuse them. A URL code linked to such a route used to fail visibly (`URIError`, a 500); since v1.42.1 it encodes U+FFFD, a URL that does not match the stored route path. Refuse them on route writes too.
-- **The QR write rule lives in the payload length-cap helper** (`text` in `buildPayloadSchemas`, `shared/src/qr.ts`). A future payload text field built without it would skip the rule, and the hand-written field list in `shared/src/qr.test.ts` would not notice. Derive the test's field list from the schemas, or check every string field of every payload schema.
-- **Two test helpers reach into qrcode-svg internals.** `shared/src/qr-render-utf8.test.ts` and `shared/src/qr-render-bom.test.ts` each read the library's segments their own way; move that into one test-only fixture.
-- **Each render encodes the content to UTF-8 twice** (`QR8bitByte` and `_getUTF8Length` in the patch each run a `TextEncoder`). Minor.

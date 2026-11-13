@@ -9,39 +9,23 @@
  * (patches/qrcode-svg-1.1.0.patch) to encode with TextEncoder and to size the
  * symbol from those bytes.
  */
-import QRCode from 'qrcode-svg';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { QRDesignSchema, serializeVcard } from './qr.js';
 import { renderQrSvg } from './qr-render.js';
+import {
+  qrSymbol as symbol,
+  utf8,
+  writtenBytes as written,
+} from './qrcode-internals.test-support.js';
 
-interface Segment {
-  getLength(): number;
-  write(buffer: { put(num: number, length: number): void }): void;
-}
-
-/** The symbol the library builds for `content`. */
-function symbol(content: string, ecl: 'L' | 'M' | 'Q' | 'H' = 'M') {
-  return (
-    new QRCode({ content, ecl }) as unknown as {
-      qrcode: { typeNumber: number; dataList: Segment[] };
-    }
-  ).qrcode;
-}
-
-const utf8 = (content: string) => [...new TextEncoder().encode(content)];
-
-/** The bytes the library writes into the symbol for `content`, captured from `write`. */
+/**
+ * The bytes the library writes into the symbol for `content`: every put is
+ * one byte, and every segment declares exactly the UTF-8 length.
+ */
 function writtenBytes(content: string): number[] {
-  const bytes: number[] = [];
-  for (const segment of symbol(content).dataList) {
-    segment.write({
-      put(num, length) {
-        expect(length).toBe(8);
-        bytes.push(num);
-      },
-    });
-    expect(segment.getLength()).toBe(utf8(content).length);
-  }
+  const { bytes, putLengths, segmentLengths } = written(content);
+  expect(putLengths.every(length => length === 8)).toBe(true);
+  expect(segmentLengths).toEqual([utf8(content).length]);
   return bytes;
 }
 
@@ -126,5 +110,35 @@ describe('QR content is real UTF-8 (v1.42.1)', () => {
       );
     }
     expect(writtenBytes('A\ud83dB')).toEqual([0x41, 0xef, 0xbf, 0xbd, 0x42]);
+  });
+});
+
+// The content is encoded to UTF-8 once per render; the same bytes size the
+// symbol and fill it
+describe('one UTF-8 encoding per render', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    ['ASCII', 'https://links.example.com/x'],
+    ['an emoji card', serializeVcard({ firstName: 'Jane \u{1F338}', surname: 'Doe' })],
+    ['a lone surrogate', 'A\ud83dB'],
+  ])('%s is encoded once, and sizes and fills the symbol from those bytes', (_label, content) => {
+    const encode = vi.spyOn(TextEncoder.prototype, 'encode');
+    renderQrSvg(content, QRDesignSchema.parse({}));
+    const fromLibrary = encode.mock.calls.filter(([input]) => input === content);
+    expect(fromLibrary).toHaveLength(1);
+    encode.mockRestore();
+    expect(symbol(content).typeNumber).toBe(expectedVersion(content));
+    expect(writtenBytes(content)).toEqual(utf8(content));
+  });
+
+  it('a segment built without bytes still encodes its own data', () => {
+    // The library's own model, given data without the bytes the QRCode
+    // constructor passes, encodes the data itself
+    const model = symbol('x');
+    model.addData('\u00e9');
+    expect(model.dataList.at(-1)?.parsedData).toEqual([0xc3, 0xa9]);
   });
 });

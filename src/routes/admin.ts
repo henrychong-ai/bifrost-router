@@ -1,7 +1,8 @@
 import {
   canonicalJson,
+  ExistingRoutePathSchema,
   type InvalidRouteRow,
-  RoutePathSchema,
+  NewRoutePathSchema,
   RoutesListQuerySchema,
   searchAndRankRoutes,
 } from '@bifrost/shared';
@@ -794,7 +795,7 @@ adminRoutes.delete('/routes', async c => {
   // (`recover=invalid`); a readable one cannot be deleted at its own key
   // through the API (`normalize-case` re-keys a capitalised one whose
   // lower-case path is free, after which the ordinary delete reaches it).
-  const deletePath = RoutePathSchema.safeParse(path);
+  const deletePath = ExistingRoutePathSchema.safeParse(path);
   if (!deletePath.success) {
     return c.json({ success: false, error: deletePath.error.issues[0].message }, 400);
   }
@@ -1080,9 +1081,13 @@ adminRoutes.post('/routes/migrate', async c => {
   }
   // Migrate validated the leading slash and nothing else, so a `newPath`
   // carrying an encoded `?` or `#` was stored under a key that its own listed
-  // value can never resolve again. Same schema as every other path.
-  for (const candidate of [oldPath, newPath]) {
-    const parsed = RoutePathSchema.safeParse(candidate);
+  // value can never resolve again. The old path names an existing route (the
+  // rules it was stored under); the new one is introduced here, so it is
+  // well-formed Unicode too.
+  for (const parsed of [
+    ExistingRoutePathSchema.safeParse(oldPath),
+    NewRoutePathSchema.safeParse(newPath),
+  ]) {
     if (!parsed.success) {
       return c.json({ success: false, error: parsed.error.issues[0].message }, 400);
     }
@@ -1391,8 +1396,11 @@ adminRoutes.post('/routes/transfer', async c => {
   // Transfer checked only the leading slash, so a legacy path that create,
   // update and migrate refuse (`?`, `#`, a surviving `%`, a control character)
   // could still be re-published on a second domain under a key its own listed
-  // value can never resolve. Same schema as every other write path.
-  const transferPath = RoutePathSchema.safeParse(path);
+  // value can never resolve. Same schema as every other write path. Well-formed
+  // Unicode too: the path arrives in the JSON body, so the lookup would use the
+  // raw key. The U+FFFD form of such a path passes and reaches the key a stored
+  // one is held under, so no route becomes untransferable.
+  const transferPath = NewRoutePathSchema.safeParse(path);
   if (!transferPath.success) {
     return c.json({ success: false, error: transferPath.error.issues[0].message }, 400);
   }
@@ -1520,7 +1528,7 @@ adminRoutes.post('/routes/normalize-case', async c => {
 
     // A legacy path that fails the route-path schema must not be re-keyed here
     // either — that would mint a fresh, still-unmanageable key.
-    if (!RoutePathSchema.safeParse(lowerPath).success) {
+    if (!ExistingRoutePathSchema.safeParse(lowerPath).success) {
       errors.push(
         `${routeKey(route.domain, route.path)}: path fails the route-path schema, skipping`,
       );

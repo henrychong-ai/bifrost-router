@@ -32,7 +32,7 @@ import {
   UpdateQRInputSchema,
   VCARD_ADDRESS_PARTS,
   type VcardAddressPart,
-  vcardHasName,
+  vcardShownNameHasLetterOrDigit,
 } from '@bifrost/shared';
 import { Download, Pencil, Plus, QrCode as QrCodeIcon, Trash2, X } from 'lucide-react';
 import { type Dispatch, type SetStateAction, useEffect, useMemo, useRef, useState } from 'react';
@@ -405,8 +405,9 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
           : ''
         : stored
           ? serializePayload(stored.type, stored.payload)
-          : // A contact card waits for a name (v1.42.0): without one it cannot be saved
-            s.type === 'vcard' && !vcardHasName(s)
+          : // A contact card waits for a name the write rule accepts: the
+            // name it shows holds a letter or digit
+            s.type === 'vcard' && !vcardShownNameHasLetterOrDigit(s)
             ? ''
             : serializePayload(s.type, payloadFromState(s));
       return content ? { content, design } : null;
@@ -841,7 +842,7 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
               <FieldHint
                 htmlFor="qr-first-name"
                 label="First name"
-                hint="As printed on the card. A contact card needs a first name, a surname, or a display name."
+                hint="As printed on the card. A contact card needs a first name, a surname, or a display name, with a letter or digit."
               />
               <Input
                 id="qr-first-name"

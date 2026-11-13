@@ -281,7 +281,11 @@ paths:
                 path:
                   type: string
                   pattern: ^/.*
-                  description: Route path to transfer
+                  description: >-
+                    Route path to transfer. It travels in this JSON body, so a
+                    path holding an unpaired UTF-16 surrogate is refused (400);
+                    its form with U+FFFD in place of the surrogate reaches the
+                    same stored key.
                 fromDomain:
                   type: string
                   description: Source domain
@@ -1608,6 +1612,10 @@ components:
           type: string
           minLength: 1
           pattern: ^/.*
+          description: >-
+            Route path. Besides the round-trip rules (`?`, `#`, a `%`
+            surviving one decode, a control character), a new path holding an
+            unpaired UTF-16 surrogate is refused (400): it has no UTF-8 form.
         type:
           type: string
           enum: [redirect, proxy, r2]

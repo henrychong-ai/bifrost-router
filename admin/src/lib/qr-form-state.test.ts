@@ -6,6 +6,7 @@ import {
   serializePayload,
   VcardPayloadSchema,
   vcardHasName,
+  vcardShownNameHasLetterOrDigit,
   WifiAuthSchema,
 } from '@bifrost/shared';
 import { describe, expect, it } from 'vitest';
@@ -366,6 +367,33 @@ describe('contact card form (vCard 3.0, v1.42.0)', () => {
     for (const field of ['firstName', 'surname', 'displayName'] as const) {
       expect(vcardHasName({ ...stateFromQr(), [field]: 'x' })).toBe(true);
     }
+    // The preview waits for the name a write accepts: the shown name holds a
+    // letter or digit
+    expect(vcardShownNameHasLetterOrDigit({ ...stateFromQr(), firstName: '\u200b' })).toBe(false);
+    expect(vcardShownNameHasLetterOrDigit({ ...stateFromQr(), surname: 'Doe' })).toBe(true);
+    const hidden = {
+      ...stateFromQr(),
+      type: 'vcard' as const,
+      firstName: 'Jane',
+      displayName: '\u200b',
+    };
+    expect(vcardShownNameHasLetterOrDigit(hidden)).toBe(false);
+    // The editor and the API agree: the payload the form would send is refused
+    expect(VcardPayloadSchema.safeParse(payloadFromState(hidden)).success).toBe(false);
+    // and no Reference is suggested from such a name
+    expect(suggestQrId(hidden)).toBe('');
+    expect(suggestQrId({ ...hidden, displayName: 'Jane Doe' })).toBe('jane-doe');
+  });
+
+  it('serializes a payload typed for its QR type', () => {
+    // @ts-expect-error a url payload needs its url: `{}` does not type-check
+    expect(() => serializePayload('url', {})).not.toThrow();
+    // @ts-expect-error a contact card is not a url payload
+    expect(serializePayload('url', { firstName: 'Jane' })).toBeUndefined();
+    expect(serializePayload('url', { url: 'https://example.com' })).toBe('https://example.com');
+    // A record's own type and payload still go together as they are
+    const stored = card({ firstName: 'Jane' });
+    expect(serializePayload(stored.type, stored.payload)).toContain('FN:Jane');
   });
 
   it('gives each phone row its own form-only id, never submitted', () => {
@@ -393,9 +421,11 @@ describe('contact card form (vCard 3.0, v1.42.0)', () => {
     );
     // The form submits the legacy name as the first name, which encodes the same
     expect(serializePayload('vcard', payloadFromState(state) as never)).toBe(
-      serializePayload('vcard', stored.payload),
+      serializePayload(stored.type, stored.payload),
     );
-    expect(serializePayload('vcard', stored.payload)).toContain('\r\nURL:https://a.exampleB\r\n');
+    expect(serializePayload(stored.type, stored.payload)).toContain(
+      '\r\nURL:https://a.exampleB\r\n',
+    );
   });
 });
 

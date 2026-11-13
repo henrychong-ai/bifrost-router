@@ -114,12 +114,73 @@ describe('contact cards as vCard 3.0 (v1.42.0)', () => {
     }
   });
 
+  it('refuses a card whose shown name has no letter or digit', async () => {
+    for (const [id, payload] of [
+      ['card-invisible', { firstName: '\u200b\u200d' }],
+      ['card-hidden-display', { firstName: 'Jane', displayName: '\u200b' }],
+      ['card-emoji', { firstName: '\u{1F600}' }],
+      // A Hangul filler: a letter in Unicode that displays as nothing
+      ['card-filler', { firstName: 'Jane', displayName: String.fromCodePoint(0x3164) }],
+    ] as const) {
+      const res = await fetchSettled(
+        authedJson('POST', `${BASE}?domain=${DOMAIN}`, { type: 'vcard', id, payload }),
+      );
+      expect({ id, status: res.status }).toEqual({ id, status: 400 });
+    }
+    const ok = await fetchSettled(
+      authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
+        type: 'vcard',
+        id: 'card-visible-display',
+        payload: { firstName: '\u200b', displayName: 'Jane Doe' },
+      }),
+    );
+    expect(ok.status).toBe(201);
+  });
+
+  it('reads, lists, renders and edits a stored card whose shown name has no letter or digit', async () => {
+    const payload = { firstName: 'Jane', displayName: '\u200b' };
+    await env.ROUTES.put(
+      qrKey(DOMAIN, 'card-hidden-name'),
+      JSON.stringify({
+        id: 'card-hidden-name',
+        domain: DOMAIN,
+        type: 'vcard',
+        payload,
+        design: QRDesignSchema.parse({}),
+        createdAt: 1,
+        updatedAt: 2,
+        createdBy: 'test',
+      }),
+    );
+    const got = await fetchSettled(authedJson('GET', `${BASE}/card-hidden-name?domain=${DOMAIN}`));
+    expect(got.status).toBe(200);
+    expect(((await got.json()) as { data: QRCode }).data.payload).toEqual(payload);
+    const listed = await fetchSettled(authedJson('GET', `${BASE}?domain=${DOMAIN}`));
+    expect(((await listed.json()) as { data: QRCode[] }).data.map(qr => qr.id)).toContain(
+      'card-hidden-name',
+    );
+    const image = await fetchSettled(
+      authedJson('GET', `${BASE}/card-hidden-name/image?domain=${DOMAIN}`),
+    );
+    expect(image.status).toBe(200);
+    expect(await image.text()).toBe(renderQrSvg(serializeVcard(payload), QRDesignSchema.parse({})));
+    // Edits that leave the payload alone are accepted; resending it is a write
+    const put = (body: Record<string, unknown>) =>
+      fetchSettled(authedJson('PUT', `${BASE}/card-hidden-name?domain=${DOMAIN}`, body));
+    const described = await put({ description: 'Renamed' });
+    expect(described.status).toBe(200);
+    expect(((await described.json()) as { data: QRCode }).data.payload).toEqual(payload);
+    expect((await put({ tags: ['team'] })).status).toBe(200);
+    expect((await put({ payload })).status).toBe(400);
+  });
+
   it('refuses a card whose vCard is over the 1 KB payload budget', async () => {
     const res = await fetchSettled(
       authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
         type: 'vcard',
         payload: {
-          firstName: ';'.repeat(128),
+          // The shown name needs a letter or digit
+          firstName: `J${';'.repeat(127)}`,
           surname: ';'.repeat(128),
           org: ';'.repeat(128),
           title: ';'.repeat(128),

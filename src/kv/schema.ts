@@ -1,8 +1,9 @@
 import {
+  ExistingRoutePathSchema,
   MAX_ROUTE_KEY_BYTES,
+  NewRoutePathSchema,
   RouteCacheControlSchema,
   RouteHostHeaderSchema,
-  RoutePathSchema,
   RouteTargetSchema,
 } from '@bifrost/shared';
 import { z } from 'zod';
@@ -87,8 +88,11 @@ export const RouteConfigSchema = z.object({
   // decoding, so `/p%3Fx` would be listed back in a form that normalises to a
   // DIFFERENT route. The target refuses control characters because the URL
   // parser strips tab/LF/CR from anywhere in a URL, which would let
-  // `to<TAB>ken=LIVE` scan clean and then serve `?token=LIVE`.
-  path: RoutePathSchema.describe('URL path pattern (e.g., "/github", "/blog/*")'),
+  // `to<TAB>ken=LIVE` scan clean and then serve `?token=LIVE`. A path a
+  // create or seed introduces is well-formed Unicode too (NewRoutePathSchema);
+  // an update names an existing route, so UpdateRouteSchema keeps the rules it
+  // was stored under.
+  path: NewRoutePathSchema.describe('URL path pattern (e.g., "/github", "/blog/*")'),
 
   type: z.enum(['redirect', 'proxy', 'r2']).describe('Route handler type'),
 
@@ -147,6 +151,9 @@ export const UpdateRouteSchema = RouteConfigSchema.partial()
       .optional()
       .describe('Force browser to download instead of display inline (R2 only)'),
     enabled: z.boolean().optional().describe('Enable/disable route'),
+    // The route being updated EXISTS: migrate checks its new path with
+    // NewRoutePathSchema before it merges the patch under that path
+    path: ExistingRoutePathSchema.describe('URL path pattern starting with /'),
   })
   .required({
     path: true,

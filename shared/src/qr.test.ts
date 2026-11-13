@@ -1,4 +1,5 @@
 import { assert, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { allStrings } from './linear.test-support.js';
 import {
   CreateQRInputSchema,
@@ -32,7 +33,9 @@ import {
   UpdateQRInputSchema,
   UpdateQrToolInputSchema,
   UrlPayloadSchema,
+  VCARD_ADDRESS_FIELDS,
   VCARD_ADDRESS_PARTS,
+  VCARD_PHONE_FIELDS,
   VcardPayloadSchema,
   WifiPayloadSchema,
 } from './qr.js';
@@ -1266,5 +1269,120 @@ describe('qrIssueMessage (v1.42.1)', () => {
     expect(qrIssueMessage({ message: QR_TEXT_MALFORMED_MESSAGE, path: [] })).toBe(
       QR_TEXT_MALFORMED_MESSAGE,
     );
+  });
+});
+
+/**
+ * Every string field of a schema, as issue paths, read from the schema itself:
+ * through optionals, defaults and arrays (index 0) into nested objects. A test
+ * that lists fields by hand would not notice a new one.
+ */
+function stringLeaves(schema: z.ZodType): Array<Array<string | number>> {
+  const leaves: Array<Array<string | number>> = [];
+  const visit = (node: z.ZodType, at: Array<string | number>): void => {
+    if (node instanceof z.ZodString) leaves.push(at);
+    else if (node instanceof z.ZodOptional || node instanceof z.ZodDefault) {
+      visit(node.def.innerType as z.ZodType, at);
+    } else if (node instanceof z.ZodArray) visit(node.element as z.ZodType, [...at, 0]);
+    else if (node instanceof z.ZodObject) {
+      for (const [key, child] of Object.entries(node.shape)) {
+        visit(child as z.ZodType, [...at, key]);
+      }
+    }
+  };
+  visit(schema, []);
+  return leaves;
+}
+
+describe('the payload write rules cover every field', () => {
+  it('the surrogate cases above name every string field of every write payload schema', () => {
+    const listed = new Set(
+      surrogateCases('x').map(([type, , path]) => `${type}:${JSON.stringify(path)}`),
+    );
+    const leaves = QR_TYPES.flatMap(type =>
+      stringLeaves(QR_PAYLOAD_SCHEMAS[type]).map(path => `${type}:${JSON.stringify(path)}`),
+    );
+    expect(leaves.length).toBeGreaterThan(20);
+    expect(leaves.filter(leaf => !listed.has(leaf))).toEqual([]);
+  });
+
+  it('refuses an unpaired surrogate in every string of a payload, each at its own field', () => {
+    // The rule is the payload's own, not a length-cap helper's, so every
+    // string is checked and each refusal names its own field
+    const result = VcardPayloadSchema.safeParse({
+      firstName: 'A',
+      phones: [{ number: '+1 555', type: 'work' }],
+      address: { city: `K${HIGH_SURROGATE}`, country: `M${LOW_SURROGATE}` },
+    });
+    expect(result.error?.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: ['address', 'city'], message: QR_TEXT_MALFORMED_MESSAGE }),
+        expect.objectContaining({
+          path: ['address', 'country'],
+          message: QR_TEXT_MALFORMED_MESSAGE,
+        }),
+      ]),
+    );
+    // One issue per string, never two for one field
+    const once = TextPayloadSchema.safeParse({ text: `a${HIGH_SURROGATE}` });
+    expect(once.error?.issues).toEqual([
+      expect.objectContaining({ path: ['text'], message: QR_TEXT_MALFORMED_MESSAGE }),
+    ]);
+  });
+
+  it('refuses a control character in every contact-card text field, read from the schema', () => {
+    for (const path of stringLeaves(VcardPayloadSchema)) {
+      const [first] = path;
+      if (first === 'url') continue; // the website has its own rule
+      const card: Record<string, unknown> =
+        first === 'name' || first === 'phone' ? { name: 'A' } : { firstName: 'A' };
+      if (first === 'phones') card['phones'] = [{ number: '+1\u00075', type: 'work' }];
+      else if (first === 'address') card['address'] = { [String(path[1])]: 'x\u0007y' };
+      else card[String(first)] = 'B\u0007C';
+      const result = VcardPayloadSchema.safeParse(card);
+      expect(result.error?.issues.map(issue => issue.path)).toContainEqual(path);
+      // A stored card holding one still reads
+      expect({ path, stored: STORED_QR_PAYLOAD_SCHEMAS.vcard.safeParse(card).success }).toEqual({
+        path,
+        stored: true,
+      });
+    }
+  });
+
+  it('builds the address from VCARD_ADDRESS_PARTS, in that order', () => {
+    expect(Object.keys(VcardPayloadSchema.shape.address.unwrap().shape)).toEqual([
+      ...VCARD_ADDRESS_PARTS,
+    ]);
+  });
+});
+
+describe('the stored reader keeps the fields the schemas define', () => {
+  it('takes the phone and address fields from the contact-card schema', () => {
+    expect(VCARD_PHONE_FIELDS).toEqual(
+      Object.keys(VcardPayloadSchema.shape.phones.unwrap().element.shape),
+    );
+    expect(VCARD_PHONE_FIELDS).toEqual(['number', 'type']);
+    expect(VCARD_ADDRESS_FIELDS).toEqual([...VCARD_ADDRESS_PARTS]);
+  });
+
+  it('keeps every top-level field the record schema defines', () => {
+    const record = parseStoredQR({
+      id: 'linked',
+      domain: 'example.com',
+      type: 'url',
+      description: 'd',
+      tags: ['t'],
+      payload: { url: 'https://example.com/x' },
+      design: QRDesignSchema.parse({}),
+      linkedRoute: { domain: 'example.com', path: '/x' },
+      createdAt: 1,
+      updatedAt: 2,
+      createdBy: 'test',
+      unknownField: 'dropped',
+    });
+    assert(record !== null);
+    const fields = Object.keys(QRCodeSchema.shape);
+    expect(new Set(Object.keys(record))).toEqual(new Set(fields));
+    expect(Object.keys(record)).toHaveLength(fields.length);
   });
 });

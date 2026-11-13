@@ -21,7 +21,13 @@ import {
   VcardPayloadSchema,
   withoutControlCharacters,
 } from './qr.js';
-import { isFilled, vcardFullName, vcardGivenAndSurname, vcardHasName } from './vcard-name.js';
+import {
+  isFilled,
+  vcardFullName,
+  vcardGivenAndSurname,
+  vcardHasName,
+  vcardShownNameHasLetterOrDigit,
+} from './vcard-name.js';
 
 /** The N and FN lines of a card. */
 const nameLines = (card: QRVcardPayload) =>
@@ -469,5 +475,148 @@ describe('vcard-name', () => {
     expect(isFilled(' a ')).toBe(true);
     expect(isFilled(' ')).toBe(false);
     expect(isFilled(5)).toBe(false);
+  });
+});
+
+describe('the name a contact card shows needs a letter or digit on write', () => {
+  const WRITE_NAME =
+    'A contact card needs a first name, surname, or display name with a letter or digit';
+  const DISPLAY_NAME = 'Display name needs a letter or digit: it is the name the card shows';
+  // The Hangul fillers: letters in Unicode that display as nothing
+  const HANGUL_FILLERS = [0x115f, 0x1160, 0x3164, 0xffa0].map(code => String.fromCodePoint(code));
+  // Invisible characters (zero-width space, joiners, word joiner, byte-order
+  // mark, soft hyphen), a C1 control (NEL), a blank Braille pattern, a lone
+  // combining mark and an emoji: none is a letter or digit
+  const meaningless = [
+    '\u200b',
+    '\u200b\u200c\u200d',
+    '\u2060',
+    '\ufeff',
+    '\u00ad',
+    ' \u200b ',
+    '\u0085',
+    '\u2800',
+    '\u0301',
+    '\u{1F600}',
+    ...HANGUL_FILLERS,
+  ];
+
+  it('refuses a shown name with no letter or digit, on the field it comes from', () => {
+    for (const value of meaningless) {
+      for (const key of ['firstName', 'surname', 'name'] as const) {
+        const result = VcardPayloadSchema.safeParse({ [key]: value });
+        expect({ key, value, issues: result.error?.issues }).toEqual({
+          key,
+          value,
+          issues: expect.arrayContaining([
+            expect.objectContaining({ path: ['firstName'], message: WRITE_NAME }),
+          ]),
+        });
+      }
+      // A display name that trims away (U+FEFF is white space to trim) is no
+      // display name: the card shows "First Surname", and the issue is there
+      const display = VcardPayloadSchema.safeParse({ displayName: value });
+      const expected =
+        value.trim() === ''
+          ? { path: ['firstName'], message: WRITE_NAME }
+          : { path: ['displayName'], message: DISPLAY_NAME };
+      expect({ value, issues: display.error?.issues }).toEqual({
+        value,
+        issues: expect.arrayContaining([expect.objectContaining(expected)]),
+      });
+    }
+    expect(vcardShownNameHasLetterOrDigit({})).toBe(false);
+    expect(vcardShownNameHasLetterOrDigit({ firstName: '\u200b', surname: ' ' })).toBe(false);
+  });
+
+  it('judges the shown name: an invisible display name hides a visible first name', () => {
+    // The card shows its display name (FN), so the first name does not help
+    const hidden = VcardPayloadSchema.safeParse({ firstName: 'Jane', displayName: '\u200b' });
+    expect(hidden.success).toBe(false);
+    expect(hidden.error?.issues).toEqual([
+      expect.objectContaining({ path: ['displayName'], message: DISPLAY_NAME }),
+    ]);
+    expect(
+      VcardPayloadSchema.safeParse({ firstName: 'Jane', displayName: '\u{1F600}' }).success,
+    ).toBe(false);
+    for (const filler of HANGUL_FILLERS) {
+      const blank = VcardPayloadSchema.safeParse({ firstName: 'Jane', displayName: filler });
+      expect({ filler, issues: blank.error?.issues }).toEqual({
+        filler,
+        issues: [expect.objectContaining({ path: ['displayName'], message: DISPLAY_NAME })],
+      });
+    }
+    // A blank display name is no display name: the card shows "First Surname"
+    expect(VcardPayloadSchema.safeParse({ firstName: 'Jane', displayName: '  ' }).success).toBe(
+      true,
+    );
+    // A visible display name beside invisible structured names is enough
+    expect(
+      VcardPayloadSchema.safeParse({ firstName: '\u200b', surname: '\u2800', displayName: 'Jane' })
+        .success,
+    ).toBe(true);
+  });
+
+  it('accepts every script, digits, and invisible characters between letters', () => {
+    for (const value of [
+      'Jane',
+      '王小明', // Chinese
+      'محمد', // Arabic
+      'मीरा', // Devanagari
+      'Jane\u200b',
+      'J\u00adane',
+      'a\u0301',
+      'न\u094d\u200dन', // a zero-width joiner between Devanagari letters
+      '\u{1F468}\u200d\u{1F469} Doe', // an emoji sequence beside a letter
+      'A\ufe0fB', // a variation selector between letters
+      '007',
+      '김민준', // Korean syllables
+      '가', // Hangul jamo
+      'さくら', // Kana
+      'שרה', // Hebrew
+      'สมชาย', // Thai
+      '٣٤', // Arabic-Indic digits
+      '१', // a Devanagari digit
+      `${String.fromCodePoint(0x3164)}Jane`, // a filler followed by a letter
+    ]) {
+      expect({
+        value,
+        firstName: VcardPayloadSchema.safeParse({ firstName: value }).success,
+        displayName: VcardPayloadSchema.safeParse({ displayName: value }).success,
+        shown: vcardShownNameHasLetterOrDigit({ firstName: value }),
+      }).toEqual({ value, firstName: true, displayName: true, shown: true });
+    }
+    // A visible surname beside an invisible first name is enough
+    expect(VcardPayloadSchema.safeParse({ firstName: '\u200b', surname: 'Doe' }).success).toBe(
+      true,
+    );
+  });
+
+  it('a stored card whose shown name has no letter or digit still reads (written before the rule)', () => {
+    for (const value of meaningless.filter(text => text.trim() !== '')) {
+      for (const card of [
+        { firstName: value },
+        { name: value },
+        { displayName: value },
+        { firstName: 'Jane', displayName: value },
+      ]) {
+        expect({
+          card,
+          stored: StoredVcardPayloadSchema.safeParse(card).success,
+          readable: parseStoredQR(record(card)) !== null,
+        }).toEqual({ card, stored: true, readable: true });
+      }
+    }
+  });
+});
+
+describe('a scheme-relative website', () => {
+  it('encodes //host as https://host, never https:////host', () => {
+    expect(urlLine('//example.com')).toBe('URL:https://example.com');
+    expect(urlLine('  //example.com/path?q=1 ')).toBe('URL:https://example.com/path?q=1');
+    // Unchanged: a scheme, a bare domain, a single leading slash
+    expect(urlLine('http://example.com')).toBe('URL:http://example.com');
+    expect(urlLine('example.com')).toBe('URL:https://example.com');
+    expect(urlLine('/path')).toBe('URL:https:///path');
   });
 });

@@ -21,7 +21,7 @@ import {
   MAX_ROUTE_KEY_BYTES,
   mcpBoolean,
   mcpNumber,
-  RoutePathSchema,
+  NewRoutePathSchema,
   routeKeyBytes,
 } from './schemas.js';
 import {
@@ -35,7 +35,12 @@ import {
 import { hasLoneSurrogate } from './text-scan.js';
 import { trimEndChars } from './trim-chars.js';
 import { SUPPORTED_DOMAINS, SUPPORTED_DOMAINS_LIST } from './types.js';
-import { isFilled, vcardFullName, vcardHasName } from './vcard-name.js';
+import {
+  isFilled,
+  vcardFullName,
+  vcardHasName,
+  vcardShownNameHasLetterOrDigit,
+} from './vcard-name.js';
 
 // ---------------------------------------------------------------------------
 // Types + limits
@@ -159,17 +164,14 @@ export type QRVcardPhoneType = (typeof QR_VCARD_PHONE_TYPES)[number];
 export const VCARD_ADDRESS_PARTS = ['street', 'city', 'region', 'postcode', 'country'] as const;
 export type VcardAddressPart = (typeof VCARD_ADDRESS_PARTS)[number];
 
-/** The contact-card text fields other than the website, phones and address. */
-const VCARD_TEXT_FIELDS = [
-  'firstName',
-  'surname',
-  'displayName',
-  'name',
-  'org',
-  'title',
-  'phone',
-  'email',
-] as const;
+/** What each address part means, for the schema descriptions (one per part, checked by the type). */
+const VCARD_ADDRESS_DESCRIPTIONS: Readonly<Record<VcardAddressPart, string>> = {
+  street: 'Street (the lines before the town)',
+  city: 'Town or city',
+  region: 'Region or state',
+  postcode: 'Postcode',
+  country: 'Country',
+};
 
 /** The contact-card fields written unescaped (TEL and EMAIL). */
 const VCARD_RAW_FIELDS: ReadonlySet<string> = new Set(['phone', 'email']);
@@ -193,8 +195,7 @@ export function withoutControlCharacters(
 }
 
 /** Whether a vCard text value holds a control character other than CR or LF. */
-function hasVcardTextControl(value: string | undefined): boolean {
-  if (value === undefined) return false;
+function hasVcardTextControl(value: string): boolean {
   for (const character of value) {
     if (character !== '\r' && character !== '\n' && hasControlCharacter(character)) return true;
   }
@@ -256,6 +257,42 @@ export function qrIssueMessage(issue: {
   return segments.length > 0 ? `${issue.message} (field: ${segments.join('.')})` : issue.message;
 }
 
+/** A contact-card write whose shown name has no letter or digit. */
+const VCARD_WRITE_NAME_MESSAGE =
+  'A contact card needs a first name, surname, or display name with a letter or digit';
+/** The same, when the shown name is the display name. */
+const VCARD_DISPLAY_NAME_MESSAGE =
+  'Display name needs a letter or digit: it is the name the card shows';
+
+/**
+ * Adds a {@link QR_TEXT_MALFORMED_MESSAGE} issue for every string in `value`
+ * (walked through arrays and objects) that holds an unpaired surrogate, at
+ * that string's path: the write rule covers every payload string, present or
+ * added later, whichever helper built its field.
+ */
+function refuseLoneSurrogates(
+  value: unknown,
+  path: Array<string | number>,
+  ctx: z.RefinementCtx,
+): void {
+  if (typeof value === 'string') {
+    if (hasLoneSurrogate(value)) {
+      ctx.addIssue({ code: 'custom', path, message: QR_TEXT_MALFORMED_MESSAGE });
+    }
+  } else if (Array.isArray(value)) {
+    value.forEach((item: unknown, index) => {
+      refuseLoneSurrogates(item, [...path, index], ctx);
+    });
+  } else if (isRecord(value)) {
+    for (const [key, item] of Object.entries(value)) {
+      refuseLoneSurrogates(item, [...path, key], ctx);
+    }
+  }
+}
+
+/** A payload text field with its length cap. */
+const capped = (schema: z.ZodString, limit: number) => schema.max(limit);
+
 /**
  * The per-type payload schemas, built twice (v1.42.1): with `write` for create
  * and update bodies ({@link QR_PAYLOAD_SCHEMAS}), and without it for stored
@@ -265,13 +302,12 @@ export function qrIssueMessage(issue: {
  * every type.
  */
 function buildPayloadSchemas(write: boolean) {
-  // Every payload text field passes through here: its length cap and, on a
-  // write, the unpaired-surrogate refusal (v1.42.1). A stored one stays
-  // readable and renders as U+FFFD.
-  const text = (schema: z.ZodString, limit: number) =>
-    write
-      ? schema.max(limit).refine(value => !hasLoneSurrogate(value), QR_TEXT_MALFORMED_MESSAGE)
-      : schema.max(limit);
+  // The well-formed rule (v1.42.1; a payload-level rule since): a write
+  // refuses an unpaired surrogate in ANY string of the payload, whichever
+  // helper built its field, nested phone and address fields included; a
+  // stored one stays readable and renders as U+FFFD.
+  const wellFormed = <T extends z.ZodType>(schema: T): T =>
+    write ? schema.superRefine((payload, ctx) => refuseLoneSurrogates(payload, [], ctx)) : schema;
 
   /** `url` payload — any free-form scheme-bearing URI. */
   // All payload schemas are .strict(): the QRPayloadSchema
@@ -280,29 +316,33 @@ function buildPayloadSchemas(write: boolean) {
   // first and silently lost name/phone/org. Strict members make a mismatched
   // variant REJECT instead, so the union falls through to the right shape and no
   // caller ever loses keys silently.
-  const url = z
-    .object({
-      url: text(z.string().min(1), 1024)
-        .regex(URI_SCHEME_REGEX, 'URL must be a scheme-bearing URI (e.g. https:, mailto:, tel:)')
-        .describe('Target URI encoded in the QR code (any scheme: https:, mailto:, tel:, ...)'),
-    })
-    .strict();
+  const url = wellFormed(
+    z
+      .object({
+        url: capped(z.string().min(1), 1024)
+          .regex(URI_SCHEME_REGEX, 'URL must be a scheme-bearing URI (e.g. https:, mailto:, tel:)')
+          .describe('Target URI encoded in the QR code (any scheme: https:, mailto:, tel:, ...)'),
+      })
+      .strict(),
+  );
 
   /** `text` payload — free-form plain text. */
-  const plain = z
-    .object({
-      text: text(z.string().min(1), 800).describe('Plain text encoded in the QR code'),
-    })
-    .strict();
+  const plain = wellFormed(
+    z
+      .object({
+        text: capped(z.string().min(1), 800).describe('Plain text encoded in the QR code'),
+      })
+      .strict(),
+  );
 
   /** `wifi` payload — serialized to the WIFI: network-join format. */
   const network = z
     .object({
-      ssid: text(z.string().min(1), 64).describe('Network SSID'),
+      ssid: capped(z.string().min(1), 64).describe('Network SSID'),
       auth: WifiAuthSchema.default('WPA').describe(
         'Authentication type (default: WPA — covers WPA/WPA2/WPA3 personal; WPA2-EAP = enterprise 802.1X, Android-only)',
       ),
-      password: text(z.string(), 128)
+      password: capped(z.string(), 128)
         .optional()
         .describe('Network password (omit for nopass; optional for WPA2-EAP with eapMethod TLS)'),
       hidden: z.boolean().default(false).describe('Network is hidden (SSID not broadcast)'),
@@ -310,10 +350,10 @@ function buildPayloadSchemas(write: boolean) {
         'EAP method (WPA2-EAP only; required for enterprise networks)',
       ),
       phase2: WifiPhase2Schema.optional().describe('Phase-2 inner auth (WPA2-EAP only)'),
-      identity: text(z.string(), 128)
+      identity: capped(z.string(), 128)
         .optional()
         .describe('Login identity (WPA2-EAP only; required)'),
-      anonymousIdentity: text(z.string(), 128)
+      anonymousIdentity: capped(z.string(), 128)
         .optional()
         .describe('Anonymous outer identity (WPA2-EAP only)'),
     })
@@ -386,8 +426,8 @@ function buildPayloadSchemas(write: boolean) {
    * and {@link serializeVcard} leaves it out) and control characters.
    */
   const field = (description: string) =>
-    text(z.string(), QR_VCARD_FIELD_MAX_LENGTH).optional().describe(description);
-  const phoneNumber = text(z.string(), QR_VCARD_FIELD_MAX_LENGTH).describe('Phone number');
+    capped(z.string(), QR_VCARD_FIELD_MAX_LENGTH).optional().describe(description);
+  const phoneNumber = capped(z.string(), QR_VCARD_FIELD_MAX_LENGTH).describe('Phone number');
   const phoneEntry = z
     .object({
       number: write ? phoneNumber.min(1) : phoneNumber,
@@ -396,6 +436,11 @@ function buildPayloadSchemas(write: boolean) {
         .describe("work = the person's own number; main = the office line; cell = mobile; fax"),
     })
     .strict();
+  // The address parts come from VCARD_ADDRESS_PARTS, the one list the
+  // serializer and the form use, so a part cannot be in one and not the other
+  const addressShape = Object.fromEntries(
+    VCARD_ADDRESS_PARTS.map(part => [part, field(VCARD_ADDRESS_DESCRIPTIONS[part])]),
+  ) as Record<VcardAddressPart, ReturnType<typeof field>>;
   const vcard = z
     .object({
       firstName: field('First (given) name'),
@@ -412,26 +457,30 @@ function buildPayloadSchemas(write: boolean) {
       phone: field('Legacy single phone number: becomes TEL;TYPE=WORK,VOICE'),
       email: field('Email address'),
       url: field('Website; a bare domain is encoded as https://<domain>'),
-      address: z
-        .object({
-          street: field('Street (the lines before the town)'),
-          city: field('Town or city'),
-          region: field('Region or state'),
-          postcode: field('Postcode'),
-          country: field('Country'),
-        })
-        .strict()
-        .optional()
-        .describe('Work address (ADR;TYPE=WORK)'),
+      address: z.object(addressShape).strict().optional().describe('Work address (ADR;TYPE=WORK)'),
     })
     .strict()
     .superRefine((card, ctx) => {
       const names = vcardHasName(card);
-      // A stored legacy name is a name when it is any non-empty text: the
-      // MECARD-era write rule was min(1), untrimmed, so a blank one was
-      // written and must stay readable. A write needs a filled one.
-      const legacyName = write ? isFilled(card.name) : (card.name ?? '') !== '';
-      if (!names && !legacyName) {
+      if (write) {
+        // A write needs the name the card SHOWS (its FN, vcardFullName: the
+        // display name, else the legacy name, else "First Surname") to hold a
+        // letter or digit: a name of only invisible characters, marks or
+        // symbols is blank or meaningless on a phone. A filled display name
+        // is the shown name, so the issue is its own.
+        if (!vcardShownNameHasLetterOrDigit(card)) {
+          const shownIsDisplayName = isFilled(card.displayName);
+          ctx.addIssue({
+            code: 'custom',
+            path: [shownIsDisplayName ? 'displayName' : 'firstName'],
+            message: shownIsDisplayName ? VCARD_DISPLAY_NAME_MESSAGE : VCARD_WRITE_NAME_MESSAGE,
+          });
+        }
+      } else if (!names && (card.name ?? '') === '') {
+        // A stored name is any filled text, so a card saved before the write
+        // rule still reads; a stored legacy name is a name when it is any
+        // non-empty text (the MECARD-era write rule was min(1), untrimmed, so
+        // a blank one was written and must stay readable)
         ctx.addIssue({
           code: 'custom',
           path: ['firstName'],
@@ -468,25 +517,22 @@ function buildPayloadSchemas(write: boolean) {
           message: 'Website must not contain line breaks or control characters',
         });
       }
-      // Text values: no control characters but CR and LF (escaped as \n).
+      // Every other text value, taken from the card itself rather than a
+      // hand-kept list: no control characters but CR and LF (escaped as \n).
       // Phone numbers and email are written unescaped: no line break either.
-      const texts: Array<[Array<string | number>, string | undefined]> = [
-        ...VCARD_TEXT_FIELDS.map((key): [Array<string | number>, string | undefined] => [
-          [key],
-          card[key],
-        ]),
-        ...(card.phones ?? []).map((phone, index): [Array<string | number>, string | undefined] => [
-          ['phones', index, 'number'],
-          phone.number,
-        ]),
-        ...VCARD_ADDRESS_PARTS.map((part): [Array<string | number>, string | undefined] => [
-          ['address', part],
-          card.address?.[part],
-        ]),
-      ];
+      const texts: Array<[Array<string | number>, string]> = [];
+      for (const [key, value] of Object.entries(card)) {
+        if (typeof value === 'string' && key !== 'url') texts.push([[key], value]);
+      }
+      for (const [index, phone] of (card.phones ?? []).entries()) {
+        texts.push([['phones', index, 'number'], phone.number]);
+      }
+      for (const [part, value] of Object.entries(card.address ?? {})) {
+        if (typeof value === 'string') texts.push([['address', part], value]);
+      }
       for (const [path, value] of texts) {
         const raw = path[0] === 'phones' || VCARD_RAW_FIELDS.has(String(path[0]));
-        if (raw ? value !== undefined && hasControlCharacter(value) : hasVcardTextControl(value)) {
+        if (raw ? hasControlCharacter(value) : hasVcardTextControl(value)) {
           ctx.addIssue({
             code: 'custom',
             path,
@@ -508,7 +554,7 @@ function buildPayloadSchemas(write: boolean) {
       }
     });
 
-  return { url, text: plain, wifi: network, vcard };
+  return { url, text: plain, wifi: wellFormed(network), vcard: wellFormed(vcard) };
 }
 
 const WRITE_PAYLOADS = buildPayloadSchemas(true);
@@ -522,6 +568,19 @@ export const TextPayloadSchema = WRITE_PAYLOADS.text;
 export const WifiPayloadSchema = WRITE_PAYLOADS.wifi;
 /** `vcard` payload — serialized to vCard 3.0 (v1.42.0; MECARD before). */
 export const VcardPayloadSchema = WRITE_PAYLOADS.vcard;
+
+/**
+ * The fields of a contact card's phone entry and of its address, read from
+ * the schema itself for the stored reader, which keeps only these: a field
+ * added to the schema is kept on read, never dropped there and lost on the
+ * next update.
+ */
+export const VCARD_PHONE_FIELDS: readonly string[] = Object.keys(
+  VcardPayloadSchema.shape.phones.unwrap().element.shape,
+);
+export const VCARD_ADDRESS_FIELDS: readonly string[] = Object.keys(
+  VcardPayloadSchema.shape.address.unwrap().shape,
+);
 
 /**
  * The `vcard` payload as stored records are read: {@link VcardPayloadSchema}
@@ -660,8 +719,9 @@ export const QRLinkedRouteSchema = z.object({
 export const QRLinkedRouteInputSchema = QRLinkedRouteSchema.extend({
   domain: z.enum(SUPPORTED_DOMAINS).describe('Domain of the linked route'),
   // The route path rules, and the route key limit (v1.37.2): a linked path is
-  // a route path, and the record is a backup line
-  path: RoutePathSchema.describe('Path of the linked route'),
+  // a route path, and the record is a backup line. A new link's path, so an
+  // unpaired surrogate is refused too (NewRoutePathSchema)
+  path: NewRoutePathSchema.describe('Path of the linked route'),
 }).refine(link => routeKeyBytes(link.domain, link.path) <= MAX_ROUTE_KEY_BYTES, {
   // Measured on the key as lookups build it, after normalisation
   message: 'Route path is too long for this domain',
@@ -729,6 +789,19 @@ const QR_PAYLOAD_KEYS: Readonly<Record<QRType, readonly string[]>> = {
   vcard: Object.keys(VcardPayloadSchema.shape),
 };
 
+/**
+ * The top-level fields a QR record defines, from the record schema itself;
+ * any other stored field is dropped.
+ */
+const QR_RECORD_FIELDS: readonly string[] = Object.keys(QRCodeSchema.shape);
+/** The record fields {@link parseStoredQR} normalises rather than keeps as stored. */
+const QR_NORMALISED_RECORD_FIELDS: ReadonlySet<string> = new Set([
+  'type',
+  'payload',
+  'design',
+  'linkedRoute',
+]);
+
 /** The design keys the renderer reads, from the design schema. */
 const QR_DESIGN_KEYS: readonly string[] = Object.keys(QRDesignSchema.shape);
 
@@ -781,21 +854,18 @@ function pick(source: Record<string, unknown>, keys: readonly string[]): Record<
   return out;
 }
 
-/** A phone entry's fields, from the write schema (v1.42.0). */
-const VCARD_PHONE_KEYS: readonly string[] = ['number', 'type'];
-
 /**
- * A stored contact card's nested parts keep only the keys they define
- * (v1.42.0), as the top-level payload does: the address parts, and each phone
- * entry's number and type. Anything that is not an object is left for the
+ * A stored contact card's nested parts keep only the fields the schema
+ * defines ({@link VCARD_ADDRESS_FIELDS}, {@link VCARD_PHONE_FIELDS}), as the
+ * top-level payload does. Anything that is not an object is left for the
  * schema to refuse.
  */
 function normaliseVcardParts(payload: Record<string, unknown>): void {
   const { address, phones } = payload;
-  if (isRecord(address)) payload['address'] = pick(address, VCARD_ADDRESS_PARTS);
+  if (isRecord(address)) payload['address'] = pick(address, VCARD_ADDRESS_FIELDS);
   if (Array.isArray(phones)) {
     payload['phones'] = phones.map((phone: unknown) =>
-      isRecord(phone) ? pick(phone, VCARD_PHONE_KEYS) : phone,
+      isRecord(phone) ? pick(phone, VCARD_PHONE_FIELDS) : phone,
     );
   }
 }
@@ -847,10 +917,10 @@ export function parseStoredQR(value: unknown): QRCode | null {
     normalisedPayload['auth'] = 'WPA';
   }
   if (recordType === 'vcard') normaliseVcardParts(normalisedPayload);
-  const out: Record<string, unknown> = {
-    ...pick(value, ['id', 'domain']),
+  // The fields the record schema defines, in its order: these four are
+  // normalised above or here, every other one is kept when present
+  const normalised: Record<string, unknown> = {
     type: recordType,
-    ...pick(value, ['description', 'tags']),
     payload: normalisedPayload,
     // Missing or null design fields take their defaults
     design: {
@@ -860,8 +930,12 @@ export function parseStoredQR(value: unknown): QRCode | null {
     ...(isRecord(linkedRoute)
       ? { linkedRoute: { domain: linkedRoute['domain'], path: linkedRoute['path'] } }
       : {}),
-    ...pick(value, ['createdAt', 'updatedAt', 'createdBy']),
   };
+  const out: Record<string, unknown> = {};
+  for (const field of QR_RECORD_FIELDS) {
+    const kept = QR_NORMALISED_RECORD_FIELDS.has(field) ? normalised[field] : value[field];
+    if (kept !== null && kept !== undefined) out[field] = kept;
+  }
   if (
     !passesFormats(StoredQRRecordSchema, out) ||
     !passesFormats(STORED_QR_PAYLOAD_SCHEMAS[recordType], normalisedPayload) ||
@@ -1041,6 +1115,14 @@ export type QRWifiPayload = z.infer<typeof WifiPayloadSchema>;
 export type QRVcardPayload = z.infer<typeof VcardPayloadSchema>;
 export type QRPayload = z.infer<typeof QRPayloadSchema>;
 
+/** The payload of each QR type: what {@link serializePayload} takes for it. */
+export interface QRPayloadByType {
+  url: QRUrlPayload;
+  text: QRTextPayload;
+  wifi: QRWifiPayload;
+  vcard: QRVcardPayload;
+}
+
 // ---------------------------------------------------------------------------
 // Serialization
 // ---------------------------------------------------------------------------
@@ -1099,11 +1181,13 @@ function vcardRawValue(value: string | undefined): string {
  * The website as encoded: control characters dropped first (a URL value is
  * not escaped, so a line break would end the line), then trimmed, then
  * `https://` added to a value without a `scheme://` (`example.com` →
- * `https://example.com`).
+ * `https://example.com`). A scheme-relative value (`//example.com`) takes
+ * only `https:`, so it is `https://example.com`, never `https:////example.com`.
  */
 function vcardWebsite(value: string): string {
   const url = withoutControlCharacters(value).trim();
   if (url === '' || /^[a-z][a-z0-9+.-]*:\/\//i.test(url)) return url;
+  if (url.startsWith('//')) return `https:${url}`;
   return `https://${url}`;
 }
 
@@ -1186,9 +1270,16 @@ export function serializeVcard(card: QRVcardPayload): string {
  *   - vcard → vCard 3.0 ({@link serializeVcard}; MECARD before v1.42.0)
  * Callers must enforce {@link MAX_QR_PAYLOAD_LENGTH} on the result
  * (QR_PAYLOAD_TOO_LARGE).
+ *
+ * Typed per QR type: with a literal type the payload must be that type's
+ * ({@link QRPayloadByType}), so `serializePayload('url', {})` does not
+ * type-check (a contact card is all-optional, and the payload union let `{}`
+ * through). A caller holding a record's own `type` and `payload` passes them
+ * as they are.
  */
-export function serializePayload(type: QRType, payload: QRPayload): string {
-  switch (type) {
+export function serializePayload<T extends QRType>(type: T, payload: QRPayloadByType[T]): string {
+  const qrType: QRType = type;
+  switch (qrType) {
     case 'url':
       return (payload as QRUrlPayload).url;
     case 'text':
@@ -1211,7 +1302,7 @@ export function serializePayload(type: QRType, payload: QRPayload): string {
     case 'vcard':
       return serializeVcard(payload as QRVcardPayload);
     default: {
-      const unsupported: never = type;
+      const unsupported: never = qrType;
       throw new Error(`Unsupported QR type: ${String(unsupported)}`);
     }
   }
@@ -1274,13 +1365,13 @@ export type GetQrInput = z.infer<typeof GetQrInputSchema>;
  * The contact-card payload as the MCP tools describe it (v1.42.0) — one
  * source for the Zod tool schemas and the tool catalogue.
  */
-export const QR_VCARD_PAYLOAD_DESCRIPTION = `vcard (encoded as vCard 3.0) {firstName?, surname?, displayName? (FN; default "First Surname"), org? (company), title?, phones? [{number, type work|main|cell|fax}] (up to ${QR_VCARD_MAX_PHONES}; work = the person's own number, main = the office line), email?, url? (website; a bare domain gets https://), address? {street?, city?, region?, postcode?, country?}} — at least one of firstName, surname, or displayName; every field at most ${QR_VCARD_FIELD_MAX_LENGTH} characters; legacy name (instead of the name fields) and phone (instead of phones) are still accepted`;
+export const QR_VCARD_PAYLOAD_DESCRIPTION = `vcard (encoded as vCard 3.0) {firstName?, surname?, displayName? (FN; default "First Surname"), org? (company), title?, phones? [{number, type work|main|cell|fax}] (up to ${QR_VCARD_MAX_PHONES}; work = the person's own number, main = the office line), email?, url? (website; a bare domain gets https://), address? {street?, city?, region?, postcode?, country?}} — at least one of firstName, surname, or displayName, and the name the card shows (displayName, else firstName and surname) needs a letter or digit; every field at most ${QR_VCARD_FIELD_MAX_LENGTH} characters; legacy name (instead of the name fields) and phone (instead of phones) are still accepted`;
 
 /** The `create_qr` payload description, shared with the tool catalogue. */
 export const CREATE_QR_PAYLOAD_DESCRIPTION = `Type-shaped payload: url {url}; text {text}; wifi {ssid, auth WPA|WEP|nopass|WPA2-EAP, password, hidden?, eapMethod? PEAP|TTLS|TLS|PWD, phase2? MSCHAPV2|GTC|PAP, identity?, anonymousIdentity? — enterprise fields WPA2-EAP only}; ${QR_VCARD_PAYLOAD_DESCRIPTION}. The serialised content is at most ${MAX_QR_PAYLOAD_LENGTH} bytes.`;
 
 /** The `update_qr` payload description, shared with the tool catalogue. */
-export const UPDATE_QR_PAYLOAD_DESCRIPTION = `Replacement payload, whole (validated against the existing type — type itself is immutable). Shapes as create_qr; ${QR_VCARD_PAYLOAD_DESCRIPTION}`;
+export const UPDATE_QR_PAYLOAD_DESCRIPTION = `Replacement payload, whole (validated against the existing type — type itself is immutable). Shapes as create_qr; ${QR_VCARD_PAYLOAD_DESCRIPTION}. When resending a contact card's payload, leave out phone entries whose number is blank; the shown name needs a letter or digit`;
 
 export const CreateQrToolInputSchema = z.object({
   domain: mcpDomainField,

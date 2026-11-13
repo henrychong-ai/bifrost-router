@@ -29,12 +29,14 @@ export function QrCodesSection() {
         {QR_VCARD_MAX_PHONES} phone numbers, email, website, and work address. Each phone has a
         type: <strong>Work (own)</strong> is the person's own number and becomes the phone's
         preferred number; <strong>Office line</strong> is the switchboard; <strong>Mobile</strong>{' '}
-        and <strong>Fax</strong> as named. A website without <FactChip>https://</FactChip> gets it
-        added. Each field takes up to {QR_VCARD_FIELD_MAX_LENGTH} characters, and the whole card
-        must stay within {MAX_QR_PAYLOAD_LENGTH} bytes: the editor shows the running size. Search
-        finds a contact card by the person's name as well as its description and Reference. Cards
-        made before contact cards became vCards still scan, now as vCards; opening one for editing
-        shows its name as the first name.
+        and <strong>Fax</strong> as named. The name the card shows (the display name, else first
+        name and surname) needs at least one letter or digit, in any script. A website without{' '}
+        <FactChip>https://</FactChip> gets it added. Each field takes up to{' '}
+        {QR_VCARD_FIELD_MAX_LENGTH} characters, and the whole card must stay within{' '}
+        {MAX_QR_PAYLOAD_LENGTH} bytes: the editor shows the running size. Search finds a contact
+        card by the person's name as well as its description and Reference. Cards made before
+        contact cards became vCards still scan, now as vCards; opening one for editing shows its
+        name as the first name.
       </p>
       <p>
         <strong>Naming a code.</strong> The <strong>Reference</strong> is how you find a code later

@@ -7,28 +7,10 @@
  * (patches/qrcode-svg-1.1.0.patch) to encode plain UTF-8.
  */
 import { createHash } from 'node:crypto';
-import QRCode from 'qrcode-svg';
 import { describe, expect, it } from 'vitest';
-import { isRecord } from './guards.js';
 import { QRDesignSchema, serializeVcard } from './qr.js';
 import { renderQrSvg } from './qr-render.js';
-
-/** The library's own encoded byte segments for `content` (its QR8bitByte data). */
-function encodedBytes(content: string): number[] {
-  const code: unknown = new QRCode({ content });
-  const inner = isRecord(code) ? code['qrcode'] : undefined;
-  const segments = isRecord(inner) ? inner['dataList'] : undefined;
-  if (!Array.isArray(segments)) throw new Error('qrcode-svg internals changed');
-  return segments.flatMap((segment: unknown) => {
-    const data = isRecord(segment) ? segment['parsedData'] : undefined;
-    if (!Array.isArray(data) || !data.every(byte => typeof byte === 'number')) {
-      throw new Error('qrcode-svg internals changed');
-    }
-    return data;
-  });
-}
-
-const utf8 = (content: string) => [...new TextEncoder().encode(content)];
+import { encodedBytes, utf8 } from './qrcode-internals.test-support.js';
 
 const BOM = [0xef, 0xbb, 0xbf];
 

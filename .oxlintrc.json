@@ -165,6 +165,7 @@
         "test/**",
         "scripts/**",
         "shared/src/**/*.test.ts",
+        "shared/src/**/*.test-support.ts",
         "mcp/src/**/*.test.ts",
         "**/vitest.config.ts",
         "drizzle.config.ts"
