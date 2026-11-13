@@ -6,6 +6,37 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.42.5 (2026-11-13) — File routes answer GET and HEAD only; serving and QR store fixes
+
+**Why:** a file route served any HTTP method: a POST, PUT, PATCH, DELETE or OPTIONS to a public file URL was answered with the file (the cached GET body on an edge-cache hit), and a missing object's 404 to such a method named its key (a GET or HEAD to a missing object still gets that 404). Also four smaller serving and store fixes, and a written versioning rule. **No migration**; no new endpoint, parameter, response field or MCP tool.
+
+### File serving
+
+- **File routes answer GET and HEAD only.** `handleR2` (`src/handlers/r2.ts`) decides the method first, before the bucket and key checks, the edge-cache lookup and any R2 read (`isFileServingMethod`, `fileMethodRefusal`): OPTIONS answers `204 No Content` with no body, and every other method except GET and HEAD answers `405 Method Not Allowed` with `{"error":"Method Not Allowed"}`. Both carry `Allow: GET, HEAD, OPTIONS` and `Cache-Control: no-store`, and no `Access-Control-*` header (no CORS policy exists for file routes, so a cross-origin preflight still fails, as before). The answer is the same for an existing and a missing object, cached or not, with or without `Range` or conditional headers. Neither answer records a download (download counting was already GET-only); with unified traffic on, the row is `r2` with 204 (`success`) or 405 (`client_error`). GET and HEAD are unchanged, and the 412 rule for an unsafe conditional method stays as a second line of defence behind the check. Redirect routes still redirect, and proxy routes still forward, every method.
+- **Entity-tag lists split only on commas outside quotes** (`splitEntityTagList`), so a quoted tag holding a comma (`"x,abc123"`) is one tag and is never matched by a fragment. Such an `If-Match` now gets 412 instead of 304, and such an `If-Range` is treated as stale (the full 200). R2 never emits such tags; unquoted legacy tokens still split on every comma.
+- **The catch-all 404 names the admin API only where it answers.** An unrouted path answers 404 `{ error, path, message }`; the `hint` (`Use the admin API to add routes: POST /api/routes`) is added only on a host that serves the admin API (`servesAdminApi` in the new `src/utils/admin-host.ts`, the admin mount's own host rule, now shared: `ADMIN_API_DOMAIN`, or every host when it is unset). Public short-link and file hosts no longer mention it.
+- **Purge notes corrected.** The comments and `AGENTS.md` text calling purge by prefix an Enterprise feature are out of date: Cloudflare's purge documentation lists URL, hostname, tag, prefix and purge-everything on every plan, rate-limited. Wildcard routes still skip the purge (purge-by-URL does not expand `*`), because nothing confirms that a zone prefix purge evicts entries a Worker wrote with the Cache API; `TODO.md` has a new row to check that and then purge a wildcard route's cached sub-paths.
+
+### Routes and QR codes
+
+- **`normalize-case` never overwrites an empty stored value.** Its destination check now counts the lowercase key as present whenever KV returns anything but `null`, as `migrateRoute` does. KV returns `''` for an empty stored value, which the old truthiness check took as a free key: the route was written over it and the source deleted. Only a write made outside the API can store such a value.
+- **A QR update writes under the key it read.** `PUT /api/qr/:id` builds the merged record with the id and domain of the key it read (`qr:{domain}:{id}` from the request), not the stored record's own fields. A record written straight to KV whose fields named another code or domain was written there, over another code's key or under another domain; it is now rewritten in place. Records the API wrote are unchanged, since their fields equal their key.
+- **The QR id `from-route` is reserved.** `POST /api/qr` refuses it (400 `QR id is reserved: from-route`, `RESERVED_QR_IDS` in `src/routes/qr.ts`): `GET /api/qr/from-route` is the ephemeral image endpoint, so a code with that id could be created and then never read by id. A code stored before the reservation still lists, renders, updates and deletes. The OpenAPI spec documents the 400, the `create_qr` id text names the reserved id, and the User Guide's QR section mentions it.
+
+### Docs
+
+- **Versioning rule.** `AGENTS.md` "Versioning" now says which number moves: Semantic Versioning 2.0.0, with the public interface named (the Admin API in `openapi/bifrost-api.yaml`, the MCP tool catalogue, what a route serves) and what makes a PATCH, a MINOR and a MAJOR change; a release takes the highest of its changes.
+
+### Tests
+
+- `test/handlers/r2-methods.test.ts` (new): every method through the Worker, cache hit and miss, existing, missing and wildcard routes, `Range` and conditional headers, the download and unified traffic rows, the handler order (no cache or R2 read for a refused method, with a cache hit in place), and redirect and proxy routes unchanged.
+- `test/handlers/r2.test.ts`: the comma-bearing tag cases; a conditional POST now gets 405 before any R2 read.
+- `test/catch-all-404.test.ts` (new): the hint per host.
+- `test/routes/move-source-check.test.ts`: an empty value at the lowercase key.
+- `test/routes/qr-key-binding.test.ts` (new): the QR key binding and the reserved id.
+
+---
+
 ## v1.42.4 (2026-11-13) — Dependency maintenance and security fixes; Select ellipsis; QR decoder test
 
 **Why:** `pnpm audit` reported 8 advisories (1 high, 6 moderate, 1 low):
