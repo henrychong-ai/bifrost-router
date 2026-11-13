@@ -86,6 +86,10 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateRouteInput'
       responses:
+        '413':
+          description: >-
+            The request body is over 64 KiB (`ROUTE_WRITE_MAX_BYTES`):
+            `{ success: false, error: PAYLOAD_TOO_LARGE, message }`, nothing written
         '201':
           description: Created
         '409':
@@ -116,6 +120,10 @@ paths:
                         `ROUTE_SOURCE_CHANGED` and nothing is saved. A request
                         flag, never stored.
       responses:
+        '413':
+          description: >-
+            The request body is over 64 KiB (`ROUTE_WRITE_MAX_BYTES`):
+            `{ success: false, error: PAYLOAD_TOO_LARGE, message }`, nothing written
         '200':
           description: Updated
         '409':
@@ -190,6 +198,10 @@ paths:
             schema:
               $ref: '#/components/schemas/SeedRoutesInput'
       responses:
+        '413':
+          description: >-
+            The request body is over 64 KiB (`ROUTE_WRITE_MAX_BYTES`):
+            `{ success: false, error: PAYLOAD_TOO_LARGE, message }`, nothing written
         '200':
           description: Seeded
 
@@ -244,6 +256,10 @@ paths:
                         changed since is refused with 409
                         `ROUTE_SOURCE_CHANGED` and nothing moves.
       responses:
+        '413':
+          description: >-
+            The request body is over 64 KiB (`ROUTE_WRITE_MAX_BYTES`):
+            `{ success: false, error: PAYLOAD_TOO_LARGE, message }`, nothing written
         '200':
           description: Route migrated successfully
         '400':
@@ -289,6 +305,10 @@ paths:
                   type: string
                   description: Destination domain
       responses:
+        '413':
+          description: >-
+            The request body is over 64 KiB (`ROUTE_WRITE_MAX_BYTES`):
+            `{ success: false, error: PAYLOAD_TOO_LARGE, message }`, nothing written
         '200':
           description: Route transferred successfully
           content:
@@ -1122,6 +1142,10 @@ paths:
             schema:
               type: object
       responses:
+        '413':
+          description: >-
+            The request body is over 192 KiB (`QR_WRITE_MAX_BYTES`):
+            `{ success: false, error: PAYLOAD_TOO_LARGE, message }`, nothing written
         '201':
           description: QR code created
         '409':
@@ -1197,6 +1221,10 @@ paths:
             schema:
               type: object
       responses:
+        '413':
+          description: >-
+            The request body is over 192 KiB (`QR_WRITE_MAX_BYTES`):
+            `{ success: false, error: PAYLOAD_TOO_LARGE, message }`, nothing written
         '200':
           description: QR code updated
         '404':

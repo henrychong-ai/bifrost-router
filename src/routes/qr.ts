@@ -33,6 +33,7 @@ import {
   QR_PAYLOAD_SCHEMAS,
   QR_RECORD_INVALID_ERROR,
   QR_RECORD_INVALID_MESSAGE,
+  QR_WRITE_MAX_BYTES,
   type QRCode,
   QRCodeSchema,
   type QRDesign,
@@ -56,6 +57,7 @@ import { getRoute, InvalidStoredRouteError } from '../kv/routes';
 import { qrKey } from '../kv/schema';
 import type { AppEnv } from '../types';
 import { CodedHTTPException } from '../utils/coded-http-exception';
+import { writeBodyLimit } from '../utils/write-body-limit';
 import {
   getActorInfo,
   getDomainOrDefaultFromRequest,
@@ -404,7 +406,10 @@ qrRoutes.get('/:id', async c => {
   return c.json({ success: true as const, data: record });
 });
 
-qrRoutes.post('/', async c => {
+/** QR-write body ceiling: QR_WRITE_MAX_BYTES (192 KiB), else 413 `PAYLOAD_TOO_LARGE`. */
+const qrWriteBodyLimit = writeBodyLimit(QR_WRITE_MAX_BYTES, 'QR writes');
+
+qrRoutes.post('/', qrWriteBodyLimit, async c => {
   const domain = requireDomain(c);
 
   const body: unknown = await c.req.json<unknown>().catch(() => {
@@ -463,7 +468,7 @@ qrRoutes.post('/', async c => {
   return c.json({ success: true as const, data: record }, 201);
 });
 
-qrRoutes.put('/:id', async c => {
+qrRoutes.put('/:id', qrWriteBodyLimit, async c => {
   const domain = requireDomain(c);
   const existing = await requireQR(c, domain, c.req.param('id'));
 

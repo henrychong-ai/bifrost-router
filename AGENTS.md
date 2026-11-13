@@ -543,6 +543,7 @@ types) and shows the server's 400 message:
 | `cacheControl` | 256 characters | `RouteCacheControlSchema`, same places |
 | Whole stored record | 64 KiB of UTF-8 (`MAX_ROUTE_RECORD_BYTES`) | every writer: create, update, seed, migrate, transfer, normalize-case |
 | Route key | 512 UTF-8 bytes (`MAX_ROUTE_KEY_BYTES`) | every writer, as above |
+| Request body | 64 KiB (`ROUTE_WRITE_MAX_BYTES`); QR writes 192 KiB (`QR_WRITE_MAX_BYTES`, the stored QR record bound) | route create, update, seed, migrate and transfer; QR create and update (`writeBodyLimit`, `src/utils/write-body-limit.ts`) |
 
 The guarantee lives in the KV writers themselves: `serializeStoredRoute`
 (`src/kv/routes.ts`) checks the key and the size of the EXACT record about to be
@@ -561,7 +562,13 @@ route before it looks at the patch. A seed batch is built and checked whole
 before anything is written (a refusal names the offending `path`), and entries
 that normalise to a key already queued in the batch are skipped, the first
 winning. The response schema `RouteSchema` (shared) is tolerant: it carries
-none of these caps, so stored routes over one still read back. A refusal is a 400
+none of these caps, so stored routes over one still read back. The handlers buffer the whole body (`c.req.json()`) before any schema sees it,
+so a per-route body ceiling bounds that buffering: a body over it answers 413
+`{ success: false, error: 'PAYLOAD_TOO_LARGE', message }` before it is parsed,
+and nothing is written (with a numeric `Content-Length` the declared size
+decides, unread; without one the body is counted while read). A seed batch is
+bounded by the same 64 KiB, so a larger import is sent as several seeds. A
+refusal is a 400
 `{ success: false, error }` with a fixed message the dashboard shows as it is:
 `Route path is too long for this domain`, `Route record is too large`, or the
 field's own cap. A stored record already over a field cap is served as it

@@ -226,6 +226,13 @@ export const MAX_CACHE_CONTROL_LENGTH = 256;
 export const MAX_ROUTE_RECORD_BYTES = 64 * 1024;
 /** Largest route KV key, `{domain}:{path}`, in UTF-8 bytes: KV's own key limit. */
 export const MAX_ROUTE_KEY_BYTES = 512;
+/**
+ * Largest request body (bytes) a route create, update, seed, migrate or
+ * transfer reads; a larger one answers 413 `PAYLOAD_TOO_LARGE` before it is
+ * parsed. The handlers buffer the whole body before any schema sees it, so
+ * this is what bounds that buffering. Far above any real route write.
+ */
+export const ROUTE_WRITE_MAX_BYTES = 64 * 1024;
 
 /**
  * A route path in the form route keys use: query and fragment removed, then

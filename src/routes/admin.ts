@@ -1,6 +1,7 @@
 import {
   canonicalJson,
   type InvalidRouteRow,
+  ROUTE_WRITE_MAX_BYTES,
   RoutePathSchema,
   RoutesListQuerySchema,
   searchAndRankRoutes,
@@ -55,6 +56,7 @@ import { requestBodyGuard } from '../utils/json-body';
 import { ownHostResolver } from '../utils/og-own-host';
 import { describeOpenGraphFailure, parseOpenGraph } from '../utils/og-parser';
 import { findCredentialParams } from '../utils/unified-traffic';
+import { writeBodyLimit } from '../utils/write-body-limit';
 import { analyticsRoutes } from './analytics';
 import { feedbackRoutes } from './feedback';
 import { qrRoutes } from './qr';
@@ -462,9 +464,16 @@ adminRoutes.get('/routes', async c => {
 });
 
 /**
+ * Route-write body ceiling: create, update, seed, migrate and transfer read
+ * at most ROUTE_WRITE_MAX_BYTES (64 KiB) and answer a larger body 413
+ * `PAYLOAD_TOO_LARGE` before parsing it. A seed batch is bounded by it too.
+ */
+const routeWriteBodyLimit = writeBodyLimit(ROUTE_WRITE_MAX_BYTES, 'route writes');
+
+/**
  * POST /api/routes - Create a new route
  */
-adminRoutes.post('/routes', async c => {
+adminRoutes.post('/routes', routeWriteBodyLimit, async c => {
   const domainResult = getRequiredDomainFromRequest(c);
 
   // Return 400 for invalid domain values
@@ -563,7 +572,7 @@ adminRoutes.post('/routes', async c => {
  * Requires ?path= query parameter to specify which route to update.
  * This avoids URL encoding issues with paths containing "/" characters.
  */
-adminRoutes.put('/routes', async c => {
+adminRoutes.put('/routes', routeWriteBodyLimit, async c => {
   const path = c.req.query('path');
 
   if (!path) {
@@ -925,7 +934,7 @@ async function recoverInvalidRouteRecord(
 /**
  * POST /api/routes/seed - Seed routes from static config
  */
-adminRoutes.post('/routes/seed', async c => {
+adminRoutes.post('/routes/seed', routeWriteBodyLimit, async c => {
   const domainResult = getRequiredDomainFromRequest(c);
 
   // Return 400 for invalid domain values
@@ -1062,7 +1071,7 @@ adminRoutes.post('/routes/seed', async c => {
 /**
  * POST /api/routes/migrate - Migrate a route to a new path
  */
-adminRoutes.post('/routes/migrate', async c => {
+adminRoutes.post('/routes/migrate', routeWriteBodyLimit, async c => {
   const oldPath = c.req.query('oldPath');
   const newPath = c.req.query('newPath');
 
@@ -1353,7 +1362,7 @@ adminRoutes.get('/metadata/og', async c => {
  * - fromDomain: Source domain (required)
  * - toDomain: Destination domain (required)
  */
-adminRoutes.post('/routes/transfer', async c => {
+adminRoutes.post('/routes/transfer', routeWriteBodyLimit, async c => {
   // The RAW body is kept: the request-only `acknowledgeCredentialTarget` flag
   // is read from it below and is never part of the parsed shape.
   const body: unknown = await c.req.json<unknown>().catch(() => {
