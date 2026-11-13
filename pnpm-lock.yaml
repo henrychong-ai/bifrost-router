@@ -17,7 +17,7 @@ overrides:
   rollup: '>=4.59.0'
   ajv@^6: ^6.14.0
   hono: '>=4.13.18 <5'
-  '@hono/node-server': '>=2.1.6 <3'
+  '@hono/node-server@>=2.0.0 <2.1.7': 2.1.7
   path-to-regexp@>=8.0.0 <8.4.0: '>=8.4.0 <9'
   body-parser@>=2.0.0 <2.4.0: 2.4.0
   brace-expansion@>=5.0.0 <5.0.12: 5.0.12
@@ -958,8 +958,8 @@ packages:
   '@floating-ui/utils@0.2.12':
     resolution: {integrity: sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==}
 
-  '@hono/node-server@2.1.8':
-    resolution: {integrity: sha512-jdf7FHh6A1lzjpHHQUgxsg2GeER2vMetnAOfeActzcoli6jamlK+NAwL6Dsr5Fl3BS3tYUQzCdtZjU8Qxv7bEA==}
+  '@hono/node-server@2.1.7':
+    resolution: {integrity: sha512-Wr0E6S+v2Bw9FkpGNP5BQ5QbJvclUa06UVehd65WFZe6XeJwbrKQQ5wPDevc0IC+QyzbO7v3Llh5uo45IZcSnA==}
     engines: {node: '>=20'}
     peerDependencies:
       hono: '>=4.13.18 <5'
@@ -4032,7 +4032,7 @@ snapshots:
 
   '@floating-ui/utils@0.2.12': {}
 
-  '@hono/node-server@2.1.8(hono@4.13.18)':
+  '@hono/node-server@2.1.7(hono@4.13.18)':
     dependencies:
       hono: 4.13.18
 
@@ -4170,7 +4170,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.32.2(zod@4.6.7)':
     dependencies:
-      '@hono/node-server': 2.1.8(hono@4.13.18)
+      '@hono/node-server': 2.1.7(hono@4.13.18)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -4988,7 +4988,7 @@ snapshots:
       magicast: 0.5.5
       obug: 2.2.1
       tinyrainbow: 3.2.0
-      vitest: 4.1.12(@types/node@25.9.6)(@vitest/coverage-istanbul@4.1.12)(@vitest/coverage-v8@4.1.12)(happy-dom@21.0.4)(vite@7.3.7(@types/node@25.9.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1))
+      vitest: 4.1.12(@types/node@24.19.2)(@vitest/coverage-istanbul@4.1.12)(@vitest/coverage-v8@4.1.12)(happy-dom@21.0.4)(vite@8.3.8(@types/node@24.19.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
     transitivePeerDependencies:
       - supports-color
 
@@ -5004,7 +5004,7 @@ snapshots:
       obug: 2.2.1
       std-env: 4.3.0
       tinyrainbow: 3.2.0
-      vitest: 4.1.12(@types/node@25.9.6)(@vitest/coverage-istanbul@4.1.12)(@vitest/coverage-v8@4.1.12)(happy-dom@21.0.4)(vite@7.3.7(@types/node@25.9.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1))
+      vitest: 4.1.12(@types/node@24.19.2)(@vitest/coverage-istanbul@4.1.12)(@vitest/coverage-v8@4.1.12)(happy-dom@21.0.4)(vite@8.3.8(@types/node@24.19.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
 
   '@vitest/expect@4.1.12':
     dependencies:
