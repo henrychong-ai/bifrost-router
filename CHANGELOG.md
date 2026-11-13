@@ -6,6 +6,87 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.45.0 (2026-11-13) — Storage list says when a folder has more than 1,000 entries; route and QR write body limits; one byte-size formatter
+
+**Why:** a folder with more than 1,000 direct entries stopped paging at
+1,000 with only a small grey sentence to say so, and the listing's `meta`
+gave a total and a "no more pages" that looked exact. Route and QR writes
+read their whole request body before any schema ran, with no ceiling. The
+MCP server passed a whitespace-only domain on to the schema's enum error
+instead of its no-domain error. Five copies of a byte-size formatter
+disagreed at the edges (the MCP storage tools printed `undefined` as the
+unit from 1 TB). **No migration.** One new response field, no field removed
+or renamed; route and QR writes over the new body ceilings now answer 413.
+
+### Storage
+
+- **Folders with more than 1,000 entries say so.** Offset-mode
+  `GET /api/storage/:bucket/objects` (an `offset` is sent) adds
+  `meta.totalIsExact`: `true` normally, `false` when the folder holds more
+  direct entries than one listing reads. Then `meta.total` is a floor and
+  `meta.hasMore` turns false at the cap. Every existing field (`total`,
+  `count`, `offset`, `limit`, `hasMore`, `capped`, `truncated`, `objects`,
+  `delimitedPrefixes`) is unchanged; cursor mode (MCP `list_objects`, the
+  shared client's default) is unchanged and has no `meta`. The cap is the
+  shared constant `STORAGE_LIST_MATERIALISE_CAP` (1,000, `@bifrost/shared`),
+  which the Worker and the User Guide read. The field is optional in the
+  shared and dashboard types, and the dashboard client declares it in its
+  response schema, so it reaches the page.
+- **Storage tab.** The grey "showing the first N" sentence is replaced by an
+  amber notice, "More beyond the first 1,000. This folder holds more than
+  1,000 entries and paging stops there. Narrow the prefix to reach the
+  rest.", with a **Narrow prefix** button that puts the current folder into
+  the prefix filter and focuses it. The notice and the "N+ items" count also
+  follow the older `capped` flag, so they work against an older Worker. The
+  User Guide's Files and storage section gains a "Very large folders"
+  paragraph.
+- **OpenAPI:** the listing's 200 answer has a `StorageListResponse` schema
+  with `meta.totalIsExact`, and the upload operation lists 201 (its success
+  status; the spec said 200), 404 for an unknown bucket and 409 for an
+  existing key without `overwrite`.
+
+### Request bodies
+
+- **Route and QR writes bound their bodies in the Worker.** Route create,
+  update, seed, migrate and transfer read at most 64 KiB
+  (`ROUTE_WRITE_MAX_BYTES`), QR create and update at most 192 KiB
+  (`QR_WRITE_MAX_BYTES`, the stored QR record bound, which leaves room for a
+  100 KB logo as base64). A larger body answers 413
+  `{ success: false, error: 'PAYLOAD_TOO_LARGE', message }` before it is
+  parsed, and nothing is written: with a numeric `Content-Length` the
+  declared size decides, unread, and without one the body is counted while
+  it is read (`writeBodyLimit`, `src/utils/write-body-limit.ts`). No body the
+  dashboard or the MCP server sends comes near these sizes; a seed import of
+  more than 64 KiB is sent as several seeds. The OpenAPI document lists the
+  413 on all seven operations.
+
+### MCP server
+
+- **A whitespace-only domain gets the no-domain error.** `requireDomain()`
+  (`mcp/src/tools/domain.ts`) treats a string that is empty or only
+  whitespace as no domain, so the 14 domain-required tools and both
+  `transfer_route` domains answer the error that lists the valid domains,
+  instead of the schema's enum error. It was refused before too; only the
+  text changes. A non-blank domain is passed on as sent, so a padded one is
+  still refused by the schema.
+- **Sizes from 1 TB show as TB.** The storage tools printed `undefined` as
+  the unit.
+
+### Internal
+
+- **One byte-size formatter.** `formatByteSize` (`shared/src/byte-size.ts`,
+  `@bifrost/shared`) replaces five local copies in the MCP storage tools and
+  the dashboard's Dashboard, Storage, Downloads and Proxy pages: binary
+  steps, whole bytes below 1 KB, one decimal for KB and MB, TB the largest
+  unit; the Downloads and Proxy tables keep two decimals from GB up. Visible
+  edges: sizes of 1 TB or more show as TB everywhere, and the Dashboard's
+  "served" total shows a byte count from 1,000 to 1,023 as "1000 B" rather
+  than with a locale digit separator.
+- **The MCP page's empty-category branch is tested** (a tool category with no
+  tools gets no card).
+
+---
+
 ## v1.44.0 (2026-11-13) — Feedback export writes free text as code; oldest-first queue order and priority filter
 
 **Why:** the feedback Markdown export, which administrators and AI triage
