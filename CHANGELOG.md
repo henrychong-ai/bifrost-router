@@ -6,6 +6,135 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.46.0 (2026-11-13) — Contact-card shown-name and website rules; new route paths refuse unpaired surrogates
+
+**Why:** residuals from the contact-card and real-UTF-8 releases, all
+listed in `TODO.md`. A contact card could be saved with a shown name of only
+zero-width or other invisible characters, which a phone shows as a blank
+contact; a scheme-relative website (`//example.com`) encoded as
+`https:////example.com`; a route path holding an unpaired UTF-16 surrogate
+was accepted by the schemas, and create and transfer then failed with a 500
+from KV (and a QR code linked to such a path encoded U+FFFD, a URL that does
+not match the route); the unpaired-surrogate rule for QR payloads lived
+inside the length-cap helper, so a field built without it would skip it;
+and several contact-card field lists were kept by hand. **No migration**; no
+API shape, MCP tool input or stored-record change. A minor release: a
+contact-card write whose shown name has no letter or digit (only symbols,
+emoji or invisible characters) was accepted before and is now refused.
+
+### Contact cards
+
+- **The shown name needs a letter or digit (write only).** The name a card
+  shows (its FN, `vcardFullName`: the display name, else the legacy name,
+  else "First Surname") must hold at least one letter or digit, in any
+  script, that is not a default-ignorable code point
+  (`vcardShownNameHasLetterOrDigit`, `shared/src/vcard-name.ts`). A shown
+  name of only invisible characters (zero-width space, joiners, word joiner,
+  soft hyphen), the Hangul fillers (U+115F, U+1160, U+3164, U+FFA0), a blank
+  Braille pattern, a lone combining mark, symbols or emoji is refused. The
+  issue is on `displayName` when a filled display name is the shown name
+  ("Display name needs a letter or digit: it is the name the card shows"),
+  else on `firstName` ("A contact card needs a first name, surname, or
+  display name with a letter or digit"). So `{ "firstName": "Jane",
+  "displayName": "\u200B" }` is refused: the phone would show the blank
+  display name. Names in every script, digit-only names, and invisible
+  characters between letters are accepted.
+- **Stored cards are unaffected.** A card saved before the rule still reads,
+  lists, renders, and accepts edits that leave its payload alone
+  (description, tags); resending its payload is a write and takes the rule.
+- **The dashboard agrees with the API.** The contact form's preview waits
+  for a shown name the rule accepts, so it never previews a card the API
+  would refuse; the First name hint says so.
+- **A scheme-relative website** (`//example.com`) encodes as
+  `URL:https://example.com`, not `https:////example.com`.
+- **Field lists come from the schemas.** The stored reader keeps the
+  record's top-level fields from `QRCodeSchema.shape`, and a card's
+  phone-entry and address fields from `VCARD_PHONE_FIELDS` and
+  `VCARD_ADDRESS_FIELDS`, derived from `VcardPayloadSchema`, whose address
+  shape is built from `VCARD_ADDRESS_PARTS`; the control-character write rule
+  reads the card's own fields instead of a hand-kept list. An unknown field,
+  nested ones included, is still dropped on read.
+- **`update_qr`'s payload description** now tells agents, when they resend a
+  contact card's payload, to leave out phone entries whose number is blank
+  and to give the shown name a letter or digit.
+
+### Route paths
+
+- **A new path holding an unpaired UTF-16 surrogate is refused.** The route
+  path schema is now two: `ExistingRoutePathSchema` (the round-trip rules)
+  and `NewRoutePathSchema` (those rules plus well-formed Unicode, message
+  "Route path must be valid Unicode (it holds an unpaired surrogate
+  character)", `ROUTE_PATH_MALFORMED_MESSAGE`). The new-path rule applies
+  where a path is introduced: `POST /api/routes`, seed, migrate's new path,
+  a QR code's linked route, the dashboard's create schema and MCP
+  `create_route` and `migrate_route`; and to transfer (REST and MCP
+  `transfer_route`), whose path travels in the JSON body, so its lookup would
+  use the raw key. Create and transfer answered 500 for such a path; they
+  now answer 400 and write nothing.
+- **Existing routes stay reachable.** Get, update, toggle, the ordinary
+  delete, migrate's old path and `normalize-case` keep the existing-route
+  rules. A query string carries a lone surrogate as U+FFFD, which is the key
+  such a route is stored under, so a route stored before the rule can still
+  be read, changed, moved away and deleted.
+
+### QR payload write rule
+
+- **One payload-level rule.** The unpaired-surrogate refusal is now its own
+  rule over every string of a payload, nested phone and address fields
+  included, rather than part of the length-cap helper, so a field added
+  without that helper cannot skip it. The refusal and its message are
+  unchanged.
+- **`serializePayload` is typed per QR type** (`QRPayloadByType`):
+  `serializePayload('url', {})` no longer type-checks.
+
+### QR rendering
+
+- **One UTF-8 encoding per render.** The qrcode-svg patch
+  (`patches/qrcode-svg-1.1.0.patch`) now encodes the content once and
+  passes the same bytes to the version choice and to the data segment.
+  Output is unchanged: the SHA-256 pins of the library's ASCII renders
+  pass. `pnpm-lock.yaml` records the new patch hash.
+
+### Tests
+
+- `shared/src/qr-vcard.test.ts`: the shown-name rule over every refused
+  class on each name field and the display name, each Hangul filler beside
+  a visible first name, the accepted scripts, digits and joiners, stored
+  cards that still read; the scheme-relative website.
+- `shared/src/schemas.test.ts`: both route path schemas, and a matrix over
+  the inputs that name an existing route (accept) and those that introduce a
+  path or transfer (refuse).
+- `shared/src/qr.test.ts`: every string field of every write payload
+  schema, read from the schemas, is covered by the surrogate cases; nested
+  refusals at their own paths; the control-character rule over every
+  contact-card text field read from the schema; field lists from the
+  schemas.
+- `shared/src/qr-render-utf8.test.ts`: one `TextEncoder` call per render,
+  with the version still following the byte count. The render tests share
+  one test-only fixture, `shared/src/qrcode-internals.test-support.ts`.
+- `test/routes/route-path-surrogate.test.ts` (new): a stored route whose
+  path holds a surrogate is read, updated, toggled, migrated away and
+  deleted; create, seed, transfer and a QR linked route are refused with 400.
+- `test/routes/qr-vcard.test.ts`: create refuses invisible, emoji and filler
+  shown names; a stored card with a hidden shown name reads, lists, renders
+  and takes description and tag edits.
+- Dashboard: the preview waits for a shown name with a letter or digit;
+  `serializePayload`'s per-type typing is checked by the dashboard
+  typecheck.
+
+### Closed in TODO.md
+
+- A protocol-relative website encodes as `https:////example.com`.
+- A name of only zero-width characters passes the name rule.
+- `QRVcardPayload` is all-optional (a weak type).
+- Contact-card key lists are kept by hand.
+- Route paths accept unpaired surrogates.
+- The QR write rule lives in the payload length-cap helper.
+- Two test helpers reach into qrcode-svg internals.
+- Each render encodes the content to UTF-8 twice.
+
+---
+
 ## v1.45.0 (2026-11-13) — Storage list says when a folder has more than 1,000 entries; route and QR write body limits; one byte-size formatter
 
 **Why:** a folder with more than 1,000 direct entries stopped paging at
