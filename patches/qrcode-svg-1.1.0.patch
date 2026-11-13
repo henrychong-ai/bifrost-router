@@ -1,9 +1,13 @@
 diff --git a/lib/qrcode.js b/lib/qrcode.js
-index e5c7340b8dd2ac67cb3bbb21b441ab4747dd40a0..5e772b801219d5307e48f2f46174404099c4025f 100644
+index e5c7340b8dd2ac67cb3bbb21b441ab4747dd40a0..abacc9b36ea8b615c09b74efb83303b381a009b7 100644
 --- a/lib/qrcode.js
 +++ b/lib/qrcode.js
-@@ -30,39 +30,8 @@
- function QR8bitByte(data) {
+@@ -27,42 +27,12 @@
+ //   http://www.denso-wave.com/qrcode/faqpatent-e.html
+ //
+ //---------------------------------------------------------------------
+-function QR8bitByte(data) {
++function QR8bitByte(data, bytes) {
    this.mode = QRMode.MODE_8BIT_BYTE;
    this.data = data;
 -  this.parsedData = [];
@@ -39,18 +43,55 @@ index e5c7340b8dd2ac67cb3bbb21b441ab4747dd40a0..5e772b801219d5307e48f2f461744040
 -    this.parsedData.unshift(187);
 -    this.parsedData.unshift(239);
 -  }
-+  // Real UTF-8 (TextEncoder); _getUTF8Length sizes the symbol from the same bytes.
-+  this.parsedData = Array.from(new TextEncoder().encode(data));
++  // Real UTF-8 (TextEncoder): the bytes QRCode encoded once and sized the
++  // symbol from, or encoded here for a caller that passes none.
++  this.parsedData = Array.from(bytes || new TextEncoder().encode(data));
  }
  
  QR8bitByte.prototype = {
-@@ -267,7 +236,8 @@ function QRCode(options) {
+@@ -85,7 +55,7 @@ function QRCodeModel(typeNumber, errorCorrectLevel) {
+   this.dataList = [];
+ }
  
-   //Gets text length
-   function _getUTF8Length(content) {
--    var result = encodeURI(content).toString().replace(/\%[0-9a-fA-F]{2}/g, 'a');
-+    // UTF-8 byte count; the 3-byte allowance is kept so ASCII sizes as before.
-+    var result = new TextEncoder().encode(content);
-     return result.length + (result.length != content ? 3 : 0);
+-QRCodeModel.prototype={addData:function(data){var newData=new QR8bitByte(data);this.dataList.push(newData);this.dataCache=null;},isDark:function(row,col){if(row<0||this.moduleCount<=row||col<0||this.moduleCount<=col){throw new Error(row+","+col);}
++QRCodeModel.prototype={addData:function(data,bytes){var newData=new QR8bitByte(data,bytes);this.dataList.push(newData);this.dataCache=null;},isDark:function(row,col){if(row<0||this.moduleCount<=row||col<0||this.moduleCount<=col){throw new Error(row+","+col);}
+ return this.modules[row][col];},getModuleCount:function(){return this.moduleCount;},make:function(){this.makeImpl(false,this.getBestMaskPattern());},makeImpl:function(test,maskPattern){this.moduleCount=this.typeNumber*4+17;this.modules=new Array(this.moduleCount);for(var row=0;row<this.moduleCount;row++){this.modules[row]=new Array(this.moduleCount);for(var col=0;col<this.moduleCount;col++){this.modules[row][col]=null;}}
+ this.setupPositionProbePattern(0,0);this.setupPositionProbePattern(this.moduleCount-7,0);this.setupPositionProbePattern(0,this.moduleCount-7);this.setupPositionAdjustPattern();this.setupTimingPattern();this.setupTypeInfo(test,maskPattern);if(this.typeNumber>=7){this.setupTypeNumber(test);}
+ if(this.dataCache==null){this.dataCache=QRCodeModel.createData(this.typeNumber,this.errorCorrectLevel,this.dataList);}
+@@ -219,8 +189,8 @@ function QRCode(options) {
    }
    
+   //Get type number
+-  function _getTypeNumber(content, ecl) {      
+-    var length = _getUTF8Length(content);
++  function _getTypeNumber(content, bytes, ecl) {
++    var length = _getUTF8Length(content, bytes);
+     
+     var type = 1;
+     var limit = 0;
+@@ -266,17 +236,19 @@ function QRCode(options) {
+   }
+ 
+   //Gets text length
+-  function _getUTF8Length(content) {
+-    var result = encodeURI(content).toString().replace(/\%[0-9a-fA-F]{2}/g, 'a');
+-    return result.length + (result.length != content ? 3 : 0);
++  function _getUTF8Length(content, bytes) {
++    // UTF-8 byte count; the 3-byte allowance is kept so ASCII sizes as before.
++    return bytes.length + (bytes.length != content ? 3 : 0);
+   }
+-  
++
+   //Generate QR Code matrix
+   var content = this.options.content;
+-  var type = _getTypeNumber(content, this.options.ecl);
++  // Encoded once: the same bytes size the symbol and fill it
++  var bytes = new TextEncoder().encode(content);
++  var type = _getTypeNumber(content, bytes, this.options.ecl);
+   var ecl = _getErrorCorrectLevel(this.options.ecl);
+   this.qrcode = new QRCodeModel(type, ecl);
+-  this.qrcode.addData(content);
++  this.qrcode.addData(content, bytes);
+   this.qrcode.make();
+ }
+ 

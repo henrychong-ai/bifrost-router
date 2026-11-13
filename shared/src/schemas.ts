@@ -8,6 +8,7 @@
 import { z } from 'zod';
 import { CommentSchema } from './comment.js';
 import { ROUTE_SEARCH_DESCRIPTION, SEARCH_PARAM_MAX_LENGTH } from './search.js';
+import { hasLoneSurrogate } from './text-scan.js';
 import { ALL_R2_BUCKETS, R2_BUCKETS, SUPPORTED_DOMAINS, SUPPORTED_DOMAINS_LIST } from './types.js';
 
 // =============================================================================
@@ -194,7 +195,18 @@ function pathHasControlCharacter(value: string): boolean {
   }
 }
 
-export const RoutePathSchema = z
+/** The refusal of a NEW route path holding an unpaired surrogate. */
+export const ROUTE_PATH_MALFORMED_MESSAGE =
+  'Route path must be valid Unicode (it holds an unpaired surrogate character)';
+
+/**
+ * A path that names an EXISTING route: the lookup key of get, update, toggle,
+ * the ordinary delete, migrate's old path, and the lowercase migration over
+ * stored routes. These are the rules every stored route was written under, so
+ * a route stored before a later rule ({@link NewRoutePathSchema}) stays
+ * reachable: it can be read, changed, moved away from and deleted.
+ */
+export const ExistingRoutePathSchema = z
   .string()
   .min(1)
   .startsWith('/')
@@ -207,6 +219,21 @@ export const RoutePathSchema = z
   .refine(value => !decodedPathHasDelimiter(value), {
     message: 'Route path must not contain ? or #, or a double-encoded %',
   });
+
+/**
+ * A path a write INTRODUCES: route create (the API, the dashboard form and
+ * the MCP `create_route` tool), seed, migrate's new path and a QR code's
+ * linked route; also transfer's path, which travels in a JSON body. The
+ * existing-route rules plus well-formed Unicode: an unpaired surrogate has no
+ * UTF-8 form, so the KV key, the short URL and a linked QR code would hold
+ * U+FFFD instead, a path that does not match the stored route. Its
+ * percent-encoded form is not valid UTF-8 and is judged raw by the rules
+ * above.
+ */
+export const NewRoutePathSchema = ExistingRoutePathSchema.refine(
+  value => !hasLoneSurrogate(value),
+  { message: ROUTE_PATH_MALFORMED_MESSAGE },
+);
 
 /**
  * Write-time size limits for a route record (v1.37.2). A route record is one
@@ -345,7 +372,7 @@ export const RouteSchema = z.object({
  * Schema for creating a new route
  */
 export const CreateRouteInputSchema = z.object({
-  path: RoutePathSchema.describe('URL path pattern starting with /'),
+  path: NewRoutePathSchema.describe('URL path pattern starting with /'),
   type: RouteTypeSchema.describe('Route type: redirect, proxy, or r2'),
   target: RouteTargetSchema.describe('Target URL or R2 object key'),
   statusCode: RedirectStatusCodeSchema.optional().describe('HTTP status code (301, 302, 307, 308)'),
@@ -440,7 +467,7 @@ export const ListRoutesInputSchema = z.object({
  * get_route tool input schema
  */
 export const GetRouteInputSchema = z.object({
-  path: RoutePathSchema.describe('Route path starting with /'),
+  path: ExistingRoutePathSchema.describe('Route path starting with /'),
   domain: RequiredDomainSchema,
 });
 
@@ -448,7 +475,7 @@ export const GetRouteInputSchema = z.object({
  * create_route tool input schema
  */
 export const CreateRouteToolInputSchema = z.object({
-  path: RoutePathSchema.describe('Route path starting with /'),
+  path: NewRoutePathSchema.describe('Route path starting with /'),
   type: RouteTypeSchema.describe('Route type: redirect, proxy, or r2'),
   target: RouteTargetSchema.describe('Target URL or R2 key'),
   statusCode: mcpNumber(z.number())
@@ -479,7 +506,7 @@ export const CreateRouteToolInputSchema = z.object({
  * update_route tool input schema
  */
 export const UpdateRouteToolInputSchema = z.object({
-  path: RoutePathSchema.describe('Route path to update'),
+  path: ExistingRoutePathSchema.describe('Route path to update'),
   type: RouteTypeSchema.optional().describe('New route type'),
   target: RouteTargetSchema.optional().describe('New target URL or R2 key'),
   statusCode: mcpNumber(z.number()).optional().describe('New HTTP status code'),
@@ -521,7 +548,7 @@ export const DeleteRouteInputSchema = z
       }
       return;
     }
-    for (const issue of RoutePathSchema.safeParse(input.path).error?.issues ?? []) {
+    for (const issue of ExistingRoutePathSchema.safeParse(input.path).error?.issues ?? []) {
       ctx.addIssue({ code: 'custom', path: ['path'], message: issue.message });
     }
   });
@@ -530,7 +557,7 @@ export const DeleteRouteInputSchema = z
  * toggle_route tool input schema
  */
 export const ToggleRouteInputSchema = z.object({
-  path: RoutePathSchema.describe('Route path to toggle'),
+  path: ExistingRoutePathSchema.describe('Route path to toggle'),
   // `mcpBoolean()` parses string args correctly: "false" → false. This field was
   // a bare `z.boolean()`, so a stringified argument was refused outright rather
   // than misread — safe, but the caller never learned why. Real booleans pass
@@ -545,8 +572,9 @@ export const ToggleRouteInputSchema = z.object({
  * call against a shared schema, so this tool has one too)
  */
 export const MigrateRouteToolInputSchema = z.object({
-  oldPath: RoutePathSchema.describe('Current route path'),
-  newPath: RoutePathSchema.describe('New route path'),
+  oldPath: ExistingRoutePathSchema.describe('Current route path'),
+  // A path the move introduces: well-formed Unicode too
+  newPath: NewRoutePathSchema.describe('New route path'),
   domain: RequiredDomainSchema,
 });
 
@@ -555,7 +583,11 @@ export const MigrateRouteToolInputSchema = z.object({
  * never defaulted: a transfer deletes the route from the source.
  */
 export const TransferRouteToolInputSchema = z.object({
-  path: RoutePathSchema.describe('Route path (stays the same on the destination domain)'),
+  // A new path on the destination, and it travels in the request's JSON body,
+  // where the lookup would use the raw key: well-formed Unicode too. The
+  // U+FFFD form of such a path passes and reaches the key a stored one is
+  // held under, so no route becomes untransferable.
+  path: NewRoutePathSchema.describe('Route path (stays the same on the destination domain)'),
   from_domain: RequiredDomainSchema,
   to_domain: RequiredDomainSchema,
   acknowledgeCredentialTarget: AcknowledgeCredentialTargetToolSchema,

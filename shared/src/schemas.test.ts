@@ -14,20 +14,24 @@ import {
   CreateRouteToolInputSchema,
   DeleteRouteInputSchema,
   DomainSchema,
+  ExistingRoutePathSchema,
   GetAnalyticsSummaryInputSchema,
   GetClicksInputSchema,
   GetRouteInputSchema,
   GetSlugStatsInputSchema,
   GetViewsInputSchema,
   ListRoutesInputSchema,
+  MigrateRouteToolInputSchema,
   mcpNumber,
+  NewRoutePathSchema,
   R2UpdateCommentInputSchema,
   RedirectStatusCodeSchema,
-  RoutePathSchema,
+  ROUTE_PATH_MALFORMED_MESSAGE,
   RouteSchema,
   RoutesListQuerySchema,
   RouteTypeSchema,
   ToggleRouteInputSchema,
+  TransferRouteToolInputSchema,
   UpdateRouteInputSchema,
   UpdateRouteToolInputSchema,
 } from './schemas.js';
@@ -570,7 +574,9 @@ describe('v1.35.0 required-domain schema matrix', () => {
   });
 });
 
-describe('RoutePathSchema', () => {
+describe('ExistingRoutePathSchema and NewRoutePathSchema', () => {
+  const both = [ExistingRoutePathSchema, NewRoutePathSchema];
+
   it('refuses ?, #, a % surviving one decode, and controls raw or once-decoded', () => {
     for (const bad of [
       '/p?x',
@@ -588,18 +594,109 @@ describe('RoutePathSchema', () => {
       'p',
       '',
     ]) {
-      expect({ path: bad, ok: RoutePathSchema.safeParse(bad).success }).toEqual({
-        path: bad,
-        ok: false,
-      });
+      for (const schema of both) {
+        expect({ path: bad, ok: schema.safeParse(bad).success }).toEqual({ path: bad, ok: false });
+      }
     }
   });
 
   it('accepts ordinary encoded and unicode paths', () => {
     for (const ok of ['/', '/a', '/a%20b', '/caf%C3%A9', '/A/B-c_d.e', '/x/*']) {
-      expect({ path: ok, ok: RoutePathSchema.safeParse(ok).success }).toEqual({
+      for (const schema of both) {
+        expect({ path: ok, ok: schema.safeParse(ok).success }).toEqual({ path: ok, ok: true });
+      }
+    }
+  });
+
+  // Such a path has no UTF-8 form, so its key, short URL and linked QR code
+  // would hold U+FFFD instead. A NEW path is refused; a path naming an
+  // EXISTING route keeps the rules it was stored under, so a route stored
+  // before the rule stays reachable.
+  const LONE = ['/a\ud83d', '/\ude00b', '/x/\ude00\ud83d', '/emoji-\ud83d/*'];
+
+  it('refuses an unpaired surrogate in a new path, with its own message', () => {
+    for (const bad of LONE) {
+      const result = NewRoutePathSchema.safeParse(bad);
+      expect({ path: bad, ok: result.success }).toEqual({ path: bad, ok: false });
+      expect(result.error?.issues.map(issue => issue.message)).toEqual([
+        ROUTE_PATH_MALFORMED_MESSAGE,
+      ]);
+    }
+    for (const ok of ['/a\u{1F600}', '/\u68ee\u6797', '/%F0%9F%98%80']) {
+      expect({ path: ok, ok: NewRoutePathSchema.safeParse(ok).success }).toEqual({
         path: ok,
         ok: true,
+      });
+    }
+    // The percent-encoded form of a lone surrogate is not UTF-8: refused as
+    // before, by the rule for a malformed escape, by both schemas
+    for (const schema of both) {
+      const encoded = schema.safeParse('/a%ED%A0%BD');
+      expect(encoded.error?.issues.map(issue => issue.message)).toEqual([
+        'Route path must not contain ? or #, or a double-encoded %',
+      ]);
+    }
+  });
+
+  it('accepts an unpaired surrogate in a path that names an existing route', () => {
+    for (const path of LONE) {
+      expect({ path, ok: ExistingRoutePathSchema.safeParse(path).success }).toEqual({
+        path,
+        ok: true,
+      });
+    }
+  });
+
+  it('inputs naming an existing route accept such a path; new paths and transfer refuse it', () => {
+    const path = '/a\ud83d';
+    const domain = 'links.example.com';
+    const target = 'https://app.example/landing';
+    const existing: Array<[string, z.ZodType, unknown]> = [
+      ['get_route', GetRouteInputSchema, { path, domain }],
+      ['update_route', UpdateRouteToolInputSchema, { path, domain, target }],
+      ['toggle_route', ToggleRouteInputSchema, { path, domain, enabled: false }],
+      ['delete_route', DeleteRouteInputSchema, { path, domain }],
+      [
+        'migrate_route oldPath',
+        MigrateRouteToolInputSchema,
+        { oldPath: path, newPath: '/b', domain },
+      ],
+      [
+        'route (response)',
+        RouteSchema,
+        { path, type: 'redirect', target, createdAt: 1, updatedAt: 1 },
+      ],
+    ];
+    for (const [name, schema, input] of existing) {
+      expect({ name, ok: schema.safeParse(input).success }).toEqual({ name, ok: true });
+    }
+    const created: Array<[string, z.ZodType, unknown, Array<string | number>]> = [
+      ['create (dashboard)', CreateRouteInputSchema, { path, type: 'redirect', target }, ['path']],
+      [
+        'create_route',
+        CreateRouteToolInputSchema,
+        { path, domain, type: 'redirect', target },
+        ['path'],
+      ],
+      // Transfer carries the path in its body, so its lookup uses the raw key
+      [
+        'transfer_route',
+        TransferRouteToolInputSchema,
+        { path, from_domain: domain, to_domain: 'example.com' },
+        ['path'],
+      ],
+      [
+        'migrate_route newPath',
+        MigrateRouteToolInputSchema,
+        { oldPath: '/b', newPath: path, domain },
+        ['newPath'],
+      ],
+    ];
+    for (const [name, schema, input, at] of created) {
+      const result = schema.safeParse(input);
+      expect({ name, issues: result.error?.issues }).toEqual({
+        name,
+        issues: [expect.objectContaining({ path: at, message: ROUTE_PATH_MALFORMED_MESSAGE })],
       });
     }
   });

@@ -339,9 +339,22 @@ describe('contact card form', () => {
     });
   });
 
+  // The editor and the API agree on the name the card shows
+  it('waits to preview a contact card whose display name has no letter or digit', async () => {
+    await createDialog('Contact card');
+    await typeInto('qr-first-name', 'Jane');
+    expect(document.body.textContent).not.toContain('Fill in the fields');
+    await typeInto('qr-display-name', '\u200b');
+    expect(document.body.textContent).toContain('Fill in the fields');
+    await typeInto('qr-display-name', 'Jane Doe');
+    expect(document.body.textContent).not.toContain('Fill in the fields');
+  });
+
   it('warns while a contact card is over the 1 KB payload guard', async () => {
     await createDialog('Contact card');
-    for (const id of ['qr-first-name', 'qr-surname', 'qr-org', 'qr-title', 'qr-street']) {
+    // The shown name needs a letter or digit before the card previews
+    await typeInto('qr-first-name', `M${';'.repeat(127)}`);
+    for (const id of ['qr-surname', 'qr-org', 'qr-title', 'qr-street']) {
       await typeInto(id, ';'.repeat(128));
     }
     expect(document.body.textContent).toContain('Too long to save: shorten a field.');
