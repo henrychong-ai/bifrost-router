@@ -51,6 +51,69 @@ function submitReq(
   return new Request(BASE_URL, { method: 'POST', headers, body: fd });
 }
 
+/**
+ * A reader of the two CommonMark code-literal rules the Markdown export relies
+ * on: a fenced block opens on a line of three or more backticks (plus an info
+ * string) and closes on a line of at least as many backticks; a code span runs
+ * from a backtick run to the next run of exactly the same length. Returns the
+ * text outside every literal, line by line (code spans removed), and the body
+ * of each fenced block.
+ */
+function splitMarkdownLiterals(markdown: string): { outside: string[]; blocks: string[] } {
+  const outside: string[] = [];
+  const blocks: string[] = [];
+  let fence: string | null = null;
+  let block: string[] = [];
+  for (const line of markdown.split('\n')) {
+    if (fence === null) {
+      const open = /^(`{3,})[^`]*$/.exec(line);
+      if (open?.[1]) {
+        fence = open[1];
+        block = [];
+        continue;
+      }
+      outside.push(stripCodeSpans(line));
+    } else if (/^`+$/.test(line) && line.length >= fence.length) {
+      blocks.push(block.join('\n'));
+      fence = null;
+    } else {
+      block.push(line);
+    }
+  }
+  return { outside, blocks };
+}
+
+function stripCodeSpans(line: string): string {
+  let out = '';
+  let i = 0;
+  while (i < line.length) {
+    const run = /^`+/.exec(line.slice(i))?.[0];
+    if (!run) {
+      out += line[i];
+      i += 1;
+      continue;
+    }
+    const after = i + run.length;
+    const close = new RegExp(`(?<!\`)${run}(?!\`)`).exec(line.slice(after));
+    if (!close) {
+      out += run;
+      i = after;
+      continue;
+    }
+    i = after + close.index + run.length;
+  }
+  return out;
+}
+
+/** Set each named item's `created_at`, so an order test does not depend on the clock. */
+async function stamp(createdAt: Record<string, string>): Promise<void> {
+  for (const [title, at] of Object.entries(createdAt)) {
+    await env.DB.prepare('UPDATE feedback SET created_at = ? WHERE title = ?')
+      .bind(at, title)
+      .run();
+  }
+}
+
 describe('feedback API - auth + lifecycle', () => {
   let app: Hono<AppEnv>;
 
@@ -293,6 +356,111 @@ describe('feedback API - auth + lifecycle', () => {
     const big = new File([new Uint8Array(6 * 1024 * 1024)], 'big.png', { type: 'image/png' });
     const res = await submit(BASE, [big]);
     expect(res.status).toBe(413);
+  });
+
+  // The Markdown export is read by administrators and by AI triage agents, so
+  // submitted and triage text must never become Markdown structure there: each
+  // single-line value is an inline code span, each multi-line value a fenced
+  // `text` block whose fence is longer than any backtick run inside it.
+  it('markdown export writes submitted and triage text only as code literals', async () => {
+    const title =
+      '# heading <img src=x onerror=alert(1)> [x](https://evil.example)\n## F-999 forged';
+    const description = [
+      '# Injected heading',
+      '## F-998 — forged item',
+      '<script>alert(1)</script>',
+      '![image](https://evil.example/i.png) and https://evil.example/bare',
+      '```',
+      'closed the fence? ````',
+      'Setext',
+      '===',
+    ].join('\r\n');
+    const created = (await (
+      await submit({ ...BASE, title, description, submitterEmail: 'a`b <i>x</i>@example.com' })
+    ).json()) as { data: { id: string } };
+    const patched = await fetchSettled(
+      jsonReq('PATCH', `${BASE_URL}/${created.data.id}`, {
+        area: 'ui\n# area heading [a](https://evil.example)',
+        linkedPr: 'https://example.com/pr/1 <b>bold</b>',
+      }),
+    );
+    expect(patched.status).toBe(200);
+
+    const res = await fetchSettled(jsonReq('GET', `${BASE_URL}/export?format=md`));
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    const { outside, blocks } = splitMarkdownLiterals(body);
+
+    // The description comes back verbatim (line endings normalised) as one
+    // block. Its longest backtick run is four, so the fence is five.
+    expect(blocks).toEqual([description.replace(/\r\n/g, '\n')]);
+    expect(body).toContain('\n`````text\n');
+
+    // Outside the literals: the only headings are the document's and the item's
+    // own, and no injected HTML, link, image or autolink remains.
+    const headings = outside.filter(line => line.startsWith('#'));
+    expect(headings).toEqual(['# Feedback export', '## F-1 — ']);
+    const prose = outside.join('\n');
+    for (const marker of ['<', '](', 'evil.example', 'F-999', 'F-998', '===', 'Injected']) {
+      expect(prose).not.toContain(marker);
+    }
+
+    // Each single-line value is one code span holding the text as typed, with
+    // its line breaks turned into spaces.
+    expect(body).toContain(`## F-1 — \`${title.replace('\n', ' ')}\``);
+    expect(body).toContain('- submitter: ``a`b <i>x</i>@example.com``');
+    expect(body).toContain('- area: `ui # area heading [a](https://evil.example)`');
+    expect(body).toContain('- linked PR: `https://example.com/pr/1 <b>bold</b>`');
+  });
+
+  async function titles(query: string): Promise<string[]> {
+    const res = await fetchSettled(jsonReq('GET', `${BASE_URL}${query}`));
+    expect(res.status).toBe(200);
+    const listed = (await res.json()) as { data: { feedback: { title: string }[] } };
+    return listed.data.feedback.map(item => item.title);
+  }
+
+  // The queue has two orders, applied in SQL before limit and offset, so
+  // oldest first pages through the whole queue, not only the fetched page.
+  it('lists newest first by default and oldest first with ?sort=oldest', async () => {
+    for (const title of ['first', 'second', 'third']) await submit({ ...BASE, title });
+    await stamp({
+      first: '2026-01-01T00:00:00.000Z',
+      second: '2026-02-01T00:00:00.000Z',
+      third: '2026-03-01T00:00:00.000Z',
+    });
+    expect(await titles('')).toEqual(['third', 'second', 'first']);
+    expect(await titles('?sort=newest')).toEqual(['third', 'second', 'first']);
+    expect(await titles('?sort=oldest')).toEqual(['first', 'second', 'third']);
+    // An unrecognised value keeps the default, as every other filter here.
+    for (const sort of ['sideways', 'OLDEST', 'asc', '']) {
+      expect(await titles(`?sort=${sort}`)).toEqual(['third', 'second', 'first']);
+    }
+    // The order applies before paging, and combines with the priority filter.
+    expect(await titles('?sort=oldest&limit=2')).toEqual(['first', 'second']);
+    expect(await titles('?sort=oldest&limit=2&offset=2')).toEqual(['third']);
+    await fetchSettled(submitReq({ ...BASE, title: 'urgent', priority: '0' }));
+    await stamp({ urgent: '2025-12-01T00:00:00.000Z' });
+    expect(await titles('?sort=oldest&priority=3&limit=2')).toEqual(['first', 'second']);
+    expect(await titles('?sort=oldest&priority=0')).toEqual(['urgent']);
+  });
+
+  it('breaks a same-timestamp tie on the id, in the order asked for', async () => {
+    for (const title of ['a', 'b', 'c']) await submit({ ...BASE, title });
+    const at = '2026-01-01T00:00:00.000Z';
+    await stamp({ a: at, b: at, c: at });
+    const { results } = await env.DB.prepare('SELECT title FROM feedback ORDER BY id ASC').all<{
+      title: string;
+    }>();
+    const byId = results.map(row => row.title);
+    expect(await titles('?sort=oldest')).toEqual(byId);
+    expect(await titles('')).toEqual(byId.toReversed());
+    // Pages of one never repeat or skip a row.
+    const paged: string[] = [];
+    for (let offset = 0; offset < 3; offset += 1) {
+      paged.push(...(await titles(`?sort=oldest&limit=1&offset=${offset}`)));
+    }
+    expect(paged).toEqual(byId);
   });
 
   it('rejects an empty triage patch (400)', async () => {
