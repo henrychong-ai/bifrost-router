@@ -531,6 +531,55 @@ describe('handleR2', () => {
       expect(response.status).toBe(412);
     });
 
+    it('returns 412 for an If-Match tag whose quoted value contains a comma', async () => {
+      // `"x,abc123"` is ONE entity-tag. A split on every comma read it as `"x`
+      // and `abc123"`, matched the second fragment and answered 304 instead.
+      const app = new Hono<AppEnv>();
+      const route: KVRouteConfig = {
+        path: '/media',
+        type: 'r2',
+        target: 'file.txt',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      const mockBucket = {
+        get: vi.fn<BucketGet>().mockResolvedValue(createMockR2ObjectHead()),
+      };
+      app.get('/media', c => handleR2(c, route));
+
+      const response = await app.fetch(
+        new Request('http://localhost/media', { headers: { 'If-Match': '"x,abc123"' } }),
+        { ENVIRONMENT: 'development', FILES_BUCKET: mockBucket as unknown as R2Bucket },
+      );
+
+      expect(response.status).toBe(412);
+    });
+
+    it('still matches a tag in a comma-separated If-Match list', async () => {
+      const app = new Hono<AppEnv>();
+      const route: KVRouteConfig = {
+        path: '/media',
+        type: 'r2',
+        target: 'file.txt',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      const mockBucket = {
+        get: vi.fn<BucketGet>().mockResolvedValue(createMockR2ObjectHead()),
+      };
+      app.get('/media', c => handleR2(c, route));
+
+      const response = await app.fetch(
+        new Request('http://localhost/media', {
+          headers: { 'If-Match': '"x,y", "abc123"', 'If-None-Match': '"abc123"' },
+        }),
+        { ENVIRONMENT: 'development', FILES_BUCKET: mockBucket as unknown as R2Bucket },
+      );
+
+      // If-Match passes on the second tag, so the bodiless result is a 304
+      expect(response.status).toBe(304);
+    });
+
     it('returns 412 when a bare If-Unmodified-Since predates the upload', async () => {
       const app = new Hono<AppEnv>();
       const route: KVRouteConfig = {
@@ -1195,6 +1244,28 @@ describe('handleR2', () => {
       expect(response.status).toBe(206);
       expect(response.headers.get('Content-Range')).toBe('bytes 0-1023/4096');
       expect(mockBucket.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('treats an If-Range tag whose quoted value contains a comma as stale', async () => {
+      // `"x,abc123"` is ONE entity-tag that is not the stored one. A split on
+      // every comma matched its `abc123"` fragment and served the slice.
+      const app = new Hono<AppEnv>();
+      const full = createMockR2Object('a'.repeat(4096), 'text/plain');
+      const mockBucket = {
+        get: vi.fn<BucketGet>().mockResolvedValueOnce(sliceObject()).mockResolvedValueOnce(full),
+      };
+      app.get('/media', c => handleR2(c, rangeRoute));
+
+      const response = await app.fetch(
+        new Request('http://localhost/media', {
+          headers: { Range: 'bytes=0-1023', 'If-Range': '"x,abc123"' },
+        }),
+        { ENVIRONMENT: 'development', FILES_BUCKET: mockBucket as unknown as R2Bucket },
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Range')).toBeNull();
+      expect(mockBucket.get).toHaveBeenCalledTimes(2);
     });
 
     it('ignores the Range and serves a full 200 when the entity-tag is stale', async () => {

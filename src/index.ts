@@ -25,6 +25,7 @@ import { handleR2EventBatch, type R2EventMessage } from './queue/r2-events';
 import { adminRoutes } from './routes/admin';
 import type { AppEnv, Bindings, KVRouteConfig } from './types';
 import { getServiceFallback, isValidDomain } from './types';
+import { servesAdminApi } from './utils/admin-host';
 import { redactRouteTarget } from './utils/credential-redaction';
 import { errorName } from './utils/error-name';
 import { safeServiceFetch } from './utils/safe-service-fetch';
@@ -390,7 +391,11 @@ app.all('*', async c => {
         error: 'Not Found',
         path,
         message: 'No route configured for this path.',
-        hint: 'Use the admin API to add routes: POST /api/routes',
+        // Only where the admin API answers: a public host never tells a
+        // visitor how routes are managed
+        ...(servesAdminApi(domain, c.env.ADMIN_API_DOMAIN) && {
+          hint: 'Use the admin API to add routes: POST /api/routes',
+        }),
       },
       404,
     );

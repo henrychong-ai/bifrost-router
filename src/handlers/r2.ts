@@ -65,7 +65,34 @@ function normalizeEntityTag(raw: string): string {
   return raw.trim().replace(/^W\//, '').replace(/^"|"$/g, '');
 }
 
-/** Compare one entity-tag against an If-Match / If-None-Match list value. */
+/**
+ * Split an entity-tag list on the commas OUTSIDE quotes. A quoted tag may hold
+ * a comma (`"x,abc123"` is one tag): splitting on every comma read it as `"x`
+ * and `abc123"` and could match a fragment. Unquoted legacy tokens still split
+ * on every comma.
+ */
+function splitEntityTagList(headerValue: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (const ch of headerValue) {
+    if (ch === '"') inQuotes = !inQuotes;
+    if (ch === ',' && !inQuotes) {
+      parts.push(current);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  parts.push(current);
+  return parts;
+}
+
+/**
+ * Compare one entity-tag against an If-Match / If-None-Match / If-Range value.
+ * The values come from the client, so this decides the 412-versus-304 verdict
+ * and the If-Range verdict.
+ */
 function etagListMatches(
   headerValue: string,
   etag: string,
@@ -73,7 +100,7 @@ function etagListMatches(
 ): boolean {
   const targetIsWeak = etag.trim().startsWith('W/');
   const target = normalizeEntityTag(etag);
-  return headerValue.split(',').some(raw => {
+  return splitEntityTagList(headerValue).some(raw => {
     const candidate = raw.trim();
     if (candidate === '*') return true;
     // RFC 9110 §13.1.1: If-Match uses STRONG comparison — a weak tag on either
