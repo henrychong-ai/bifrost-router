@@ -52,7 +52,7 @@ A lightweight, high-performance edge router and URL shortener built on Cloudflar
 - **Range & Conditional R2 Serving** (v1.33.0) — byte-range resume and media seeking (206 with absolute `Content-Range`, suffix ranges included), cache revalidation (304), and precondition failures (412), served straight from R2 with a quoted `ETag` and `Last-Modified` on every response. File routes answer GET and HEAD only: OPTIONS gets `204` and any other method `405`, both with `Allow: GET, HEAD, OPTIONS`
 - **CDN Cache Purge** — Purge Cloudflare edge cache globally for R2 objects via Zone Cache Purge API, automatically on every route and object mutation as well as on demand
 - **Route Domain Transfer** — Move routes between domains preserving configuration and audit trail
-- **R2 Backup System** — Automated daily KV route backups with health monitoring (D1 covered by Time Travel)
+- **R2 Backup System** — Automated daily KV route backups with health monitoring and optional Slack failure alerts (D1 covered by Time Travel)
 - **API Shield** — OpenAPI schema validation at the Cloudflare edge
 - **Built on Hono** — Fast, lightweight, TypeScript-first
 
@@ -262,6 +262,10 @@ wrangler secret put ADMIN_API_KEY
 # Optional: Set Cloudflare API token for CDN cache purge
 # (requires Zone > Cache Purge permission)
 wrangler secret put CLOUDFLARE_API_TOKEN
+
+# Optional: Slack incoming-webhook URL for backup failure alerts
+# (see "Optional: Backup failure alerts" below; nothing is sent without it)
+wrangler secret put BACKUP_ALERT_SLACK_WEBHOOK
 
 # Deploy
 pnpm run deploy
@@ -477,6 +481,18 @@ External writes then appear on the audit page within ~2 minutes as **External (u
 3. Apply the migration (step 4 above, if you haven't), set `CF_AUDIT_POLL = "on"`, deploy.
 
 Rollback for either layer: flip its flag to `"off"` and redeploy (~90s). Notification rules and queues can stay.
+
+### Optional: Backup failure alerts
+
+The nightly KV backup can post to a Slack channel when a run fails, or when the health check it runs after a successful backup reports a warning or critical result. It ships off: without the secret below the backup sends nothing, runs no extra health check and logs nothing about alerting.
+
+1. Create a Slack incoming webhook for the channel (Slack app settings → Incoming Webhooks). Its URL has the shape `https://hooks.slack.com/services/T000/B000/xxxx`.
+2. `wrangler secret put BACKUP_ALERT_SLACK_WEBHOOK` (paste the URL; add `--env dev` for a development Worker that runs the backup cron).
+3. Nothing else: `wrangler secret put` takes effect without a redeploy, and the first alert can come with the next nightly run (8 PM UTC).
+
+Only an `https://hooks.slack.com/services/…` URL is accepted; anything else logs `Alert not sent: … is not a Slack webhook URL` and sends nothing. An alert carries the status, the reason or the health issues, the last backup's date, age and route count, and never a route key, a stored value or the webhook URL. The health check warns when the backup holds fewer than 100 routes (`minExpectedRoutes`), so a small deployment gets that warning every night once alerting is on. To turn alerting off, `wrangler secret delete BACKUP_ALERT_SLACK_WEBHOOK`.
+
+**The webhook URL and traces.** The Worker never writes the webhook URL to its own logs. Cloudflare documents that Workers traces, when enabled, record the full URL of every outbound request, this delivery included (the example `wrangler.toml` enables them, with `persist = true`), so anyone who can read the account's Workers Observability, or a configured trace export destination, can read the webhook URL. Restrict that access, turn traces off, or accept it.
 
 ## Usage
 
