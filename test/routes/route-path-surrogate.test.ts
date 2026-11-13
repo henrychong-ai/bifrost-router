@@ -53,7 +53,7 @@ const query = (params: Record<string, string>) => new URLSearchParams(params).to
 
 /** The KV key of `path` on `domain`, each unpaired surrogate held as U+FFFD. */
 const key = (path: string, domain = DOMAIN) =>
-  routeKey(domain, path.replace(/[\ud800-\udfff]/g, '�'));
+  routeKey(domain, path.replace(/[\ud800-\udfff]/g, '\uFFFD'));
 
 /** A redirect route stored as an earlier release wrote it, at `path` on DOMAIN. */
 async function storeRoute(path: string): Promise<void> {

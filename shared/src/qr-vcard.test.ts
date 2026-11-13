@@ -571,7 +571,7 @@ describe('the name a contact card shows needs a letter or digit on write', () =>
       'A\ufe0fB', // a variation selector between letters
       '007',
       '김민준', // Korean syllables
-      '가', // Hangul jamo
+      '\u1100\u1161', // Hangul jamo (decomposed: choseong kiyeok, jungseong a)
       'さくら', // Kana
       'שרה', // Hebrew
       'สมชาย', // Thai
