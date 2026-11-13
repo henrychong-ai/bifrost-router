@@ -1536,8 +1536,11 @@ adminRoutes.post('/routes/normalize-case', async c => {
 
       // A lower-cased path can be longer in UTF-8 (v1.37.2)
       assertRouteKeyFits(newKey);
+      // Present is `!== null`, as migrateRoute checks it: KV returns '' for an
+      // empty stored value, which a truthiness check took as a free key, then
+      // wrote over it and deleted the source
       const existingLower = await c.env.ROUTES.get(newKey);
-      if (existingLower) {
+      if (existingLower !== null) {
         errors.push(`${oldKey} → ${newKey}: lowercase route already exists, skipping`);
         continue;
       }

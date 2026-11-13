@@ -435,6 +435,21 @@ describe('normalize-case moves only the record it listed', () => {
     expect(await env.ROUTES.get(MIXED_KEY)).toBe('{"path":');
   });
 
+  it('treats an empty value stored at the lowercase key as present, and overwrites nothing', async () => {
+    // KV returns '' for an empty stored value, which is falsy: a truthiness
+    // check took the key as free, wrote over it and deleted the source. Only a
+    // write made outside the API can store one.
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await env.ROUTES.put(LOWER_KEY, '');
+    const { data } = await normalize(async () => {});
+    expect(data.migrated).toBe(0);
+    expect(data.errors).toEqual([
+      `${MIXED_KEY} → ${LOWER_KEY}: lowercase route already exists, skipping`,
+    ]);
+    expect(await env.ROUTES.get(LOWER_KEY)).toBe('');
+    expect(JSON.parse((await env.ROUTES.get(MIXED_KEY)) ?? 'null')).toEqual(MIXED);
+  });
+
   it('moves an unchanged route as before', async () => {
     const { data } = await normalize(async () => {});
     expect(data).toMatchObject({ migrated: 1, errors: [] });
