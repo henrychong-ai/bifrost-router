@@ -67,6 +67,7 @@ import {
 } from '../db/feedback';
 import type { AppEnv } from '../types';
 import { guard, isRecord, logInvalidBoundary, readStoredJson } from '../utils/boundary';
+import { fenceMarkdownText, markdownCodeSpan } from '../utils/markdown-literal';
 
 export const feedbackRoutes = new Hono<AppEnv>();
 
@@ -379,16 +380,24 @@ feedbackRoutes.get('/export', async c => {
 
   const lines: string[] = ['# Feedback export', ''];
   if (truncated) lines.push(`> Note: capped at the first ${EXPORT_LIMIT} items.`, '');
+  // Submitted and triage text is written only as code literals (an inline code
+  // span on one line, a fenced `text` block otherwise), so it can never add a
+  // heading, a forged item, a link, an image or HTML to the export, which
+  // administrators and AI triage agents read.
   for (const it of items) {
-    // Strip newlines from the title so it can't inject extra markdown headings.
-    lines.push(`## ${it.shortId} — ${it.title.replace(/\n/g, ' ')}`);
+    lines.push(`## ${it.shortId} — ${markdownCodeSpan(it.title)}`);
     lines.push(
       `- type: ${it.type} | priority: ${formatFeedbackPriority(it.priority)} | status: ${it.status}`,
     );
-    lines.push(`- submitter: ${it.submitterEmail ?? '—'} | created: ${it.createdAt}`);
-    if (it.area) lines.push(`- area: ${it.area}`);
-    if (it.linkedPr && /^https?:\/\//i.test(it.linkedPr)) lines.push(`- linked PR: ${it.linkedPr}`);
-    lines.push('', it.description, '');
+    lines.push(
+      `- submitter: ${it.submitterEmail ? markdownCodeSpan(it.submitterEmail) : '—'} | created: ${it.createdAt}`,
+    );
+    if (it.area) lines.push(`- area: ${markdownCodeSpan(it.area)}`);
+    // Only an http(s) link is exported, as before.
+    if (it.linkedPr && /^https?:\/\//i.test(it.linkedPr)) {
+      lines.push(`- linked PR: ${markdownCodeSpan(it.linkedPr)}`);
+    }
+    lines.push('', fenceMarkdownText(it.description), '');
   }
   return c.text(lines.join('\n'), 200, { 'Content-Type': 'text/markdown; charset=utf-8' });
 });

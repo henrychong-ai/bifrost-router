@@ -51,6 +51,60 @@ function submitReq(
   return new Request(BASE_URL, { method: 'POST', headers, body: fd });
 }
 
+/**
+ * A reader of the two CommonMark code-literal rules the Markdown export relies
+ * on: a fenced block opens on a line of three or more backticks (plus an info
+ * string) and closes on a line of at least as many backticks; a code span runs
+ * from a backtick run to the next run of exactly the same length. Returns the
+ * text outside every literal, line by line (code spans removed), and the body
+ * of each fenced block.
+ */
+function splitMarkdownLiterals(markdown: string): { outside: string[]; blocks: string[] } {
+  const outside: string[] = [];
+  const blocks: string[] = [];
+  let fence: string | null = null;
+  let block: string[] = [];
+  for (const line of markdown.split('\n')) {
+    if (fence === null) {
+      const open = /^(`{3,})[^`]*$/.exec(line);
+      if (open?.[1]) {
+        fence = open[1];
+        block = [];
+        continue;
+      }
+      outside.push(stripCodeSpans(line));
+    } else if (/^`+$/.test(line) && line.length >= fence.length) {
+      blocks.push(block.join('\n'));
+      fence = null;
+    } else {
+      block.push(line);
+    }
+  }
+  return { outside, blocks };
+}
+
+function stripCodeSpans(line: string): string {
+  let out = '';
+  let i = 0;
+  while (i < line.length) {
+    const run = /^`+/.exec(line.slice(i))?.[0];
+    if (!run) {
+      out += line[i];
+      i += 1;
+      continue;
+    }
+    const after = i + run.length;
+    const close = new RegExp(`(?<!\`)${run}(?!\`)`).exec(line.slice(after));
+    if (!close) {
+      out += run;
+      i = after;
+      continue;
+    }
+    i = after + close.index + run.length;
+  }
+  return out;
+}
+
 describe('feedback API - auth + lifecycle', () => {
   let app: Hono<AppEnv>;
 
@@ -293,6 +347,61 @@ describe('feedback API - auth + lifecycle', () => {
     const big = new File([new Uint8Array(6 * 1024 * 1024)], 'big.png', { type: 'image/png' });
     const res = await submit(BASE, [big]);
     expect(res.status).toBe(413);
+  });
+
+  // The Markdown export is read by administrators and by AI triage agents, so
+  // submitted and triage text must never become Markdown structure there: each
+  // single-line value is an inline code span, each multi-line value a fenced
+  // `text` block whose fence is longer than any backtick run inside it.
+  it('markdown export writes submitted and triage text only as code literals', async () => {
+    const title =
+      '# heading <img src=x onerror=alert(1)> [x](https://evil.example)\n## F-999 forged';
+    const description = [
+      '# Injected heading',
+      '## F-998 — forged item',
+      '<script>alert(1)</script>',
+      '![image](https://evil.example/i.png) and https://evil.example/bare',
+      '```',
+      'closed the fence? ````',
+      'Setext',
+      '===',
+    ].join('\r\n');
+    const created = (await (
+      await submit({ ...BASE, title, description, submitterEmail: 'a`b <i>x</i>@example.com' })
+    ).json()) as { data: { id: string } };
+    const patched = await fetchSettled(
+      jsonReq('PATCH', `${BASE_URL}/${created.data.id}`, {
+        area: 'ui\n# area heading [a](https://evil.example)',
+        linkedPr: 'https://example.com/pr/1 <b>bold</b>',
+      }),
+    );
+    expect(patched.status).toBe(200);
+
+    const res = await fetchSettled(jsonReq('GET', `${BASE_URL}/export?format=md`));
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    const { outside, blocks } = splitMarkdownLiterals(body);
+
+    // The description comes back verbatim (line endings normalised) as one
+    // block. Its longest backtick run is four, so the fence is five.
+    expect(blocks).toEqual([description.replace(/\r\n/g, '\n')]);
+    expect(body).toContain('\n`````text\n');
+
+    // Outside the literals: the only headings are the document's and the item's
+    // own, and no injected HTML, link, image or autolink remains.
+    const headings = outside.filter(line => line.startsWith('#'));
+    expect(headings).toEqual(['# Feedback export', '## F-1 — ']);
+    const prose = outside.join('\n');
+    for (const marker of ['<', '](', 'evil.example', 'F-999', 'F-998', '===', 'Injected']) {
+      expect(prose).not.toContain(marker);
+    }
+
+    // Each single-line value is one code span holding the text as typed, with
+    // its line breaks turned into spaces.
+    expect(body).toContain(`## F-1 — \`${title.replace('\n', ' ')}\``);
+    expect(body).toContain('- submitter: ``a`b <i>x</i>@example.com``');
+    expect(body).toContain('- area: `ui # area heading [a](https://evil.example)`');
+    expect(body).toContain('- linked PR: `https://example.com/pr/1 <b>bold</b>`');
   });
 
   it('rejects an empty triage patch (400)', async () => {
