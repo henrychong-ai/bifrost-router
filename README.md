@@ -49,7 +49,7 @@ A lightweight, high-performance edge router and URL shortener built on Cloudflar
 - **Operational Analytics** — domain-aware full URLs, redirect/proxy/service-page leaders, recent activity, period comparisons, and actionable traffic signals; Cloudflare Health Checks are excluded by default
 - **Wildcard Patterns** — Support for path patterns like `/blog/*`
 - **R2 Storage Management** — Browse, upload, download, rename, move, and delete R2 objects via API and dashboard
-- **Range & Conditional R2 Serving** (v1.33.0) — byte-range resume and media seeking (206 with absolute `Content-Range`, suffix ranges included), cache revalidation (304), and precondition failures (412), served straight from R2 with a quoted `ETag` and `Last-Modified` on every response
+- **Range & Conditional R2 Serving** (v1.33.0) — byte-range resume and media seeking (206 with absolute `Content-Range`, suffix ranges included), cache revalidation (304), and precondition failures (412), served straight from R2 with a quoted `ETag` and `Last-Modified` on every response. File routes answer GET and HEAD only: OPTIONS gets `204` and any other method `405`, both with `Allow: GET, HEAD, OPTIONS`
 - **CDN Cache Purge** — Purge Cloudflare edge cache globally for R2 objects via Zone Cache Purge API, automatically on every route and object mutation as well as on demand
 - **Route Domain Transfer** — Move routes between domains preserving configuration and audit trail
 - **R2 Backup System** — Automated daily KV route backups with health monitoring (D1 covered by Time Travel)

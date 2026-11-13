@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { handleR2 } from '../../src/handlers/r2';
+import { handleR2, unmetPreconditionStatus } from '../../src/handlers/r2';
 import r2HandlerSource from '../../src/handlers/r2.ts?raw';
 import type { AppEnv, KVRouteConfig } from '../../src/types';
 
@@ -1751,8 +1751,11 @@ describe('handleR2', () => {
     });
 
     describe('method semantics', () => {
-      it('returns 412, never 304, for a failed precondition on a non-GET/HEAD method', async () => {
-        // 304 is defined for GET and HEAD only (RFC 9110 §15.4.5).
+      it('never returns 304 to a conditional non-GET/HEAD method: 405 before any R2 read', async () => {
+        // 304 is defined for GET and HEAD only (RFC 9110 §15.4.5). A file route
+        // answers every other method 405 (OPTIONS 204) before it reads R2, so a
+        // conditional writer never reaches the precondition evaluation; see
+        // test/handlers/r2-methods.test.ts for the full method matrix.
         const app = new Hono<AppEnv>();
         const mockBucket = { get: vi.fn<BucketGet>().mockResolvedValue(createMockR2ObjectHead()) };
         app.post('/media', c => handleR2(c, baseRoute));
@@ -1765,7 +1768,24 @@ describe('handleR2', () => {
           { ENVIRONMENT: 'development', FILES_BUCKET: mockBucket as unknown as R2Bucket },
         );
 
-        expect(response.status).toBe(412);
+        expect(response.status).toBe(405);
+        expect(mockBucket.get).not.toHaveBeenCalled();
+      });
+
+      it('keeps 412, never 304, for an unmet precondition on any non-GET/HEAD method', () => {
+        // The second line of defence behind the method check: should anything
+        // but GET or HEAD ever reach the R2 read again, an unmet weak
+        // precondition is still a 412, never a 304.
+        const head = createMockR2ObjectHead();
+        const weakOnly = new Headers({ 'If-None-Match': '"abc123"' });
+        const methods = ['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
+        expect(methods.map(method => unmetPreconditionStatus(method, weakOnly, head))).toEqual(
+          methods.map(() => 412),
+        );
+        expect(unmetPreconditionStatus('GET', weakOnly, head)).toBe(304);
+        expect(unmetPreconditionStatus('HEAD', weakOnly, head)).toBe(304);
+        const failingIfMatch = new Headers({ 'If-Match': '"other"' });
+        expect(unmetPreconditionStatus('GET', failingIfMatch, head)).toBe(412);
       });
 
       it('still returns 304 for a failed weak precondition on HEAD', async () => {

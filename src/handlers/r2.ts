@@ -12,6 +12,38 @@ import { validateR2Key } from '../utils/path-validation';
 export const CACHE_STATUS_HEADER = 'X-Cache-Status';
 
 /**
+ * The methods a file route answers, as sent in the `Allow` header of its 204
+ * (OPTIONS) and 405 (everything else) answers.
+ */
+export const FILE_SERVING_ALLOWED_METHODS = 'GET, HEAD, OPTIONS';
+
+/** Whether `method` reads the file: GET and HEAD only. */
+export function isFileServingMethod(method: string): boolean {
+  return method === 'GET' || method === 'HEAD';
+}
+
+/**
+ * The answer to any method that does not read the file: OPTIONS gets `204`
+ * with `Allow` and nothing else, every other method `405` with the same
+ * `Allow`. Both are `no-store`. Neither carries an `Access-Control-*` header:
+ * no CORS policy exists for file routes, so a cross-origin preflight still
+ * fails as it did before.
+ */
+export function fileMethodRefusal(method: string): Response {
+  const headers = {
+    Allow: FILE_SERVING_ALLOWED_METHODS,
+    'Cache-Control': 'no-store',
+  };
+  if (method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers });
+  }
+  return new Response(JSON.stringify({ error: 'Method Not Allowed' }), {
+    status: 405,
+    headers: { ...headers, 'Content-Type': 'application/json' },
+  });
+}
+
+/**
  * Request headers that make a GET conditional. Their presence routes the
  * request past the edge cache so R2 can evaluate the precondition itself.
  *
@@ -118,6 +150,26 @@ function isStrongPreconditionFailure(requestHeaders: Headers, object: R2Object):
 }
 
 /**
+ * The status of a bodiless R2 result (`onlyIf` not satisfied): 412 or 304.
+ *
+ * RFC 9110 §15.4.5: 304 is a cache-revalidation answer, defined for GET and
+ * HEAD only. On any other method an unsatisfied precondition is a 412 —
+ * returning 304 would tell a conditional writer its request succeeded against
+ * an unchanged resource when nothing was evaluated for it. The method check at
+ * the top of `handleR2` answers every other method before the R2 read, so the
+ * method branch is the second line of defence: it keeps the rule (412, never
+ * 304) if that check is ever moved or widened.
+ */
+export function unmetPreconditionStatus(
+  method: string,
+  requestHeaders: Headers,
+  object: R2Object,
+): 304 | 412 {
+  const isSafeMethod = method === 'GET' || method === 'HEAD';
+  return !isSafeMethod || isStrongPreconditionFailure(requestHeaders, object) ? 412 : 304;
+}
+
+/**
  * Build the `Headers` handed to R2 as the `onlyIf` option.
  *
  * RFC 9110 §13.2.2 evaluates If-Match first and applies If-Unmodified-Since
@@ -188,6 +240,16 @@ function resolveRange(range: R2Range, size: number): { offset: number; length: n
  * - Range + conditional requests (206 / 304 / 412) served straight from R2
  */
 export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promise<Response> {
+  // Only GET and HEAD read a file. The catch-all reaches this handler with
+  // every method, and without this check a POST, PUT or OPTIONS was served the
+  // object (from the edge cache on a HIT). Decided first, before the bucket
+  // and key checks, the cache lookup and any R2 read, so the answer never
+  // depends on whether the object exists or how the route is configured:
+  // OPTIONS 204, every other method 405.
+  if (!isFileServingMethod(c.req.method)) {
+    return fileMethodRefusal(c.req.method);
+  }
+
   // Get bucket name from route config, default to "files"
   // Stored config is not trusted to hold a known bucket until it is validated.
   const bucketName: string = route.bucket ?? 'files';
@@ -255,9 +317,9 @@ export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promis
   const requestHeaders = c.req.raw.headers;
   const method = c.req.method;
   // Range is defined for GET only (RFC 9110 §14.2), so the `range` option is
-  // withheld on every other method; the conditional headers still apply to
-  // HEAD. A Range header on a non-GET is ignored, but it still bypasses the
-  // edge cache — the response it would be served from was cached for a GET.
+  // withheld on HEAD (the only other method that gets here); the conditional
+  // headers still apply to it. A Range header on a HEAD is ignored, but it
+  // still bypasses the edge cache.
   const isGet = method === 'GET';
   const hasRangeHeader = requestHeaders.has('range');
   const rangeRequested = isGet && hasRangeHeader;
@@ -382,14 +444,8 @@ export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promis
   // the body. Which status that maps to depends on WHICH precondition failed.
   let objectBody = (object as R2ObjectBody).body as ReadableStream | undefined;
   if (!objectBody) {
-    // RFC 9110 §15.4.5: 304 is a cache-revalidation answer, defined for GET and
-    // HEAD only. On any other method an unsatisfied precondition is a 412 —
-    // returning 304 would tell a conditional writer its request succeeded
-    // against an unchanged resource when nothing was evaluated for it.
-    const isSafeMethod = isGet || method === 'HEAD';
-    const status = !isSafeMethod || isStrongPreconditionFailure(requestHeaders, object) ? 412 : 304;
     return new Response(null, {
-      status,
+      status: unmetPreconditionStatus(method, requestHeaders, object),
       headers: buildValidatorHeaders(object, route.cacheControl),
     });
   }
