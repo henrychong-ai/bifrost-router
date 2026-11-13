@@ -676,15 +676,15 @@ pnpm run deploy:dev   # Deploy to dev environment
 | Layer | Technology | Version |
 |-------|------------|---------|
 | **Language** | TypeScript | 6.0.3 |
-| **Framework** | [Hono](https://hono.dev/) | 4.13.12 |
+| **Framework** | [Hono](https://hono.dev/) | 4.13.18 |
 | **Runtime** | Cloudflare Workers | — |
-| **CLI** | Wrangler | 4.146.0 |
-| **Validation** | Zod | 4.6.5 |
-| **ORM** | Drizzle ORM | 0.45.3 |
+| **CLI** | Wrangler | 4.160.0 |
+| **Validation** | Zod | 4.6.7 |
+| **ORM** | Drizzle ORM | 0.45.4 |
 | **Storage** | Cloudflare KV | — |
 | **Database** | Cloudflare D1 (analytics) | — |
 | **Object Storage** | Cloudflare R2 | — |
-| **Testing** | Vitest + @cloudflare/vitest-pool-workers | 4.1.11 / 0.18.8 |
+| **Testing** | Vitest + @cloudflare/vitest-plugin | 4.1.12 / 1.7.0 |
 | **Linting** | Oxlint + Biome (formatter) | — |
 | **Package Manager** | pnpm (workspaces) | 10.33.0 |
 | **Admin Dashboard** | React 19 + Vite 8 + Tailwind CSS 4 + shadcn/ui | — |
