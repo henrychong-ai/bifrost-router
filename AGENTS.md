@@ -73,7 +73,7 @@ like any other file; the test assembles its synthetic bad values at runtime.
 |-------|------------|
 | Runtime | Cloudflare Workers, TypeScript 6.0 (`typescript@~6.0`), Hono |
 | Storage | KV (routes), D1 (analytics), R2 (files) |
-| Testing | Vitest + @cloudflare/vitest-pool-workers |
+| Testing | Vitest + @cloudflare/vitest-plugin (pinned exactly, with the Wrangler version it is built against) |
 | Dashboard | React 19 + Vite + Tailwind CSS + TanStack Query |
 | Linting | Oxlint (with type-aware rules) + Biome (formatter, import sorting) |
 

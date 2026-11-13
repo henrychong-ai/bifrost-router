@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
+import { cloudflareTest } from '@cloudflare/vitest-plugin';
 import { defineConfig } from 'vitest/config';
 import { unstable_readConfig } from 'wrangler';
 
@@ -23,8 +23,9 @@ if (!wranglerConfig.compatibility_date) {
 }
 
 export default defineConfig({
-  // vitest-pool-workers 0.18 (vitest 4): workers options moved from
-  // test.poolOptions.workers to the cloudflareTest() plugin. The old
+  // @cloudflare/vitest-plugin (the renamed vitest-pool-workers; vitest 4):
+  // workers options live in the cloudflareTest() plugin, not
+  // test.poolOptions.workers. The old
   // singleWorker/isolatedStorage options were removed upstream — isolation is
   // now per test FILE (vitest's own model), and each file gets its own worker.
   plugins: [
