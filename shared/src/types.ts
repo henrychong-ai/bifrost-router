@@ -534,6 +534,13 @@ export interface R2CommentUpdateResult {
 }
 
 /**
+ * Most direct entries (folders and files) one offset-mode storage listing
+ * materialises: the R2 per-call ceiling, so the listing is one `bucket.list`.
+ * A folder with more entries reports `meta.totalIsExact: false`.
+ */
+export const STORAGE_LIST_MATERIALISE_CAP = 1000;
+
+/**
  * R2 list response
  */
 export interface R2ListResponse {
@@ -551,6 +558,12 @@ export interface R2ListResponse {
     offset: number;
     limit: number;
     hasMore: boolean;
+    /**
+     * False when the folder holds more direct entries than the materialise
+     * cap: `total` is then a floor and `hasMore` covers only the materialised
+     * entries. Optional so a response from an older server still reads.
+     */
+    totalIsExact?: boolean;
   };
   /**
    * Offset mode only: the folder has more direct entries than the materialise

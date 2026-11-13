@@ -86,6 +86,10 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateRouteInput'
       responses:
+        '413':
+          description: >-
+            The request body is over 64 KiB (`ROUTE_WRITE_MAX_BYTES`):
+            `{ success: false, error: PAYLOAD_TOO_LARGE, message }`, nothing written
         '201':
           description: Created
         '409':
@@ -116,6 +120,10 @@ paths:
                         `ROUTE_SOURCE_CHANGED` and nothing is saved. A request
                         flag, never stored.
       responses:
+        '413':
+          description: >-
+            The request body is over 64 KiB (`ROUTE_WRITE_MAX_BYTES`):
+            `{ success: false, error: PAYLOAD_TOO_LARGE, message }`, nothing written
         '200':
           description: Updated
         '409':
@@ -190,6 +198,10 @@ paths:
             schema:
               $ref: '#/components/schemas/SeedRoutesInput'
       responses:
+        '413':
+          description: >-
+            The request body is over 64 KiB (`ROUTE_WRITE_MAX_BYTES`):
+            `{ success: false, error: PAYLOAD_TOO_LARGE, message }`, nothing written
         '200':
           description: Seeded
 
@@ -244,6 +256,10 @@ paths:
                         changed since is refused with 409
                         `ROUTE_SOURCE_CHANGED` and nothing moves.
       responses:
+        '413':
+          description: >-
+            The request body is over 64 KiB (`ROUTE_WRITE_MAX_BYTES`):
+            `{ success: false, error: PAYLOAD_TOO_LARGE, message }`, nothing written
         '200':
           description: Route migrated successfully
         '400':
@@ -289,6 +305,10 @@ paths:
                   type: string
                   description: Destination domain
       responses:
+        '413':
+          description: >-
+            The request body is over 64 KiB (`ROUTE_WRITE_MAX_BYTES`):
+            `{ success: false, error: PAYLOAD_TOO_LARGE, message }`, nothing written
         '200':
           description: Route transferred successfully
           content:
@@ -579,7 +599,19 @@ paths:
         - $ref: '#/components/parameters/OffsetQuery'
       responses:
         '200':
-          description: Object listing (offset mode adds meta + capped)
+          description: >-
+            Object listing. Without an `offset` (cursor mode) the answer is
+            `objects`, `truncated`, `cursor` and `delimitedPrefixes`, with no
+            `meta`. With one (offset mode) the folder is listed in ONE R2 call
+            of at most 1,000 direct entries, and the answer adds `meta` and
+            `capped`. When the folder holds more than that, `capped` is true,
+            `meta.totalIsExact` is false, `meta.total` is a floor and
+            `meta.hasMore` turns false at the cap: entries past it cannot be
+            reached by paging, only by a narrower `prefix`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageListResponse'
 
   /api/storage/{bucket}/meta/{key}:
     get:
@@ -638,12 +670,18 @@ paths:
                 key:
                   type: string
       responses:
-        '200':
-          description: Upload successful
+        '201':
+          description: Uploaded; `data` is the stored object's metadata
         '403':
           description: Read-only bucket
         '400':
-          description: Invalid R2 key
+          description: Missing file or key, invalid R2 key, or invalid comment
+        '404':
+          description: Bucket not found
+        '409':
+          description: >-
+            An object already exists at the key and `overwrite` was not
+            `true`; nothing written
         '415':
           description: >-
             The body is not `multipart/form-data` (`error:
@@ -1111,6 +1149,10 @@ paths:
             schema:
               type: object
       responses:
+        '413':
+          description: >-
+            The request body is over 192 KiB (`QR_WRITE_MAX_BYTES`):
+            `{ success: false, error: PAYLOAD_TOO_LARGE, message }`, nothing written
         '201':
           description: QR code created
         '400':
@@ -1191,6 +1233,10 @@ paths:
             schema:
               type: object
       responses:
+        '413':
+          description: >-
+            The request body is over 192 KiB (`QR_WRITE_MAX_BYTES`):
+            `{ success: false, error: PAYLOAD_TOO_LARGE, message }`, nothing written
         '200':
           description: QR code updated
         '404':
@@ -1888,6 +1934,55 @@ components:
           type: object
         error:
           type: string
+
+    StorageListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            objects:
+              type: array
+              items:
+                type: object
+            truncated:
+              type: boolean
+            cursor:
+              type: string
+              description: Cursor mode only, when `truncated` is true.
+            delimitedPrefixes:
+              type: array
+              items:
+                type: string
+            capped:
+              type: boolean
+              description: >-
+                Offset mode only: the folder holds more direct entries than one
+                listing materialises (1,000).
+            meta:
+              type: object
+              description: Offset mode only.
+              required: [total, count, offset, limit, hasMore, totalIsExact]
+              properties:
+                total:
+                  type: integer
+                  description: Entries in the folder; a floor when `totalIsExact` is false.
+                count:
+                  type: integer
+                offset:
+                  type: integer
+                limit:
+                  type: integer
+                hasMore:
+                  type: boolean
+                totalIsExact:
+                  type: boolean
+                  description: >-
+                    False when the folder holds more than 1,000 direct entries:
+                    `total` is then a floor and `hasMore` covers only the first
+                    1,000.
 
     TriageFeedbackInput:
       type: object

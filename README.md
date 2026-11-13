@@ -590,7 +590,7 @@ than sent). The admin API allows no CORS origin.
 | `GET` | `/api/analytics/views` | View records (paginated) |
 | `GET` | `/api/analytics/clicks/:slug` | Stats for specific link (the slug without its leading `/`, as path segments; the root slug is `/api/analytics/clicks/`) |
 | `GET` | `/api/storage/buckets` | List all R2 buckets |
-| `GET` | `/api/storage/:bucket/objects` | List objects (`?prefix=`, `?cursor=`, `?limit=`, `?delimiter=`) |
+| `GET` | `/api/storage/:bucket/objects` | List objects (`?prefix=`, `?cursor=`, `?limit=`, `?delimiter=`; `?offset=` selects offset mode, which adds `meta` and `capped`: a folder of more than 1,000 direct entries answers `capped: true` and `meta.totalIsExact: false`, its `meta.total` a floor) |
 | `GET` | `/api/storage/:bucket/meta/:key` | Get object metadata |
 | `GET` | `/api/storage/:bucket/objects/:key` | Download object |
 | `POST` | `/api/storage/:bucket/upload` | Upload object (multipart, 100MB max) |

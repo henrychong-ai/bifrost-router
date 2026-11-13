@@ -176,6 +176,23 @@ describe('Storage tool handlers', () => {
       expect(result).toContain('Content-Type: application/pdf');
     });
 
+    it('formats sizes with the shared formatter, TB included', async () => {
+      for (const [size, text] of [
+        [0, '0 B'],
+        [1536, '1.5 KB'],
+        [1024 ** 3, '1.0 GB'],
+        [2 * 1024 ** 4, '2.0 TB'],
+      ] as const) {
+        vi.mocked(mockClient.getObjectMeta).mockResolvedValue({ ...mockObject, size });
+        const result = await getObjectMeta(mockClient, {
+          bucket: 'files',
+          key: 'documents/report.pdf',
+        });
+        expect(result).toContain(`Size: ${text}`);
+        expect(result).not.toContain('undefined');
+      }
+    });
+
     it('handles errors gracefully', async () => {
       vi.mocked(mockClient.getObjectMeta).mockRejectedValue(new Error('Object not found'));
 

@@ -3,17 +3,12 @@
  */
 
 import { readFileSync, statSync } from 'node:fs';
-import { type EdgeRouterClient, getContentTypeFromKey, type R2ObjectInfo } from '@bifrost/shared';
-
-/**
- * Format file size for display
- */
-function formatSize(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  return `${(bytes / 1024 ** i).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
-}
+import {
+  type EdgeRouterClient,
+  formatByteSize,
+  getContentTypeFromKey,
+  type R2ObjectInfo,
+} from '@bifrost/shared';
 
 /**
  * Format R2 object metadata for display
@@ -22,7 +17,7 @@ function formatObjectInfo(obj: R2ObjectInfo, bucket: string): string {
   const lines = [
     `Object: ${obj.key}`,
     `Bucket: ${bucket}`,
-    `Size: ${formatSize(obj.size)}`,
+    `Size: ${formatByteSize(obj.size)}`,
     `ETag: ${obj.etag}`,
     `Uploaded: ${obj.uploaded}`,
   ];
@@ -109,7 +104,7 @@ export async function listObjects(
       }
       lines.push(lines.length > 2 ? '\nFiles:' : 'Files:');
       response.objects.forEach(obj => {
-        const size = formatSize(obj.size);
+        const size = formatByteSize(obj.size);
         const type = obj.httpMetadata?.contentType ?? 'unknown';
         lines.push(`  ${obj.key} (${size}, ${type})`);
       });
@@ -167,7 +162,7 @@ export async function getObject(
       return [
         formatObjectInfo(meta, args.bucket),
         '',
-        `File too large for inline content (${formatSize(meta.size)} > ${formatSize(INLINE_SIZE_LIMIT)}).`,
+        `File too large for inline content (${formatByteSize(meta.size)} > ${formatByteSize(INLINE_SIZE_LIMIT)}).`,
         `Use the Bifrost dashboard or direct API to download this file.`,
       ].join('\n');
     }
@@ -222,7 +217,7 @@ export async function uploadObject(
       }
 
       if (stat.size > MAX_UPLOAD_SIZE) {
-        return `Error: File size (${formatSize(stat.size)}) exceeds maximum upload size of ${formatSize(MAX_UPLOAD_SIZE)}.`;
+        return `Error: File size (${formatByteSize(stat.size)}) exceeds maximum upload size of ${formatByteSize(MAX_UPLOAD_SIZE)}.`;
       }
 
       buffer = readFileSync(args.file_path);
@@ -245,7 +240,7 @@ export async function uploadObject(
 
     // Check size limit
     if (buffer.length > MAX_UPLOAD_SIZE) {
-      return `Error: File size (${formatSize(buffer.length)}) exceeds maximum upload size of ${formatSize(MAX_UPLOAD_SIZE)}.`;
+      return `Error: File size (${formatByteSize(buffer.length)}) exceeds maximum upload size of ${formatByteSize(MAX_UPLOAD_SIZE)}.`;
     }
 
     const result = await client.uploadObject(args.bucket, args.key, buffer, contentType, {
@@ -257,7 +252,7 @@ export async function uploadObject(
       '',
       `Key: ${result.key}`,
       `Bucket: ${args.bucket}`,
-      `Size: ${formatSize(result.size)}`,
+      `Size: ${formatByteSize(result.size)}`,
     ];
 
     if (source) {
@@ -307,7 +302,7 @@ export async function renameObject(
       `From: ${args.old_key}`,
       `To: ${result.key}`,
       `Bucket: ${args.bucket}`,
-      `Size: ${formatSize(result.size)}`,
+      `Size: ${formatByteSize(result.size)}`,
     ].join('\n');
   } catch (error) {
     return `Error renaming object: ${error instanceof Error ? error.message : String(error)}`;
@@ -338,7 +333,7 @@ export async function moveObject(
       '',
       `From: ${args.bucket}/${args.key}`,
       `To: ${args.destination_bucket}/${result.key}`,
-      `Size: ${formatSize(result.size)}`,
+      `Size: ${formatByteSize(result.size)}`,
     ].join('\n');
   } catch (error) {
     return `Error moving object: ${error instanceof Error ? error.message : String(error)}`;

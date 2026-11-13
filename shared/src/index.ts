@@ -30,6 +30,8 @@ export {
   type SkippedRecords,
   SkippedRecordsSchema,
 } from './backup-health.js';
+// The one byte-size formatter (MCP storage tools and the dashboard)
+export { type ByteSizeOptions, formatByteSize } from './byte-size.js';
 // JSON with sorted keys at every level (v1.38.0): one serialiser for every
 // "is this the same value" comparison
 export { canonicalJson } from './canonical-json.js';
@@ -182,6 +184,7 @@ export {
   QR_VCARD_MAX_PHONES,
   QR_VCARD_PAYLOAD_DESCRIPTION,
   QR_VCARD_PHONE_TYPES,
+  QR_WRITE_MAX_BYTES,
   type QRCode,
   QRCodeSchema,
   type QRDesign,
@@ -320,6 +323,7 @@ export {
   RECOVER_INVALID_DESCRIPTION,
   RedirectStatusCodeSchema,
   RequiredDomainSchema,
+  ROUTE_WRITE_MAX_BYTES,
   RouteCacheControlSchema,
   RouteHostHeaderSchema,
   RoutePathSchema,

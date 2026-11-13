@@ -249,7 +249,7 @@ interface KVRouteConfig {
 | `GET /api/changelog` | The engineering changelog as Markdown (authenticated) |
 | `GET /api/analytics/*` | Analytics endpoints |
 | `GET /api/storage/buckets` | List R2 buckets |
-| `GET /api/storage/:bucket/objects` | List objects |
+| `GET /api/storage/:bucket/objects` | List objects. Without `offset`, cursor mode (MCP `list_objects`, the shared client): no `meta`. With `offset`, offset mode (the Storage tab): the folder is read in ONE R2 call of at most `STORAGE_LIST_MATERIALISE_CAP` (1,000, `@bifrost/shared`) direct entries and the answer adds `meta` (`total`, `count`, `offset`, `limit`, `hasMore`, `totalIsExact`) and `capped`. A larger folder answers `capped: true` and `meta.totalIsExact: false`: `total` is a floor and paging stops at the cap, so the Storage tab shows "More beyond the first 1,000" with a **Narrow prefix** button. The dashboard client declares `totalIsExact` in its Zod schema too, or it would be stripped |
 | `GET /api/storage/:bucket/meta/:key` | Get object metadata |
 | `GET /api/storage/:bucket/objects/:key` | Download object |
 | `POST /api/storage/:bucket/upload` | Upload object |
@@ -545,6 +545,7 @@ types) and shows the server's 400 message:
 | `cacheControl` | 256 characters | `RouteCacheControlSchema`, same places |
 | Whole stored record | 64 KiB of UTF-8 (`MAX_ROUTE_RECORD_BYTES`) | every writer: create, update, seed, migrate, transfer, normalize-case |
 | Route key | 512 UTF-8 bytes (`MAX_ROUTE_KEY_BYTES`) | every writer, as above |
+| Request body | 64 KiB (`ROUTE_WRITE_MAX_BYTES`); QR writes 192 KiB (`QR_WRITE_MAX_BYTES`, the stored QR record bound) | route create, update, seed, migrate and transfer; QR create and update (`writeBodyLimit`, `src/utils/write-body-limit.ts`) |
 
 The guarantee lives in the KV writers themselves: `serializeStoredRoute`
 (`src/kv/routes.ts`) checks the key and the size of the EXACT record about to be
@@ -563,7 +564,13 @@ route before it looks at the patch. A seed batch is built and checked whole
 before anything is written (a refusal names the offending `path`), and entries
 that normalise to a key already queued in the batch are skipped, the first
 winning. The response schema `RouteSchema` (shared) is tolerant: it carries
-none of these caps, so stored routes over one still read back. A refusal is a 400
+none of these caps, so stored routes over one still read back. The handlers buffer the whole body (`c.req.json()`) before any schema sees it,
+so a per-route body ceiling bounds that buffering: a body over it answers 413
+`{ success: false, error: 'PAYLOAD_TOO_LARGE', message }` before it is parsed,
+and nothing is written (with a numeric `Content-Length` the declared size
+decides, unread; without one the body is counted while read). A seed batch is
+bounded by the same 64 KiB, so a larger import is sent as several seeds. A
+refusal is a 400
 `{ success: false, error }` with a fixed message the dashboard shows as it is:
 `Route path is too long for this domain`, `Route record is too large`, or the
 field's own cap. A stored record already over a field cap is served as it
@@ -1012,6 +1019,7 @@ If the domain is missing from this list, the binding was never created.
 | `src/kv/stored-route.ts` | Stored route reads; invalid records fail closed |
 | `scripts/check-boundary-reads.mjs` | Boundary-read gate |
 | `shared/src/search.ts` | The one search matcher and ranking (routes, QR codes, Cmd+K) |
+| `shared/src/byte-size.ts` | The one byte-size formatter, `formatByteSize` (MCP storage tools; the Dashboard, Storage, Downloads and Proxy pages). Binary steps, whole bytes below 1 KB, one decimal from KB, TB the largest unit; the Downloads and Proxy tables pass `gigabyteDigits: 2` |
 | `shared/src/vcard-name.ts` | Contact-card name rules (FN, the filled and name tests) shared by the vCard serializer, QR search and the dashboard (v1.42.0) |
 | `patches/qrcode-svg-1.1.0.patch` | Drops qrcode-svg's UTF-8 byte-order mark before non-ASCII content (v1.42.0) and makes it encode and size real UTF-8 (v1.42.1) |
 | `shared/src/text-scan.ts` | Linear unpaired-surrogate scans: the QR payload write rule and the dashboard's edit form (v1.42.1) |
@@ -1049,7 +1057,7 @@ Config in `~/.claude.json`:
 - `EDGE_ROUTER_DOMAIN` is REMOVED (v1.35.0) — nothing reads it; a stale key logs one stderr warning at stdio boot and never fails startup. `EdgeRouterClient` has no `defaultDomain` and no `getDomain()`.
 - ⚠️ Never add a silent default — a defaulted write landing on the wrong domain is worse than a clear error.
 - Enforcement: this repo has no hosted MCP server, and the stdio server's low-level `Server` validates nothing, so the server validates every call itself: `mcp/src/dispatch.ts` (`callTool`, v1.38.0) reads the JSON-RPC arguments as unknown and parses them with the tool's SHARED schema before a handler runs (no `as` casts; a non-conforming argument is refused with the field and nothing is sent; `mcp/src/dispatch.test.ts` checks every catalogue tool is dispatched). Some clients send every argument as a string, so every numeric and boolean tool field parses its string form: `mcpNumber(schema)` reads decimal text (`"20"`, `" 7 "`) as that number and then applies all of the schema's rules, `mcpBoolean()` reads `true`/`false`/`1`/`0`/`yes`/`no` and reads an empty string as `false`, the safe value for every flag (both in `shared/src/schemas.ts`). For numbers anything else, `''`, `0x10` and `null` included, is refused, never coerced (`z.coerce.number()` would turn `''` into 0); for booleans anything else is refused. The dispatch test fails when a numeric or boolean field the catalogue advertises has no string-form case. The handlers take the parsed values and do not parse again. A missing domain still answers first with the handler guards' message (`requireDomain()` + `NO_DOMAIN_ERROR` in `mcp/src/tools/domain.ts`, their own module since v1.40.0), which ARE the domain enforcement — pinned across all 14 by `mcp/src/tools/routes.no-domain.test.ts`, with the JSON-Schema catalog pinned by the `v1.35.0 domain contract (catalog)` block in `shared/src/tools.test.ts`.
-- The REST API no longer defaults a write's domain either (Admin API → Domain on writes): a route or QR write without one answers 400, so no client, MCP or otherwise, can reach the old `ADMIN_API_DOMAIN` fallback with a write. Single-domain reads keep it. `requireDomain()` checks only for a non-empty string; an unsupported value is refused by the API's own validation. Open items live in [TODO.md](./TODO.md).
+- The REST API no longer defaults a write's domain either (Admin API → Domain on writes): a route or QR write without one answers 400, so no client, MCP or otherwise, can reach the old `ADMIN_API_DOMAIN` fallback with a write. Single-domain reads keep it. `requireDomain()` checks only for a string that is not empty or only whitespace (a blank domain gets the no-domain error, which lists the valid domains; a non-blank one is passed on as sent, so a padded one is refused by the schema); an unsupported value is refused by the API's own validation. Open items live in [TODO.md](./TODO.md).
 - `create_qr` and `update_qr` advertise `linkedRoute` as `{ domain, path }`, both required, with `domain` enumerated and `path` constrained like `QRLinkedRouteInputSchema` (`minLength: 1`, `pattern: '^/'`; `shared/src/tools.test.ts` checks they accept and refuse alike) (`linkedRouteProperty` in `shared/src/tools.ts`; nested `properties`/`required`, `minLength` and `pattern` on `JsonSchemaProperty`).
 - Clients cache tool schemas: after rebuilding the server, reconnect (`/mcp` in Claude Code) before trusting the advertised inputs.
 - **Refusals are failed calls (v1.40.0).** `mcp/src/server.ts` (`createServer`, out of `index.ts` so it can be tested on the wire) returns every refusal with `isError: true`: a missing domain, arguments that fail the schema, an API error, an unknown tool. Every refusal text begins with `Error` and then `:` or a space (`isRefusal`), and no successful answer does; keep both true when adding a tool. They used to come back as ordinary results, so a client could read a refusal as success. `mcp/src/server.test.ts` connects a client over the SDK's in-memory transport and checks the wire.

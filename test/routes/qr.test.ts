@@ -335,8 +335,19 @@ describe('QR API (v1.30.0 port seams)', () => {
 
   // v1.37.2: a QR record is one line of the nightly backup, so a linked path
   // follows the route path rules and the route key limit
-  it('rejects a 2 MiB linkedRoute.path on create and update, writing nothing', async () => {
-    const huge = `/${'a'.repeat(2 * 1024 * 1024)}`;
+  it('rejects an over-long linkedRoute.path on create and update, writing nothing', async () => {
+    // Under the QR write body ceiling, so the schema's own refusal answers;
+    // a 2 MiB one is refused by the ceiling first (413, below).
+    const huge = `/${'a'.repeat(100 * 1024)}`;
+    const tooBig = await fetchSettled(
+      authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
+        type: 'url',
+        id: 'test-huge-link',
+        payload: { url: 'https://example.com' },
+        linkedRoute: { domain: DOMAIN, path: `/${'a'.repeat(2 * 1024 * 1024)}` },
+      }),
+    );
+    expect(tooBig.status).toBe(413);
     const created = await fetchSettled(
       authedJson('POST', `${BASE}?domain=${DOMAIN}`, {
         type: 'url',

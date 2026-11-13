@@ -1,10 +1,11 @@
 import { env } from 'cloudflare:test';
+import { STORAGE_LIST_MATERIALISE_CAP } from '@bifrost/shared';
 import { Hono } from 'hono';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { adminRoutes } from '../src/routes/admin';
 import { getR2CopySizeLimit } from '../src/routes/storage';
 import type { AppEnv } from '../src/types';
-import { CLOUDFLARE_ZONE_IDS, R2_BUCKET_CUSTOM_DOMAINS } from '../src/types';
+import { ALL_BUCKET_BINDINGS, CLOUDFLARE_ZONE_IDS, R2_BUCKET_CUSTOM_DOMAINS } from '../src/types';
 import { requestBodyText } from './helpers';
 
 function createApp() {
@@ -227,6 +228,51 @@ describe('storage routes', () => {
       const dl = await last.json();
       expect(dl.data.objects).toHaveLength(1);
       expect(dl.data.meta.hasMore).toBe(false);
+      // Under the cap the total is exact.
+      expect(d1.data.meta.totalIsExact).toBe(true);
+      expect(dl.data.meta.totalIsExact).toBe(true);
+    });
+
+    it('offset mode says the total is not exact when the folder exceeds the cap', async () => {
+      // A stub bucket answering a truncated listing stands in for a folder of
+      // more than STORAGE_LIST_MATERIALISE_CAP entries, with no need to seed one.
+      const listCalls: R2ListOptions[] = [];
+      const stub = {
+        list: async (options: R2ListOptions) => {
+          listCalls.push(options);
+          return {
+            objects: [],
+            delimitedPrefixes: ['big/a/', 'big/b/', 'big/c/'],
+            truncated: true,
+            cursor: 'next-page',
+          };
+        },
+      };
+      const app = createApp();
+      const response = await app.fetch(
+        new Request(
+          'http://example.com/api/storage/files/objects?prefix=big/&delimiter=/&limit=2&offset=0',
+          { headers: authHeaders },
+        ),
+        { ...testEnv, [ALL_BUCKET_BINDINGS.files]: stub },
+      );
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      // One R2 call, capped at the shared constant; paging stays offset-based.
+      expect(listCalls).toHaveLength(1);
+      expect(listCalls[0]?.limit).toBe(STORAGE_LIST_MATERIALISE_CAP);
+      expect(listCalls[0]?.cursor).toBeUndefined();
+      expect(body.data.capped).toBe(true);
+      expect(body.data.truncated).toBe(true);
+      expect(body.data.cursor).toBeUndefined();
+      expect(body.data.meta).toEqual({
+        total: 3,
+        count: 2,
+        offset: 0,
+        limit: 2,
+        hasMore: true,
+        totalIsExact: false,
+      });
     });
 
     it('offset mode paginates folders before files (folders-first)', async () => {

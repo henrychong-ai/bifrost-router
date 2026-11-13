@@ -138,6 +138,14 @@ export const QR_LOGO_MAX_BYTES = 102400;
  * data URI, and the whole record is checked as stored.
  */
 export const MAX_QR_RECORD_BYTES = 192 * 1024;
+/**
+ * Largest request body (bytes) a QR create or update reads; a larger one
+ * answers 413 `PAYLOAD_TOO_LARGE` before it is parsed. The logo's decoded cap
+ * (QR_LOGO_MAX_BYTES) applies only after the whole body is buffered, so this
+ * is what bounds that buffering: room for a 100 KB logo as base64 plus the
+ * rest of the record, the same bound as the stored record.
+ */
+export const QR_WRITE_MAX_BYTES = MAX_QR_RECORD_BYTES;
 
 /** Max length of every contact-card text field (v1.42.0). */
 export const QR_VCARD_FIELD_MAX_LENGTH = 128;

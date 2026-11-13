@@ -19,8 +19,12 @@ export const NO_DOMAIN_ERROR = `Error: No domain specified. Pass the domain para
 /**
  * Returns the caller's domain, or `undefined` when they named none. Takes
  * `unknown`: the dispatcher runs it on the raw JSON-RPC arguments, where a
- * non-string is as reachable as a missing key.
+ * non-string is as reachable as a missing key. A string that is empty or only
+ * whitespace names no domain either, so it gets the no-domain error (which
+ * lists the valid domains) rather than the schema's enum error. A non-blank
+ * domain is returned as sent, untrimmed, so a padded one is still refused by
+ * the schema.
  */
 export function requireDomain(domain: unknown): string | undefined {
-  return typeof domain === 'string' && domain.length > 0 ? domain : undefined;
+  return typeof domain === 'string' && domain.trim().length > 0 ? domain : undefined;
 }

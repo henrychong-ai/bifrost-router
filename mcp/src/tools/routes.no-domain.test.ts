@@ -106,6 +106,19 @@ describe('no-domain guard on every domain-required tool', () => {
     }
   });
 
+  it.each(CASES)('%s refuses a whitespace-only domain', async (_tool, handler, args) => {
+    for (const domain of [' ', '   ', '\t', '\n ']) {
+      const result = await (handler as (c: EdgeRouterClient, a: unknown) => Promise<string>)(
+        mockClient,
+        { ...args, domain },
+      );
+      expect(result).toContain('No domain specified');
+    }
+    for (const fn of Object.values(mockClient)) {
+      expect(fn).not.toHaveBeenCalled();
+    }
+  });
+
   /**
    * The stdio server hands raw JSON-RPC `arguments` to the handlers with no
    * validation, so a non-string `domain` is exactly as reachable as a missing
@@ -182,6 +195,22 @@ describe('no-domain guard on every domain-required tool', () => {
     expect(missingFields(neither)).toEqual(['from_domain', 'to_domain']);
     expect(neither).toContain('never guessed');
     expect(neither).not.toContain('EDGE_ROUTER_DOMAIN');
+    expect(mockClient.transferRoute).not.toHaveBeenCalled();
+  });
+
+  it('transfer_route refuses a whitespace-only domain on either side and names it', async () => {
+    const blankSource = await handleTransferRoute(mockClient, {
+      path: '/x',
+      from_domain: '   ',
+      to_domain: 'links.example.com',
+    });
+    expect(missingFields(blankSource)).toEqual(['from_domain']);
+    const blankTarget = await handleTransferRoute(mockClient, {
+      path: '/x',
+      from_domain: 'links.example.com',
+      to_domain: '\t',
+    });
+    expect(missingFields(blankTarget)).toEqual(['to_domain']);
     expect(mockClient.transferRoute).not.toHaveBeenCalled();
   });
 

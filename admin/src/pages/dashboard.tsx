@@ -1,3 +1,4 @@
+import { formatByteSize } from '@bifrost/shared';
 import {
   Activity,
   ArrowDownRight,
@@ -66,13 +67,6 @@ const PERIOD_OPTIONS = [
   { value: '30', label: '30 days' },
   { value: '90', label: '90 days' },
 ];
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes.toLocaleString()} B`;
-  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
-  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
-}
 
 function formatShare(value: number): string {
   return `${(value * 100).toFixed(value >= 0.1 ? 1 : 2)}%`;
@@ -702,7 +696,7 @@ export function DashboardPage() {
         <KpiCard
           title="Downloads"
           value={(summary?.downloads.total ?? 0).toLocaleString()}
-          detail={`${formatBytes(summary?.downloads.totalBytes ?? 0)} served`}
+          detail={`${formatByteSize(summary?.downloads.totalBytes ?? 0)} served`}
           delta={summary?.downloads.deltaPercent}
           icon={FileDown}
           href="/analytics/downloads"
