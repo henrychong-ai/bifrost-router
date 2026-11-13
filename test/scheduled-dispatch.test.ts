@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:test';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import worker from '../src/index';
 import type { Bindings } from '../src/types';
 
@@ -205,5 +205,113 @@ describe('scheduled backup cron', () => {
 
     expect(settled).toHaveLength(1);
     expect(pruned()).toBe(false);
+  });
+});
+
+// The alert step runs inside the backup's waitUntil, after handleScheduled.
+// The test environment sets no BACKUP_ALERT_SLACK_WEBHOOK, so every test above
+// also runs with alerting unconfigured.
+describe('scheduled backup alerting', () => {
+  /** A placeholder in the incoming-webhook shape; no such hook exists. */
+  const WEBHOOK = 'https://hooks.slack.com/services/T000/B000/fixture-only';
+  const configured = (extra: Partial<Bindings> = {}) =>
+    ({ ...env, BACKUP_ALERT_SLACK_WEBHOOK: WEBHOOK, ...extra }) as unknown as Bindings;
+  const unbound = { BACKUP_BUCKET: undefined } as Partial<Bindings>;
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(new Response('ok')));
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('sends nothing and logs nothing about alerting while the webhook is unset', async () => {
+    const spies = (['log', 'warn', 'error', 'info', 'debug'] as const).map(level =>
+      vi.spyOn(console, level).mockImplementation(() => {}),
+    );
+
+    const [backup] = await runCron('0 20 * * *', {
+      ...env,
+      BACKUP_BUCKET: undefined,
+    } as unknown as Bindings);
+
+    expect(backup?.status).toBe('rejected');
+    expect(fetch).not.toHaveBeenCalled();
+    const lines = spies.flatMap(spy => spy.mock.calls.map(args => String(args[0])));
+    expect(lines).toEqual(['[Scheduled] Backup failed: BACKUP_BUCKET not configured']);
+  });
+
+  it('alerts on a failed backup, and the invocation still fails', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const [backup] = await runCron('0 20 * * *', configured(unbound));
+
+    expect(fetch).toHaveBeenCalledOnce();
+    const [url, init] = vi.mocked(fetch).mock.calls[0] ?? [];
+    expect(url).toBe(WEBHOOK);
+    const payload = JSON.parse(String(init?.body));
+    expect(payload.text).toMatch(/^Bifrost backup FAILED/);
+    expect(payload.attachments[0].blocks[1].fields[1].text).toBe(
+      '*Reason:*\nBACKUP_BUCKET not configured',
+    );
+    expect(((backup as PromiseRejectedResult).reason as Error).message).toBe(
+      'Backup failed: BACKUP_BUCKET not configured',
+    );
+    expect(log).toHaveBeenCalledWith('[Backup] Alert sent');
+  });
+
+  it('checks health after a successful backup and alerts when it is not healthy', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const [backup] = await runCron('0 20 * * *', configured());
+
+    expect(backup).toEqual({ status: 'fulfilled', value: undefined });
+    // The test store holds far fewer routes than the default minimum (100),
+    // so the real health check of the backup just written warns
+    expect(fetch).toHaveBeenCalledOnce();
+    const payload = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
+    expect(payload.text).toMatch(/^Bifrost backup WARNING/);
+    expect(payload.attachments[0].blocks[2].text.text).toMatch(
+      /Route count \(\d+\) below minimum expected \(100\)/,
+    );
+  });
+
+  it('awaits the alert before the invocation settles (not fire-and-forget)', async () => {
+    const order: string[] = [];
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      if (line === '[Backup] Alert sent') order.push('alert sent');
+    });
+    vi.mocked(fetch).mockImplementation(async () => {
+      await new Promise(resolve => setTimeout(resolve, 5));
+      return new Response('ok');
+    });
+
+    const [backup] = await runCron('0 20 * * *', configured(unbound)).then(settled => {
+      order.push('invocation settled');
+      return settled;
+    });
+
+    expect(backup?.status).toBe('rejected');
+    expect(order).toEqual(['alert sent', 'invocation settled']);
+  });
+
+  it('a failed delivery never changes the cron outcome', async () => {
+    vi.mocked(fetch).mockRejectedValue(new Error(`offline ${WEBHOOK}`));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const [succeeded] = await runCron('0 20 * * *', configured());
+    const [failed] = await runCron('0 20 * * *', configured(unbound));
+
+    expect(succeeded).toEqual({ status: 'fulfilled', value: undefined });
+    expect(((failed as PromiseRejectedResult).reason as Error).message).toBe(
+      'Backup failed: BACKUP_BUCKET not configured',
+    );
+    expect(warn.mock.calls).toEqual([['[Backup] Alert failed'], ['[Backup] Alert failed']]);
   });
 });

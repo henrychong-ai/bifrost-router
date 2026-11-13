@@ -2,6 +2,7 @@ import { env } from 'cloudflare:test';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { checkBackupHealth } from '../src/backup/health';
+import { notifyBackupOutcome } from '../src/backup/notifications';
 import { handleScheduled } from '../src/backup/scheduled';
 import { insertAuditLog } from '../src/db/analytics';
 import { handleR2 } from '../src/handlers/r2';
@@ -286,6 +287,37 @@ describe('the backup jobs', () => {
       '[Backup] Platform error: RangeError',
     ]);
     expect(leaks(MARKER)).toEqual([]);
+  });
+
+  it('alert: never logs the webhook URL, an error message or a failure text', async () => {
+    const webhook = `https://hooks.slack.com/services/T000/B000/${MARKER}`;
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new TypeError(`connect failed ${webhook}`));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const alertEnv = { ...env, BACKUP_ALERT_SLACK_WEBHOOK: webhook } as unknown as Bindings;
+      // A failed run whose error is not a fixed text, then a health check that throws
+      await notifyBackupOutcome(alertEnv, { success: false, error: MARKER, duration: 1 });
+      await notifyBackupOutcome(alertEnv, { success: true, duration: 1 }, () =>
+        Promise.reject(new RangeError(`health failed daily/${MARKER}`)),
+      );
+      // A value that is not a Slack webhook is refused without being quoted
+      await notifyBackupOutcome(
+        { ...env, BACKUP_ALERT_SLACK_WEBHOOK: `https://${MARKER}.example.com/x` } as Bindings,
+        { success: false, duration: 1 },
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(output).toEqual([
+        '[Backup] Alert failed',
+        '[Backup] Health check after backup could not run: RangeError',
+        '[Backup] Alert failed',
+        '[Backup] Alert not sent: BACKUP_ALERT_SLACK_WEBHOOK is not a Slack webhook URL',
+      ]);
+      expect(leaks(MARKER, 'hooks.slack.com')).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

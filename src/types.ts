@@ -235,8 +235,13 @@ export type Bindings = {
   /** Cloudflare account id for the audit-log poller (identifier, not a secret) */
   CF_ACCOUNT_ID?: string;
 
-  // Slack webhook URL for backup health alerts (optional)
-  SLACK_BACKUP_WEBHOOK?: string;
+  /**
+   * Slack incoming-webhook URL for backup alerts (optional secret: `wrangler
+   * secret put BACKUP_ALERT_SLACK_WEBHOOK`). Unset, the nightly backup sends
+   * no alert, runs no extra health check and logs nothing about it. Only an
+   * https://hooks.slack.com/services/ URL is used; the URL is never logged.
+   */
+  BACKUP_ALERT_SLACK_WEBHOOK?: string;
 
   // Service Bindings for Worker-to-Worker calls
   EXAMPLE_SITE?: Fetcher;

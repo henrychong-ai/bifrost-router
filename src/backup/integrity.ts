@@ -29,6 +29,7 @@
 import { Inflate, Z_SYNC_FLUSH } from 'pako';
 import { z } from 'zod';
 import {
+  BACKUP_BUCKET_NOT_CONFIGURED,
   BACKUP_LISTING_CURSOR_INVALID,
   BACKUP_MANIFEST_VERSION,
   backupArchiveKey,
@@ -92,6 +93,9 @@ export class BackupIntegrityError extends Error {
   }
 }
 
+/** The message of a {@link BackupReadError}: fixed, naming no key. */
+export const BACKUP_READ_FAILED = 'Backup archive could not be read';
+
 /**
  * R2 failed while the stored archive was fetched or streamed (v1.37.1): a
  * storage fault, not a fault in the archive, so it is never reported as
@@ -101,7 +105,7 @@ export class BackupIntegrityError extends Error {
 export class BackupReadError extends Error {
   constructor(cause: unknown) {
     // The one source of this text; health reports it as is
-    super('Backup archive could not be read', { cause });
+    super(BACKUP_READ_FAILED, { cause });
     this.name = 'BackupReadError';
   }
 }
@@ -137,6 +141,27 @@ export function fixedBackupFailure(error: unknown): string {
     error instanceof BackupReadError
     ? error.message
     : BACKUP_FAILED_GENERIC;
+}
+
+/**
+ * Every text a scheduled backup's `error` can be: each message
+ * {@link fixedBackupFailure} gives, and BACKUP_BUCKET_NOT_CONFIGURED. All are
+ * constants that quote no key, payload or stored value.
+ */
+const FIXED_FAILURE_TEXTS: ReadonlySet<string> = new Set([
+  ...Object.values(BACKUP_ERRORS),
+  BACKUP_READ_FAILED,
+  BACKUP_LISTING_CURSOR_INVALID,
+  BACKUP_FAILED_GENERIC,
+  BACKUP_BUCKET_NOT_CONFIGURED,
+]);
+
+/**
+ * Whether `text` is one of the fixed backup failure texts, so it can be passed
+ * on as it is (the backup alert's reason): never a raw error's message.
+ */
+export function isFixedBackupFailureText(text: unknown): text is string {
+  return typeof text === 'string' && FIXED_FAILURE_TEXTS.has(text);
 }
 
 /** What a verified archive holds. */

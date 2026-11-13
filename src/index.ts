@@ -4,7 +4,7 @@ import { HTTPException } from 'hono/http-exception';
 import { routePath } from 'hono/route';
 import { secureHeaders } from 'hono/secure-headers';
 import { pollCfAuditLogs } from './audit/cf-audit-poll';
-import { handleScheduled } from './backup';
+import { handleScheduled, notifyBackupOutcome } from './backup';
 import { BACKUP_FAILED_GENERIC } from './backup/integrity';
 import {
   pruneUnifiedTrafficEvents,
@@ -603,9 +603,15 @@ app.onError((err, c) => {
  * One whose manifest write fails has already stored an archive it verified; a
  * re-run verifies its own archive again, overwrites the archive, then writes
  * the manifest.
+ *
+ * The backup alert runs next, before the outcome is logged or the invocation
+ * failed: a failed run, or an unhealthy backup after a successful one, sends
+ * one Slack alert when BACKUP_ALERT_SLACK_WEBHOOK is set (a silent no-op when
+ * it is not). It never throws, so it cannot change the outcome below.
  */
 async function runScheduledBackup(env: Bindings): Promise<void> {
   const result = await handleScheduled(env);
+  await notifyBackupOutcome(env, result);
   if (result.success) {
     console.log(
       `[Scheduled] Backup completed in ${result.duration}ms - ` +

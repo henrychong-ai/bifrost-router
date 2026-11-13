@@ -31,6 +31,6 @@ export type {
 export { DEFAULT_HEALTH_CONFIG } from './health-schemas';
 export { backupKV } from './kv';
 export { writeManifest } from './manifest';
-export { sendBackupAlert } from './notifications';
+export { notifyBackupOutcome } from './notifications';
 export { handleScheduled } from './scheduled';
 export type { BackupManifest, BackupResult, KVBackupResult } from './types';
