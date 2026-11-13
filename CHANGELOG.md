@@ -6,6 +6,84 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.43.0 (2026-11-13) — Backup failure alerts (optional, ships dormant)
+
+**Why:** nothing alerted on a failed or unhealthy nightly backup. A Slack
+helper existed in `src/backup/notifications.ts` but nothing called it, so a
+broken backup was visible only on the dashboard's backup-health view or in the
+logs, and was likely to be noticed only when someone needed a restore. **No
+migration**; no API, schema or MCP tool change.
+
+**Upgrading:** nothing is required. To turn alerting on, create a Slack
+incoming webhook and run `wrangler secret put BACKUP_ALERT_SLACK_WEBHOOK`
+(README "Optional: Backup failure alerts"). The binding `SLACK_BACKUP_WEBHOOK`
+that `src/types.ts` used to declare was never read by any code; if you set it
+as a secret expecting alerts, set `BACKUP_ALERT_SLACK_WEBHOOK` instead and
+delete the old one.
+
+### Backup
+
+- **`notifyBackupOutcome`** (`src/backup/notifications.ts`) runs in the backup
+  cron's `waitUntil` right after `handleScheduled`, before the outcome is
+  logged. A **failed** run sends one `FAILED` alert; its reason is the
+  backup's error only when that is one of the fixed failure texts (new
+  `isFixedBackupFailureText` in `src/backup/integrity.ts`), otherwise the
+  fixed `Unexpected error (details in the [Backup] or [Scheduled] log)`. A
+  **successful** run is followed by the same health check as
+  `GET /api/backups/health`; a warning or critical result sends one alert with
+  the status, environment, last backup date, age, route count and the issue
+  messages (the skipped-record issues included), and a healthy result sends
+  nothing. A health check that throws, or has not answered after 60 seconds,
+  sends a critical alert `Backup health check could not run after the backup`
+  and logs the error class only.
+- **Dormant by default:** with the secret unset the step is a silent no-op: no
+  health check, no request and no log line, like the other optional features
+  that ship off.
+- **Safety:** only an `https://hooks.slack.com/services/…` URL with no port and
+  no credentials is used (any other value logs one fixed "not a Slack webhook
+  URL" line and sends nothing); redirects are not followed (a 3xx counts as a
+  failed delivery); each delivery times out after 10 seconds and its response
+  body is discarded; the Worker never writes the URL to its logs. Outcome
+  lines are fixed:
+  `[Backup] Alert sent`, `[Backup] Alert failed`, `[Backup] Alert failed (HTTP
+  n)`. An alert carries counts and fixed texts only, never a key, a stored
+  value, the manifest's domain list or an error message.
+- **Traces:** Cloudflare documents that Workers traces, when enabled, record
+  the full URL of every outbound request, this delivery included, and the
+  example `wrangler.toml` enables them. Anyone who can read the account's
+  Workers Observability, or a configured trace export destination, can then
+  read the webhook URL: restrict that access, turn traces off, or accept it
+  (README "Optional: Backup failure alerts").
+- **The cron's outcome is unchanged:** the alert never throws, and a failed
+  backup still rejects its `waitUntil`. The alert adds at most about 70
+  seconds to the invocation (the 60-second health-check bound plus the
+  10-second delivery timeout).
+- **Removed:** the uncalled `sendBackupAlert` (it checked no URL, and a failed
+  request could raise an error quoting the webhook) and the unread
+  `SLACK_BACKUP_WEBHOOK` declaration.
+- **Note:** the health check warns when a backup holds fewer than 100 routes
+  (`minExpectedRoutes`), so a small deployment that turns alerting on gets
+  that warning every night. The example config runs the backup cron in
+  production only (`[env.dev.triggers]` is empty).
+- **Not covered (TODO.md):** a run the platform kills (CPU, memory or
+  wall-clock limit) or a cron that never fires sends no alert, and the next
+  night's run checks only the backup it has just written.
+
+### Tests
+
+- `test/backup/notifications.test.ts` (new: dormant, refused
+  webhook shapes, fixed and non-fixed failure reasons, health formatting, the
+  60-second bound with fake timers, the 10-second timeout, HTTP error,
+  redirect and network failure, no URL in any log level);
+  `test/scheduled-dispatch.test.ts` (alerting through the real cron: silent
+  while unset, a failed backup alerts and still fails, the real health check
+  after a successful backup warns, the alert is awaited before the invocation
+  settles, a failed delivery changes nothing); `test/log-rule.test.ts` (marker
+  values in the webhook, the backup error and a health-check error never reach
+  a log line).
+
+---
+
 ## v1.42.5 (2026-11-13) — File routes answer GET and HEAD only; serving and QR store fixes
 
 **Why:** a file route served any HTTP method: a POST, PUT, PATCH, DELETE or OPTIONS to a public file URL was answered with the file (the cached GET body on an edge-cache hit), and a missing object's 404 to such a method named its key (a GET or HEAD to a missing object still gets that 404). Also four smaller serving and store fixes, and a written versioning rule. **No migration**; no new endpoint, parameter, response field or MCP tool.
