@@ -24,64 +24,58 @@
  *       backslash kept as a separator, so an encoded name inside a Windows
  *       path is not glued to its neighbours.
  *
- * Two kinds of rule:
+ * Generic rules, which need no identifier at all:
+ *   - a home-directory path, with or without a trailing separator: a macOS
+ *     `Users` directory (capital U, matched anywhere, so under a volume or
+ *     WSL mount and in a source map too; the `Shared` directory is allowed),
+ *     a Windows drive's `Users` directory with either slash (the profile name
+ *     may contain spaces), or a Linux `home` or `var/home` directory (the
+ *     `node` and `runner` container and CI users are allowed). A lower-case
+ *     `users` segment is an application route and is not flagged, and a
+ *     name in angle brackets is a placeholder;
+ *   - a Tailscale MagicDNS host (anything under `ts.net`), unless its tailnet
+ *     label is a `your-` placeholder;
+ *   - an email address, unless its domain is an RFC 2606 example domain
+ *     (example.com, example.org, example.net or a subdomain of one, or any
+ *     `.example` name) or the GitHub no-reply domain. An scp-style git remote
+ *     and a `name@2x.png`-style asset name are not addresses, and neither is
+ *     a version pin, whose top-level label is not alphabetic;
+ *   - a 1Password secret reference that is not a `your-vault` /
+ *     `your-1password` placeholder;
+ *   - a numbered private host name of the `vps-` form;
+ *   - a single-label `https://` host (see `singleLabelHostFindings`);
+ *   - a cloud identifier: a 32-hex value or a UUID after an identifier key on
+ *     the same line (see `hasCloudIdentifier`), unless it is an obvious
+ *     placeholder (`isPlaceholderIdentifier`) or on an allowed line
+ *     (`ALLOWED_IDENTIFIER_LINES`).
  *
- * 1. Generic rules, which need no identifier at all:
- *    - a home-directory path, with or without a trailing separator: a macOS
- *      `Users` directory (capital U, matched anywhere, so under a volume or
- *      WSL mount and in a source map too; the `Shared` directory is allowed),
- *      a Windows drive's `Users` directory with either slash (the profile name
- *      may contain spaces), or a Linux `home` or `var/home` directory (the
- *      `node` and `runner` container and CI users are allowed). A lower-case
- *      `users` segment is an application route and is not flagged, and a
- *      name in angle brackets is a placeholder;
- *    - a Tailscale MagicDNS host (anything under `ts.net`), unless its tailnet
- *      label is a `your-` placeholder;
- *    - an email address, unless its domain is an RFC 2606 example domain
- *      (example.com, example.org, example.net or a subdomain of one, or any
- *      `.example` name) or the GitHub no-reply domain. An scp-style git remote
- *      and a `name@2x.png`-style asset name are not addresses, and neither is
- *      a version pin, whose top-level label is not alphabetic;
- *    - a 1Password secret reference that is not a `your-vault` /
- *      `your-1password` placeholder;
- *    - a numbered private host name of the `vps-` form;
- *    - a single-label `https://` host (see `singleLabelHostFindings`).
+ * Binary files: a file holding a NUL byte cannot be read as text, so it fails
+ * unless it is on `PINNED_BINARY_FILES` with its exact SHA-256.
  *
- * 2. Hashed rules, for the specific private names a generic rule cannot
- *    describe: tailnet names, a private repository and directory name,
- *    personal site domains and private company hosts. Only the SHA-256 of
- *    `${IDENTIFIER_SALT}:${identifier}` is stored.
+ * Extra terms (optional, never committed): a clone may keep a list of its own
+ * private names, one term per line, in `PUBLIC_CHECK_TERMS_FILE` or, when that
+ * is unset, in `public-check-terms.txt` inside the clone's git directory
+ * (`git rev-parse --git-common-dir`, so every worktree of the clone shares it
+ * and it can never be staged). Blank lines and lines starting `#` are skipped;
+ * a term matches as a case-insensitive substring of any of a line's forms; a
+ * line starting `re:` is a regular expression, applied case-insensitively.
+ * Findings name the terms file's line, never the term. Without the file the
+ * check says that only the generic rules ran, and passes. CI has no terms
+ * file.
  *
- *    This is forward-only concealment, not secrecy. The earlier plain-text
- *    list is still in this repository's public history (from 2026-08-12), and
- *    the salt is public, so anyone can guess a candidate value and confirm it
- *    by hashing it the same way. What hashing changes is that the current
- *    file no longer prints the list.
- *
- *    Matching: each form is lower-cased and split into tokens, the maximal
- *    runs of `[a-z0-9.-]`. Every run of up to MAX_IDENTIFIER_PARTS consecutive
- *    dot- or hyphen-separated parts of a token is hashed and looked up. A
- *    hashed name therefore matches as a subdomain of something longer, inside
- *    a longer hyphenated name, in a URL, path or email address, and in any
- *    letter case. A glued form, the name with extra letters or digits fused
- *    straight onto it, is intentionally not matched.
- *
- *    To add an identifier: it must consist only of `[a-z0-9.-]` once
- *    lower-cased, or it can never match. Compute its digest locally and add
- *    only the digest to PRIVATE_IDENTIFIER_DIGESTS (keep the list sorted).
- *    Never commit the plain value, in code, a test, a comment or a commit
- *    message. With a placeholder standing in for the real value:
- *
- *      node -e "console.log(require('node:crypto').createHash('sha256').update('bifrost-public-check-v1:' + process.argv[1].toLowerCase()).digest('hex'))" 'your-identifier.example'
- *
- *    An identifier may have at most MAX_IDENTIFIER_PARTS parts; raise it
- *    before adding a longer one. The test asserts the list's size, so update
- *    that count in the same commit.
+ * Commit messages: `--commit-msg <file>` (the husky `commit-msg` hook) checks
+ * the message being written, and `--commits <rev-list arguments>` or
+ * `--ci-commits` (CI: the commits a push or pull request adds, see
+ * `ciRevListArgs`) check existing commits. Each applies the generic rules and
+ * the extra terms to the subject and body, and requires the author and
+ * committer emails to be GitHub no-reply or example-domain addresses
+ * (`identityEmailAllowed`; GitHub's own service addresses, which sign merges
+ * and bot commits, are allowed in commits too).
  */
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const FORBIDDEN_PATHS = [
@@ -91,91 +85,48 @@ const FORBIDDEN_PATHS = [
   /(^|\/)security-reports\//,
 ];
 
-export const IDENTIFIER_SALT = 'bifrost-public-check-v1';
-export const MAX_IDENTIFIER_PARTS = 4;
-
-export const PRIVATE_IDENTIFIER_DIGESTS = new Set([
-  '004d767a7fa2cda15b840dee87027673e1d6e5861a570b364c83bf07d75c6de5',
-  '1807f3fc6eb119c0dd90c45851a0b24110e6cc5b544951fe3a99919ba24150e6',
-  '340bb295ed3658cbb375b88f721319b45ca4df857186332c828525482affe913',
-  '48a7bcbe8f444233a85c1cd474dbbd8f06a56389bea71cf71f838762366e3e74',
-  '5986053701c5b1eae3b228435a3f9c41d059c5459a0014e49d35b52beba86172',
-  '5c67f8482c8cdf53cc9fcd0411c62738b5c9c7bb6ce84fac37e5f23007c5c3a0',
-  '720fe06504679c22218e676b81cbca8348d7ab1d92af8cffa5971c89b53986a8',
-  '78f5eac0fdf4fc522f1ba15f35c0e5f8f83429a7154d2ac360c13ac4065df0b6',
-  '7f862e5dcc53dc38dead72a04d5c1e1fdace129ff89e78aa80c8dcfb34efe307',
-  '7fdf18b1577b8ebb16d728e10334a8e591b3f8dd38461fe224370e59afdb8682',
-  '8cec9902c757d6fcd095f9502796a56773118e35bb3bcc08aaba87e3975026cf',
-  '90bd626f0863819b3bed0edcf3d6264d1a4b1c84e8a285efe6a1778fddbaff21',
-  'a0b16aff3268cdcd2e6812348ec551b9d9755766fa992a58da518dc34cb79670',
-  'a130c41c07d1a94a24417926a936969dfeb18ec89e0c9189a83b5c31713af582',
-  'a3dc970e81582a389ecf31241198b51279621ef5458de5ba803742ea5fea71fb',
-  'a7261b35e623e91fbe91d01d9aacbee0428fdbf6883750d6d51ab909d250d637',
-  'c621c0957c5a11ef891670ce5230183414a783f59c8ac6c62b6456ef4f78295a',
-  'd1b0354ec10aea50c20bf587f2f9d11d7a16bd20f57a7404574292823bc0e51d',
-  'dbe09dc94a2d7b4e0328d0eea0492c7b497dde9f790da022a4dd20e7fcff367d',
-  'e1b88758f8781050b890b0cca8ee76ff409cc67a4178c87843b1e132c483a284',
-  'e7387c84a00a1c28218bfe2380e4060f566117419bb945037ffe57d5678fb57a',
-  'f8a64161daf80d1479f16eb7d96ccbf384b847b0018c1c08da541187e6a72905',
+/**
+ * The binary files the tree may hold, each pinned to its SHA-256: the
+ * dashboard's bundled fonts (unmodified upstream files, admin/public/fonts).
+ * A new or changed binary file needs its own entry, checked by hand first.
+ */
+export const PINNED_BINARY_FILES = new Map([
+  [
+    'admin/public/fonts/inter-4.1/inter-variable-italic.woff2',
+    'e564f652916db6c139570fefb9524a77c4d48f30c92928de9db19b6b5c7a262a',
+  ],
+  [
+    'admin/public/fonts/inter-4.1/inter-variable.woff2',
+    '693b77d4f32ee9b8bfc995589b5fad5e99adf2832738661f5402f9978429a8e3',
+  ],
+  [
+    'admin/public/fonts/maple-mono-7.9/maple-mono-nl-italic.woff2',
+    '211e93c6351ad86c3378d061903b5ce1d28490f36fb2f2215305c3d5958561a5',
+  ],
+  [
+    'admin/public/fonts/maple-mono-7.9/maple-mono-nl.woff2',
+    'a7fb30bf825a1f5aae9a81a91f8cf894c07a50b5a711d9b02a333ad7e0c87e9e',
+  ],
 ]);
 
-export function identifierDigest(salt, identifier) {
-  return createHash('sha256').update(`${salt}:${identifier}`).digest('hex');
-}
+/**
+ * Lines where a UUID after an `id` key is not a cloud identifier: Drizzle
+ * Kit's migration snapshots name each snapshot and its predecessor with a
+ * random UUID (`id`, `prevId`) that identifies nothing outside this
+ * repository.
+ */
+export const ALLOWED_IDENTIFIER_LINES = [
+  {
+    file: /^drizzle\/meta\/\d{4}_snapshot\.json$/,
+    line: /^\s*"(?:id|prevId)": "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",?$/,
+  },
+];
 
 const IDENTIFIER_TOKEN = /[a-z0-9.-]+/g;
 
 function tokensOf(text) {
   return text.toLowerCase().match(IDENTIFIER_TOKEN) ?? [];
 }
-
-/**
- * Returns a predicate that is true when a text holds a hashed identifier.
- * `salt` and `digests` are parameters so a test can inject a synthetic set;
- * the shipped set is the default.
- */
-export function createIdentifierMatcher({
-  salt = IDENTIFIER_SALT,
-  digests = PRIVATE_IDENTIFIER_DIGESTS,
-  maxParts = MAX_IDENTIFIER_PARTS,
-} = {}) {
-  const tokenVerdicts = new Map();
-  const candidateVerdicts = new Map();
-
-  const isPrivate = candidate => {
-    let verdict = candidateVerdicts.get(candidate);
-    if (verdict === undefined) {
-      verdict = digests.has(identifierDigest(salt, candidate));
-      candidateVerdicts.set(candidate, verdict);
-    }
-    return verdict;
-  };
-
-  const tokenIsPrivate = token => {
-    // Even indexes are parts, odd indexes the delimiter between two parts.
-    const pieces = token.split(/([.-])/);
-    for (let start = 0; start < pieces.length; start += 2) {
-      let candidate = pieces[start];
-      for (let end = start; end < pieces.length && end < start + 2 * maxParts; end += 2) {
-        if (end > start) candidate += pieces[end - 1] + pieces[end];
-        if (pieces[end] !== '' && isPrivate(candidate)) return true;
-      }
-    }
-    return false;
-  };
-
-  return text =>
-    tokensOf(text).some(token => {
-      let verdict = tokenVerdicts.get(token);
-      if (verdict === undefined) {
-        verdict = tokenIsPrivate(token);
-        tokenVerdicts.set(token, verdict);
-      }
-      return verdict;
-    });
-}
-
-const defaultIdentifierMatcher = createIdentifierMatcher();
 
 // Form (b): a percent-encoded byte or a backslash escape, blanked.
 const ESCAPE_SEQUENCE = /%[0-9a-f]{2}|\\(?:u[0-9a-f]{4}|x[0-9a-f]{2}|.)/gi;
@@ -272,54 +223,242 @@ const EMAIL_ADDRESS =
   /(?<![a-z0-9._%+-])([a-z0-9._%+-]+)@([a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,})(?![a-z0-9-])/gi;
 const EXAMPLE_EMAIL_DOMAIN = /(?:^|\.)(?:example\.(?:com|org|net)|[a-z0-9-]+\.example)$/;
 const ALLOWED_EMAIL_DOMAINS = new Set(['users.noreply.github.com']);
+/**
+ * GitHub's own service addresses: the committer of a merge or edit made on
+ * GitHub, and the sign-off of its dependency-update bot. Allowed in commits
+ * only, never in a file.
+ */
+export const GITHUB_SERVICE_ADDRESSES = new Set(
+  ['noreply', 'support'].map(local => `${local}@github.com`),
+);
 // `icon@2x.png`, `logo@1.5x.webp`: a resolution suffix, not a domain.
 const ASSET_SCALE_SUFFIX = /^\d+(?:\.\d+)?x\.[a-z0-9]+$/;
 
-function hasPrivateEmail(form) {
-  for (const match of form.matchAll(EMAIL_ADDRESS)) {
-    const local = match[1].toLowerCase();
-    const domain = match[2].toLowerCase();
-    const next = form[match.index + match[0].length];
-    if (local === 'git' && (next === ':' || next === '/')) continue;
-    if (ASSET_SCALE_SUFFIX.test(domain)) continue;
-    if (EXAMPLE_EMAIL_DOMAIN.test(domain) || ALLOWED_EMAIL_DOMAINS.has(domain)) continue;
-    return true;
-  }
-  return false;
+function emailAllowed(local, domain, allowedAddresses) {
+  if (EXAMPLE_EMAIL_DOMAIN.test(domain) || ALLOWED_EMAIL_DOMAINS.has(domain)) return true;
+  return allowedAddresses.has(`${local}@${domain}`);
+}
+
+function privateEmailRule(allowedAddresses) {
+  return form => {
+    for (const match of form.matchAll(EMAIL_ADDRESS)) {
+      const local = match[1].toLowerCase();
+      const domain = match[2].toLowerCase();
+      const next = form[match.index + match[0].length];
+      if (local === 'git' && (next === ':' || next === '/')) continue;
+      if (ASSET_SCALE_SUFFIX.test(domain)) continue;
+      if (emailAllowed(local, domain, allowedAddresses)) continue;
+      return true;
+    }
+    return false;
+  };
+}
+
+/**
+ * Whether a commit's author or committer email may be published: a GitHub
+ * no-reply address, an RFC 2606 example-domain address, or one of GitHub's
+ * service addresses.
+ */
+export function identityEmailAllowed(email) {
+  const lower = email.trim().toLowerCase();
+  const at = lower.lastIndexOf('@');
+  if (at <= 0 || at === lower.length - 1) return false;
+  return emailAllowed(lower.slice(0, at), lower.slice(at + 1), GITHUB_SERVICE_ADDRESSES);
 }
 
 const NUMBERED_PRIVATE_HOST = /\bvps-\d+\b/i;
 const SECRET_REFERENCE = /\bop:[/][/](?!your-(?:vault|1password)\b)/i;
 
-const GENERIC_RULES = [
-  ['home-directory path', hasHomePath],
-  ['Tailscale MagicDNS host', hasTailnetHost],
-  ['email address outside the example domains', hasPrivateEmail],
-  ['numbered private host', form => NUMBERED_PRIVATE_HOST.test(form)],
-  ['non-placeholder 1Password reference', form => SECRET_REFERENCE.test(form)],
-  [
-    'single-label https host (use an RFC 2606 name)',
-    form => singleLabelHostFindings(form).length > 0,
-  ],
-];
+// A 32-hex value or a UUID, standing alone: no letter or digit on either side,
+// so a longer digest (a 64-hex pin, a base64 integrity string) is not one.
+const CLOUD_IDENTIFIER_VALUE =
+  /(?<![0-9a-z])(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?![0-9a-z])/gi;
+const KEY_WORD = /[A-Za-z][A-Za-z0-9_-]*/g;
+const ID_KEY_WORDS = new Set([
+  'id',
+  'ids',
+  'uuid',
+  'account',
+  'accounts',
+  'zone',
+  'zones',
+  'namespace',
+  'namespaces',
+  'database',
+  'databases',
+]);
+
+/**
+ * Whether a word names an identifier: `id`, `uuid`, an account, zone,
+ * namespace or database (`/accounts/<value>` included), a `_id`/`-id` suffix
+ * in any case (`account_id`, `CF_ACCOUNT_ID`, `CLOUDFLARE_ZONE_IDS`,
+ * `--zone-id`), a camel-case `Id` suffix (`accountId`), or any word with an
+ * `account` or `zone` part (`account_tag`).
+ */
+export function isIdentifierKey(word) {
+  const lower = word.toLowerCase();
+  if (ID_KEY_WORDS.has(lower)) return true;
+  if (/[_-](?:id|ids|uuid)$/.test(lower)) return true;
+  if (/[a-z0-9](?:Id|ID|Ids|IDs|IDS|Uuid|UUID)$/.test(word)) return true;
+  return /(?:^|[_-])(?:account|accounts|zone|zones)(?:[_-]|$)/.test(lower);
+}
+
+const SEQUENTIAL_HEX = '0123456789abcdef'.repeat(3);
+
+/**
+ * An obvious placeholder: at least half of its hex digits are zeros (an
+ * all-zero value, the nil UUID, a mostly-zero test id such as
+ * `0190abcd-0000-7000-8000-00000000000a`), one digit repeated, or the run
+ * `0123456789abcdef…`. A random identifier is none of these.
+ */
+export function isPlaceholderIdentifier(value) {
+  const hex = value.toLowerCase().replaceAll('-', '');
+  const zeros = hex.split('').filter(digit => digit === '0').length;
+  if (zeros * 2 >= hex.length) return true;
+  if (/^(.)\1*$/.test(hex)) return true;
+  return SEQUENTIAL_HEX.includes(hex);
+}
+
+/**
+ * A cloud identifier: a 32-hex value or a UUID that is not a placeholder, with
+ * an identifier key (`isIdentifierKey`) earlier on the same line, whether it
+ * is assigned (`account_id = "…"`, `zone_id: …`, `"id": "…"`), passed as a
+ * flag (`--account-id …`), part of an API path (`/accounts/…/`) or named in a
+ * table row or prose (`| Zone ID | … |`).
+ */
+export function hasCloudIdentifier(form) {
+  // One pass each: a value counts once the first identifier key has ended.
+  let keyEnd = -1;
+  for (const word of form.matchAll(KEY_WORD)) {
+    if (isIdentifierKey(word[0])) {
+      keyEnd = word.index + word[0].length;
+      break;
+    }
+  }
+  if (keyEnd < 0) return false;
+  for (const match of form.matchAll(CLOUD_IDENTIFIER_VALUE)) {
+    if (match.index >= keyEnd && !isPlaceholderIdentifier(match[0])) return true;
+  }
+  return false;
+}
+
+const CLOUD_IDENTIFIER_RULE = 'cloud identifier (use a your- placeholder)';
+
+function genericRules(allowedAddresses = new Set()) {
+  return [
+    ['home-directory path', hasHomePath],
+    ['Tailscale MagicDNS host', hasTailnetHost],
+    ['email address outside the example domains', privateEmailRule(allowedAddresses)],
+    ['numbered private host', form => NUMBERED_PRIVATE_HOST.test(form)],
+    ['non-placeholder 1Password reference', form => SECRET_REFERENCE.test(form)],
+    [
+      'single-label https host (use an RFC 2606 name)',
+      form => singleLabelHostFindings(form).length > 0,
+    ],
+    [CLOUD_IDENTIFIER_RULE, hasCloudIdentifier],
+  ];
+}
+
+const FILE_RULES = genericRules();
+const COMMIT_RULES = genericRules(GITHUB_SERVICE_ADDRESSES);
+
+/** Raised for a terms file that is named but missing, or holds a bad entry. */
+export class TermsFileError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'TermsFileError';
+  }
+}
+
+/**
+ * The extra terms in a terms file's text, each as a rule named by its line in
+ * that file (never by the term). Throws `TermsFileError` for an empty `re:`
+ * line or a regular expression that does not compile, naming the line only.
+ */
+export function parseExtraTerms(text) {
+  const rules = [];
+  text.split('\n').forEach((raw, index) => {
+    const entry = raw.trim();
+    if (entry === '' || entry.startsWith('#')) return;
+    const name = `extra term (terms file line ${index + 1})`;
+    if (entry.startsWith('re:')) {
+      const source = entry.slice(3);
+      let pattern;
+      try {
+        pattern = new RegExp(source, 'i');
+      } catch {
+        pattern = undefined;
+      }
+      if (source === '' || pattern === undefined) {
+        throw new TermsFileError(
+          `Public check terms file line ${index + 1}: not a valid regular expression.`,
+        );
+      }
+      rules.push([name, form => pattern.test(form)]);
+      return;
+    }
+    const term = entry.toLowerCase();
+    rules.push([name, form => form.toLowerCase().includes(term)]);
+  });
+  return rules;
+}
+
+/**
+ * Where the terms file is: `PUBLIC_CHECK_TERMS_FILE` when set (resolved from
+ * `cwd`), else `public-check-terms.txt` in the clone's common git directory.
+ */
+export function extraTermsPath({ env = process.env, cwd = process.cwd() } = {}) {
+  const named = env.PUBLIC_CHECK_TERMS_FILE;
+  if (named !== undefined && named !== '') return { path: resolve(cwd, named), named: true };
+  const common = execFileSync('git', ['rev-parse', '--git-common-dir'], {
+    cwd,
+    encoding: 'utf8',
+  }).trim();
+  return { path: resolve(cwd, common, 'public-check-terms.txt'), named: false };
+}
+
+/**
+ * The extra-term rules for this clone, or `null` when it keeps no terms file.
+ * A file named by `PUBLIC_CHECK_TERMS_FILE` must exist: a mistyped name is an
+ * error, never a silent pass.
+ */
+export function loadExtraTerms(options = {}) {
+  const { path, named } = extraTermsPath(options);
+  if (!existsSync(path)) {
+    if (named)
+      throw new TermsFileError('PUBLIC_CHECK_TERMS_FILE names a file that does not exist.');
+    return null;
+  }
+  return parseExtraTerms(readFileSync(path, 'utf8'));
+}
 
 /**
  * Every content finding in `text`, as `line N: rule`, in line order. The
- * matched text is never included.
+ * matched text is never included. `extraTerms` are the rules from a terms
+ * file; `identifierAllowed(line)` exempts a line from the cloud-identifier
+ * rule; `rules` replaces the file rules (commit messages use their own).
  */
-export function contentFindings(text, identifierMatcher = defaultIdentifierMatcher) {
-  const rules = [...GENERIC_RULES, ['hashed private identifier', identifierMatcher]];
+export function contentFindings(
+  text,
+  { extraTerms = [], identifierAllowed = () => false, rules = FILE_RULES } = {},
+) {
+  const allRules = [...rules, ...extraTerms];
   const findings = [];
   text.split('\n').forEach((line, index) => {
     const forms = lineForms(line);
-    for (const [rule, matches] of rules) {
+    for (const [rule, matches] of allRules) {
+      if (rule === CLOUD_IDENTIFIER_RULE && identifierAllowed(line)) continue;
       if (forms.some(form => matches(form))) findings.push(`line ${index + 1}: ${rule}`);
     }
   });
   return findings;
 }
 
-export function sanitizationFindings(files, root = '.') {
+function sha256(buffer) {
+  return createHash('sha256').update(buffer).digest('hex');
+}
+
+export function sanitizationFindings(files, root = '.', { extraTerms = [] } = {}) {
   const findings = [];
   for (const file of files) {
     if (FORBIDDEN_PATHS.some(pattern => pattern.test(file))) {
@@ -327,8 +466,18 @@ export function sanitizationFindings(files, root = '.') {
       continue;
     }
     const buffer = readFileSync(resolve(root, file));
-    if (buffer.includes(0)) continue;
-    for (const finding of contentFindings(buffer.toString('utf8'))) {
+    if (buffer.includes(0)) {
+      const pinned = PINNED_BINARY_FILES.get(file);
+      if (pinned === undefined) findings.push(`${file}: binary file that is not pinned`);
+      else if (sha256(buffer) !== pinned) findings.push(`${file}: binary file unlike its pin`);
+      continue;
+    }
+    const allowances = ALLOWED_IDENTIFIER_LINES.filter(allowance => allowance.file.test(file));
+    const identifierAllowed = line => allowances.some(allowance => allowance.line.test(line));
+    for (const finding of contentFindings(buffer.toString('utf8'), {
+      extraTerms,
+      identifierAllowed,
+    })) {
       findings.push(`${file}: ${finding}`);
     }
   }
@@ -380,15 +529,166 @@ export function publicCandidateFiles(cwd = process.cwd()) {
     .filter(Boolean);
 }
 
-if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
-  const files = publicCandidateFiles();
-  const findings = [
-    ...sanitizationFindings(files),
-    ...wranglerIdentifierFindings(readFileSync('wrangler.toml', 'utf8')),
-  ];
+// Git drops everything from this line on, so the hook does too (a verbose
+// commit's diff follows it). Every other line, comments included, is checked:
+// a message given with -F keeps its `#` lines.
+const SCISSORS = /^# -+ >8 -+$/m;
+
+/**
+ * Findings for one commit message and its identities, each as
+ * `<label>: line N: rule` or `<label>: author email …`, never the text or the
+ * address.
+ */
+export function commitFindings(
+  label,
+  { message, authorEmail, committerEmail },
+  { extraTerms = [] } = {},
+) {
+  const cut = SCISSORS.exec(message);
+  const text = cut ? message.slice(0, cut.index) : message;
+  const findings = contentFindings(text, { extraTerms, rules: COMMIT_RULES }).map(
+    finding => `${label}: ${finding}`,
+  );
+  for (const [role, email] of [
+    ['author', authorEmail],
+    ['committer', committerEmail],
+  ]) {
+    if (!identityEmailAllowed(email)) {
+      findings.push(`${label}: ${role} email is not a GitHub no-reply or example-domain address`);
+    }
+  }
+  return findings;
+}
+
+const ZERO_SHA = /^0+$/;
+
+/**
+ * The `git rev-list` arguments for the commits a CI run must check, from the
+ * workflow's environment: a pull request's commits (`PR_BASE_SHA..PR_HEAD_SHA`);
+ * a push's (`PUSH_BEFORE..GITHUB_SHA`); and for a new branch or tag, a
+ * force-push whose old tip was not fetched, or a manual run, the commits not
+ * on the default branch (`origin/<DEFAULT_BRANCH>`), or the run's own commit
+ * alone when that branch is not there. Never the whole history, which
+ * predates the rule. `hasCommit(rev)` says whether a revision is present.
+ */
+export function ciRevListArgs(env, hasCommit) {
+  const head = env.GITHUB_SHA || 'HEAD';
+  if (env.EVENT_NAME === 'pull_request') {
+    if (!env.PR_BASE_SHA || !env.PR_HEAD_SHA) {
+      throw new Error('A pull_request run needs PR_BASE_SHA and PR_HEAD_SHA.');
+    }
+    return [`${env.PR_BASE_SHA}..${env.PR_HEAD_SHA}`];
+  }
+  const before = env.PUSH_BEFORE ?? '';
+  if (env.EVENT_NAME === 'push' && before !== '' && !ZERO_SHA.test(before) && hasCommit(before)) {
+    return [`${before}..${head}`];
+  }
+  const base = `origin/${env.DEFAULT_BRANCH || 'main'}`;
+  if (hasCommit(base)) return [head, '--not', base];
+  return ['--max-count=1', head];
+}
+
+function git(args, cwd) {
+  return execFileSync('git', args, { cwd, encoding: 'utf8' });
+}
+
+function gitHasCommit(rev, cwd) {
+  try {
+    execFileSync('git', ['rev-parse', '--verify', '--quiet', `${rev}^{commit}`], {
+      cwd,
+      stdio: 'ignore',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Findings for every commit `git rev-list <revListArgs>` names. */
+export function commitRangeFindings(revListArgs, { cwd = process.cwd(), extraTerms = [] } = {}) {
+  const shas = git(['rev-list', ...revListArgs], cwd)
+    .split('\n')
+    .filter(Boolean);
+  const findings = [];
+  for (const sha of shas) {
+    const [authorEmail, committerEmail, message] = git(
+      ['show', '-s', '--format=%ae%x00%ce%x00%B', sha],
+      cwd,
+    ).split('\0');
+    findings.push(
+      ...commitFindings(
+        `commit ${sha.slice(0, 12)}`,
+        { message, authorEmail, committerEmail },
+        { extraTerms },
+      ),
+    );
+  }
+  return { count: shas.length, findings };
+}
+
+/** The email of a `git var` identity (`Name <email> time zone`). */
+function identityEmail(variable, cwd) {
+  return /<([^>]*)>/.exec(git(['var', variable], cwd))?.[1] ?? '';
+}
+
+function report(findings, passed) {
   if (findings.length > 0) {
     console.error(`Public sanitization failed:\n${findings.map(item => `- ${item}`).join('\n')}`);
-    process.exit(1);
+    return 1;
   }
-  console.log(`Public sanitization passed (${files.length} release-candidate files).`);
+  console.log(passed);
+  return 0;
+}
+
+function main(argv) {
+  let extraTerms;
+  try {
+    extraTerms = loadExtraTerms();
+  } catch (error) {
+    if (!(error instanceof TermsFileError)) throw error;
+    console.error(error.message);
+    return 1;
+  }
+  if (extraTerms === null) console.log('No extra terms file: only the generic rules ran.');
+  else console.log(`Extra terms file: ${extraTerms.length} terms.`);
+  const terms = extraTerms ?? [];
+  const [mode, ...rest] = argv;
+
+  if (mode === undefined) {
+    const files = publicCandidateFiles();
+    const findings = [
+      ...sanitizationFindings(files, '.', { extraTerms: terms }),
+      ...wranglerIdentifierFindings(readFileSync('wrangler.toml', 'utf8')),
+    ];
+    return report(
+      findings,
+      `Public sanitization passed (${files.length} release-candidate files).`,
+    );
+  }
+  if (mode === '--commit-msg' && rest.length === 1) {
+    const findings = commitFindings(
+      'commit message',
+      {
+        message: readFileSync(rest[0], 'utf8'),
+        authorEmail: identityEmail('GIT_AUTHOR_IDENT'),
+        committerEmail: identityEmail('GIT_COMMITTER_IDENT'),
+      },
+      { extraTerms: terms },
+    );
+    return report(findings, 'Public sanitization passed (commit message).');
+  }
+  if ((mode === '--commits' && rest.length > 0) || (mode === '--ci-commits' && rest.length === 0)) {
+    const revListArgs =
+      mode === '--commits' ? rest : ciRevListArgs(process.env, rev => gitHasCommit(rev));
+    const { count, findings } = commitRangeFindings(revListArgs, { extraTerms: terms });
+    return report(findings, `Public sanitization passed (${count} commits).`);
+  }
+  console.error(
+    'Usage: check-public-sanitization.mjs [--commit-msg <file> | --commits <rev-list args> | --ci-commits]',
+  );
+  return 1;
+}
+
+if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
+  process.exitCode = main(process.argv.slice(2));
 }

@@ -25,26 +25,53 @@ container users; a lower-case `users` route segment is not flagged), any
 `ts.net` MagicDNS host (a `your-` placeholder tailnet is allowed), any email
 address outside the RFC 2606 example domains and GitHub's no-reply domain (git
 remotes, `@2x` asset names and version pins are not addresses), a
-non-placeholder 1Password reference, a numbered `vps-` host and a single-label
-`https://` host. Each line is checked as written, with escapes blanked, with
+non-placeholder 1Password reference, a numbered `vps-` host, a single-label
+`https://` host, and a cloud identifier: a 32-hex value or a UUID with an
+identifier key earlier on its line (`id`, `uuid`, a `_id` or `-id` suffix in
+any case such as `account_id`, `CF_ACCOUNT_ID` or `CLOUDFLARE_ZONE_IDS`, a
+camel-case `Id` suffix, an account, zone, namespace or database, so an
+assignment, a `--zone-id` flag, an `/accounts/…` API path and a table row all
+count). Write identifiers as `your-…` placeholders. A value at least half
+zeros, one repeated digit or the `0123456789abcdef…` run is an obvious
+placeholder and passes; a longer digest (a 64-hex pin, a base64 lockfile
+integrity) is not one value. The one allowance is Drizzle Kit's own snapshot
+ids (`"id"`/`"prevId"` in `drizzle/meta/*_snapshot.json`), which name
+migration snapshots, not cloud resources (`ALLOWED_IDENTIFIER_LINES`). Each
+line is checked as written, with escapes blanked, with
 escapes decoded, and with only character-code and punctuation escapes decoded
 (so a Windows backslash still separates), so an escape can neither eat the
 first letter of a name nor hide a delimiter inside one. Findings name the file, line and rule, never the
-matched text, because CI logs are public too.
+matched text, because CI logs are public too. **Binary files:** a file
+holding a NUL byte cannot be scanned as text, so it fails unless
+`PINNED_BINARY_FILES` lists it with its exact SHA-256 (today only the
+dashboard's four bundled fonts); add a binary file only after checking it by
+hand (metadata included), with its pin.
 
-The specific private names a generic rule cannot describe (tailnet names, a
-private repository and directory name, personal site domains, private company
-hosts) are matched by salted SHA-256 digest. This is forward-only
-concealment, not secrecy: the earlier plain-text list is still in this
-repository's public history (from 2026-08-12), and the salt is public, so
-anyone can guess a candidate value and confirm it by hashing it. A name is
-matched as a whole token or as whole dot- and hyphen-separated parts of one; a
-glued form, with extra letters fused straight onto the name, is intentionally
-not matched. To add an identifier, it must consist only of `[a-z0-9.-]` once
-lower-cased; compute its digest locally with the one-line `node -e` command in
-the scanner's header and commit only the digest, never the plain value, in
-code, tests, comments or commit messages. The scanner and its test are scanned
-like any other file; the test assembles its synthetic bad values at runtime.
+**Extra terms for your own private names (any fork).** The public check
+carries no private names. A clone may keep its own list in
+`public-check-terms.txt` inside its git directory (the path
+`git rev-parse --git-common-dir` prints, so every worktree of the clone shares
+it and it can never be staged), or in the file `PUBLIC_CHECK_TERMS_FILE`
+names (it must then exist). One term per line, `#` comments and blank lines
+skipped; a term matches as a case-insensitive substring of any of a line's
+four forms, and a line starting `re:` is a regular expression, applied
+case-insensitively. A finding names the terms file's line, never the term.
+Without the file the check prints `No extra terms file: only the generic
+rules ran.` and passes; CI has none, so there only the generic rules run.
+Never commit the terms or describe them in code, tests, comments or commit
+messages: the scanner and its test are scanned like any other file, and the
+test assembles its synthetic bad values at runtime.
+
+**Commit messages.** The same rules (and the extra terms) apply to commit
+subjects and bodies, and a commit's author and committer emails must be GitHub
+no-reply or example-domain addresses (GitHub's own service addresses, which
+sign merges and bot commits, are allowed in commits only). `.husky/commit-msg`
+checks each message as it is written (`--commit-msg`, with the clone's extra
+terms); CI checks the commits a push or pull request adds (`--ci-commits`: a
+pull request's base to head, a push's previous tip to its new one, a new
+branch's commits not on the default branch), never the whole history, which
+predates the rule. `node scripts/check-public-sanitization.mjs --commits
+<rev-list arguments>` checks any range by hand.
 
 **Open work is tracked in [TODO.md](./TODO.md)**, grouped by priority, one item per line with enough context to act on it. Update it in the same change that opens or closes an item; the CHANGELOG records what shipped, not what is still open.
 
@@ -123,7 +150,7 @@ pnpm run deploy
 
 | Trigger | Actions |
 |---------|---------|
-| Push to any branch / PR | Gitleaks → Public sanitisation → Lint → Boundary-read gate → Format → Typecheck → Tests + coverage → Runtime types → Dashboard build → performance gates → production/development Wrangler dry-runs; in parallel, the `dashboard-container` job builds both dashboard images and runs `pnpm run check:dashboard-container` (Docker, v1.40.0) |
+| Push to any branch / PR | Gitleaks → Public sanitisation → Commit-message sanitisation (the commits the run adds) → Lint → Boundary-read gate → Format → Typecheck → Tests + coverage → Runtime types → Dashboard build → performance gates → production/development Wrangler dry-runs; in parallel, the `dashboard-container` job builds both dashboard images and runs `pnpm run check:dashboard-container` (Docker, v1.40.0) |
 | Version tag (`v1.2.3`) | No run, and no deployment is enabled by default. The run for the tag's branch tests the same commit: trust the tag only once that run has finished green, and re-run it if it failed or was cancelled. Other tags still run CI |
 | Manual dispatch | Same CI checks |
 
@@ -1359,6 +1386,7 @@ The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `sr
 
 **Oxlint** (primary linter) with native plugins: typescript, unicorn, oxc, import, promise, node, vitest, react, jsx-a11y (the `plugins` list replaces Oxlint's defaults, so all are listed). Config: `.oxlintrc.json` — the only name Oxlint auto-discovers; it is found from the repo root and from `admin/`. The `style` category is off.
 **Biome** formats and sorts imports: the scripts run `biome check` (the formatter plus the `organizeImports` assist; Biome's linter is off). Config: `biome.json`, whose `$schema` matches the installed Biome (run `pnpm exec biome migrate --write` after an upgrade). The byte-pinned credential-policy files and the vendored `admin/src/components/ui/**` are not import-sorted, so neither is rewritten.
+**Commit message:** `.husky/commit-msg` runs the public check's `--commit-msg` mode (see [Public repository](#public-repository--sanitisation-mandatory)).
 **Pre-commit:** `.husky/pre-commit` runs gitleaks, then lint-staged with `lint-staged.config.mjs` (the team template's globs): `oxlint --fix` and `biome check --write` on staged TypeScript and JavaScript, `biome check --write` on CSS and JSON. Oxlint takes `--no-error-on-unmatched-pattern`, so a commit whose only script files are ones `.oxlintrc.json` ignores (such as `*.config.mjs`) does not fail on "No files found to lint".
 **No ESLint.** React Fast Refresh's check is Oxlint's `react/only-export-components` (with `allowConstantExport`), so the dashboard needs no residual ESLint; the rule is off in the vendored `admin/src/components/ui/**`.
 

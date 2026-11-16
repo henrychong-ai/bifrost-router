@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+
+# Husky commit-msg hook: the public check on the message being written
+# (generic rules, this clone's extra terms file if any, and the author and
+# committer emails). See scripts/check-public-sanitization.mjs.
+node scripts/check-public-sanitization.mjs --commit-msg "$1"

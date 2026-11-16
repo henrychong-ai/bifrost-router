@@ -19,6 +19,12 @@ See the [Fork & Deploy Guide](README.md#fork--deploy-guide) in the README for fu
 5. Run type checking: `pnpm run typecheck`
 6. Submit a pull request
 
+## Keeping the repository public-safe
+
+This repository is public, and `pnpm run public:check` (in `pnpm run check` and CI) fails on private content: home-directory paths, private host names, non-example email addresses, real cloud identifiers (use `your-…` placeholders), and unpinned binary files. A `commit-msg` hook applies the same rules to each commit message and requires GitHub no-reply or example-domain author and committer emails; CI checks the commits a push or pull request adds. Set your git email to your GitHub no-reply address (`git config user.email <id>+<user>@users.noreply.github.com`).
+
+**Your own private names.** Any fork can add its own terms (company, people, host or ticket names) without committing them: put one term per line in `.git/public-check-terms.txt` (in a worktree, the directory `git rev-parse --git-common-dir` prints), or point `PUBLIC_CHECK_TERMS_FILE` at a file. Lines starting `#` are comments; a term matches case-insensitively anywhere in a line; a line starting `re:` is a regular expression (`re:\bABC-\d+\b` for ticket keys). The file and the hook read it locally only; findings name the file's line, never the term.
+
 ## Code Style
 
 - TypeScript throughout

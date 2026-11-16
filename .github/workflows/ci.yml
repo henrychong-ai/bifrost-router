@@ -93,6 +93,20 @@ jobs:
       - name: Public sanitization gate
         run: pnpm run public:check
 
+      # The commits this push or pull request adds (never the whole history,
+      # which predates the rule): subjects and bodies against the generic
+      # rules, author and committer emails GitHub no-reply or example-domain
+      # addresses. CI has no extra terms file. Needs the full history above
+      # (fetch-depth: 0).
+      - name: Commit-message sanitization gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: node scripts/check-public-sanitization.mjs --ci-commits
+
       - name: Script regression gates
         run: pnpm run test:gates
 

@@ -1,20 +1,29 @@
 import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import test, { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+  ALLOWED_IDENTIFIER_LINES,
+  ciRevListArgs,
+  commitFindings,
+  commitRangeFindings,
   contentFindings,
-  createIdentifierMatcher,
-  IDENTIFIER_SALT,
-  identifierDigest,
-  PRIVATE_IDENTIFIER_DIGESTS,
+  hasCloudIdentifier,
+  identityEmailAllowed,
+  isIdentifierKey,
+  isPlaceholderIdentifier,
+  loadExtraTerms,
+  PINNED_BINARY_FILES,
+  parseExtraTerms,
   publicCandidateFiles,
   sanitizationFindings,
   singleLabelHostFindings,
+  TermsFileError,
   wranglerIdentifierFindings,
 } from './check-public-sanitization.mjs';
 
@@ -34,6 +43,11 @@ const NUMBERED_HOST = glue('vps', '-7');
 const SECRET_REFERENCE = glue('op:/', '/Personal/Cloudflare/token');
 const SINGLE_LABEL = glue('https:/', '/app');
 const SINGLE_LABEL_ENCODED = glue('https%3A%2F', '%2Fapp');
+// A random-looking 32-hex value and UUID, split so this file holds neither.
+const CLOUD_HEX = glue('a1b2c3d4', 'e5f60718', '293a4b5c', '6d7e8f90');
+const CLOUD_UUID = glue('3f2a9c1e', '-7b4d-4e8a-9c2f-', '1a2b3c4d5e6f');
+const GITHUB_NOREPLY = glue('noreply', '@', 'github.com');
+const GITHUB_SUPPORT = glue('support', '@', 'github.com');
 
 const TEMP_DIRECTORY = mkdtempSync(join(tmpdir(), 'bifrost-public-scan-'));
 after(() => rmSync(TEMP_DIRECTORY, { recursive: true, force: true }));
@@ -233,88 +247,87 @@ test('keeps the numbered-host and 1Password rules, after escapes too', () => {
   assert.deepEqual(contentFindings('op://your-vault/x op://your-1password/y'), []);
 });
 
-test('hashed identifiers match by token, dot suffix, hyphen part and case', () => {
-  const salt = 'test-salt';
-  const digests = new Set([
-    identifierDigest(salt, 'secret-host.example-private'),
-    identifierDigest(salt, 'hidden-name'),
-    identifierDigest(salt, 'beta-host'),
-  ]);
-  const matches = createIdentifierMatcher({ salt, digests });
+// Extra terms: a clone's own private names, never committed. Matched as a
+// case-insensitive substring of any of a line's four forms; `re:` lines are
+// regular expressions.
+const TERMS = parseExtraTerms(
+  [
+    '# a comment',
+    '',
+    '  Hidden-Name  ',
+    'beta-host',
+    glue('re:', BS, 'bZQ-', BS, 'd+', BS, 'b'),
+  ].join('\n'),
+);
+const TERM_HIDDEN = 'line 1: extra term (terms file line 3)';
+const TERM_BETA = 'line 1: extra term (terms file line 4)';
+const TERM_TICKET = 'line 1: extra term (terms file line 5)';
 
-  for (const text of [
-    // Whole token, in a URL, an email address and a path.
-    'see secret-host.example-private here',
-    'ops@secret-host.example-private',
-    '/srv/hidden-name/data',
-    // Dot suffix: the host as a subdomain of something longer.
-    'https://api.v2.secret-host.example-private/v1',
-    // Hyphen parts: inside a longer hyphenated name, either side.
-    'hidden-name-site',
-    'my-hidden-name',
-    'my-hidden-name-site.example',
-    // Case.
-    'HIDDEN-NAME',
-    'Secret-Host.Example-Private',
+test('extra terms match as case-insensitive substrings and regular expressions', () => {
+  assert.equal(TERMS.length, 3);
+  for (const [text, finding] of [
+    ['see hidden-name here', TERM_HIDDEN],
+    ['HIDDEN-NAME', TERM_HIDDEN],
+    ['xhidden-names', TERM_HIDDEN],
+    ['https://api.beta-host.example/v1', TERM_BETA],
+    ['fixes zq-42 today', TERM_TICKET],
+    ['ZQ-7', TERM_TICKET],
   ]) {
-    assert.equal(matches(text), true, text);
+    assert.deepEqual(contentFindings(text, { extraTerms: TERMS }), [finding], text);
   }
-
-  // Only whole parts match: a glued form, a partial word or a host prefix is
-  // intentionally not matched.
-  for (const text of [
-    'hidden-names',
-    'xhidden-name',
-    'hidden_name',
-    'hidden name',
-    'secret-host.example',
-    'example-private',
-    'hidden',
-  ]) {
-    assert.equal(matches(text), false, text);
+  for (const text of ['hidden_name', 'hidden name', 'beta host', 'zq-x', 'xzq-42']) {
+    assert.deepEqual(contentFindings(text, { extraTerms: TERMS }), [], text);
   }
-
-  // A window longer than maxParts is not looked at.
-  assert.equal(createIdentifierMatcher({ salt, digests, maxParts: 1 })('hidden-name'), false);
-  // The default matcher uses the shipped set, which holds no synthetic name.
-  assert.deepEqual(contentFindings('hidden-name secret-host.example-private beta-host'), []);
+  // Without terms, only the generic rules run
+  assert.deepEqual(contentFindings('hidden-name beta-host zq-42'), []);
 });
 
-test('escapes neither eat a name nor hide one', () => {
-  const salt = 'test-salt';
-  const matcher = createIdentifierMatcher({
-    salt,
-    digests: new Set([identifierDigest(salt, 'hidden-name'), identifierDigest(salt, 'beta-host')]),
-  });
-  const found = ['line 1: hashed private identifier'];
-  for (const text of [
+test('escapes neither eat a term nor hide one', () => {
+  for (const [text, finding] of [
     // An escape-like sequence just before the name: the written form keeps it.
-    glue('C:', BS, 'code', BS, 'hidden-name', BS),
-    'progress 100%beta-host done',
-    // An escape glued straight onto the name: the blanked form keeps it.
-    'next=x%2Fhidden-name%2Fx',
-    glue('"line one', BS, 'nhidden-name"'),
-    glue('"', BS, 'u002fsrv', BS, 'u002fhidden-name"'),
+    [glue('C:', BS, 'code', BS, 'hidden-name', BS), TERM_HIDDEN],
+    ['progress 100%beta-host done', TERM_BETA],
+    // An escape glued straight onto the name.
+    ['next=x%2Fhidden-name%2Fx', TERM_HIDDEN],
+    [glue('"line one', BS, 'nhidden-name"'), TERM_HIDDEN],
+    [glue('"', BS, 'u002fsrv', BS, 'u002fhidden-name"'), TERM_HIDDEN],
     // An escaped delimiter inside the name: the decoded form restores it.
-    'hidden%2Dname',
-    'HIDDEN%2dNAME',
-    glue('hidden', BS, 'u002dname'),
-    glue('hidden', BS, 'x2dname'),
-    glue('beta', BS, 'u002Dhost'),
-    // An encoded or Markdown-escaped hyphen inside a Windows or POSIX path:
-    // the partly decoded form keeps the backslash separators.
-    glue('C:', BS, 'code', BS, 'hidden%2Dname', BS, 'file'),
-    glue('C:', BS, 'code', BS, 'hidden', BS, '-name', BS, 'file'),
-    'C:/code/hidden%2Dname/file',
-    glue('C:/code/hidden', BS, '-name/file'),
+    ['hidden%2Dname', TERM_HIDDEN],
+    ['HIDDEN%2dNAME', TERM_HIDDEN],
+    [glue('hidden', BS, 'u002dname'), TERM_HIDDEN],
+    [glue('hidden', BS, 'x2dname'), TERM_HIDDEN],
+    [glue('beta', BS, 'u002Dhost'), TERM_BETA],
+    // An encoded or Markdown-escaped hyphen inside a Windows or POSIX path.
+    [glue('C:', BS, 'code', BS, 'hidden%2Dname', BS, 'file'), TERM_HIDDEN],
+    [glue('C:', BS, 'code', BS, 'hidden', BS, '-name', BS, 'file'), TERM_HIDDEN],
+    ['C:/code/hidden%2Dname/file', TERM_HIDDEN],
+    [glue('C:/code/hidden', BS, '-name/file'), TERM_HIDDEN],
   ]) {
-    assert.deepEqual(contentFindings(text, matcher), found, text);
+    assert.deepEqual(contentFindings(text, { extraTerms: TERMS }), [finding], text);
   }
-  // Lines are reported once each, in order.
-  assert.deepEqual(contentFindings('a\nb\nhidden-name\nhidden-name hidden-name', matcher), [
-    'line 3: hashed private identifier',
-    'line 4: hashed private identifier',
-  ]);
+  // Lines are reported once each per term, in order.
+  assert.deepEqual(
+    contentFindings('a\nb\nhidden-name\nhidden-name hidden-name', { extraTerms: TERMS }),
+    ['line 3: extra term (terms file line 3)', 'line 4: extra term (terms file line 3)'],
+  );
+});
+
+test('a bad terms entry is refused by its line, never echoing it', () => {
+  for (const text of ['ok\nre:', glue('ok\n\nre:(unclosed', '-zqterm')]) {
+    assert.throws(
+      () => parseExtraTerms(text),
+      error =>
+        error instanceof TermsFileError &&
+        /line \d+/.test(error.message) &&
+        !error.message.includes('zqterm'),
+    );
+  }
+  assert.deepEqual(parseExtraTerms('# only comments\n\n   \n'), []);
+  // CRLF line ends are trimmed
+  assert.deepEqual(
+    contentFindings('see hidden-name', { extraTerms: parseExtraTerms('hidden-name\r\n') }),
+    ['line 1: extra term (terms file line 1)'],
+  );
 });
 
 test('findings never echo the matched value', () => {
@@ -325,6 +338,8 @@ test('findings never echo the matched value', () => {
     'zqsecretvault',
     'zqsecretapp',
     'zqsecretid',
+    'zqsecretterm',
+    CLOUD_HEX,
   ];
   const file = writeTemp(
     [
@@ -337,13 +352,15 @@ test('findings never echo the matched value', () => {
       glue('https:/', '/zqsecretapp/x'),
       glue('https%3A%2F', '%2Fzqsecretapp%2F'),
       NUMBERED_HOST,
+      glue('account_id = "', CLOUD_HEX, '"'),
+      'the zqsecretterm host',
     ].join('\n'),
   );
   const findings = [
-    ...sanitizationFindings([file]),
+    ...sanitizationFindings([file], '.', { extraTerms: parseExtraTerms('zqsecretterm') }),
     ...wranglerIdentifierFindings('id = "zqsecretid0123"\ndatabase_id = "your-d1-id"'),
   ];
-  assert.equal(findings.length, 10);
+  assert.equal(findings.length, 12);
   for (const finding of findings) {
     for (const value of [...sensitive, NUMBERED_HOST]) {
       assert.ok(!finding.toLowerCase().includes(value), `${finding} echoes a value`);
@@ -363,23 +380,15 @@ test('stays linear on adversarial input', () => {
     '%2'.repeat(70_000),
     glue(BS, 'u00').repeat(40_000),
     'https'.repeat(40_000),
+    glue('id ', glue(CLOUD_HEX, ' ').repeat(6_000)),
+    glue('id ', glue(CLOUD_UUID, ' ').repeat(5_000)),
+    'a_id '.repeat(40_000),
+    'hidden-nam'.repeat(20_000),
   ];
   const started = performance.now();
-  for (const input of inputs) contentFindings(input);
+  for (const input of inputs) contentFindings(input, { extraTerms: TERMS });
   const elapsed = performance.now() - started;
   assert.ok(elapsed < 1000, `took ${Math.round(elapsed)} ms`);
-});
-
-test('ships only salted SHA-256 digests', () => {
-  assert.equal(PRIVATE_IDENTIFIER_DIGESTS.size, 22);
-  for (const digest of PRIVATE_IDENTIFIER_DIGESTS) assert.match(digest, /^[0-9a-f]{64}$/);
-  assert.equal(
-    identifierDigest('s', 'value'),
-    createHash('sha256').update('s:value').digest('hex'),
-  );
-  // The documented one-liner uses the same salt as the matcher.
-  const source = readFileSync(new URL('./check-public-sanitization.mjs', import.meta.url), 'utf8');
-  assert.ok(source.includes(`update('${IDENTIFIER_SALT}:' + process.argv[1].toLowerCase())`));
 });
 
 test('the scanner and this test pass their own scan', () => {
@@ -421,4 +430,376 @@ test('flags a single-label https host and accepts an RFC 2606 name', () => {
   assert.deepEqual(singleLabelHostFindings(glue(SINGLE_LABEL, '/a ', SINGLE_LABEL, '/b')), [
     SINGLE_LABEL,
   ]);
+});
+
+const CLOUD = 'line 1: cloud identifier (use a your- placeholder)';
+
+test('flags a 32-hex or UUID value after an identifier key', () => {
+  for (const text of [
+    glue('account_id = "', CLOUD_HEX, '"'),
+    glue('CF_ACCOUNT_ID=', CLOUD_HEX),
+    glue('zone_id: ', CLOUD_HEX),
+    glue('"zone_id": "', CLOUD_HEX.toUpperCase(), '"'),
+    glue("CLOUDFLARE_ZONE_IDS = { 'example.com': '", CLOUD_HEX, "' }"),
+    glue('accountId: "', CLOUD_HEX, '"'),
+    glue('wrangler --account-id ', CLOUD_HEX),
+    glue('GET /accounts/', CLOUD_HEX, '/workers/domains'),
+    glue('| **Zone ID** | `', CLOUD_HEX, '` |'),
+    glue('id = "', CLOUD_UUID, '"'),
+    glue('database_id = "', CLOUD_UUID, '"'),
+    glue('account_tag: ', CLOUD_HEX),
+    // Encoded: the decoded form shows it
+    glue('zone_id%3D', CLOUD_HEX),
+  ]) {
+    assert.deepEqual(contentFindings(text), [CLOUD], text);
+  }
+  for (const text of [
+    // No identifier key before the value
+    glue('checksum ', CLOUD_HEX),
+    glue(CLOUD_HEX, ' is the account_id'),
+    // Longer digests and base64 are not one value
+    glue('sha256 ', CLOUD_HEX, CLOUD_HEX),
+    glue('id: sha512-', CLOUD_HEX, 'Zz'),
+    glue('id ', CLOUD_HEX.slice(0, 31)),
+    // Placeholders
+    'account_id = "your-cloudflare-account-id"',
+    glue('id = "', '0123456789abcdef', '0123456789abcdef"'),
+    glue('id: "', '00000000-0000-0000-0000-', '000000000000"'),
+    glue("id: '0190abcd-0000-", "7000-8000-00000000000a'"),
+    glue('zone_id = "', 'f'.repeat(32), '"'),
+    glue('id = "', '01234567-89ab-cdef-', '0123-456789abcdef"'),
+  ]) {
+    assert.deepEqual(contentFindings(text), [], text);
+  }
+});
+
+test('identifier keys and placeholders are named by rule, not by list', () => {
+  for (const word of [
+    'id',
+    'ids',
+    'ID',
+    'uuid',
+    'account_id',
+    'CF_ACCOUNT_ID',
+    'CLOUDFLARE_ZONE_IDS',
+    'zone-id',
+    'accountId',
+    'prevId',
+    'accounts',
+    'account_tag',
+    'zone',
+  ]) {
+    assert.equal(isIdentifierKey(word), true, word);
+  }
+  for (const word of [
+    'identity',
+    'idle',
+    'valid',
+    'checksum',
+    'integrity',
+    'hash',
+    'Ozone',
+    'video',
+  ]) {
+    assert.equal(isIdentifierKey(word), false, word);
+  }
+  assert.equal(isPlaceholderIdentifier('0'.repeat(32)), true);
+  assert.equal(isPlaceholderIdentifier('a'.repeat(32)), true);
+  assert.equal(isPlaceholderIdentifier(CLOUD_HEX), false);
+  assert.equal(isPlaceholderIdentifier(CLOUD_UUID), false);
+  // The rule reads one line form at a time, the key before the value
+  assert.equal(hasCloudIdentifier(glue('zone ', CLOUD_UUID)), true);
+  assert.equal(hasCloudIdentifier(glue(CLOUD_UUID, ' zone')), false);
+});
+
+test('the only identifier allowance is Drizzle snapshot ids, in snapshot files only', () => {
+  assert.equal(ALLOWED_IDENTIFIER_LINES.length, 1);
+  const dir = mkdtempSync(join(TEMP_DIRECTORY, 'ids-'));
+  mkdirSync(join(dir, 'drizzle/meta'), { recursive: true });
+  const line = glue('  "id": "', CLOUD_UUID, '",');
+  writeFileSync(
+    join(dir, 'drizzle/meta/0007_snapshot.json'),
+    `{\n${line}\n  "zone_id": "${CLOUD_UUID}"\n}`,
+  );
+  writeFileSync(join(dir, 'drizzle/meta/notes.json'), line);
+  assert.deepEqual(
+    sanitizationFindings(['drizzle/meta/0007_snapshot.json', 'drizzle/meta/notes.json'], dir),
+    [
+      'drizzle/meta/0007_snapshot.json: line 3: cloud identifier (use a your- placeholder)',
+      'drizzle/meta/notes.json: line 1: cloud identifier (use a your- placeholder)',
+    ],
+  );
+});
+
+test('a binary file fails unless it is pinned with its exact SHA-256', () => {
+  const dir = mkdtempSync(join(TEMP_DIRECTORY, 'binary-'));
+  const pinned = [...PINNED_BINARY_FILES.keys()][0];
+  mkdirSync(join(dir, pinned, '..'), { recursive: true });
+  writeFileSync(join(dir, pinned), Buffer.from([0x77, 0x4f, 0x46, 0x32, 0x00, 0x01]));
+  writeFileSync(join(dir, 'photo.jpg'), Buffer.from([0xff, 0xd8, 0x00, 0x10]));
+  assert.deepEqual(sanitizationFindings([pinned, 'photo.jpg'], dir), [
+    `${pinned}: binary file unlike its pin`,
+    'photo.jpg: binary file that is not pinned',
+  ]);
+  // Every pin names a file of this repository, byte for byte
+  for (const [file, digest] of PINNED_BINARY_FILES) {
+    const bytes = readFileSync(join(REPO_ROOT, file));
+    assert.ok(bytes.includes(0), `${file} is binary`);
+    assert.equal(createHash('sha256').update(bytes).digest('hex'), digest, file);
+  }
+  assert.deepEqual(sanitizationFindings([...PINNED_BINARY_FILES.keys()], REPO_ROOT), []);
+});
+
+/** A scratch git repository with one committed file, identity set locally. */
+function scratchRepo(files = { 'README.md': 'hello\n' }) {
+  const dir = mkdtempSync(join(TEMP_DIRECTORY, 'repo-'));
+  const run = (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+  run('init', '--quiet', '--initial-branch=main');
+  run('config', 'user.name', 'Example');
+  run('config', 'user.email', 'dev@example.com');
+  run('config', 'commit.gpgsign', 'false');
+  run('config', 'core.hooksPath', '/dev/null');
+  for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text);
+  run('add', '.');
+  run('commit', '--quiet', '-m', 'first');
+  return { dir, run };
+}
+
+test('the terms file is read from the common git directory, shared by worktrees', () => {
+  const { dir, run } = scratchRepo();
+  const env = {};
+  assert.equal(loadExtraTerms({ env, cwd: dir }), null);
+  writeFileSync(join(dir, '.git', 'public-check-terms.txt'), 'hidden-name\n');
+  assert.equal(loadExtraTerms({ env, cwd: dir }).length, 1);
+  const worktree = join(dir, '..', `${dir.split('/').pop()}-wt`);
+  run('worktree', 'add', '--quiet', worktree);
+  assert.equal(loadExtraTerms({ env, cwd: worktree }).length, 1);
+  // PUBLIC_CHECK_TERMS_FILE wins, and must exist when set
+  const named = join(dir, 'other-terms.txt');
+  writeFileSync(named, 'a\nb\n');
+  assert.equal(loadExtraTerms({ env: { PUBLIC_CHECK_TERMS_FILE: named }, cwd: dir }).length, 2);
+  assert.throws(
+    () => loadExtraTerms({ env: { PUBLIC_CHECK_TERMS_FILE: join(dir, 'missing.txt') }, cwd: dir }),
+    TermsFileError,
+  );
+  rmSync(worktree, { recursive: true, force: true });
+});
+
+const SCANNER_PATH = fileURLToPath(new URL('./check-public-sanitization.mjs', import.meta.url));
+
+function runScanner(cwd, args = [], env = {}) {
+  const childEnv = { ...process.env, ...env };
+  if (!('PUBLIC_CHECK_TERMS_FILE' in env)) delete childEnv.PUBLIC_CHECK_TERMS_FILE;
+  return spawnSync(process.execPath, [SCANNER_PATH, ...args], {
+    cwd,
+    env: childEnv,
+    encoding: 'utf8',
+  });
+}
+
+test('the CLI says when only the generic rules ran, and names a term only by its line', () => {
+  const { dir } = scratchRepo({
+    'wrangler.toml': 'name = "x"\n',
+    'notes.md': 'about hidden-name\n',
+  });
+  const plain = runScanner(dir);
+  assert.equal(plain.status, 0, plain.stderr);
+  assert.match(plain.stdout, /^No extra terms file: only the generic rules ran\.$/m);
+  writeFileSync(join(dir, '.git', 'public-check-terms.txt'), '# mine\nhidden-name\n');
+  const flagged = runScanner(dir);
+  assert.equal(flagged.status, 1);
+  assert.match(flagged.stderr, /- notes\.md: line 1: extra term \(terms file line 2\)/);
+  assert.ok(!`${flagged.stdout}${flagged.stderr}`.includes('hidden-name'));
+  const missing = runScanner(dir, [], { PUBLIC_CHECK_TERMS_FILE: 'missing.txt' });
+  assert.equal(missing.status, 1);
+  assert.match(missing.stderr, /PUBLIC_CHECK_TERMS_FILE names a file that does not exist/);
+});
+
+test('commit messages get the generic rules and the extra terms', () => {
+  const ok = { authorEmail: '1+dev@users.noreply.github.com', committerEmail: GITHUB_NOREPLY };
+  assert.deepEqual(
+    commitFindings('c', {
+      ...ok,
+      message: '[fix] Tidy\n\nChanges:\n- a\n\nFiles: 1 staged, 1 documented\n',
+    }),
+    [],
+  );
+  assert.deepEqual(
+    commitFindings(
+      'c',
+      {
+        ...ok,
+        message: glue('[fix] Tidy\n\n', MAC_HOME, '\nsee hidden-name\n', TAILNET_HOST, '\n'),
+      },
+      { extraTerms: TERMS },
+    ),
+    [
+      'c: line 3: home-directory path',
+      'c: line 4: extra term (terms file line 3)',
+      'c: line 5: Tailscale MagicDNS host',
+    ],
+  );
+  // GitHub's service addresses sign merges and bot commits, so a commit may
+  // carry them; a file may not
+  const signoff = glue('Signed-off-by: bot <', GITHUB_SUPPORT, '>');
+  assert.deepEqual(commitFindings('c', { ...ok, message: signoff }), []);
+  assert.deepEqual(contentFindings(signoff), ['line 1: email address outside the example domains']);
+  assert.deepEqual(commitFindings('c', { ...ok, message: PRIVATE_EMAIL }), [
+    'c: line 1: email address outside the example domains',
+  ]);
+  // A verbose commit's diff after the scissors line is never part of the message
+  const verbose = glue(
+    '[fix] x\n# ------------------------ >8 ------------------------\n',
+    MAC_HOME,
+  );
+  assert.deepEqual(commitFindings('c', { ...ok, message: verbose }), []);
+  // A `#` line given with -F stays in the message, so it is checked
+  assert.deepEqual(commitFindings('c', { ...ok, message: glue('[fix] x\n# ', MAC_HOME) }), [
+    'c: line 2: home-directory path',
+  ]);
+});
+
+test('commit identities must be GitHub no-reply or example-domain addresses', () => {
+  for (const email of [
+    '35658846+someone@users.noreply.github.com',
+    'dev@example.com',
+    'dev@ci.example.org',
+    'dev@build.example',
+    GITHUB_NOREPLY,
+    GITHUB_SUPPORT.toUpperCase(),
+  ]) {
+    assert.equal(identityEmailAllowed(email), true, email);
+  }
+  for (const email of [
+    PRIVATE_EMAIL,
+    glue('dev', '@', 'github.com'),
+    '',
+    'dev',
+    '@example.com',
+    'dev@',
+  ]) {
+    assert.equal(identityEmailAllowed(email), false, email);
+  }
+  assert.deepEqual(
+    commitFindings('c', {
+      message: 'x',
+      authorEmail: PRIVATE_EMAIL,
+      committerEmail: 'dev@example.com',
+    }),
+    ['c: author email is not a GitHub no-reply or example-domain address'],
+  );
+  const both = commitFindings('c', {
+    message: 'x',
+    authorEmail: '',
+    committerEmail: PRIVATE_EMAIL,
+  });
+  assert.equal(both.length, 2);
+  for (const finding of both) assert.ok(!finding.includes(PRIVATE_EMAIL));
+});
+
+const all = () => true;
+const none = () => false;
+
+test('CI checks only the commits a push or pull request adds', () => {
+  const head = 'b'.repeat(40);
+  assert.deepEqual(
+    ciRevListArgs({ EVENT_NAME: 'pull_request', PR_BASE_SHA: 'base', PR_HEAD_SHA: 'tip' }, all),
+    ['base..tip'],
+  );
+  assert.throws(() => ciRevListArgs({ EVENT_NAME: 'pull_request', PR_BASE_SHA: 'base' }, all));
+  assert.deepEqual(
+    ciRevListArgs({ EVENT_NAME: 'push', PUSH_BEFORE: 'old', GITHUB_SHA: head }, all),
+    [`old..${head}`],
+  );
+  // A new branch or tag: the commits not on the default branch
+  const created = { EVENT_NAME: 'push', PUSH_BEFORE: '0'.repeat(40), GITHUB_SHA: head };
+  assert.deepEqual(ciRevListArgs({ ...created, DEFAULT_BRANCH: 'trunk' }, all), [
+    head,
+    '--not',
+    'origin/trunk',
+  ]);
+  assert.deepEqual(ciRevListArgs(created, all), [head, '--not', 'origin/main']);
+  // A force-push whose old tip was not fetched
+  assert.deepEqual(
+    ciRevListArgs(
+      { EVENT_NAME: 'push', PUSH_BEFORE: 'gone', GITHUB_SHA: head },
+      rev => rev !== 'gone',
+    ),
+    [head, '--not', 'origin/main'],
+  );
+  // A manual run, and no default branch at all: the run's own commit only
+  assert.deepEqual(ciRevListArgs({ EVENT_NAME: 'workflow_dispatch', GITHUB_SHA: head }, all), [
+    head,
+    '--not',
+    'origin/main',
+  ]);
+  assert.deepEqual(ciRevListArgs({ EVENT_NAME: 'workflow_dispatch' }, none), [
+    '--max-count=1',
+    'HEAD',
+  ]);
+});
+
+test('a commit range is checked commit by commit, by short hash', () => {
+  const { dir, run } = scratchRepo();
+  const base = run('rev-parse', 'HEAD').trim();
+  writeFileSync(join(dir, 'a.txt'), 'a\n');
+  run('add', 'a.txt');
+  run('commit', '--quiet', '-m', glue('[fix] a\n\nsee ', MAC_HOME));
+  writeFileSync(join(dir, 'b.txt'), 'b\n');
+  run('add', 'b.txt');
+  execFileSync('git', ['commit', '--quiet', '-m', '[fix] b'], {
+    cwd: dir,
+    env: { ...process.env, GIT_AUTHOR_EMAIL: PRIVATE_EMAIL },
+  });
+  const [second, first] = run('rev-list', `${base}..HEAD`).trim().split('\n');
+  const { count, findings } = commitRangeFindings([`${base}..HEAD`], { cwd: dir });
+  assert.equal(count, 2);
+  assert.deepEqual(findings, [
+    `commit ${second.slice(0, 12)}: author email is not a GitHub no-reply or example-domain address`,
+    `commit ${first.slice(0, 12)}: line 3: home-directory path`,
+  ]);
+  const cli = runScanner(dir, ['--commits', `${base}..HEAD`]);
+  assert.equal(cli.status, 1);
+  assert.ok(!cli.stderr.includes(PRIVATE_EMAIL));
+  const clean = runScanner(dir, ['--commits', `${base}..${base}`]);
+  assert.equal(clean.status, 0, clean.stderr);
+  assert.match(clean.stdout, /passed \(0 commits\)/);
+});
+
+test('the commit-msg mode checks the message file and both identities', () => {
+  const { dir } = scratchRepo();
+  const message = join(dir, '.git', 'COMMIT_EDITMSG');
+  writeFileSync(message, '[docs] Tidy\n\nFiles: 1 staged, 1 documented\n');
+  const ok = runScanner(dir, ['--commit-msg', message]);
+  assert.equal(ok.status, 0, ok.stderr);
+  const badIdentity = runScanner(dir, ['--commit-msg', message], {
+    GIT_COMMITTER_EMAIL: PRIVATE_EMAIL,
+  });
+  assert.equal(badIdentity.status, 1);
+  assert.match(badIdentity.stderr, /commit message: committer email is not/);
+  writeFileSync(join(dir, '.git', 'public-check-terms.txt'), 'hidden-name\n');
+  writeFileSync(message, '[docs] Tidy hidden-name\n');
+  const term = runScanner(dir, ['--commit-msg', message]);
+  assert.equal(term.status, 1);
+  assert.match(term.stderr, /commit message: line 1: extra term \(terms file line 1\)/);
+  assert.ok(!term.stderr.includes('hidden-name'));
+  assert.equal(runScanner(dir, ['--commit-msg']).status, 1);
+  assert.ok(existsSync(message));
+});
+
+test('husky runs the commit-msg mode, and CI checks the commits a run adds', () => {
+  const hook = readFileSync(join(REPO_ROOT, '.husky/commit-msg'), 'utf8');
+  assert.match(hook, /^node scripts\/check-public-sanitization\.mjs --commit-msg "\$1"$/m);
+  const ci = readFileSync(join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8');
+  assert.match(ci, /run: node scripts\/check-public-sanitization\.mjs --ci-commits$/m);
+  for (const name of [
+    'EVENT_NAME',
+    'PR_BASE_SHA',
+    'PR_HEAD_SHA',
+    'PUSH_BEFORE',
+    'DEFAULT_BRANCH',
+  ]) {
+    assert.match(ci, new RegExp(`^ {10}${name}: \\$\\{\\{ github\\.`, 'm'), name);
+  }
+  assert.match(ci, /fetch-depth: 0/);
 });
