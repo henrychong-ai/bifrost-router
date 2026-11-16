@@ -652,7 +652,7 @@ export default {
    * MUST match the crons array in wrangler.toml ([triggers]):
    *  - "*\/30 * * * *" → Cloudflare account audit-log poller (Layer 2 of the
    *    external R2 audit capture; no-ops unless CF_AUDIT_POLL="on")
-   *  - "0 20 * * *" → daily KV backup (8 PM UTC / 4 AM SGT). An empty cron
+   *  - "0 20 * * *" → daily KV backup (8 PM UTC). An empty cron
    *    (manual trigger / `wrangler dev --test-scheduled`) also runs the backup,
    *    preserving the pre-v1.28.0 manual-test behaviour.
    *  - anything else → loud warning, NO handler. Falling through to the backup

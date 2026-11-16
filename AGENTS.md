@@ -207,7 +207,7 @@ Defined in `src/types.ts`:
 | `user1.example.com` | User domain (pending) |
 | `user2.example.com` | User domain (pending) |
 | `user3.example.com` | User domain (pending) |
-| `couple.example.com` | User domain (pending) |
+| `user4.example.com` | User domain (pending) |
 | `user5.example.com` | User domain (pending) |
 
 ### Adding a New Supported Domain
@@ -1201,7 +1201,7 @@ In-dashboard guide at `/guide` (lazy-loaded, 11 sections + first-visit welcome d
 
 ### KV Routes (R2)
 
-**Schedule:** Daily 8 PM UTC (4 AM SGT) via cron trigger
+**Schedule:** Daily 8 PM UTC via cron trigger
 **Storage:** R2 bucket `bifrost-backups` → `daily/YYYYMMDD/`
 **Contents:** KV routes as compressed NDJSON (`kv-routes.ndjson.gz`) + manifest (`manifest.json`)
 **Retention:** Indefinite (~8KB/day, negligible storage)
@@ -1234,7 +1234,7 @@ An alert never carries a key, a stored value, the manifest's domain list or an e
 D1 analytics are **not** backed up to R2. Cloudflare D1 Time Travel provides automatic 30-day point-in-time recovery at minute-level granularity, at no extra cost.
 
 **Database:** `bifrost-analytics` (`your-d1-database-id`)
-**Region:** APAC
+**Region:** the location you choose when you create the database
 **Tables:** `link_clicks`, `page_views`, `file_downloads`, `proxy_requests`, `audit_logs`, and (v1.41.0) `qr_recent`, a two-minute working set of recent QR creates that Time Travel need not restore (an empty table only delays a new code's listing until KV catches up)
 
 ### Database migrations (v1.41.0)
@@ -1387,12 +1387,12 @@ The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `sr
 **Oxlint** (primary linter) with native plugins: typescript, unicorn, oxc, import, promise, node, vitest, react, jsx-a11y (the `plugins` list replaces Oxlint's defaults, so all are listed). Config: `.oxlintrc.json` — the only name Oxlint auto-discovers; it is found from the repo root and from `admin/`. The `style` category is off.
 **Biome** formats and sorts imports: the scripts run `biome check` (the formatter plus the `organizeImports` assist; Biome's linter is off). Config: `biome.json`, whose `$schema` matches the installed Biome (run `pnpm exec biome migrate --write` after an upgrade). The byte-pinned credential-policy files and the vendored `admin/src/components/ui/**` are not import-sorted, so neither is rewritten.
 **Commit message:** `.husky/commit-msg` runs the public check's `--commit-msg` mode (see [Public repository](#public-repository--sanitisation-mandatory)).
-**Pre-commit:** `.husky/pre-commit` runs gitleaks, then lint-staged with `lint-staged.config.mjs` (the team template's globs): `oxlint --fix` and `biome check --write` on staged TypeScript and JavaScript, `biome check --write` on CSS and JSON. Oxlint takes `--no-error-on-unmatched-pattern`, so a commit whose only script files are ones `.oxlintrc.json` ignores (such as `*.config.mjs`) does not fail on "No files found to lint".
+**Pre-commit:** `.husky/pre-commit` runs gitleaks, then lint-staged with `lint-staged.config.mjs` (the lint template's globs): `oxlint --fix` and `biome check --write` on staged TypeScript and JavaScript, `biome check --write` on CSS and JSON. Oxlint takes `--no-error-on-unmatched-pattern`, so a commit whose only script files are ones `.oxlintrc.json` ignores (such as `*.config.mjs`) does not fail on "No files found to lint".
 **No ESLint.** React Fast Refresh's check is Oxlint's `react/only-export-components` (with `allowConstantExport`), so the dashboard needs no residual ESLint; the rule is off in the vendored `admin/src/components/ui/**`.
 
-**Lint scope:** `pnpm run lint` runs Oxlint over the whole workspace, `scripts/` included. `ignorePatterns` skips build and tool output (`dist`, `coverage`, `.wrangler`), generated code (`src/generated/**`), the `drizzle/` migrations, and `*.config.js`/`*.config.mjs` as in the team template; the TypeScript config files (`vite.config.ts`, `vitest.config.ts`, `drizzle.config.ts`) are linted.
+**Lint scope:** `pnpm run lint` runs Oxlint over the whole workspace, `scripts/` included. `ignorePatterns` skips build and tool output (`dist`, `coverage`, `.wrangler`), generated code (`src/generated/**`), the `drizzle/` migrations, and `*.config.js`/`*.config.mjs` as in the lint template; the TypeScript config files (`vite.config.ts`, `vitest.config.ts`, `drizzle.config.ts`) are linted.
 
-**Rule levels:** the team template's, with `typescript/no-explicit-any` at `error`. Rules in the `style` category (for example `react/hook-use-state`) are off with the category.
+**Rule levels:** the lint template's, with `typescript/no-explicit-any` at `error`. Rules in the `style` category (for example `react/hook-use-state`) are off with the category.
 
 **Type-aware rules:** `options.typeAware` is on, with `oxlint-tsgolint` (the TypeScript 7 checker). The tsconfigs are TypeScript 7-ready: no `baseUrl` (the dashboard's `@/*` paths resolve relative to their tsconfig) and explicit `types` (`shared` and `mcp` list `node`, because TypeScript 7 no longer loads every installed `@types` package). Adopted, at `error`: `typescript/no-floating-promises`, `typescript/no-misused-promises`, the `no-unsafe-*` set (`argument`, `assignment`, `call`, `member-access`, `return`, `enum-comparison`, `unary-minus`), `typescript/no-unnecessary-type-assertion`, `typescript/no-unnecessary-type-conversion` and `typescript/consistent-return`. An intentionally unawaited promise is marked `void`. `tsc --noEmit` remains the type gate.
 
@@ -1403,13 +1403,13 @@ The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `sr
 
 **Oxlint rules off everywhere (each does not apply to this stack):**
 - `react/react-in-jsx-scope` — the dashboard uses the automatic JSX runtime (`"jsx": "react-jsx"`); `React` need not be in scope
-- `unicorn/no-null` — team-template default; `null` is a real value in JSON bodies, KV reads, and D1 rows
+- `unicorn/no-null` — lint-template default; `null` is a real value in JSON bodies, KV reads, and D1 rows
 
 **Oxlint override — test files (`**/*.test.ts`, `**/*.test.tsx`):** `import/default` is off. Source-pinning tests import a module's text with Vite's `?raw` suffix; the resolver follows the path to the `.ts` source and finds no default export there. Runtime code keeps the rule.
 
 **Oxlint override — Hono Worker (`src/**`):** `oxc/no-async-endpoint-handlers` is off. The rule assumes Express, where a rejected async handler goes unhandled; Hono awaits every handler and routes a rejection to `app.onError`. The dashboard, MCP server and shared client keep the rule.
 
-**Oxlint override — test setup files:** `import/no-unassigned-import` is off for `test/setup.*`, `*.setup.*` and `setupTests.*`, as in the team template.
+**Oxlint override — test setup files:** `import/no-unassigned-import` is off for `test/setup.*`, `*.setup.*` and `setupTests.*`, as in the lint template.
 
 **Oxlint override — files outside every tsconfig (`test/**`, `scripts/**`, `shared/src/**/*.test.ts`, `mcp/src/**/*.test.ts`, `**/vitest.config.ts`, `drizzle.config.ts`) — known gap:** every adopted type-aware rule is off. No tsconfig includes these files (`shared` and `mcp` exclude their tests from the build; the root tsconfig covers `src/` only; the scripts are plain JavaScript), so tsgolint has no type information for them: the Worker bindings, `cloudflare:test` and the ES2023 library read as error types, and the rules cannot judge the code. The non-type-aware rules still run. To close the gap, give each a lint tsconfig, with the root tests' `cloudflare:test` environment typed as the Worker bindings.
 
@@ -1432,7 +1432,7 @@ The fallback branch in `src/index.ts` is wrapped via `safeServiceFetch` from `sr
 
 - No tsconfig sets `baseUrl` (an error in TypeScript 7); `paths` is relative to the tsconfig. TypeScript 6 defaults `types` to `[]`, so every project lists its own.
 - **`exactOptionalPropertyTypes` is off for the dashboard app.** 43 findings: 39 need only the own-type widening below, but the other four pass possibly-undefined props to third-party components (Radix `Select` `value` twice, and the vendored shadcn `dropdown-menu` `checked` and `sonner` `theme`). Satisfying those means leaving React props out in vendored `components/ui/**` and relying on each library reading an omitted prop as it reads `undefined`, which no dashboard test renders.
-- **`noUncheckedIndexedAccess` is off for the Worker.** One of its 19 sites is in `src/utils/credential-redaction.ts`, which is byte-pinned (`pnpm run redaction:check`), and a compiler flag cannot be switched off for one file. Fix the canonical copy of the credential policy first, then turn the flag on.
+- **`noUncheckedIndexedAccess` is off for the Worker.** One of its 16 sites is in `src/utils/credential-redaction.ts`, which is byte-pinned (`pnpm run redaction:check`), and a compiler flag cannot be switched off for one file. Fix the canonical copy of the credential policy first, then turn the flag on.
 - **Fix convention under `exactOptionalPropertyTypes`:** an own interface that is handed `{ key: maybeUndefined }` declares `key?: T | undefined`; a platform option bag (KV `list`, `fetch` init, R2 `put`) has the key left out with `...(x !== undefined && { x })`. No casts.
 - **Vendored deviation:** `admin/src/components/ui/chart.tsx` reads `?.['fill']` (bracket form) for `noPropertyAccessFromIndexSignature`, because a compiler flag cannot be switched off for one file. Re-apply it if the component is regenerated.
 - **The bundle reads no `import.meta.env` variable (v1.39.0).** `admin/src/vite-env.d.ts` declares none; `scripts/check-dashboard-security.test.mjs` fails on a `VITE_` read in dashboard source. A bracket read (`import.meta.env['VITE_X']`) would make Vite inline the whole env object.

@@ -149,7 +149,7 @@ CF_ACCOUNT_ID = "your-cloudflare-account-id"
 # dead_letter_queue = "bifrost-r2-events-dlq"
 
 # Cron triggers:
-# - "0 20 * * *"   daily KV backup at 8 PM UTC (4 AM SGT)
+# - "0 20 * * *"   daily KV backup at 8 PM UTC
 # - "*/30 * * * *" CF account audit-log poller (v1.28.0; no-ops unless CF_AUDIT_POLL="on" —
 #                  cron triggers are available on every plan, so this is free-plan safe)
 [triggers]

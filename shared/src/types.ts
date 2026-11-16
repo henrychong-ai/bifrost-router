@@ -48,7 +48,7 @@ export const SUPPORTED_DOMAINS = [
   'user1.example.com',
   'user2.example.com',
   'user3.example.com',
-  'couple.example.com',
+  'user4.example.com',
   'user5.example.com',
 ] as const;
 

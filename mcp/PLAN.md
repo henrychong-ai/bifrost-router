@@ -99,7 +99,7 @@ Every tool accepts an optional `domain` parameter:
 | `user1.example.com` | User One domain |
 | `user2.example.com` | User Two domain |
 | `user3.example.com` | User Three domain |
-| `couple.example.com` | Shared domain |
+| `user4.example.com` | User Four domain |
 | `user5.example.com` | User Five domain |
 
 ### Response Domain Labeling

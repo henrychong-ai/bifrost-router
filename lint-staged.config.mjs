@@ -1,4 +1,4 @@
-// lint-staged.config.mjs: Oxlint + Biome stack (team template, the globs this repo uses).
+// lint-staged.config.mjs: Oxlint + Biome stack (the lint template's globs, as this repo uses them).
 // .mjs so the ESM export works whatever package.json "type" says.
 
 export default {

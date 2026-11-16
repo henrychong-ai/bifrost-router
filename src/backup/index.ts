@@ -2,7 +2,7 @@
  * Bifrost Backup System
  *
  * Automated daily backups of KV routes to R2.
- * Triggered by Cloudflare Workers cron at 8 PM UTC (4 AM SGT).
+ * Triggered by Cloudflare Workers cron at 8 PM UTC.
  *
  * Backup structure:
  *   daily/YYYYMMDD/
