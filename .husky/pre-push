@@ -4,4 +4,16 @@
 # being pushed, with this clone's extra terms file. Inert without a terms file
 # (a clone that has not opted in, such as a fork with its own real values).
 # See scripts/check-public-sanitization.mjs.
+
+# Without Node the check cannot run. A clone with no terms file has not opted
+# in, so its push goes ahead; a clone with one is refused rather than unchecked.
+if ! command -v node >/dev/null 2>&1; then
+  terms="${PUBLIC_CHECK_TERMS_FILE:-$(git rev-parse --git-common-dir)/public-check-terms.txt}"
+  if [ ! -e "$terms" ] && [ ! -L "$terms" ]; then
+    exit 0
+  fi
+  echo "node not found on PATH: the pre-push public check cannot run with a terms file in place." >&2
+  exit 1
+fi
+
 node scripts/check-public-sanitization.mjs --pre-push
