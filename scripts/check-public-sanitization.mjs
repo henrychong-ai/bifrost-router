@@ -59,18 +59,25 @@
  * and it can never be staged). Blank lines and lines starting `#` are skipped;
  * a term matches as a case-insensitive substring of any of a line's forms; a
  * line starting `re:` is a regular expression, applied case-insensitively.
- * Findings name the terms file's line, never the term. Without the file the
- * check says that only the generic rules ran, and passes. CI has no terms
- * file.
+ * The one directive line, `commit-emails: noreply`, turns on the commit email
+ * rule below (any other value is an error naming the line). Findings name the
+ * terms file's line, never the term. Without the file the check says that
+ * only the generic rules ran, and passes. CI has no terms file.
  *
  * Commit messages: `--commit-msg <file>` (the husky `commit-msg` hook) checks
  * the message being written, and `--commits <rev-list arguments>` or
  * `--ci-commits` (CI: the commits a push or pull request adds, see
- * `ciRevListArgs`) check existing commits. Each applies the generic rules and
- * the extra terms to the subject and body, and requires the author and
- * committer emails to be GitHub no-reply or example-domain addresses
- * (`identityEmailAllowed`; GitHub's own service addresses, which sign merges
- * and bot commits, are allowed in commits too).
+ * `ciRevListArgs`) check existing commits. Each applies the generic rules
+ * (except the email-address rule) and the extra terms to the subject and body.
+ *
+ * Commit emails (opt-in, off by default, so a fork with ordinary git emails
+ * is unaffected): with `PUBLIC_CHECK_COMMIT_EMAILS=noreply` in the
+ * environment, or the terms file's `commit-emails: noreply` directive, the
+ * author and committer emails must be GitHub no-reply or example-domain
+ * addresses (`identityEmailAllowed`; GitHub's own service addresses, which
+ * sign merges and bot commits, are allowed too), and the email-address rule
+ * applies to the message as well. Off, no email is examined, so a
+ * `Signed-off-by:` or `Co-authored-by:` trailer with a real address passes.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -344,11 +351,13 @@ export function hasCloudIdentifier(form) {
 
 const CLOUD_IDENTIFIER_RULE = 'cloud identifier (use a your- placeholder)';
 
+const EMAIL_RULE = 'email address outside the example domains';
+
 function genericRules(allowedAddresses = new Set()) {
   return [
     ['home-directory path', hasHomePath],
     ['Tailscale MagicDNS host', hasTailnetHost],
-    ['email address outside the example domains', privateEmailRule(allowedAddresses)],
+    [EMAIL_RULE, privateEmailRule(allowedAddresses)],
     ['numbered private host', form => NUMBERED_PRIVATE_HOST.test(form)],
     ['non-placeholder 1Password reference', form => SECRET_REFERENCE.test(form)],
     [
@@ -361,26 +370,53 @@ function genericRules(allowedAddresses = new Set()) {
 
 const FILE_RULES = genericRules();
 const COMMIT_RULES = genericRules(GITHUB_SERVICE_ADDRESSES);
+const COMMIT_RULES_WITHOUT_EMAILS = COMMIT_RULES.filter(([rule]) => rule !== EMAIL_RULE);
+
+/** Raised for a setting the check cannot use: it fails rather than guess. */
+export class CheckSettingError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'CheckSettingError';
+  }
+}
 
 /** Raised for a terms file that is named but missing, or holds a bad entry. */
-export class TermsFileError extends Error {
+export class TermsFileError extends CheckSettingError {
   constructor(message) {
     super(message);
     this.name = 'TermsFileError';
   }
 }
 
+/** The values the commit email setting takes; only `noreply` turns it on. */
+const COMMIT_EMAIL_MODES = new Set(['noreply']);
+const COMMIT_EMAILS_DIRECTIVE = /^commit-emails:(.*)$/i;
+
 /**
- * The extra terms in a terms file's text, each as a rule named by its line in
- * that file (never by the term). Throws `TermsFileError` for an empty `re:`
- * line or a regular expression that does not compile, naming the line only.
+ * A terms file's text: its extra terms, each as a rule named by its line in
+ * that file (never by the term), and its `commit-emails:` directive
+ * (`'noreply'`, or `null` without one). Throws `TermsFileError` for an empty
+ * `re:` line, a regular expression that does not compile, or a directive
+ * value other than `noreply`, naming the line only.
  */
-export function parseExtraTerms(text) {
+export function parseTermsFile(text) {
   const rules = [];
+  let commitEmails = null;
   text.split('\n').forEach((raw, index) => {
     const entry = raw.trim();
     if (entry === '' || entry.startsWith('#')) return;
     const name = `extra term (terms file line ${index + 1})`;
+    const directive = COMMIT_EMAILS_DIRECTIVE.exec(entry);
+    if (directive) {
+      const value = directive[1].trim().toLowerCase();
+      if (!COMMIT_EMAIL_MODES.has(value)) {
+        throw new TermsFileError(
+          `Public check terms file line ${index + 1}: commit-emails takes the value noreply.`,
+        );
+      }
+      commitEmails = value;
+      return;
+    }
     if (entry.startsWith('re:')) {
       const source = entry.slice(3);
       let pattern;
@@ -400,7 +436,25 @@ export function parseExtraTerms(text) {
     const term = entry.toLowerCase();
     rules.push([name, form => form.toLowerCase().includes(term)]);
   });
-  return rules;
+  return { terms: rules, commitEmails };
+}
+
+/** The extra-term rules of a terms file's text (see `parseTermsFile`). */
+export function parseExtraTerms(text) {
+  return parseTermsFile(text).terms;
+}
+
+/**
+ * Whether commit emails are checked: `PUBLIC_CHECK_COMMIT_EMAILS=noreply` in
+ * `env`, or the terms file's directive. Unset or empty (a CI variable a fork
+ * does not define) is off; any other value is an error, never a silent off.
+ */
+export function commitEmailsChecked(env, termsFile) {
+  const value = (env.PUBLIC_CHECK_COMMIT_EMAILS ?? '').trim().toLowerCase();
+  if (value !== '' && !COMMIT_EMAIL_MODES.has(value)) {
+    throw new CheckSettingError('PUBLIC_CHECK_COMMIT_EMAILS takes the value noreply, or none.');
+  }
+  return value === 'noreply' || termsFile?.commitEmails === 'noreply';
 }
 
 /**
@@ -418,18 +472,23 @@ export function extraTermsPath({ env = process.env, cwd = process.cwd() } = {}) 
 }
 
 /**
- * The extra-term rules for this clone, or `null` when it keeps no terms file.
- * A file named by `PUBLIC_CHECK_TERMS_FILE` must exist: a mistyped name is an
+ * This clone's terms file (`parseTermsFile`), or `null` when it keeps none. A
+ * file named by `PUBLIC_CHECK_TERMS_FILE` must exist: a mistyped name is an
  * error, never a silent pass.
  */
-export function loadExtraTerms(options = {}) {
+export function loadTermsFile(options = {}) {
   const { path, named } = extraTermsPath(options);
   if (!existsSync(path)) {
     if (named)
       throw new TermsFileError('PUBLIC_CHECK_TERMS_FILE names a file that does not exist.');
     return null;
   }
-  return parseExtraTerms(readFileSync(path, 'utf8'));
+  return parseTermsFile(readFileSync(path, 'utf8'));
+}
+
+/** The extra-term rules for this clone, or `null` when it keeps no terms file. */
+export function loadExtraTerms(options = {}) {
+  return loadTermsFile(options)?.terms ?? null;
 }
 
 /**
@@ -535,20 +594,23 @@ export function publicCandidateFiles(cwd = process.cwd()) {
 const SCISSORS = /^# -+ >8 -+$/m;
 
 /**
- * Findings for one commit message and its identities, each as
- * `<label>: line N: rule` or `<label>: author email …`, never the text or the
- * address.
+ * Findings for one commit message and, with `checkEmails`, its identities,
+ * each as `<label>: line N: rule` or `<label>: author email …`, never the text
+ * or the address. Without `checkEmails` no email is examined: neither the
+ * identities nor an address in the message.
  */
 export function commitFindings(
   label,
-  { message, authorEmail, committerEmail },
-  { extraTerms = [] } = {},
+  { message, authorEmail = '', committerEmail = '' },
+  { extraTerms = [], checkEmails = false } = {},
 ) {
   const cut = SCISSORS.exec(message);
   const text = cut ? message.slice(0, cut.index) : message;
-  const findings = contentFindings(text, { extraTerms, rules: COMMIT_RULES }).map(
+  const rules = checkEmails ? COMMIT_RULES : COMMIT_RULES_WITHOUT_EMAILS;
+  const findings = contentFindings(text, { extraTerms, rules }).map(
     finding => `${label}: ${finding}`,
   );
+  if (!checkEmails) return findings;
   for (const [role, email] of [
     ['author', authorEmail],
     ['committer', committerEmail],
@@ -605,7 +667,10 @@ function gitHasCommit(rev, cwd) {
 }
 
 /** Findings for every commit `git rev-list <revListArgs>` names. */
-export function commitRangeFindings(revListArgs, { cwd = process.cwd(), extraTerms = [] } = {}) {
+export function commitRangeFindings(
+  revListArgs,
+  { cwd = process.cwd(), extraTerms = [], checkEmails = false } = {},
+) {
   const shas = git(['rev-list', ...revListArgs], cwd)
     .split('\n')
     .filter(Boolean);
@@ -619,7 +684,7 @@ export function commitRangeFindings(revListArgs, { cwd = process.cwd(), extraTer
       ...commitFindings(
         `commit ${sha.slice(0, 12)}`,
         { message, authorEmail, committerEmail },
-        { extraTerms },
+        { extraTerms, checkEmails },
       ),
     );
   }
@@ -641,18 +706,27 @@ function report(findings, passed) {
 }
 
 function main(argv) {
-  let extraTerms;
+  const [mode, ...rest] = argv;
+  let termsFile;
+  let checkEmails;
   try {
-    extraTerms = loadExtraTerms();
+    termsFile = loadTermsFile();
+    checkEmails = mode === undefined ? false : commitEmailsChecked(process.env, termsFile);
   } catch (error) {
-    if (!(error instanceof TermsFileError)) throw error;
+    if (!(error instanceof CheckSettingError)) throw error;
     console.error(error.message);
     return 1;
   }
-  if (extraTerms === null) console.log('No extra terms file: only the generic rules ran.');
-  else console.log(`Extra terms file: ${extraTerms.length} terms.`);
-  const terms = extraTerms ?? [];
-  const [mode, ...rest] = argv;
+  if (termsFile === null) console.log('No extra terms file: only the generic rules ran.');
+  else console.log(`Extra terms file: ${termsFile.terms.length} terms.`);
+  const terms = termsFile?.terms ?? [];
+  if (mode !== undefined) {
+    console.log(
+      checkEmails
+        ? 'Commit emails: checked (GitHub no-reply or example-domain addresses).'
+        : 'Commit emails: not checked (opt in with PUBLIC_CHECK_COMMIT_EMAILS=noreply).',
+    );
+  }
 
   if (mode === undefined) {
     const files = publicCandidateFiles();
@@ -670,17 +744,22 @@ function main(argv) {
       'commit message',
       {
         message: readFileSync(rest[0], 'utf8'),
-        authorEmail: identityEmail('GIT_AUTHOR_IDENT'),
-        committerEmail: identityEmail('GIT_COMMITTER_IDENT'),
+        ...(checkEmails && {
+          authorEmail: identityEmail('GIT_AUTHOR_IDENT'),
+          committerEmail: identityEmail('GIT_COMMITTER_IDENT'),
+        }),
       },
-      { extraTerms: terms },
+      { extraTerms: terms, checkEmails },
     );
     return report(findings, 'Public sanitization passed (commit message).');
   }
   if ((mode === '--commits' && rest.length > 0) || (mode === '--ci-commits' && rest.length === 0)) {
     const revListArgs =
       mode === '--commits' ? rest : ciRevListArgs(process.env, rev => gitHasCommit(rev));
-    const { count, findings } = commitRangeFindings(revListArgs, { extraTerms: terms });
+    const { count, findings } = commitRangeFindings(revListArgs, {
+      extraTerms: terms,
+      checkEmails,
+    });
     return report(findings, `Public sanitization passed (${count} commits).`);
   }
   console.error(

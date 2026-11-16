@@ -95,11 +95,13 @@ jobs:
 
       # The commits this push or pull request adds (never the whole history,
       # which predates the rule): subjects and bodies against the generic
-      # rules, author and committer emails GitHub no-reply or example-domain
-      # addresses. CI has no extra terms file. Needs the full history above
-      # (fetch-depth: 0).
+      # rules. CI has no extra terms file. Author and committer emails are
+      # checked only when the repository variable PUBLIC_CHECK_COMMIT_EMAILS
+      # is set to noreply (a fork without it is unaffected). Needs the full
+      # history above (fetch-depth: 0).
       - name: Commit-message sanitization gate
         env:
+          PUBLIC_CHECK_COMMIT_EMAILS: ${{ vars.PUBLIC_CHECK_COMMIT_EMAILS }}
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}

@@ -9,7 +9,9 @@ import test, { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
   ALLOWED_IDENTIFIER_LINES,
+  CheckSettingError,
   ciRevListArgs,
+  commitEmailsChecked,
   commitFindings,
   commitRangeFindings,
   contentFindings,
@@ -20,6 +22,7 @@ import {
   loadExtraTerms,
   PINNED_BINARY_FILES,
   parseExtraTerms,
+  parseTermsFile,
   publicCandidateFiles,
   sanitizationFindings,
   singleLabelHostFindings,
@@ -589,7 +592,9 @@ const SCANNER_PATH = fileURLToPath(new URL('./check-public-sanitization.mjs', im
 
 function runScanner(cwd, args = [], env = {}) {
   const childEnv = { ...process.env, ...env };
-  if (!('PUBLIC_CHECK_TERMS_FILE' in env)) delete childEnv.PUBLIC_CHECK_TERMS_FILE;
+  for (const name of ['PUBLIC_CHECK_TERMS_FILE', 'PUBLIC_CHECK_COMMIT_EMAILS']) {
+    if (!(name in env)) delete childEnv[name];
+  }
   return spawnSync(process.execPath, [SCANNER_PATH, ...args], {
     cwd,
     env: childEnv,
@@ -639,14 +644,17 @@ test('commit messages get the generic rules and the extra terms', () => {
       'c: line 5: Tailscale MagicDNS host',
     ],
   );
-  // GitHub's service addresses sign merges and bot commits, so a commit may
-  // carry them; a file may not
+  // The email-address rule applies to a message only with the commit email
+  // rule on; GitHub's service addresses sign merges and bot commits, so a
+  // commit may then carry them; a file may not
+  const on = { checkEmails: true };
   const signoff = glue('Signed-off-by: bot <', GITHUB_SUPPORT, '>');
-  assert.deepEqual(commitFindings('c', { ...ok, message: signoff }), []);
+  assert.deepEqual(commitFindings('c', { ...ok, message: signoff }, on), []);
   assert.deepEqual(contentFindings(signoff), ['line 1: email address outside the example domains']);
-  assert.deepEqual(commitFindings('c', { ...ok, message: PRIVATE_EMAIL }), [
+  assert.deepEqual(commitFindings('c', { ...ok, message: PRIVATE_EMAIL }, on), [
     'c: line 1: email address outside the example domains',
   ]);
+  assert.deepEqual(commitFindings('c', { ...ok, message: PRIVATE_EMAIL }), []);
   // A verbose commit's diff after the scissors line is never part of the message
   const verbose = glue(
     '[fix] x\n# ------------------------ >8 ------------------------\n',
@@ -680,20 +688,26 @@ test('commit identities must be GitHub no-reply or example-domain addresses', ()
   ]) {
     assert.equal(identityEmailAllowed(email), false, email);
   }
+  const on = { checkEmails: true };
   assert.deepEqual(
-    commitFindings('c', {
-      message: 'x',
-      authorEmail: PRIVATE_EMAIL,
-      committerEmail: 'dev@example.com',
-    }),
+    commitFindings(
+      'c',
+      { message: 'x', authorEmail: PRIVATE_EMAIL, committerEmail: 'dev@example.com' },
+      on,
+    ),
     ['c: author email is not a GitHub no-reply or example-domain address'],
   );
-  const both = commitFindings('c', {
-    message: 'x',
-    authorEmail: '',
-    committerEmail: PRIVATE_EMAIL,
-  });
+  const both = commitFindings(
+    'c',
+    { message: 'x', authorEmail: '', committerEmail: PRIVATE_EMAIL },
+    on,
+  );
   assert.equal(both.length, 2);
+  // Off (the default), no identity is examined
+  assert.deepEqual(
+    commitFindings('c', { message: 'x', authorEmail: PRIVATE_EMAIL, committerEmail: '' }),
+    [],
+  );
   for (const finding of both) assert.ok(!finding.includes(PRIVATE_EMAIL));
 });
 
@@ -752,10 +766,16 @@ test('a commit range is checked commit by commit, by short hash', () => {
     env: { ...process.env, GIT_AUTHOR_EMAIL: PRIVATE_EMAIL },
   });
   const [second, first] = run('rev-list', `${base}..HEAD`).trim().split('\n');
-  const { count, findings } = commitRangeFindings([`${base}..HEAD`], { cwd: dir });
+  const { count, findings } = commitRangeFindings([`${base}..HEAD`], {
+    cwd: dir,
+    checkEmails: true,
+  });
   assert.equal(count, 2);
   assert.deepEqual(findings, [
     `commit ${second.slice(0, 12)}: author email is not a GitHub no-reply or example-domain address`,
+    `commit ${first.slice(0, 12)}: line 3: home-directory path`,
+  ]);
+  assert.deepEqual(commitRangeFindings([`${base}..HEAD`], { cwd: dir }).findings, [
     `commit ${first.slice(0, 12)}: line 3: home-directory path`,
   ]);
   const cli = runScanner(dir, ['--commits', `${base}..HEAD`]);
@@ -774,6 +794,7 @@ test('the commit-msg mode checks the message file and both identities', () => {
   assert.equal(ok.status, 0, ok.stderr);
   const badIdentity = runScanner(dir, ['--commit-msg', message], {
     GIT_COMMITTER_EMAIL: PRIVATE_EMAIL,
+    PUBLIC_CHECK_COMMIT_EMAILS: 'noreply',
   });
   assert.equal(badIdentity.status, 1);
   assert.match(badIdentity.stderr, /commit message: committer email is not/);
@@ -801,5 +822,139 @@ test('husky runs the commit-msg mode, and CI checks the commits a run adds', () 
   ]) {
     assert.match(ci, new RegExp(`^ {10}${name}: \\$\\{\\{ github\\.`, 'm'), name);
   }
+  // Commit emails are opt-in per repository, through a repository variable
+  assert.match(
+    ci,
+    /^ {10}PUBLIC_CHECK_COMMIT_EMAILS: \$\{\{ vars\.PUBLIC_CHECK_COMMIT_EMAILS \}\}$/m,
+  );
   assert.match(ci, /fetch-depth: 0/);
+});
+
+/**
+ * A scratch repository whose one new commit has an ordinary author and
+ * committer email and trailers carrying it, as a fork's commits may.
+ */
+function ordinaryCommitRepo() {
+  const repo = scratchRepo();
+  const base = repo.run('rev-parse', 'HEAD').trim();
+  writeFileSync(join(repo.dir, 'c.txt'), 'c\n');
+  repo.run('add', 'c.txt');
+  const message = glue(
+    '[fix] c\n\nSigned-off-by: Dev <',
+    PRIVATE_EMAIL,
+    '>\nCo-authored-by: Other <',
+    PRIVATE_EMAIL,
+    '>\n',
+  );
+  execFileSync('git', ['commit', '--quiet', '-m', message], {
+    cwd: repo.dir,
+    env: { ...process.env, GIT_AUTHOR_EMAIL: PRIVATE_EMAIL, GIT_COMMITTER_EMAIL: PRIVATE_EMAIL },
+  });
+  const head = repo.run('rev-parse', 'HEAD').trim();
+  const messageFile = join(repo.dir, '.git', 'COMMIT_EDITMSG');
+  writeFileSync(messageFile, message);
+  const ci = { EVENT_NAME: 'push', PUSH_BEFORE: base, GITHUB_SHA: head };
+  return { ...repo, base, head, messageFile, ci };
+}
+
+const IDENTITY_ENV = { GIT_AUTHOR_EMAIL: PRIVATE_EMAIL, GIT_COMMITTER_EMAIL: PRIVATE_EMAIL };
+
+test('the commit email rule is off by default: ordinary emails and trailers pass in all three modes', () => {
+  const { dir, base, messageFile, ci } = ordinaryCommitRepo();
+  for (const [args, env] of [
+    [['--commit-msg', messageFile], IDENTITY_ENV],
+    [['--commits', `${base}..HEAD`], {}],
+    [['--ci-commits'], ci],
+  ]) {
+    const result = runScanner(dir, args, env);
+    assert.equal(result.status, 0, `${args[0]}: ${result.stderr}`);
+    assert.match(result.stdout, /^Commit emails: not checked/m, args[0]);
+  }
+  // An empty CI variable (a fork that never set it) is off too
+  const unset = runScanner(dir, ['--ci-commits'], { ...ci, PUBLIC_CHECK_COMMIT_EMAILS: '' });
+  assert.equal(unset.status, 0, unset.stderr);
+  assert.equal(commitEmailsChecked({}, null), false);
+  assert.equal(
+    commitEmailsChecked({ PUBLIC_CHECK_COMMIT_EMAILS: ' ' }, { commitEmails: null }),
+    false,
+  );
+});
+
+test('PUBLIC_CHECK_COMMIT_EMAILS=noreply turns the commit email rule on in all three modes', () => {
+  const { dir, base, messageFile, ci } = ordinaryCommitRepo();
+  const on = { PUBLIC_CHECK_COMMIT_EMAILS: 'noreply' };
+  for (const [args, env] of [
+    [['--commit-msg', messageFile], { ...IDENTITY_ENV, ...on }],
+    [['--commits', `${base}..HEAD`], on],
+    [['--ci-commits'], { ...ci, ...on }],
+  ]) {
+    const result = runScanner(dir, args, env);
+    assert.equal(result.status, 1, args[0]);
+    assert.match(result.stdout, /^Commit emails: checked/m, args[0]);
+    assert.match(result.stderr, /author email is not a GitHub no-reply/, args[0]);
+    assert.match(result.stderr, /committer email is not a GitHub no-reply/, args[0]);
+    assert.match(result.stderr, /line 3: email address outside the example domains/, args[0]);
+    assert.match(result.stderr, /line 4: email address outside the example domains/, args[0]);
+    assert.ok(!result.stderr.includes(PRIVATE_EMAIL), args[0]);
+  }
+  assert.equal(commitEmailsChecked(on, null), true);
+  assert.equal(commitEmailsChecked({ PUBLIC_CHECK_COMMIT_EMAILS: 'NoReply' }, null), true);
+});
+
+test('the terms file directive commit-emails: noreply turns the rule on, and is not a term', () => {
+  const { dir, base, messageFile } = ordinaryCommitRepo();
+  const parsed = parseTermsFile('# mine\nhidden-name\n  Commit-Emails:  NoReply \n');
+  assert.equal(parsed.terms.length, 1);
+  assert.equal(parsed.commitEmails, 'noreply');
+  assert.equal(parseTermsFile('hidden-name\n').commitEmails, null);
+  assert.equal(commitEmailsChecked({}, parsed), true);
+  // The directive is not matched as a term against content
+  assert.deepEqual(contentFindings('commit-emails: noreply', { extraTerms: parsed.terms }), []);
+  writeFileSync(join(dir, '.git', 'public-check-terms.txt'), 'commit-emails: noreply\n');
+  for (const [args, env] of [
+    [['--commit-msg', messageFile], IDENTITY_ENV],
+    [['--commits', `${base}..HEAD`], {}],
+  ]) {
+    const result = runScanner(dir, args, env);
+    assert.equal(result.status, 1, args[0]);
+    assert.match(result.stdout, /^Extra terms file: 0 terms\.$/m);
+    assert.match(result.stderr, /author email is not a GitHub no-reply/, args[0]);
+  }
+  // A file scan is unchanged by the directive
+  writeFileSync(join(dir, 'wrangler.toml'), 'name = "x"\n');
+  assert.equal(runScanner(dir).status, 0);
+});
+
+test('a commit-emails value other than noreply is refused, never a silent off', () => {
+  for (const text of [
+    'x\ncommit-emails: zqeveryone',
+    'x\ncommit-emails:',
+    'x\ncommit-emails: off',
+  ]) {
+    assert.throws(
+      () => parseTermsFile(text),
+      error =>
+        error instanceof TermsFileError &&
+        /line 2/.test(error.message) &&
+        !error.message.includes('zqeveryone'),
+      text,
+    );
+  }
+  assert.throws(
+    () => commitEmailsChecked({ PUBLIC_CHECK_COMMIT_EMAILS: 'zqeveryone' }, null),
+    error => error instanceof CheckSettingError && !error.message.includes('zqeveryone'),
+  );
+  const { dir, base } = ordinaryCommitRepo();
+  writeFileSync(join(dir, 'wrangler.toml'), 'name = "x"\n');
+  const badEnv = runScanner(dir, ['--commits', `${base}..HEAD`], {
+    PUBLIC_CHECK_COMMIT_EMAILS: 'yes',
+  });
+  assert.equal(badEnv.status, 1);
+  assert.match(badEnv.stderr, /PUBLIC_CHECK_COMMIT_EMAILS takes the value noreply/);
+  writeFileSync(join(dir, '.git', 'public-check-terms.txt'), '# mine\ncommit-emails: all\n');
+  for (const args of [[], ['--commits', `${base}..HEAD`]]) {
+    const result = runScanner(dir, args);
+    assert.equal(result.status, 1, args.join(' '));
+    assert.match(result.stderr, /terms file line 2: commit-emails takes the value noreply/);
+  }
 });
