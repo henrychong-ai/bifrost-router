@@ -55,7 +55,10 @@ it and it can never be staged), or in the file `PUBLIC_CHECK_TERMS_FILE`
 names (it must then exist). One term per line, `#` comments and blank lines
 skipped; a term matches as a case-insensitive substring of any of a line's
 four forms, and a line starting `re:` is a regular expression, applied
-case-insensitively. A finding names the terms file's line, never the term.
+case-insensitively. One directive line is not a term: `commit-emails:
+noreply` turns on the commit email rule below for this clone (any other value
+is an error that names the line). A finding names the terms file's line,
+never the term.
 Without the file the check prints `No extra terms file: only the generic
 rules ran.` and passes; CI has none, so there only the generic rules run.
 Never commit the terms or describe them in code, tests, comments or commit
@@ -63,15 +66,25 @@ messages: the scanner and its test are scanned like any other file, and the
 test assembles its synthetic bad values at runtime.
 
 **Commit messages.** The same rules (and the extra terms) apply to commit
-subjects and bodies, and a commit's author and committer emails must be GitHub
-no-reply or example-domain addresses (GitHub's own service addresses, which
-sign merges and bot commits, are allowed in commits only). `.husky/commit-msg`
+subjects and bodies, except the email-address rule. `.husky/commit-msg`
 checks each message as it is written (`--commit-msg`, with the clone's extra
 terms); CI checks the commits a push or pull request adds (`--ci-commits`: a
 pull request's base to head, a push's previous tip to its new one, a new
 branch's commits not on the default branch), never the whole history, which
 predates the rule. `node scripts/check-public-sanitization.mjs --commits
-<rev-list arguments>` checks any range by hand.
+<rev-list arguments>` checks any range by hand. **Commit emails are opt-in
+(off by default),** so a fork whose contributors commit with ordinary git
+emails, and an outside pull request, are unaffected: with the rule off no
+author, committer or trailer address (`Signed-off-by:`, `Co-authored-by:`) is
+examined. Turn it on with `PUBLIC_CHECK_COMMIT_EMAILS=noreply` in the
+environment (CI passes the repository variable of that name to the commit
+step, so a repository opts in by setting the variable to `noreply`) or with
+the `commit-emails: noreply` directive in the clone's terms file (the hook
+then applies it locally). On, a commit's author and committer emails must be
+GitHub no-reply or example-domain addresses (GitHub's own service addresses,
+which sign merges and bot commits, are allowed in commits only), and the
+email-address rule applies to the message too. Any other value of either
+setting is an error, never a silent off.
 
 **Open work is tracked in [TODO.md](./TODO.md)**, grouped by priority, one item per line with enough context to act on it. Update it in the same change that opens or closes an item; the CHANGELOG records what shipped, not what is still open.
 

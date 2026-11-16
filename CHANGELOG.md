@@ -51,7 +51,8 @@ loading, tooling and docs.
   (`git rev-parse --git-common-dir`, shared by every worktree), or the file
   `PUBLIC_CHECK_TERMS_FILE` names. One term per line, `#` comments, matched
   case-insensitively as a substring of every form of a line; a `re:` line is
-  a regular expression. Findings name the terms file's line, never the term.
+  a regular expression, and a `commit-emails: noreply` line is a directive
+  (below). Findings name the terms file's line, never the term.
   Without the file the check says that only the generic rules ran, and
   passes; CI has none.
 - **Cloud identifiers.** A 32-hex value or a UUID with an identifier key
@@ -66,13 +67,22 @@ loading, tooling and docs.
   with its SHA-256 (`PINNED_BINARY_FILES`: the four fonts); it used to be
   skipped.
 - **Commit messages.** `--commit-msg` (a new `.husky/commit-msg` hook) and
-  `--commits` / `--ci-commits` apply the same rules and the extra terms to
-  commit subjects and bodies, and require GitHub no-reply or example-domain
-  author and committer emails (GitHub's own service addresses, which sign
-  merges and bot commits, are allowed in commits). CI checks the commits a
-  push or pull request adds, never the earlier history.
+  `--commits` / `--ci-commits` apply the same rules (except the
+  email-address rule) and the extra terms to commit subjects and bodies. CI
+  checks the commits a push or pull request adds, never the earlier history.
+- **Commit emails, opt-in (off by default).** With
+  `PUBLIC_CHECK_COMMIT_EMAILS=noreply` in the environment (in CI, a
+  repository variable of that name, which the commit step reads) or a
+  `commit-emails: noreply` directive in the terms file, author and committer
+  emails must be GitHub no-reply or example-domain addresses (GitHub's own
+  service addresses, which sign merges and bot commits, are allowed), and
+  addresses in the message are checked too. Off, no email is examined, so a
+  fork with ordinary git emails, its CI and an outside pull request are
+  unaffected. Any other value is an error.
 - Documented in `AGENTS.md` (Public repository) and `CONTRIBUTING.md` as a
-  feature any fork can use for its own private names.
+  feature any fork can use for its own private names. The README's CI
+  section says a public fork keeps the two public-check steps and a private
+  deployment with real values removes them.
 
 ### Docs and comments
 

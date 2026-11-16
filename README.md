@@ -447,6 +447,14 @@ build, analytics/routing/dormant-path performance gates, and production plus
 development Wrangler dry-runs on branch pushes and PRs to main; version-tag
 pushes (v1.2.3) are skipped, and other tags still run it. It does not deploy.
 
+**Public sanitisation in a fork.** The "Public sanitization gate" and
+"Commit-message sanitization gate" steps (`pnpm run public:check`, see
+[CONTRIBUTING.md](./CONTRIBUTING.md)) exist to keep a public repository free of
+private values. If your fork is public, keep them. If it is a private
+deployment that commits its real Cloudflare identifiers or its own binary
+files, the check fails by design: remove those two steps from your
+`.github/workflows/ci.yml`.
+
 ### Optional: External R2 operations audit capture (v1.28.0)
 
 By default, the audit log only records operations made *through* Bifrost. This optional feature also captures R2 changes made **outside** it — Cloudflare dashboard uploads, Wrangler commands, direct S3/REST API keys — into the same audit page, labelled by source. It ships **dormant** (both flags `"off"`); enabling it is a two-layer opt-in:
