@@ -6,6 +6,87 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.46.1 (2026-11-16) — The dashboard serves its own fonts; the public check carries no private names
+
+**Why:** the dashboard loaded its fonts from a fixed external host, so every
+deployment's dashboard sent each viewer's address and its own origin to that
+host, and the page CSP had to allow it (`TODO.md`). The public check matched
+a list of salted SHA-256 digests with a public salt, so a guessed name could
+be confirmed by hashing it; it also skipped binary files, read cloud
+identifiers only in three `wrangler.toml` keys, and did not look at commit
+messages. **No migration**; no API, schema, MCP tool or stored-record
+change. A patch release: privacy and hardening of the dashboard's font
+loading, tooling and docs.
+
+### Dashboard fonts
+
+- **The dashboard serves its own fonts and requests none from another
+  host.** Inter 4.1 and Maple Mono NL 7.9 (roman and italic, variable woff2)
+  ship unmodified in `admin/public/fonts/`, one directory per family and
+  version, each with its SIL OFL 1.1 licence and copyright notice
+  (`OFL.txt`). Every `@font-face` source and the preload are same-origin
+  `/fonts/…` paths, so rendering is unchanged.
+- **Chinese text uses the system's CJK fonts.** The two CJK font faces are
+  removed; `--font-sans-sc` and `--font-sans-tc` are system stacks after
+  Inter (PingFang, Hiragino, Microsoft YaHei or JhengHei, Noto Sans CJK,
+  Source Han Sans), with the same `zh-Hans` / `zh-Hant` scoping.
+- **nginx:** the page CSP's `font-src` is `'self'` only; `/fonts/` has its
+  own location, so a missing font is a 404 and never the page, and it gets
+  the hashed assets' `Cache-Control` (`public, max-age=31536000, immutable`
+  on a 200, 206 or 304) and its own log scope, `font`. A changed font needs
+  a new directory, since the old URL stays cached.
+- **Tests:** `admin/src/lib/typography.test.ts` pins the same-origin URLs
+  and the system CJK stacks; `scripts/check-dashboard-security.test.mjs`
+  checks that every font the CSS and the preload name is a file under
+  `admin/public/fonts/` with its licence, and the policy, location and maps;
+  `pnpm run check:dashboard-container` fetches the preloaded font from the
+  image (`font/woff2`, its bytes, one immutable `Cache-Control`) and a
+  missing one (404, not cached).
+
+### Public check
+
+- **No private names in the check.** The hashed-identifier rule, its salt
+  and its digest list are removed. A clone may keep its own extra terms file
+  instead, never committed: `public-check-terms.txt` in its git directory
+  (`git rev-parse --git-common-dir`, shared by every worktree), or the file
+  `PUBLIC_CHECK_TERMS_FILE` names. One term per line, `#` comments, matched
+  case-insensitively as a substring of every form of a line; a `re:` line is
+  a regular expression. Findings name the terms file's line, never the term.
+  Without the file the check says that only the generic rules ran, and
+  passes; CI has none.
+- **Cloud identifiers.** A 32-hex value or a UUID with an identifier key
+  earlier on its line (`id`, a `_id` suffix such as `account_id` or
+  `CF_ACCOUNT_ID`, `CLOUDFLARE_ZONE_IDS`, a camel-case `Id`, an account,
+  zone, namespace or database: assignments, flags, `/accounts/…` paths and
+  table rows) fails anywhere in the tree. Obvious placeholders pass (at
+  least half zeros, one repeated digit, the `0123456789abcdef` run), and
+  longer digests are not one value. The one allowance is Drizzle Kit's
+  snapshot ids in `drizzle/meta/*_snapshot.json`.
+- **Binary files.** A file holding a NUL byte fails unless it is pinned
+  with its SHA-256 (`PINNED_BINARY_FILES`: the four fonts); it used to be
+  skipped.
+- **Commit messages.** `--commit-msg` (a new `.husky/commit-msg` hook) and
+  `--commits` / `--ci-commits` apply the same rules and the extra terms to
+  commit subjects and bodies, and require GitHub no-reply or example-domain
+  author and committer emails (GitHub's own service addresses, which sign
+  merges and bot commits, are allowed in commits). CI checks the commits a
+  push or pull request adds, never the earlier history.
+- Documented in `AGENTS.md` (Public repository) and `CONTRIBUTING.md` as a
+  feature any fork can use for its own private names.
+
+### Docs and comments
+
+- The fourth example user domain is `user4.example.com`, like the other
+  numbered user domains, in the four domain lists, the OpenAPI domain enums
+  and the docs. A deployment replaces these placeholders with its own
+  domains in any case.
+- The nightly backup time is given in UTC only; the D1 region line says the
+  location is the one chosen at creation; the lint docs say "the lint
+  template"; the Worker's `noUncheckedIndexedAccess` count is 16, as in
+  `TODO.md`.
+
+---
+
 ## v1.46.0 (2026-11-13) — Contact-card shown-name and website rules; new route paths refuse unpaired surrogates
 
 **Why:** residuals from the contact-card and real-UTF-8 releases, all
