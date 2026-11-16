@@ -26,12 +26,10 @@ container users; a lower-case `users` route segment is not flagged), any
 address outside the RFC 2606 example domains and GitHub's no-reply domain (git
 remotes, `@2x` asset names and version pins are not addresses), a
 non-placeholder 1Password reference, a numbered `vps-` host, a single-label
-`https://` host, and a cloud identifier: a 32-hex value or a UUID with an
-identifier key earlier on its line (`id`, `uuid`, a `_id` or `-id` suffix in
-any case such as `account_id`, `CF_ACCOUNT_ID` or `CLOUDFLARE_ZONE_IDS`, a
-camel-case `Id` suffix, an account, zone, namespace or database, so an
-assignment, a `--zone-id` flag, an `/accounts/…` API path and a table row all
-count). Write identifiers as `your-…` placeholders. A value at least half
+`https://` host, and a cloud identifier: any standalone 32-hex value or UUID,
+wherever it is and whatever names it (an `account_id`, a table row, a
+`wrangler` argument, an R2 endpoint host, a dashboard URL, a value alone on
+its line). Write identifiers as `your-…` placeholders. A value at least half
 zeros, one repeated digit or the `0123456789abcdef…` run is an obvious
 placeholder and passes; a longer digest (a 64-hex pin, a base64 lockfile
 integrity) is not one value. The one allowance is Drizzle Kit's own snapshot
@@ -41,7 +39,11 @@ line is checked as written, with escapes blanked, with
 escapes decoded, and with only character-code and punctuation escapes decoded
 (so a Windows backslash still separates), so an escape can neither eat the
 first letter of a name nor hide a delimiter inside one. Findings name the file, line and rule, never the
-matched text, because CI logs are public too. **Binary files:** a file
+matched text, because CI logs are public too. **File paths** get the same
+rules and the extra terms; a path with a finding is never printed: the file
+is named by its position in the candidate list (`candidate file #N`, in
+`git ls-files --cached --others --exclude-standard` order), and its other
+findings use that label too. **Binary files:** a file
 holding a NUL byte cannot be scanned as text, so it fails unless
 `PINNED_BINARY_FILES` lists it with its exact SHA-256 (today only the
 dashboard's four bundled fonts); add a binary file only after checking it by
@@ -57,8 +59,10 @@ skipped; a term matches as a case-insensitive substring of any of a line's
 four forms, and a line starting `re:` is a regular expression, applied
 case-insensitively. One directive line is not a term: `commit-emails:
 noreply` turns on the commit email rule below for this clone (any other value
-is an error that names the line). A finding names the terms file's line,
-never the term.
+is an error that names the line). Terms match within one line: a name
+wrapped across two lines is not matched, so write a multi-word name as a
+regular expression that allows the separators (`re:acme[\s._-]?corp`). A
+finding names the terms file's line, never the term.
 Without the file the check prints `No extra terms file: only the generic
 rules ran.` and passes; CI has none, so there only the generic rules run.
 Never commit the terms or describe them in code, tests, comments or commit
@@ -66,12 +70,22 @@ messages: the scanner and its test are scanned like any other file, and the
 test assembles its synthetic bad values at runtime.
 
 **Commit messages.** The same rules (and the extra terms) apply to commit
-subjects and bodies, except the email-address rule. `.husky/commit-msg`
-checks each message as it is written (`--commit-msg`, with the clone's extra
-terms); CI checks the commits a push or pull request adds (`--ci-commits`: a
-pull request's base to head, a push's previous tip to its new one, a new
-branch's commits not on the default branch), never the whole history, which
-predates the rule. `node scripts/check-public-sanitization.mjs --commits
+subjects and bodies, except the email-address rule, and to the author and
+committer names. `.husky/commit-msg` checks each message as it is written
+(`--commit-msg`, with the clone's extra terms), leaving out the lines git
+strips from it (those starting with the comment character, `#` unless
+`core.commentChar` says otherwise: the template's branch and file list); a
+stored commit keeps every line, so `--commits` checks them all. CI checks the
+commits a push or pull request adds (`--ci-commits`: a pull request's base to
+head, a push's previous tip to its new one, a new branch's commits not on the
+default branch; after a force-push whose previous tip is not present, the
+commits not on the default branch, or, on the default branch itself, a
+failure that says the range is unknown, never a pass on no commits), never
+the whole history, which predates the rule. `.husky/pre-push` runs the whole
+file check and the commit check over the commits being pushed (per pushed
+ref, from the remote's old tip, or the commits on no remote ref for a new
+one; `--pre-push`), but only in a clone with an extra terms file: without
+one it does nothing, so a fork that commits its own real values can push. `node scripts/check-public-sanitization.mjs --commits
 <rev-list arguments>` checks any range by hand. **Commit emails are opt-in
 (off by default),** so a fork whose contributors commit with ordinary git
 emails, and an outside pull request, are unaffected: with the rule off no
@@ -1371,7 +1385,7 @@ The dashboard serves its own fonts and requests none from another host:
 | System CJK sans (PingFang SC, Microsoft YaHei, Noto Sans CJK SC, …) | Simplified Chinese (`[lang^="zh-Hans"]`) | `--font-sans-sc` | the viewer's system |
 | System CJK sans (PingFang TC, Microsoft JhengHei, Noto Sans CJK TC, …) | Traditional Chinese (`[lang^="zh-Hant"]`) | `--font-sans-tc` | the viewer's system |
 
-Both bundled families are **SIL OFL 1.1** licensed (free for any use including commercial / embedding / self-hosting / modification), unmodified upstream files; each font directory carries the family's licence and copyright notice as `OFL.txt`, and Vite copies the directory into the build. Chinese text uses the system's own CJK fonts, so the image carries no CJK font files. `admin/index.html` preloads the roman Inter file, the page CSP allows `font-src 'self'` only (`admin/nginx.conf.template`), and nginx serves `/fonts/` from its own location (a missing file is a 404, never the page) with the hashed assets' Cache-Control (`public, max-age=31536000, immutable` on a 200, 206 or 304). Because a font is cached as immutable, a changed file needs a new URL: each family's directory is named for its version. **To use your own fonts:** add the files and their licence under `admin/public/fonts/<family>-<version>/`, follow the comment block at the top of `admin/src/index.css` to swap the `@font-face` declarations and update the `--font-*` tokens in `@theme inline`, and update the preload in `admin/index.html`. A font loaded from another host also needs that host in the CSP `font-src`, and sends each viewer's address and the dashboard's origin there.
+Both bundled families are **SIL OFL 1.1** licensed (free for any use including commercial / embedding / self-hosting / modification). Inter: the 4.1 release's web woff2 files, byte for byte. Maple Mono NL: the 7.9 release's variable TTFs compressed to WOFF2 (the release ships no variable woff2; the font tables are unchanged). Each font directory carries the family's licence and copyright notice as `OFL.txt`, and Vite copies the directory into the build. Chinese text uses the system's own CJK fonts, so the image carries no CJK font files. `admin/index.html` preloads the roman Inter file, the page CSP allows `font-src 'self'` only (`admin/nginx.conf.template`), and nginx serves `/fonts/` from its own location (a missing file is a 404, never the page) with the hashed assets' Cache-Control (`public, max-age=31536000, immutable` on a 200, 206 or 304). Because a font is cached as immutable, a changed file needs a new URL: each family's directory is named for its version. **To use your own fonts:** add the files and their licence under `admin/public/fonts/<family>-<version>/`, follow the comment block at the top of `admin/src/index.css` to swap the `@font-face` declarations and update the `--font-*` tokens in `@theme inline`, and update the preload in `admin/index.html`. A font loaded from another host also needs that host in the CSP `font-src`, and sends each viewer's address and the dashboard's origin there.
 
 **Maple Mono NL feature settings** (already wired in `admin/src/index.css`):
 

@@ -10,11 +10,11 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 **Why:** the dashboard loaded its fonts from a fixed external host, so every
 deployment's dashboard sent each viewer's address and its own origin to that
-host, and the page CSP had to allow it (`TODO.md`). The public check matched
-a list of salted SHA-256 digests with a public salt, so a guessed name could
-be confirmed by hashing it; it also skipped binary files, read cloud
-identifiers only in three `wrangler.toml` keys, and did not look at commit
-messages. **No migration**; no API, schema, MCP tool or stored-record
+host, and the page CSP had to allow it (`TODO.md`). The public check carried
+a list of hashed identifiers; it now carries none, and a clone keeps its own
+terms file instead. The check also skipped binary files, read cloud
+identifiers only in three `wrangler.toml` keys, and did not look at file
+paths or commits. **No migration**; no API, schema, MCP tool or stored-record
 change. A patch release: privacy and hardening of the dashboard's font
 loading, tooling and docs.
 
@@ -22,9 +22,10 @@ loading, tooling and docs.
 
 - **The dashboard serves its own fonts and requests none from another
   host.** Inter 4.1 and Maple Mono NL 7.9 (roman and italic, variable woff2)
-  ship unmodified in `admin/public/fonts/`, one directory per family and
-  version, each with its SIL OFL 1.1 licence and copyright notice
-  (`OFL.txt`). Every `@font-face` source and the preload are same-origin
+  ship in `admin/public/fonts/`, one directory per family and version, each
+  with its SIL OFL 1.1 licence and copyright notice (`OFL.txt`). Inter: the
+  4.1 release's web woff2 files. Maple Mono NL: the 7.9 release's variable
+  TTFs compressed to WOFF2 (font tables unchanged). Every `@font-face` source and the preload are same-origin
   `/fonts/…` paths, so rendering is unchanged.
 - **Chinese text uses the system's CJK fonts.** The two CJK font faces are
   removed; `--font-sans-sc` and `--font-sans-tc` are system stacks after
@@ -52,24 +53,37 @@ loading, tooling and docs.
   `PUBLIC_CHECK_TERMS_FILE` names. One term per line, `#` comments, matched
   case-insensitively as a substring of every form of a line; a `re:` line is
   a regular expression, and a `commit-emails: noreply` line is a directive
-  (below). Findings name the terms file's line, never the term.
+  (below). Terms match within one line (a multi-word name is best written
+  as a `re:` line allowing the separators). Findings name the terms file's
+  line, never the term.
   Without the file the check says that only the generic rules ran, and
   passes; CI has none.
-- **Cloud identifiers.** A 32-hex value or a UUID with an identifier key
-  earlier on its line (`id`, a `_id` suffix such as `account_id` or
-  `CF_ACCOUNT_ID`, `CLOUDFLARE_ZONE_IDS`, a camel-case `Id`, an account,
-  zone, namespace or database: assignments, flags, `/accounts/…` paths and
-  table rows) fails anywhere in the tree. Obvious placeholders pass (at
-  least half zeros, one repeated digit, the `0123456789abcdef` run), and
-  longer digests are not one value. The one allowance is Drizzle Kit's
+- **Cloud identifiers.** Any standalone 32-hex value or UUID fails,
+  anywhere in the tree and whatever names it (an `account_id`, a table row,
+  a `wrangler` argument, an R2 endpoint host, a dashboard URL). Obvious
+  placeholders pass (at least half zeros, one repeated digit, the
+  `0123456789abcdef` run), and longer digests are not one value. The one allowance is Drizzle Kit's
   snapshot ids in `drizzle/meta/*_snapshot.json`.
 - **Binary files.** A file holding a NUL byte fails unless it is pinned
   with its SHA-256 (`PINNED_BINARY_FILES`: the four fonts); it used to be
   skipped.
+- **File paths** get the same rules and the extra terms; a path with a
+  finding is reported by its position in the candidate list, never printed.
+- **A terms path that is not a readable regular file** (a dangling link, a
+  directory, an unreadable file) fails with one line; only a path where
+  nothing exists means no terms file.
 - **Commit messages.** `--commit-msg` (a new `.husky/commit-msg` hook) and
   `--commits` / `--ci-commits` apply the same rules (except the
-  email-address rule) and the extra terms to commit subjects and bodies. CI
-  checks the commits a push or pull request adds, never the earlier history.
+  email-address rule) and the extra terms to commit subjects and bodies and
+  to the author and committer names. The hook leaves out the lines git
+  strips (the comment character's template lines). CI checks the commits a
+  push or pull request adds, never the earlier history; after a force-push
+  to the default branch whose previous tip is not present, the step fails
+  and says the range is unknown, rather than passing on no commits.
+- **Pre-push.** A new `.husky/pre-push` hook (`--pre-push`) runs the whole
+  file check and the commit check over the commits being pushed, with the
+  extra terms. Without a terms file it does nothing, so a fork that commits
+  its own real values can push.
 - **Commit emails, opt-in (off by default).** With
   `PUBLIC_CHECK_COMMIT_EMAILS=noreply` in the environment (in CI, a
   repository variable of that name, which the commit step reads) or a
