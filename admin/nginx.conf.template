@@ -83,6 +83,7 @@ log_format csp_report escape=json
 map $uri $bifrost_log_scope {
     default                     "page";
     ~^/assets/                  "asset";
+    ~^/fonts/                   "font";
     ~^/api/                     "api";
     /api/tailscale/identity     "identity";
     /csp-report                 "csp-report";
@@ -101,12 +102,16 @@ log_format bifrost_access escape=json
 map $uri $bifrost_cache_control {
     default         "";
     ~^/assets/      $bifrost_asset_cache_control;
+    ~^/fonts/       $bifrost_asset_cache_control;
     /csp-report     "no-store";
     /health         "no-store";
 }
 # A hashed asset is immutable, but only the asset itself: a 404 for a file
 # that is not there (an old bundle asking for a chunk a newer build replaced)
 # must not be cached for a year. $status is final when the header is sent.
+# The bundled fonts under /fonts/ are cached the same way: each sits in a
+# directory named for its family and version, so a changed font gets a new
+# URL.
 map $status $bifrost_asset_cache_control {
     default         "";
     200             "public, max-age=31536000, immutable";
@@ -120,7 +125,7 @@ map $status $bifrost_asset_cache_control {
 # below), so connect-src is 'self'. img-src stays https: because a template
 # cannot know a deployer's image hosts (link-preview and favicon images).
 map $uri $bifrost_page_csp {
-    default         "default-src 'self'; base-uri 'self'; object-src __CSP_OBJECT_SRC__; frame-src 'self'__CSP_PREVIEW_ORIGINS__; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' https://assets.fusang.co data:; img-src 'self' data: blob: https:; connect-src 'self'; manifest-src 'self'; worker-src 'self' blob:; upgrade-insecure-requests__CSP_REPORTING__";
+    default         "default-src 'self'; base-uri 'self'; object-src __CSP_OBJECT_SRC__; frame-src 'self'__CSP_PREVIEW_ORIGINS__; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https:; connect-src 'self'; manifest-src 'self'; worker-src 'self' blob:; upgrade-insecure-requests__CSP_REPORTING__";
     ~^/api/         "";
 }
 
@@ -260,6 +265,11 @@ server {
     # from the maps on a successful answer only, the only Cache-Control they
     # get (`expires` would add a second one).
     location /assets/ {
+    }
+
+    # The bundled fonts (admin/public/fonts/), cached as the hashed assets
+    # are. A missing file is a 404 here, never the SPA's index.html.
+    location /fonts/ {
     }
 
     # Bounded CSP receiver, on only when CSP_REPORT_ORIGIN is set (the

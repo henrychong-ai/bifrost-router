@@ -67,7 +67,7 @@ const PAGE_POLICY =
   "default-src 'self'; base-uri 'self'; object-src __CSP_OBJECT_SRC__; " +
   "frame-src 'self'__CSP_PREVIEW_ORIGINS__; frame-ancestors 'none'; form-action 'self'; " +
   "script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-  "font-src 'self' https://assets.fusang.co data:; img-src 'self' data: blob: https:; " +
+  "font-src 'self'; img-src 'self' data: blob: https:; " +
   "connect-src 'self'; manifest-src 'self'; worker-src 'self' blob:; " +
   'upgrade-insecure-requests__CSP_REPORTING__';
 
@@ -663,6 +663,7 @@ test('no location sets its own add_header; per-path Cache-Control comes from the
       'location / {',
       // the dashboard
       'location /assets/ {',
+      'location /fonts/ {',
       'location = /csp-report {',
       'location = /api/tailscale/identity {',
       API_LOCATION,
@@ -676,6 +677,7 @@ test('no location sets its own add_header; per-path Cache-Control comes from the
     entries: [
       ['default', ''],
       ['~^/assets/', '$bifrost_asset_cache_control'],
+      ['~^/fonts/', '$bifrost_asset_cache_control'],
       ['/csp-report', 'no-store'],
       ['/health', 'no-store'],
     ],
@@ -705,7 +707,38 @@ test('an asset is cached immutable only on a successful answer', () => {
     mapValue(template, 'bifrost_cache_control', '/assets/index-abc.js'),
     '$bifrost_asset_cache_control',
   );
+  // The bundled fonts are cached the same way, on the same statuses
+  assert.equal(
+    mapValue(template, 'bifrost_cache_control', '/fonts/inter-4.1/inter-variable.woff2'),
+    '$bifrost_asset_cache_control',
+  );
   assert.equal(mapValue(template, 'bifrost_cache_control', '/api/assets/x'), '');
+  assert.equal(mapValue(template, 'bifrost_cache_control', '/api/fonts/x'), '');
+});
+
+// The dashboard serves its own fonts (v1.46.1): every @font-face source and
+// the preload are same-origin files under admin/public/fonts/, each font
+// directory carries its licence, and the page policy allows fonts from this
+// origin only.
+test('the dashboard serves its own fonts and requests none from another host', () => {
+  // Comments out: the header's documented example face is not a font in use
+  const css = readFileSync('admin/src/index.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const html = readFileSync('admin/index.html', 'utf8');
+  const sources = [...css.matchAll(/src:\s*url\("([^"]+)"\)/g)].map(match => match[1]);
+  const preloads = [...html.matchAll(/<link\b[^>]*\bas="font"[^>]*>/g)].map(
+    match => /\bhref="([^"]+)"/.exec(match[0])?.[1],
+  );
+  assert.equal(sources.length, 4);
+  assert.equal(preloads.length, 1);
+  for (const url of [...sources, ...preloads]) {
+    assert.match(url, /^\/fonts\/[a-z0-9.-]+\/[a-z0-9.-]+\.woff2$/, url);
+    assert.ok(existsSync(path.join('admin/public', url)), `${url} is not in admin/public`);
+  }
+  assert.ok(sources.includes(preloads[0]), 'the preload is one of the declared fonts');
+  for (const dir of readdirSync('admin/public/fonts')) {
+    assert.ok(existsSync(path.join('admin/public/fonts', dir, 'OFL.txt')), `${dir} has no licence`);
+  }
+  assert.match(pagePolicy(template), /(?:^|; )font-src 'self';/);
 });
 
 // The container check pins the asset Cache-Control it expects on the wire; it
@@ -858,6 +891,7 @@ test('no access log records a request target, query, Referer or forwarded header
     ['/', 'page'],
     ['/routes', 'page'],
     ['/assets/index-abc.js', 'asset'],
+    ['/fonts/inter-4.1/inter-variable.woff2', 'font'],
     ['/api/routes', 'api'],
     ['/api/secret-token-123/x', 'api'],
     ['/api/tailscale/identity', 'identity'],

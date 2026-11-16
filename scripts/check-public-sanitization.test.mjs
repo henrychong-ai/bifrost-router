@@ -54,7 +54,7 @@ test('rejects private content and accepts public placeholders', () => {
       'bifrost.example.com your-cloudflare-account-id op://Your-Vault/Cloudflare/API-Token',
       'https://bifrost.your-tailnet.ts.net user@example.com a@mail.example.org x@app.example',
       '12345+bot@users.noreply.github.com "packageManager": "pnpm@10.33.0"',
-      'GET /api/users/42/roles assets.fusang.co',
+      'GET /api/users/42/roles',
     ].join('\n'),
   );
   const unsafe = writeTemp(

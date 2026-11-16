@@ -2,35 +2,44 @@
 @import "tw-animate-css";
 
 /*
- * Canonical four-font stack (v1.25.0+):
+ * Font stack (v1.25.0+; served by the dashboard itself since v1.46.1):
  *
  *   1. Inter Variable (roman + italic)  — Latin sans body
  *   2. Maple Mono NL Variable (roman + italic)  — <code>/<pre>/<kbd>/<samp> and .font-mono utility
- *   3. Noto Sans SC Variable  — Simplified Chinese ([lang^="zh-Hans"] scopes)
- *   4. Noto Sans TC Variable  — Traditional Chinese ([lang^="zh-Hant"] scopes)
+ *   3. Simplified Chinese ([lang^="zh-Hans"] scopes) — the system's CJK sans
+ *   4. Traditional Chinese ([lang^="zh-Hant"] scopes) — the system's CJK sans
  *
- * All four are SIL OFL 1.1 licensed (free for any use, including commercial,
- * embedding, self-hosting, modification). By default they load from a public
- * CDN (`assets.fusang.co/fonts/`) as variable woff2 files. If the CDN is
- * unreachable, each variable's fallback stack kicks in via `font-display: swap`.
+ * The dashboard serves its own fonts and requests none from another host: the
+ * two bundled families are variable woff2 files in `admin/public/fonts/`, one
+ * directory per family and version, each with its SIL OFL 1.1 licence
+ * (`OFL.txt`), so the page CSP allows `font-src 'self'` only. A file under
+ * `/fonts/` is cached for a year as immutable, so a changed file needs a new
+ * name or directory. Chinese text uses the fonts the viewer's system has
+ * (PingFang, Microsoft YaHei/JhengHei, Noto Sans CJK and similar), which keeps
+ * a large CJK download out of the image. If a font cannot be loaded, each
+ * family's fallback stack applies via `font-display: swap`.
  *
- *   - Inter v4.1 by Rasmus Andersson — https://github.com/rsms/inter
- *   - Maple Mono NL by subframe7536 — https://github.com/subframe7536/maple-font
- *   - Noto Sans CJK by Google + Adobe — https://github.com/notofonts/noto-cjk
+ *   - Inter 4.1 by Rasmus Andersson — https://github.com/rsms/inter
+ *   - Maple Mono NL 7.9 by subframe7536 — https://github.com/subframe7536/maple-font
  *
- * To use a custom brand font, self-host the file (or load from a CDN you
- * control) and replace the @font-face declarations below. Example:
+ * To use another font, add its file (and its licence) under
+ * `admin/public/fonts/` and replace the @font-face declarations below, then
+ * update `--font-inter` (and/or `--font-mono` / `--font-sans-sc` /
+ * `--font-sans-tc`) in the @theme block below, and the preload in
+ * `admin/index.html`. Example:
  *
  *   @font-face {
  *     font-family: "YourBrandFont";
- *     src: url("https://assets.yourdomain.com/fonts/yourfont.woff2") format("woff2");
+ *     src: url("/fonts/your-font-1.0/your-font.woff2") format("woff2");
  *     font-weight: 400;
  *     font-display: swap;
  *   }
  *
- * Then update `--font-inter` (and/or `--font-mono` / `--font-sans-sc` /
- * `--font-sans-tc`) in the @theme block below to reference it:
  *   --font-inter: "YourBrandFont", ui-sans-serif, system-ui, sans-serif;
+ *
+ * Loading a font from another host also needs that host in the CSP
+ * `font-src` (`admin/nginx.conf.template`), and sends each viewer's address
+ * and the dashboard's origin to it.
  *
  * Maple Mono NL is the "No Ligatures" variant — coding ligatures are physically
  * absent from the file, so operators (!=, ==, =>) always render literally. The
@@ -38,60 +47,39 @@
  * variants (tame @, continuous-slash $, non-cursive italic letterforms).
  */
 
-/* Inter v4 Variable — roman. Single woff2 covering weights 100-900. */
+/* Inter 4.1 Variable — roman. Single woff2 covering weights 100-900. */
 @font-face {
   font-family: "Inter";
-  src: url("https://assets.fusang.co/fonts/inter/inter-variable.woff2") format("woff2-variations");
+  src: url("/fonts/inter-4.1/inter-variable.woff2") format("woff2-variations");
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
 }
 
-/* Inter v4 Variable — italic. Renders <em> + true italic at any weight. */
+/* Inter 4.1 Variable — italic. Renders <em> + true italic at any weight. */
 @font-face {
   font-family: "Inter";
-  src: url("https://assets.fusang.co/fonts/inter/inter-variable-italic.woff2")
-    format("woff2-variations");
+  src: url("/fonts/inter-4.1/inter-variable-italic.woff2") format("woff2-variations");
   font-weight: 100 900;
   font-style: italic;
   font-display: swap;
 }
 
-/* Maple Mono NL v7.9 — roman. */
+/* Maple Mono NL 7.9 — roman. */
 @font-face {
   font-family: "Maple Mono NL";
-  src: url("https://assets.fusang.co/fonts/maple/maple-mono-nl.woff2") format("woff2-variations");
+  src: url("/fonts/maple-mono-7.9/maple-mono-nl.woff2") format("woff2-variations");
   font-weight: 100 800;
   font-style: normal;
   font-display: swap;
 }
 
-/* Maple Mono NL v7.9 — italic (true italic, separate file). */
+/* Maple Mono NL 7.9 — italic (true italic, separate file). */
 @font-face {
   font-family: "Maple Mono NL";
-  src: url("https://assets.fusang.co/fonts/maple/maple-mono-nl-italic.woff2")
-    format("woff2-variations");
+  src: url("/fonts/maple-mono-7.9/maple-mono-nl-italic.woff2") format("woff2-variations");
   font-weight: 100 800;
   font-style: italic;
-  font-display: swap;
-}
-
-/* Noto Sans SC Variable — Simplified Chinese.
-   Path: /fonts/noto-sans/ (consolidated SC + TC dir since 2026-05-27). */
-@font-face {
-  font-family: "Noto Sans SC";
-  src: url("https://assets.fusang.co/fonts/noto-sans/noto-sans-sc.woff2") format("woff2-variations");
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
-
-/* Noto Sans TC Variable — Traditional Chinese. */
-@font-face {
-  font-family: "Noto Sans TC";
-  src: url("https://assets.fusang.co/fonts/noto-sans/noto-sans-tc.woff2") format("woff2-variations");
-  font-weight: 100 900;
-  font-style: normal;
   font-display: swap;
 }
 
@@ -188,19 +176,18 @@
   --color-charcoal-900: #1f2c3b;
   --color-charcoal-950: #0c1928;
 
-  /* Font family */
-  /* Font families — canonical four-font stack (v1.25.0+).
-     Single-layer fallback to system stack. */
+  /* Font families (v1.25.0+). Single-layer fallback to system stack. */
   --font-inter:
     "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     sans-serif;
   --font-mono: "Maple Mono NL", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* Chinese: Inter for Latin, then the system's CJK sans (none is bundled). */
   --font-sans-sc:
-    "Inter", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", ui-sans-serif,
-    system-ui, sans-serif;
+    "Inter", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC",
+    "Noto Sans SC", "Source Han Sans SC", ui-sans-serif, system-ui, sans-serif;
   --font-sans-tc:
-    "Inter", "Noto Sans TC", "PingFang TC", "Hiragino Sans CNS", "Microsoft JhengHei",
-    ui-sans-serif, system-ui, sans-serif;
+    "Inter", "PingFang TC", "Hiragino Sans CNS", "Microsoft JhengHei", "Noto Sans CJK TC",
+    "Noto Sans TC", "Source Han Sans TC", ui-sans-serif, system-ui, sans-serif;
 
   /* Maple Mono NL feature settings — defined ONCE here and referenced via
      var(--mono-features) by BOTH the base code/pre/kbd/samp rule and the

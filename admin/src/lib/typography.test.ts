@@ -5,38 +5,55 @@ import { describe, expect, test } from 'vitest';
 import css from '../index.css?raw';
 
 /**
- * Four-font stack regression tests (v1.25.0).
+ * Font stack regression tests (v1.25.0; same-origin fonts since v1.46.1).
  *
- * Guards `admin/src/index.css` against drift on the canonical four-font stack
- * (Inter / Maple Mono NL / Noto Sans SC / Noto Sans TC). The CSS is verified at
- * the source level so a refactor that accidentally strips Maple Mono NL feature
- * settings or CJK locale chains fails the test before it reaches a browser.
+ * Guards `admin/src/index.css` against drift on the font stack (Inter and
+ * Maple Mono NL, served from `admin/public/fonts/`, and the system CJK stacks
+ * for Simplified and Traditional Chinese). The CSS is verified at the source
+ * level so a refactor that accidentally strips Maple Mono NL feature settings
+ * or CJK locale chains fails the test before it reaches a browser.
  *
  * If you fork bifrost-router and replace the default fonts with your own brand
  * font, update the URLs in this test to match your @font-face declarations —
  * or delete this file entirely if you don't need the regression guardrail.
  */
 const cssText = css;
+/** The CSS without its comments, so the documented example face is not counted. */
+const cssRules = cssText.replace(/\/\*[\s\S]*?\*\//g, '');
 
-describe('typography — four-font stack', () => {
+describe('typography — font stack', () => {
   test.each([
-    ['Inter Variable roman', 'https://assets.fusang.co/fonts/inter/inter-variable.woff2'],
-    ['Inter Variable italic', 'https://assets.fusang.co/fonts/inter/inter-variable-italic.woff2'],
-    ['Maple Mono NL roman', 'https://assets.fusang.co/fonts/maple/maple-mono-nl.woff2'],
-    ['Maple Mono NL italic', 'https://assets.fusang.co/fonts/maple/maple-mono-nl-italic.woff2'],
-    ['Noto Sans SC variable', 'https://assets.fusang.co/fonts/noto-sans/noto-sans-sc.woff2'],
-    ['Noto Sans TC variable', 'https://assets.fusang.co/fonts/noto-sans/noto-sans-tc.woff2'],
+    ['Inter Variable roman', '/fonts/inter-4.1/inter-variable.woff2'],
+    ['Inter Variable italic', '/fonts/inter-4.1/inter-variable-italic.woff2'],
+    ['Maple Mono NL roman', '/fonts/maple-mono-7.9/maple-mono-nl.woff2'],
+    ['Maple Mono NL italic', '/fonts/maple-mono-7.9/maple-mono-nl-italic.woff2'],
   ])('@font-face declares %s', (_label, url) => {
-    expect(cssText).toContain(url);
+    expect(cssText).toContain(`url("${url}")`);
+  });
+
+  test('every @font-face source is a same-origin path', () => {
+    const sources = [...cssRules.matchAll(/url\("([^"]+)"\)/g)].map(match => match[1]);
+    expect(sources).toHaveLength(4);
+    for (const source of sources) expect(source).toMatch(/^\/fonts\//);
   });
 
   test.each([
     ['Inter', '--font-inter'],
     ['Maple Mono NL', '--font-mono'],
-    ['Noto Sans SC', '--font-sans-sc'],
-    ['Noto Sans TC', '--font-sans-tc'],
+    ['Simplified Chinese', '--font-sans-sc'],
+    ['Traditional Chinese', '--font-sans-tc'],
   ])('declares %s family token', (_label, token) => {
     expect(cssText).toContain(token);
+  });
+
+  test.each([
+    ['--font-sans-sc', ['"PingFang SC"', '"Microsoft YaHei"', '"Noto Sans CJK SC"']],
+    ['--font-sans-tc', ['"PingFang TC"', '"Microsoft JhengHei"', '"Noto Sans CJK TC"']],
+  ])('%s is a system CJK stack after Inter', (token, families) => {
+    const declaration = new RegExp(`${token}:([^;]+);`).exec(cssText)?.[1] ?? '';
+    expect(declaration.trim().startsWith('"Inter"')).toBe(true);
+    for (const family of families) expect(declaration).toContain(family);
+    expect(declaration.trim().endsWith('sans-serif')).toBe(true);
   });
 
   test('body engages Inter v4 opsz axis (font-optical-sizing: auto)', () => {
@@ -81,8 +98,8 @@ describe('typography — four-font stack', () => {
   });
 
   test('font-display: swap on every face declaration', () => {
-    const faces = cssText.match(/@font-face\s*{[^}]+}/g) ?? [];
-    expect(faces.length).toBeGreaterThanOrEqual(6);
+    const faces = cssRules.match(/@font-face\s*{[^}]+}/g) ?? [];
+    expect(faces).toHaveLength(4);
     for (const face of faces) {
       expect(face).toMatch(/font-display:\s*swap/);
     }

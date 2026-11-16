@@ -319,11 +319,8 @@ function request(port, { method = 'GET', path: target = '/', headers = {}, body 
             const name = res.rawHeaders[i].toLowerCase();
             all.set(name, [...(all.get(name) ?? []), res.rawHeaders[i + 1]]);
           }
-          resolve({
-            status: res.statusCode,
-            headers: all,
-            body: Buffer.concat(chunks).toString('utf8'),
-          });
+          const bytes = Buffer.concat(chunks);
+          resolve({ status: res.statusCode, headers: all, body: bytes.toString('utf8'), bytes });
         });
       },
     );
@@ -823,6 +820,45 @@ async function main() {
     'a missing asset is a 404 that is not cached',
     missing.status === 404 && one(missing, 'cache-control').length === 0,
     `${missing.status} ${JSON.stringify(one(missing, 'cache-control'))}`,
+  );
+
+  console.log('Fonts');
+  // The dashboard serves its own fonts: the preloaded file is in the image,
+  // byte for byte as in admin/public, cached like a hashed asset, and the
+  // page policy allows fonts from this origin only.
+  const fontPath = /<link\b[^>]*\bas="font"[^>]*\bhref="([^"]+)"/.exec(html.body)?.[1];
+  check('the page preloads a same-origin font', fontPath?.startsWith('/fonts/') === true, fontPath);
+  if (fontPath?.startsWith('/fonts/')) {
+    const font = await request(port, { path: fontPath, headers: { host: DASHBOARD_HOST } });
+    const expected = readFileSync(path.join('admin/public', fontPath));
+    check(
+      'the font is served as font/woff2, as in admin/public',
+      font.status === 200 &&
+        JSON.stringify(one(font, 'content-type')) === JSON.stringify(['font/woff2']) &&
+        font.bytes.equals(expected),
+      `${font.status} ${JSON.stringify(one(font, 'content-type'))} ${font.bytes.length}`,
+    );
+    check(
+      'a font has exactly one Cache-Control, immutable, and no Expires',
+      JSON.stringify(one(font, 'cache-control')) === JSON.stringify([ASSET_CACHE_CONTROL]) &&
+        one(font, 'expires').length === 0,
+      JSON.stringify([one(font, 'cache-control'), one(font, 'expires')]),
+    );
+  }
+  const pageCsp = one(html, 'content-security-policy')[0] ?? '';
+  check(
+    "the page policy's font-src is 'self' only",
+    /(?:^|; )font-src 'self';/.test(pageCsp),
+    pageCsp,
+  );
+  const missingFont = await request(port, {
+    path: '/fonts/missing-1.0/missing.woff2',
+    headers: { host: DASHBOARD_HOST },
+  });
+  check(
+    'a missing font is a 404 that is not cached, never the page',
+    missingFont.status === 404 && one(missingFont, 'cache-control').length === 0,
+    `${missingFont.status} ${JSON.stringify(one(missingFont, 'cache-control'))}`,
   );
 
   console.log('CSP report receiver');

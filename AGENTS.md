@@ -8,8 +8,6 @@ Guidance for AI coding agents (Claude Code, Codex and others) working with this 
 
 This repo is **public**. Keep every file fully sanitised at all times — `AGENTS.md`, `README.md`, `CHANGELOG.md`, and all `docs/*.md`: no organisation-internal specifics, real Cloudflare account/zone/KV/D1 IDs, internal hostnames, personal filesystem paths, or private repo names. Use generic placeholders (`example.com`, `your-cloudflare-account-id`, `your-1password-account`, etc.). Re-check on every commit.
 
-**Allowed exception:** `assets.fusang.co` references (fonts, logos, brand assets) may remain — it is a public R2 CDN bucket that exists precisely to serve those assets publicly, and is the documented default font/asset host for this template.
-
 **RFC 2606 placeholders in examples.** Use `example.com` / `example.net` or a
 `.example` name (`app.example`, `idp.example`) in every documented or tested
 URL. A host with no dot in it — a bare `app`, `idp` or `x` after the scheme — is
@@ -1322,18 +1320,18 @@ Since v1.33.0 the same purge runs **automatically** on every route and object mu
 
 Handled by **Cloudflare WAF**, not in Worker code. Worker-level middleware available at `src/middleware/rate-limit.ts` if needed.
 
-### Typography — four-font stack (v1.25.0+)
+### Typography — font stack (v1.25.0+; same-origin fonts since v1.46.1)
 
-The dashboard ships with a canonical four-font typography stack:
+The dashboard serves its own fonts and requests none from another host:
 
-| Family | Role | CSS token |
-|---|---|---|
-| **Inter Variable** (roman + italic) | Latin body, headings, UI | `--font-inter` |
-| **Maple Mono NL Variable** (roman + italic) | `<code>`/`<pre>`/`<kbd>`/`<samp>`/`.font-mono` | `--font-mono` |
-| **Noto Sans SC Variable** | Simplified Chinese (`[lang^="zh-Hans"]`) | `--font-sans-sc` |
-| **Noto Sans TC Variable** | Traditional Chinese (`[lang^="zh-Hant"]`) | `--font-sans-tc` |
+| Family | Role | CSS token | Source |
+|---|---|---|---|
+| **Inter Variable** 4.1 (roman + italic) | Latin body, headings, UI | `--font-inter` | `admin/public/fonts/inter-4.1/` |
+| **Maple Mono NL Variable** 7.9 (roman + italic) | `<code>`/`<pre>`/`<kbd>`/`<samp>`/`.font-mono` | `--font-mono` | `admin/public/fonts/maple-mono-7.9/` |
+| System CJK sans (PingFang SC, Microsoft YaHei, Noto Sans CJK SC, …) | Simplified Chinese (`[lang^="zh-Hans"]`) | `--font-sans-sc` | the viewer's system |
+| System CJK sans (PingFang TC, Microsoft JhengHei, Noto Sans CJK TC, …) | Traditional Chinese (`[lang^="zh-Hant"]`) | `--font-sans-tc` | the viewer's system |
 
-All four are **SIL OFL 1.1** licensed (free for any use including commercial / embedding / self-hosting / modification). The default CDN is `assets.fusang.co` — to use your own brand fonts, follow the comment block at the top of `admin/src/index.css` to swap the `@font-face` declarations and update the `--font-*` tokens in `@theme inline`.
+Both bundled families are **SIL OFL 1.1** licensed (free for any use including commercial / embedding / self-hosting / modification), unmodified upstream files; each font directory carries the family's licence and copyright notice as `OFL.txt`, and Vite copies the directory into the build. Chinese text uses the system's own CJK fonts, so the image carries no CJK font files. `admin/index.html` preloads the roman Inter file, the page CSP allows `font-src 'self'` only (`admin/nginx.conf.template`), and nginx serves `/fonts/` from its own location (a missing file is a 404, never the page) with the hashed assets' Cache-Control (`public, max-age=31536000, immutable` on a 200, 206 or 304). Because a font is cached as immutable, a changed file needs a new URL: each family's directory is named for its version. **To use your own fonts:** add the files and their licence under `admin/public/fonts/<family>-<version>/`, follow the comment block at the top of `admin/src/index.css` to swap the `@font-face` declarations and update the `--font-*` tokens in `@theme inline`, and update the preload in `admin/index.html`. A font loaded from another host also needs that host in the CSP `font-src`, and sends each viewer's address and the dashboard's origin there.
 
 **Maple Mono NL feature settings** (already wired in `admin/src/index.css`):
 
@@ -1343,7 +1341,7 @@ font-feature-settings: 'cv01' 1, 'cv32' 1, 'cv33' 1, 'cv34' 1, 'cv35' 1, 'cv36' 
 
 These engage the "engineering" Maple Mono variants — tame `@`, continuous-slash `$`, non-cursive italic letterforms. Without them, v7.9 renders the more decorative defaults the designer ships.
 
-**Test guardrail**: `admin/src/lib/typography.test.ts` asserts every `@font-face` URL, every family token, every feature setting, and the CJK locale scoping. Delete or update this test if you fork with different fonts.
+**Test guardrail**: `admin/src/lib/typography.test.ts` asserts every `@font-face` URL (all same-origin), every family token, the system CJK stacks, every feature setting, and the CJK locale scoping; `scripts/check-dashboard-security.test.mjs` checks that every font the CSS and the preload name is a file under `admin/public/fonts/`, that each font directory has its `OFL.txt`, and the `font-src 'self'` policy; `pnpm run check:dashboard-container` fetches the preloaded font from the image and checks its type, bytes and caching. Delete or update these checks if you fork with different fonts.
 
 ### Service-Binding Fetch Resilience
 
