@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+
+# Husky pre-push hook: the public check on the whole tree and on the commits
+# being pushed, with this clone's extra terms file. Inert without a terms file
+# (a clone that has not opted in, such as a fork with its own real values).
+# See scripts/check-public-sanitization.mjs.
+node scripts/check-public-sanitization.mjs --pre-push

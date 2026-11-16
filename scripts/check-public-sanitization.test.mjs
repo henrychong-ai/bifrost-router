@@ -1,15 +1,25 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import test, { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
   ALLOWED_IDENTIFIER_LINES,
   CheckSettingError,
+  CommitRangeError,
   ciRevListArgs,
   commitEmailsChecked,
   commitFindings,
@@ -17,12 +27,13 @@ import {
   contentFindings,
   hasCloudIdentifier,
   identityEmailAllowed,
-  isIdentifierKey,
   isPlaceholderIdentifier,
   loadExtraTerms,
+  loadTermsFile,
   PINNED_BINARY_FILES,
   parseExtraTerms,
   parseTermsFile,
+  prePushRevListArgs,
   publicCandidateFiles,
   sanitizationFindings,
   singleLabelHostFindings,
@@ -55,6 +66,11 @@ const GITHUB_SUPPORT = glue('support', '@', 'github.com');
 const TEMP_DIRECTORY = mkdtempSync(join(tmpdir(), 'bifrost-public-scan-'));
 after(() => rmSync(TEMP_DIRECTORY, { recursive: true, force: true }));
 
+/** Scan one temp file by its name, so the temp directory's path never counts. */
+function scanTemp(file, options) {
+  return sanitizationFindings([basename(file)], dirname(file), options);
+}
+
 let tempCount = 0;
 function writeTemp(text) {
   tempCount += 1;
@@ -79,9 +95,9 @@ test('rejects private content and accepts public placeholders', () => {
       '\n',
     ),
   );
-  assert.deepEqual(sanitizationFindings([safe]), []);
+  assert.deepEqual(scanTemp(safe), []);
   assert.deepEqual(
-    sanitizationFindings([unsafe]).map(finding => finding.slice(unsafe.length + 2)),
+    scanTemp(unsafe).map(finding => finding.slice(basename(unsafe).length + 2)),
     [
       'line 1: home-directory path',
       'line 2: Tailscale MagicDNS host',
@@ -360,7 +376,7 @@ test('findings never echo the matched value', () => {
     ].join('\n'),
   );
   const findings = [
-    ...sanitizationFindings([file], '.', { extraTerms: parseExtraTerms('zqsecretterm') }),
+    ...scanTemp(file, { extraTerms: parseExtraTerms('zqsecretterm') }),
     ...wranglerIdentifierFindings('id = "zqsecretid0123"\ndatabase_id = "your-d1-id"'),
   ];
   assert.equal(findings.length, 12);
@@ -437,8 +453,17 @@ test('flags a single-label https host and accepts an RFC 2606 name', () => {
 
 const CLOUD = 'line 1: cloud identifier (use a your- placeholder)';
 
-test('flags a 32-hex or UUID value after an identifier key', () => {
+test('flags any 32-hex or UUID value that is not a placeholder, wherever it is', () => {
   for (const text of [
+    // Whatever names it, or nothing at all
+    glue('| **KV (prod)** | `', CLOUD_HEX, '` |'),
+    glue('| **D1** | `', CLOUD_UUID, '` |'),
+    glue('wrangler d1 execute ', CLOUD_UUID, ' --remote'),
+    glue('https://', CLOUD_HEX, '.r2.cloudflarestorage.com/bucket'),
+    glue('https://dash.cloudflare.com/', CLOUD_HEX, '/workers'),
+    glue('  "', CLOUD_HEX, '"'),
+    glue(CLOUD_HEX, ' is the account_id'),
+    glue('checksum ', CLOUD_HEX),
     glue('account_id = "', CLOUD_HEX, '"'),
     glue('CF_ACCOUNT_ID=', CLOUD_HEX),
     glue('zone_id: ', CLOUD_HEX),
@@ -457,9 +482,6 @@ test('flags a 32-hex or UUID value after an identifier key', () => {
     assert.deepEqual(contentFindings(text), [CLOUD], text);
   }
   for (const text of [
-    // No identifier key before the value
-    glue('checksum ', CLOUD_HEX),
-    glue(CLOUD_HEX, ' is the account_id'),
     // Longer digests and base64 are not one value
     glue('sha256 ', CLOUD_HEX, CLOUD_HEX),
     glue('id: sha512-', CLOUD_HEX, 'Zz'),
@@ -476,43 +498,15 @@ test('flags a 32-hex or UUID value after an identifier key', () => {
   }
 });
 
-test('identifier keys and placeholders are named by rule, not by list', () => {
-  for (const word of [
-    'id',
-    'ids',
-    'ID',
-    'uuid',
-    'account_id',
-    'CF_ACCOUNT_ID',
-    'CLOUDFLARE_ZONE_IDS',
-    'zone-id',
-    'accountId',
-    'prevId',
-    'accounts',
-    'account_tag',
-    'zone',
-  ]) {
-    assert.equal(isIdentifierKey(word), true, word);
-  }
-  for (const word of [
-    'identity',
-    'idle',
-    'valid',
-    'checksum',
-    'integrity',
-    'hash',
-    'Ozone',
-    'video',
-  ]) {
-    assert.equal(isIdentifierKey(word), false, word);
-  }
+test('placeholders are named by rule, not by list', () => {
   assert.equal(isPlaceholderIdentifier('0'.repeat(32)), true);
   assert.equal(isPlaceholderIdentifier('a'.repeat(32)), true);
   assert.equal(isPlaceholderIdentifier(CLOUD_HEX), false);
   assert.equal(isPlaceholderIdentifier(CLOUD_UUID), false);
-  // The rule reads one line form at a time, the key before the value
+  // No key is needed, before or after the value
   assert.equal(hasCloudIdentifier(glue('zone ', CLOUD_UUID)), true);
-  assert.equal(hasCloudIdentifier(glue(CLOUD_UUID, ' zone')), false);
+  assert.equal(hasCloudIdentifier(glue(CLOUD_UUID, ' zone')), true);
+  assert.equal(hasCloudIdentifier(CLOUD_UUID), true);
 });
 
 test('the only identifier allowance is Drizzle snapshot ids, in snapshot files only', () => {
@@ -661,9 +655,19 @@ test('commit messages get the generic rules and the extra terms', () => {
     MAC_HOME,
   );
   assert.deepEqual(commitFindings('c', { ...ok, message: verbose }), []);
-  // A `#` line given with -F stays in the message, so it is checked
-  assert.deepEqual(commitFindings('c', { ...ok, message: glue('[fix] x\n# ', MAC_HOME) }), [
+  // A stored commit keeps its `#` lines, so `--commits` checks them; the hook
+  // drops the lines git strips (the template's branch and file list)
+  const commented = glue('[fix] x\n# On branch ', MAC_HOME, '\nsee ', MAC_HOME);
+  assert.deepEqual(commitFindings('c', { ...ok, message: commented }), [
     'c: line 2: home-directory path',
+    'c: line 3: home-directory path',
+  ]);
+  assert.deepEqual(commitFindings('c', { ...ok, message: commented }, { commentChar: '#' }), [
+    'c: line 3: home-directory path',
+  ]);
+  assert.deepEqual(commitFindings('c', { ...ok, message: commented }, { commentChar: ';' }), [
+    'c: line 2: home-directory path',
+    'c: line 3: home-directory path',
   ]);
 });
 
@@ -713,6 +717,7 @@ test('commit identities must be GitHub no-reply or example-domain addresses', ()
 
 const all = () => true;
 const none = () => false;
+const present = rev => rev !== 'gone';
 
 test('CI checks only the commits a push or pull request adds', () => {
   const head = 'b'.repeat(40);
@@ -720,7 +725,10 @@ test('CI checks only the commits a push or pull request adds', () => {
     ciRevListArgs({ EVENT_NAME: 'pull_request', PR_BASE_SHA: 'base', PR_HEAD_SHA: 'tip' }, all),
     ['base..tip'],
   );
-  assert.throws(() => ciRevListArgs({ EVENT_NAME: 'pull_request', PR_BASE_SHA: 'base' }, all));
+  assert.throws(
+    () => ciRevListArgs({ EVENT_NAME: 'pull_request', PR_BASE_SHA: 'base' }, all),
+    CommitRangeError,
+  );
   assert.deepEqual(
     ciRevListArgs({ EVENT_NAME: 'push', PUSH_BEFORE: 'old', GITHUB_SHA: head }, all),
     [`old..${head}`],
@@ -733,14 +741,35 @@ test('CI checks only the commits a push or pull request adds', () => {
     'origin/trunk',
   ]);
   assert.deepEqual(ciRevListArgs(created, all), [head, '--not', 'origin/main']);
-  // A force-push whose old tip was not fetched
+  // A force-push whose old tip is present: the commits it does not reach
   assert.deepEqual(
     ciRevListArgs(
-      { EVENT_NAME: 'push', PUSH_BEFORE: 'gone', GITHUB_SHA: head },
-      rev => rev !== 'gone',
+      { EVENT_NAME: 'push', PUSH_BEFORE: 'old', GITHUB_SHA: head, GITHUB_REF: 'refs/heads/main' },
+      all,
     ),
-    [head, '--not', 'origin/main'],
+    [`old..${head}`],
   );
+  // A force-push whose old tip was not fetched: on another branch, the commits
+  // not on the default branch; on the default branch itself the range is
+  // unknown, which fails rather than passing on no commits
+  const forced = { EVENT_NAME: 'push', PUSH_BEFORE: 'gone', GITHUB_SHA: head };
+  assert.deepEqual(ciRevListArgs({ ...forced, GITHUB_REF: 'refs/heads/topic' }, present), [
+    head,
+    '--not',
+    'origin/main',
+  ]);
+  for (const env of [
+    { ...forced, GITHUB_REF: 'refs/heads/main' },
+    { ...forced, GITHUB_REF: 'refs/heads/trunk', DEFAULT_BRANCH: 'trunk' },
+    { ...forced, GITHUB_REF: 'refs/heads/topic' },
+  ]) {
+    const hasCommit = env.GITHUB_REF === 'refs/heads/topic' ? none : present;
+    assert.throws(
+      () => ciRevListArgs(env, hasCommit),
+      error => error instanceof CommitRangeError && /Commit range unknown/.test(error.message),
+      JSON.stringify(env),
+    );
+  }
   // A manual run, and no default branch at all: the run's own commit only
   assert.deepEqual(ciRevListArgs({ EVENT_NAME: 'workflow_dispatch', GITHUB_SHA: head }, all), [
     head,
@@ -957,4 +986,197 @@ test('a commit-emails value other than noreply is refused, never a silent off', 
     assert.equal(result.status, 1, args.join(' '));
     assert.match(result.stderr, /terms file line 2: commit-emails takes the value noreply/);
   }
+});
+
+test('the CLI fails with one line, not a stack, when the CI commit range is unknown', () => {
+  const { dir } = scratchRepo();
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim();
+  const result = runScanner(dir, ['--ci-commits'], {
+    EVENT_NAME: 'push',
+    PUSH_BEFORE: 'f'.repeat(40),
+    GITHUB_SHA: head,
+    GITHUB_REF: 'refs/heads/main',
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /^Commit range unknown: /m);
+  assert.doesNotMatch(result.stderr, /\bat \S+:\d+:\d+/);
+});
+
+test('a terms path that is not a readable regular file fails closed in one line', () => {
+  const { dir } = scratchRepo({ 'wrangler.toml': 'name = "x"\n' });
+  const termsPath = join(dir, '.git', 'public-check-terms.txt');
+  const cases = [
+    ['a dangling link', () => symlinkSync(join(dir, 'missing-target.txt'), termsPath)],
+    ['a directory', () => mkdirSync(termsPath)],
+  ];
+  if (process.getuid?.() !== 0) {
+    cases.push([
+      'an unreadable file',
+      () => {
+        writeFileSync(termsPath, 'hidden-name\n');
+        chmodSync(termsPath, 0o000);
+      },
+    ]);
+  }
+  for (const [name, make] of cases) {
+    rmSync(termsPath, { recursive: true, force: true });
+    make();
+    assert.throws(() => loadTermsFile({ env: {}, cwd: dir }), TermsFileError, name);
+    const result = runScanner(dir);
+    assert.equal(result.status, 1, name);
+    assert.match(result.stderr, /^The public check terms file cannot be read/m, name);
+    assert.doesNotMatch(result.stderr, /\bat \S+:\d+:\d+/, name);
+    // A named file behaves the same way
+    assert.equal(runScanner(dir, [], { PUBLIC_CHECK_TERMS_FILE: termsPath }).status, 1, name);
+    if (name === 'an unreadable file') chmodSync(termsPath, 0o600);
+  }
+  // A link to a readable file is read; only a path where nothing exists is "none"
+  rmSync(termsPath, { recursive: true, force: true });
+  writeFileSync(join(dir, 'real-terms.txt'), 'hidden-name\n');
+  symlinkSync(join(dir, 'real-terms.txt'), termsPath);
+  assert.equal(loadTermsFile({ env: {}, cwd: dir }).terms.length, 1);
+  rmSync(termsPath);
+  assert.equal(loadTermsFile({ env: {}, cwd: dir }), null);
+});
+
+test('file paths get the content rules and the extra terms, reported by position', () => {
+  const dir = mkdtempSync(join(TEMP_DIRECTORY, 'paths-'));
+  const files = ['plain.txt', 'notes-hidden-name.md', glue('data-', CLOUD_HEX, '.json')];
+  for (const file of files) writeFileSync(join(dir, file), glue('see ', MAC_HOME, '\n'));
+  const findings = sanitizationFindings(files, dir, { extraTerms: TERMS });
+  assert.deepEqual(findings, [
+    'plain.txt: line 1: home-directory path',
+    'candidate file #2: path: extra term (terms file line 3)',
+    'candidate file #2: line 1: home-directory path',
+    'candidate file #3: path: cloud identifier (use a your- placeholder)',
+    'candidate file #3: line 1: home-directory path',
+  ]);
+  for (const finding of findings) {
+    assert.ok(!finding.includes('hidden-name') && !finding.includes(CLOUD_HEX), finding);
+  }
+  // The repository's own paths pass
+  assert.deepEqual(
+    contentFindings(publicCandidateFiles(REPO_ROOT).join('\n')).filter(f => !f.includes('extra')),
+    [],
+  );
+});
+
+test('author and committer names get the content rules and the extra terms', () => {
+  const ok = { authorEmail: GITHUB_NOREPLY, committerEmail: GITHUB_NOREPLY };
+  assert.deepEqual(
+    commitFindings(
+      'c',
+      { ...ok, message: 'x', authorName: 'Hidden-Name Bot', committerName: TAILNET_HOST },
+      { extraTerms: TERMS },
+    ),
+    [
+      'c: author name: extra term (terms file line 3)',
+      'c: committer name: Tailscale MagicDNS host',
+    ],
+  );
+  assert.deepEqual(commitFindings('c', { ...ok, message: 'x', authorName: 'Dev' }), []);
+  const { dir, run } = scratchRepo();
+  const base = run('rev-parse', 'HEAD').trim();
+  writeFileSync(join(dir, 'n.txt'), 'n\n');
+  run('add', 'n.txt');
+  execFileSync('git', ['commit', '--quiet', '-m', '[fix] n'], {
+    cwd: dir,
+    env: { ...process.env, GIT_AUTHOR_NAME: 'Hidden-Name Bot' },
+  });
+  writeFileSync(join(dir, '.git', 'public-check-terms.txt'), '\n\nhidden-name\n');
+  const range = runScanner(dir, ['--commits', `${base}..HEAD`]);
+  assert.equal(range.status, 1);
+  assert.match(range.stderr, /: author name: extra term \(terms file line 3\)/);
+  assert.ok(!range.stderr.includes('Hidden-Name'));
+  const message = join(dir, '.git', 'COMMIT_EDITMSG');
+  writeFileSync(message, '[docs] x\n');
+  const hook = runScanner(dir, ['--commit-msg', message], { GIT_COMMITTER_NAME: 'Hidden-Name' });
+  assert.equal(hook.status, 1);
+  assert.match(hook.stderr, /commit message: committer name: extra term/);
+});
+
+test('the commit-msg mode drops the template lines git strips, by its comment character', () => {
+  const { dir, run } = scratchRepo();
+  writeFileSync(join(dir, '.git', 'public-check-terms.txt'), 'hidden-name\n');
+  const message = join(dir, '.git', 'COMMIT_EDITMSG');
+  writeFileSync(message, '[docs] x\n# On branch hidden-name\n#\tmodified: hidden-name.md\n');
+  const stripped = runScanner(dir, ['--commit-msg', message]);
+  assert.equal(stripped.status, 0, stripped.stderr);
+  // Another comment character: the `#` lines are message text again
+  run('config', 'core.commentChar', ';');
+  const kept = runScanner(dir, ['--commit-msg', message]);
+  assert.equal(kept.status, 1);
+  assert.match(kept.stderr, /commit message: line 2: extra term/);
+});
+
+const line = (localSha, remoteSha) => `refs/heads/topic ${localSha} refs/heads/topic ${remoteSha}`;
+
+test('the pre-push range is per pushed ref, with an upstream or remote fallback', () => {
+  const zero = '0'.repeat(40);
+  const local = 'a'.repeat(40);
+  const remote = 'c'.repeat(40);
+  assert.deepEqual(prePushRevListArgs(line(local, remote), all, none), [[`${remote}..${local}`]]);
+  // A new remote ref, or a remote tip not present here: commits on no remote ref
+  for (const [input, hasCommit] of [
+    [line(local, zero), all],
+    [line(local, remote), none],
+  ]) {
+    assert.deepEqual(prePushRevListArgs(input, hasCommit, none), [[local, '--not', '--remotes']]);
+  }
+  // A deleted ref adds nothing; two refs give two ranges
+  assert.deepEqual(prePushRevListArgs(line(zero, remote), all, none), []);
+  assert.deepEqual(
+    prePushRevListArgs(`${line(local, remote)}\n${line(remote, zero)}\n`, all, none),
+    [[`${remote}..${local}`], [remote, '--not', '--remotes']],
+  );
+  // A hand run: the upstream, else the commits on no remote ref
+  assert.deepEqual(prePushRevListArgs('', all, all), [['@{u}..HEAD']]);
+  assert.deepEqual(prePushRevListArgs('\n', all, none), [['HEAD', '--not', '--remotes']]);
+});
+
+test('the pre-push mode is inert without a terms file, and checks tree and commits with one', () => {
+  const { dir, run } = scratchRepo({ 'wrangler.toml': 'name = "x"\n', 'a.md': 'hidden-name\n' });
+  const head = run('rev-parse', 'HEAD').trim();
+  const push = `refs/heads/main ${head} refs/heads/main ${'0'.repeat(40)}\n`;
+  const prePush = env =>
+    spawnSync(process.execPath, [SCANNER_PATH, '--pre-push'], {
+      cwd: dir,
+      env: Object.fromEntries(
+        Object.entries({ ...process.env, ...env }).filter(
+          ([name]) => !name.startsWith('PUBLIC_CHECK_') || name in env,
+        ),
+      ),
+      input: push,
+      encoding: 'utf8',
+    });
+  const off = prePush({});
+  assert.equal(off.status, 0, off.stderr);
+  assert.match(off.stdout, /^No extra terms file: the pre-push public check is off\.$/m);
+  writeFileSync(join(dir, '.git', 'public-check-terms.txt'), 'hidden-name\n');
+  const on = prePush({});
+  assert.equal(on.status, 1);
+  assert.match(on.stderr, /- a\.md: line 1: extra term \(terms file line 1\)/);
+  assert.ok(!on.stderr.includes('hidden-name'));
+  // The commits pushed are checked too (the whole new history here: 1 commit)
+  writeFileSync(join(dir, 'a.md'), 'clean\n');
+  run('commit', '--quiet', '-am', '[docs] hidden-name');
+  const head2 = run('rev-parse', 'HEAD').trim();
+  const pushed = spawnSync(process.execPath, [SCANNER_PATH, '--pre-push'], {
+    cwd: dir,
+    env: process.env,
+    input: `refs/heads/main ${head2} refs/heads/main ${head}\n`,
+    encoding: 'utf8',
+  });
+  assert.equal(pushed.status, 1);
+  assert.match(pushed.stderr, /: line 1: extra term \(terms file line 1\)/);
+  assert.doesNotMatch(pushed.stderr, /a\.md/);
+  // PUBLIC_CHECK_TERMS_FILE turns it on too
+  rmSync(join(dir, '.git', 'public-check-terms.txt'));
+  const namedFile = join(dir, '..', `${basename(dir)}-terms.txt`);
+  writeFileSync(namedFile, 'hidden-name\n');
+  writeFileSync(join(dir, 'a.md'), 'hidden-name\n');
+  assert.equal(prePush({}).status, 0);
+  assert.equal(prePush({ PUBLIC_CHECK_TERMS_FILE: namedFile }).status, 1);
+  const hook = readFileSync(join(REPO_ROOT, '.husky/pre-push'), 'utf8');
+  assert.match(hook, /^node scripts\/check-public-sanitization\.mjs --pre-push$/m);
 });

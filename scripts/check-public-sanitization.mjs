@@ -44,10 +44,15 @@
  *     `your-1password` placeholder;
  *   - a numbered private host name of the `vps-` form;
  *   - a single-label `https://` host (see `singleLabelHostFindings`);
- *   - a cloud identifier: a 32-hex value or a UUID after an identifier key on
- *     the same line (see `hasCloudIdentifier`), unless it is an obvious
- *     placeholder (`isPlaceholderIdentifier`) or on an allowed line
+ *   - a cloud identifier: any standalone 32-hex value or UUID (see
+ *     `hasCloudIdentifier`), unless it is an obvious placeholder
+ *     (`isPlaceholderIdentifier`) or on an allowed line
  *     (`ALLOWED_IDENTIFIER_LINES`).
+ *
+ * File paths: every candidate file's path is checked with the same rules and
+ * the extra terms; a finding about a path names the file by its position in
+ * the candidate list, never by the path, and the file's other findings use
+ * that label too.
  *
  * Binary files: a file holding a NUL byte cannot be read as text, so it fails
  * unless it is on `PINNED_BINARY_FILES` with its exact SHA-256.
@@ -82,7 +87,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { lstatSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const FORBIDDEN_PATHS = [
@@ -94,7 +99,9 @@ const FORBIDDEN_PATHS = [
 
 /**
  * The binary files the tree may hold, each pinned to its SHA-256: the
- * dashboard's bundled fonts (unmodified upstream files, admin/public/fonts).
+ * dashboard's bundled fonts in admin/public/fonts (Inter: the 4.1 release's
+ * web woff2 files; Maple Mono NL: the 7.9 release's variable TTFs compressed
+ * to WOFF2, font tables unchanged).
  * A new or changed binary file needs its own entry, checked by hand first.
  */
 export const PINNED_BINARY_FILES = new Map([
@@ -117,7 +124,7 @@ export const PINNED_BINARY_FILES = new Map([
 ]);
 
 /**
- * Lines where a UUID after an `id` key is not a cloud identifier: Drizzle
+ * Lines where a UUID is not a cloud identifier: Drizzle
  * Kit's migration snapshots name each snapshot and its predecessor with a
  * random UUID (`id`, `prevId`) that identifies nothing outside this
  * repository.
@@ -280,36 +287,6 @@ const SECRET_REFERENCE = /\bop:[/][/](?!your-(?:vault|1password)\b)/i;
 // so a longer digest (a 64-hex pin, a base64 integrity string) is not one.
 const CLOUD_IDENTIFIER_VALUE =
   /(?<![0-9a-z])(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?![0-9a-z])/gi;
-const KEY_WORD = /[A-Za-z][A-Za-z0-9_-]*/g;
-const ID_KEY_WORDS = new Set([
-  'id',
-  'ids',
-  'uuid',
-  'account',
-  'accounts',
-  'zone',
-  'zones',
-  'namespace',
-  'namespaces',
-  'database',
-  'databases',
-]);
-
-/**
- * Whether a word names an identifier: `id`, `uuid`, an account, zone,
- * namespace or database (`/accounts/<value>` included), a `_id`/`-id` suffix
- * in any case (`account_id`, `CF_ACCOUNT_ID`, `CLOUDFLARE_ZONE_IDS`,
- * `--zone-id`), a camel-case `Id` suffix (`accountId`), or any word with an
- * `account` or `zone` part (`account_tag`).
- */
-export function isIdentifierKey(word) {
-  const lower = word.toLowerCase();
-  if (ID_KEY_WORDS.has(lower)) return true;
-  if (/[_-](?:id|ids|uuid)$/.test(lower)) return true;
-  if (/[a-z0-9](?:Id|ID|Ids|IDs|IDS|Uuid|UUID)$/.test(word)) return true;
-  return /(?:^|[_-])(?:account|accounts|zone|zones)(?:[_-]|$)/.test(lower);
-}
-
 const SEQUENTIAL_HEX = '0123456789abcdef'.repeat(3);
 
 /**
@@ -327,24 +304,15 @@ export function isPlaceholderIdentifier(value) {
 }
 
 /**
- * A cloud identifier: a 32-hex value or a UUID that is not a placeholder, with
- * an identifier key (`isIdentifierKey`) earlier on the same line, whether it
- * is assigned (`account_id = "…"`, `zone_id: …`, `"id": "…"`), passed as a
- * flag (`--account-id …`), part of an API path (`/accounts/…/`) or named in a
- * table row or prose (`| Zone ID | … |`).
+ * A cloud identifier: any standalone 32-hex value or UUID that is not an
+ * obvious placeholder, wherever it is on the line and whatever names it (an
+ * `account_id`, a `| **KV (prod)** |` table row, `wrangler d1 execute <uuid>`,
+ * an R2 endpoint host, a dashboard URL, a value alone on its line). A longer
+ * digest (a 64-hex pin, a base64 integrity string) is not one value.
  */
 export function hasCloudIdentifier(form) {
-  // One pass each: a value counts once the first identifier key has ended.
-  let keyEnd = -1;
-  for (const word of form.matchAll(KEY_WORD)) {
-    if (isIdentifierKey(word[0])) {
-      keyEnd = word.index + word[0].length;
-      break;
-    }
-  }
-  if (keyEnd < 0) return false;
   for (const match of form.matchAll(CLOUD_IDENTIFIER_VALUE)) {
-    if (match.index >= keyEnd && !isPlaceholderIdentifier(match[0])) return true;
+    if (!isPlaceholderIdentifier(match[0])) return true;
   }
   return false;
 }
@@ -478,12 +446,30 @@ export function extraTermsPath({ env = process.env, cwd = process.cwd() } = {}) 
  */
 export function loadTermsFile(options = {}) {
   const { path, named } = extraTermsPath(options);
-  if (!existsSync(path)) {
+  // Only a path where nothing exists, not even a link, means "no terms file".
+  // A dangling link, a directory or an unreadable file fails closed.
+  try {
+    lstatSync(path);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw unreadableTermsFile();
     if (named)
       throw new TermsFileError('PUBLIC_CHECK_TERMS_FILE names a file that does not exist.');
     return null;
   }
-  return parseTermsFile(readFileSync(path, 'utf8'));
+  let text;
+  try {
+    if (!statSync(path).isFile()) throw new Error('not a regular file');
+    text = readFileSync(path, 'utf8');
+  } catch {
+    throw unreadableTermsFile();
+  }
+  return parseTermsFile(text);
+}
+
+function unreadableTermsFile() {
+  return new TermsFileError(
+    'The public check terms file cannot be read (a dangling link, not a regular file, or no read permission).',
+  );
 }
 
 /** The extra-term rules for this clone, or `null` when it keeps no terms file. */
@@ -519,17 +505,25 @@ function sha256(buffer) {
 
 export function sanitizationFindings(files, root = '.', { extraTerms = [] } = {}) {
   const findings = [];
-  for (const file of files) {
+  files.forEach((file, index) => {
+    // A path is as public as the content. A path with a finding is never
+    // printed (it may hold a term): the file is named by its position in the
+    // candidate list (`git ls-files --cached --others --exclude-standard`).
+    const pathFindings = contentFindings(file, { extraTerms }).map(finding =>
+      finding.replace(/^line 1: /, 'path: '),
+    );
+    const label = pathFindings.length > 0 ? `candidate file #${index + 1}` : file;
+    for (const finding of pathFindings) findings.push(`${label}: ${finding}`);
     if (FORBIDDEN_PATHS.some(pattern => pattern.test(file))) {
-      findings.push(`${file}: forbidden private-only path`);
-      continue;
+      findings.push(`${label}: forbidden private-only path`);
+      return;
     }
     const buffer = readFileSync(resolve(root, file));
     if (buffer.includes(0)) {
       const pinned = PINNED_BINARY_FILES.get(file);
-      if (pinned === undefined) findings.push(`${file}: binary file that is not pinned`);
-      else if (sha256(buffer) !== pinned) findings.push(`${file}: binary file unlike its pin`);
-      continue;
+      if (pinned === undefined) findings.push(`${label}: binary file that is not pinned`);
+      else if (sha256(buffer) !== pinned) findings.push(`${label}: binary file unlike its pin`);
+      return;
     }
     const allowances = ALLOWED_IDENTIFIER_LINES.filter(allowance => allowance.file.test(file));
     const identifierAllowed = line => allowances.some(allowance => allowance.line.test(line));
@@ -537,9 +531,9 @@ export function sanitizationFindings(files, root = '.', { extraTerms = [] } = {}
       extraTerms,
       identifierAllowed,
     })) {
-      findings.push(`${file}: ${finding}`);
+      findings.push(`${label}: ${finding}`);
     }
-  }
+  });
   return findings;
 }
 
@@ -594,22 +588,40 @@ export function publicCandidateFiles(cwd = process.cwd()) {
 const SCISSORS = /^# -+ >8 -+$/m;
 
 /**
- * Findings for one commit message and, with `checkEmails`, its identities,
- * each as `<label>: line N: rule` or `<label>: author email …`, never the text
- * or the address. Without `checkEmails` no email is examined: neither the
- * identities nor an address in the message.
+ * Findings for one commit message, its author and committer names and, with
+ * `checkEmails`, its identities, each as `<label>: line N: rule`,
+ * `<label>: author name: rule` or `<label>: author email …`, never the text,
+ * the name or the address. Without `checkEmails` no email is examined:
+ * neither the identities nor an address in the message. `commentChar` drops
+ * the lines git strips from a message being written (the hook's template
+ * lines); a stored commit keeps every line, so `--commits` passes none.
  */
 export function commitFindings(
   label,
-  { message, authorEmail = '', committerEmail = '' },
-  { extraTerms = [], checkEmails = false } = {},
+  { message, authorName = '', committerName = '', authorEmail = '', committerEmail = '' },
+  { extraTerms = [], checkEmails = false, commentChar } = {},
 ) {
   const cut = SCISSORS.exec(message);
-  const text = cut ? message.slice(0, cut.index) : message;
+  let text = cut ? message.slice(0, cut.index) : message;
+  if (commentChar !== undefined) {
+    // Blanked rather than removed, so line numbers stay those of the file.
+    text = text
+      .split('\n')
+      .map(line => (line.startsWith(commentChar) ? '' : line))
+      .join('\n');
+  }
   const rules = checkEmails ? COMMIT_RULES : COMMIT_RULES_WITHOUT_EMAILS;
   const findings = contentFindings(text, { extraTerms, rules }).map(
     finding => `${label}: ${finding}`,
   );
+  for (const [role, name] of [
+    ['author', authorName],
+    ['committer', committerName],
+  ]) {
+    for (const finding of contentFindings(name, { extraTerms, rules })) {
+      findings.push(`${label}: ${role} name: ${finding.replace(/^line 1: /, '')}`);
+    }
+  }
   if (!checkEmails) return findings;
   for (const [role, email] of [
     ['author', authorEmail],
@@ -624,30 +636,75 @@ export function commitFindings(
 
 const ZERO_SHA = /^0+$/;
 
+/** Raised when the commits to check cannot be determined: never a pass on 0. */
+export class CommitRangeError extends CheckSettingError {
+  constructor(message) {
+    super(message);
+    this.name = 'CommitRangeError';
+  }
+}
+
 /**
  * The `git rev-list` arguments for the commits a CI run must check, from the
  * workflow's environment: a pull request's commits (`PR_BASE_SHA..PR_HEAD_SHA`);
- * a push's (`PUSH_BEFORE..GITHUB_SHA`); and for a new branch or tag, a
- * force-push whose old tip was not fetched, or a manual run, the commits not
+ * a push's (`PUSH_BEFORE..GITHUB_SHA`, also after a force-push while the old
+ * tip is present: the commits the old tip does not reach); and for a new
+ * branch or tag (an all-zero `PUSH_BEFORE`), or a manual run, the commits not
  * on the default branch (`origin/<DEFAULT_BRANCH>`), or the run's own commit
- * alone when that branch is not there. Never the whole history, which
- * predates the rule. `hasCommit(rev)` says whether a revision is present.
+ * alone when that branch is not there. A force-push whose old tip is not
+ * present falls back to the commits not on the default branch, unless the
+ * push is to the default branch itself (`GITHUB_REF`), whose previous tip is
+ * then unknown: that is a `CommitRangeError`, never a pass on no commits.
+ * Never the whole history, which predates the rule. `hasCommit(rev)` says
+ * whether a revision is present.
  */
 export function ciRevListArgs(env, hasCommit) {
   const head = env.GITHUB_SHA || 'HEAD';
   if (env.EVENT_NAME === 'pull_request') {
     if (!env.PR_BASE_SHA || !env.PR_HEAD_SHA) {
-      throw new Error('A pull_request run needs PR_BASE_SHA and PR_HEAD_SHA.');
+      throw new CommitRangeError('A pull_request run needs PR_BASE_SHA and PR_HEAD_SHA.');
     }
     return [`${env.PR_BASE_SHA}..${env.PR_HEAD_SHA}`];
   }
+  const defaultBranch = env.DEFAULT_BRANCH || 'main';
+  const base = `origin/${defaultBranch}`;
   const before = env.PUSH_BEFORE ?? '';
-  if (env.EVENT_NAME === 'push' && before !== '' && !ZERO_SHA.test(before) && hasCommit(before)) {
-    return [`${before}..${head}`];
+  if (env.EVENT_NAME === 'push' && before !== '' && !ZERO_SHA.test(before)) {
+    if (hasCommit(before)) return [`${before}..${head}`];
+    if (env.GITHUB_REF === `refs/heads/${defaultBranch}` || !hasCommit(base)) {
+      throw new CommitRangeError(
+        'Commit range unknown: the push replaced history and its previous tip is not present. ' +
+          'Run the check by hand with --commits <old tip>..<new tip>.',
+      );
+    }
+    return [head, '--not', base];
   }
-  const base = `origin/${env.DEFAULT_BRANCH || 'main'}`;
   if (hasCommit(base)) return [head, '--not', base];
   return ['--max-count=1', head];
+}
+
+/**
+ * The `git rev-list` arguments for a `pre-push` hook, from the lines git
+ * writes to its standard input (`<local ref> <local sha> <remote ref>
+ * <remote sha>`): per pushed ref, the commits the remote's old tip does not
+ * reach, or for a new remote ref (an all-zero or absent remote sha) the
+ * commits on no remote-tracking ref. A deleted ref adds nothing. With no
+ * input (a hand run), `@{u}..HEAD`, or `HEAD --not --remotes` without an
+ * upstream. Returns a list of argument lists.
+ */
+export function prePushRevListArgs(input, hasCommit, upstreamExists) {
+  const ranges = [];
+  for (const line of input.split('\n')) {
+    const [localRef, localSha, , remoteSha] = line.trim().split(/\s+/);
+    if (!localRef || !localSha || ZERO_SHA.test(localSha)) continue;
+    if (remoteSha && !ZERO_SHA.test(remoteSha) && hasCommit(remoteSha)) {
+      ranges.push([`${remoteSha}..${localSha}`]);
+    } else {
+      ranges.push([localSha, '--not', '--remotes']);
+    }
+  }
+  if (input.trim() !== '') return ranges;
+  return [upstreamExists() ? ['@{u}..HEAD'] : ['HEAD', '--not', '--remotes']];
 }
 
 function git(args, cwd) {
@@ -676,14 +733,14 @@ export function commitRangeFindings(
     .filter(Boolean);
   const findings = [];
   for (const sha of shas) {
-    const [authorEmail, committerEmail, message] = git(
-      ['show', '-s', '--format=%ae%x00%ce%x00%B', sha],
+    const [authorName, authorEmail, committerName, committerEmail, message] = git(
+      ['show', '-s', '--format=%an%x00%ae%x00%cn%x00%ce%x00%B', sha],
       cwd,
     ).split('\0');
     findings.push(
       ...commitFindings(
         `commit ${sha.slice(0, 12)}`,
-        { message, authorEmail, committerEmail },
+        { message, authorName, authorEmail, committerName, committerEmail },
         { extraTerms, checkEmails },
       ),
     );
@@ -691,9 +748,33 @@ export function commitRangeFindings(
   return { count: shas.length, findings };
 }
 
-/** The email of a `git var` identity (`Name <email> time zone`). */
-function identityEmail(variable, cwd) {
-  return /<([^>]*)>/.exec(git(['var', variable], cwd))?.[1] ?? '';
+/** The name and email of a `git var` identity (`Name <email> time zone`). */
+function identity(variable, cwd) {
+  const match = /^(.*?)\s*<([^>]*)>/.exec(git(['var', variable], cwd));
+  return { name: match?.[1] ?? '', email: match?.[2] ?? '' };
+}
+
+/** The comment character git strips from a message it cleans up (`#`). */
+function commentCharacter(cwd) {
+  let configured = '';
+  try {
+    configured = git(['config', '--get', 'core.commentChar'], cwd).trim();
+  } catch {
+    configured = '';
+  }
+  return configured === '' || configured === 'auto' ? '#' : configured;
+}
+
+function hasUpstream(cwd) {
+  try {
+    execFileSync('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], {
+      cwd,
+      stdio: 'ignore',
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function report(findings, passed) {
@@ -706,17 +787,34 @@ function report(findings, passed) {
 }
 
 function main(argv) {
-  const [mode, ...rest] = argv;
-  let termsFile;
-  let checkEmails;
   try {
-    termsFile = loadTermsFile();
-    checkEmails = mode === undefined ? false : commitEmailsChecked(process.env, termsFile);
+    return run(argv);
   } catch (error) {
     if (!(error instanceof CheckSettingError)) throw error;
     console.error(error.message);
     return 1;
   }
+}
+
+function treeFindings(terms) {
+  const files = publicCandidateFiles();
+  const findings = [
+    ...sanitizationFindings(files, '.', { extraTerms: terms }),
+    ...wranglerIdentifierFindings(readFileSync('wrangler.toml', 'utf8')),
+  ];
+  return { files, findings };
+}
+
+function run(argv) {
+  const [mode, ...rest] = argv;
+  const termsFile = loadTermsFile();
+  if (mode === '--pre-push' && rest.length === 0 && termsFile === null) {
+    // Inert unless the clone opted in with a terms file, so a fork that
+    // commits its own real values can always push.
+    console.log('No extra terms file: the pre-push public check is off.');
+    return 0;
+  }
+  const checkEmails = mode === undefined ? false : commitEmailsChecked(process.env, termsFile);
   if (termsFile === null) console.log('No extra terms file: only the generic rules ran.');
   else console.log(`Extra terms file: ${termsFile.terms.length} terms.`);
   const terms = termsFile?.terms ?? [];
@@ -729,27 +827,24 @@ function main(argv) {
   }
 
   if (mode === undefined) {
-    const files = publicCandidateFiles();
-    const findings = [
-      ...sanitizationFindings(files, '.', { extraTerms: terms }),
-      ...wranglerIdentifierFindings(readFileSync('wrangler.toml', 'utf8')),
-    ];
+    const { files, findings } = treeFindings(terms);
     return report(
       findings,
       `Public sanitization passed (${files.length} release-candidate files).`,
     );
   }
   if (mode === '--commit-msg' && rest.length === 1) {
+    const author = identity('GIT_AUTHOR_IDENT');
+    const committer = identity('GIT_COMMITTER_IDENT');
     const findings = commitFindings(
       'commit message',
       {
         message: readFileSync(rest[0], 'utf8'),
-        ...(checkEmails && {
-          authorEmail: identityEmail('GIT_AUTHOR_IDENT'),
-          committerEmail: identityEmail('GIT_COMMITTER_IDENT'),
-        }),
+        authorName: author.name,
+        committerName: committer.name,
+        ...(checkEmails && { authorEmail: author.email, committerEmail: committer.email }),
       },
-      { extraTerms: terms, checkEmails },
+      { extraTerms: terms, checkEmails, commentChar: commentCharacter() },
     );
     return report(findings, 'Public sanitization passed (commit message).');
   }
@@ -762,8 +857,27 @@ function main(argv) {
     });
     return report(findings, `Public sanitization passed (${count} commits).`);
   }
+  if (mode === '--pre-push' && rest.length === 0) {
+    const input = process.stdin.isTTY ? '' : readFileSync(0, 'utf8');
+    const tree = treeFindings(terms);
+    const findings = [...tree.findings];
+    let count = 0;
+    for (const revListArgs of prePushRevListArgs(
+      input,
+      rev => gitHasCommit(rev),
+      () => hasUpstream(),
+    )) {
+      const range = commitRangeFindings(revListArgs, { extraTerms: terms, checkEmails });
+      count += range.count;
+      findings.push(...range.findings);
+    }
+    return report(
+      findings,
+      `Public sanitization passed (${tree.files.length} release-candidate files, ${count} commits).`,
+    );
+  }
   console.error(
-    'Usage: check-public-sanitization.mjs [--commit-msg <file> | --commits <rev-list args> | --ci-commits]',
+    'Usage: check-public-sanitization.mjs [--commit-msg <file> | --commits <rev-list args> | --ci-commits | --pre-push]',
   );
   return 1;
 }
