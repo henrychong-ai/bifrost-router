@@ -673,6 +673,17 @@ paths:
                   format: binary
                 key:
                   type: string
+                overwrite:
+                  type: string
+                  description: >-
+                    `true` replaces an object already stored at the key; any
+                    other value, or none, answers 409 for an existing key
+                comments:
+                  type: string
+                  maxLength: 1000
+                  description: >-
+                    Optional file comment, at most 1,000 characters (a longer
+                    one is a 400). Omitted, an existing comment is kept
       responses:
         '201':
           description: Uploaded; `data` is the stored object's metadata
