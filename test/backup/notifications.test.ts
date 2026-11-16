@@ -372,6 +372,16 @@ describe('notifyBackupOutcome', () => {
     noUrlLogged();
   });
 
+  it.each([200, 404])('discards the response body unread (HTTP %i)', async status => {
+    const cancel = vi.fn<UnderlyingSourceCancelCallback>();
+    const pull = vi.fn<UnderlyingSourcePullCallback<Uint8Array>>();
+    const body = new ReadableStream<Uint8Array>({ pull, cancel }, { highWaterMark: 0 });
+    vi.mocked(fetch).mockResolvedValue(new Response(body, { status }));
+    await notifyBackupOutcome(withHook(), failed('x'), vi.fn<HealthCheck>());
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(pull).not.toHaveBeenCalled();
+  });
+
   it('treats a redirect as a failed delivery', async () => {
     vi.mocked(fetch).mockResolvedValue(
       new Response(null, { status: 302, headers: { location: 'https://elsewhere.example/' } }),

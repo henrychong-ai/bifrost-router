@@ -254,7 +254,7 @@ describe('schemas', () => {
     });
   });
 
-  describe('RoutePathSchema / RouteTargetSchema', () => {
+  describe('NewRoutePathSchema / RouteTargetSchema', () => {
     it('accepts an ordinary path and target', () => {
       expect(create({}).success).toBe(true);
       expect(create({ path: '/a/b-c_d' }).success).toBe(true);

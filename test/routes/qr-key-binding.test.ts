@@ -12,7 +12,7 @@
  * - `GET /api/qr/from-route` is the ephemeral SVG endpoint, so a record with
  *   the id `from-route` could be created and then never read by id. A new
  *   record cannot take it; one stored before the reservation still updates,
- *   lists and deletes.
+ *   lists, renders and deletes.
  */
 import { env } from 'cloudflare:test';
 import { QRDesignSchema } from '@bifrost/shared';
@@ -186,5 +186,17 @@ describe('the QR id from-route is reserved', () => {
     const deleted = await call('DELETE', `/qr/from-route?domain=${DOMAIN}`);
     expect(deleted.status).toBe(200);
     expect(await env.ROUTES.get(qrKey(DOMAIN, 'from-route'))).toBeNull();
+  });
+
+  it('a code stored with it before the reservation still renders', async () => {
+    await env.ROUTES.put(
+      qrKey(DOMAIN, 'from-route'),
+      JSON.stringify(storedText('from-route', DOMAIN, 'legacy')),
+    );
+
+    const image = await call('GET', `/qr/from-route/image?domain=${DOMAIN}`);
+    expect(image.status).toBe(200);
+    expect(image.headers.get('Content-Type')).toContain('image/svg+xml');
+    expect(await image.text()).toContain('<svg');
   });
 });

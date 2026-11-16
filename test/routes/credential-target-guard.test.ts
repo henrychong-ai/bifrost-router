@@ -335,8 +335,8 @@ describe('route target credential guard', () => {
  * miss is silent: the guard sees no stored target, raises no refusal, and the
  * mutation then normalises and writes the record the guard never examined.
  *
- * Every alias below passes `RoutePathSchema`, so none of them is refused
- * earlier.
+ * Every alias below passes `ExistingRoutePathSchema` and `NewRoutePathSchema`,
+ * so none of them is refused earlier.
  */
 describe('admin pre-reads resolve the stored record through an alias', () => {
   const validApiKey = 'test-api-key-12345';
