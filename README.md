@@ -533,6 +533,8 @@ It changes nothing until you act: a route gets a card only once it has a `previe
 
 A test (`shared/src/link-preview.test.ts`) fails until every supported domain is classified in both maps, so a new domain cannot ship undecided.
 
+**In the dashboard.** The route dialog of an `r2` route that serves one file has a Link preview section for these fields, offering only the buckets with a custom domain, and a live card showing what a save would send (or why no card would be sent). The Storage dialog marks a route that uses the object as its preview image and warns before Replace File.
+
 **Images in use are protected.** An object a route (or a domain default) shows as its preview image cannot be replaced, deleted, renamed or moved through the API, the dashboard or MCP: the answer is 409 `STORE_PREVIEW_IMAGE_IN_USE`, naming the routes and domains that use it. To change a card's image, upload the new one under a new key and point the route at it. A change made directly in Cloudflare cannot be refused; with the optional R2 event audit on, its audit row records whether a route uses the object and whether the route's stored size still matches.
 
 **Limits.** The fetcher's user agent can be spoofed; the document only repeats what you wrote for the card. Cloudflare edge rules in front of the Worker apply to fetchers as to anyone. Platforms cache cards on their side: after changing a card, use the platform's own refresh tool where it has one.

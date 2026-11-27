@@ -602,6 +602,21 @@ default images ship `null`.
   `src/kv/stored-route.ts`), retrying a failed chunk one key at a time; the
   route list and by-target name each route by its KV key's path
   (`routeAtKeyPath`).
+- **Dashboard** (`admin/src/components/link-preview-fields.tsx`,
+  `link-preview-card.tsx`, `admin/src/lib/live-preview-card.ts`,
+  `route-patch.ts`): the route dialog shows the section for a single-file r2
+  route (`formAllowsPreview`), offering `previewImageBuckets()`. Field errors
+  (`previewFormErrors`) are judged only once a preview field changed and hold
+  the save; an edit sends only the changed fields, and `previewTitle: ''`
+  clears the preview (a blank title, or a type or wildcard path that cannot
+  carry one). The live card decides with the shared functions above, never a
+  copy of their rules, on the record the save would leave
+  (`previewRecordIfSaved`); the route's file is read once (`useObjectMeta`,
+  no retry or refetch on focus, after a 400 ms settle) for its stored type and
+  existence. The Storage dialog badges a route that shows the object as its
+  image and warns before Replace; the by-target projection keeps a saved
+  route naming the image. Dashboard tests set the map with
+  `admin/src/lib/preview-buckets.fixture.ts`.
 - **Tests** configure the maps per file with `test/link-preview-config.ts`;
   image headers come from `test/image-bytes.ts`.
 
