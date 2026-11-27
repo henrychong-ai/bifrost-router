@@ -137,8 +137,8 @@ function purgeObjectCache(c: Context<AppEnv>, bucket: string, key: string): void
           JSON.stringify({
             level: 'error',
             message: 'cache purge failed',
+            // The bucket, never the object key (v1.47.0)
             bucket,
-            key,
             errorName: errorName(error),
           }),
         );
@@ -453,7 +453,6 @@ storageRoutes.post('/:bucket/upload', async c => {
           message: 'Failed to set file comment on upload',
           errorName: errorName(err),
           bucket: bucketName,
-          key: validation.sanitizedKey,
         }),
       );
     }

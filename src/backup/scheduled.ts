@@ -1,6 +1,6 @@
 import type { Bindings } from '../types';
 import { errorName } from '../utils/error-name';
-import { BACKUP_BUCKET_NOT_CONFIGURED, backupManifestKey } from './constants';
+import { BACKUP_BUCKET_NOT_CONFIGURED } from './constants';
 import { BACKUP_FAILED_GENERIC, fixedBackupFailure } from './integrity';
 import { backupKV } from './kv';
 import { writeManifest } from './manifest';
@@ -63,7 +63,8 @@ export async function handleScheduled(env: Bindings): Promise<BackupResult> {
     // archive before its single write, overwrites the archive, then writes the
     // manifest.
     const manifest = await writeManifest(env.BACKUP_BUCKET, date, kvResult);
-    console.log(`[Backup] Manifest written: ${backupManifestKey(date)}`);
+    // The date, never the object key (v1.47.0)
+    console.log(`[Backup] Manifest written for ${date}`);
 
     return {
       success: true,

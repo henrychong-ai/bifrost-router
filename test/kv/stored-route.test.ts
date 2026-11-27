@@ -139,6 +139,16 @@ const served = async (path: string) => {
 const fixedLog = (key: string) =>
   JSON.stringify({ level: 'warn', message: 'boundary-invalid-value', category: 'route', key });
 
+/** The serving lookup's line (v1.47.0): the domain and the candidate kind, never the key. */
+const servedLog = (match: 'exact' | 'wildcard') =>
+  JSON.stringify({
+    level: 'warn',
+    message: 'boundary-invalid-value',
+    category: 'route',
+    domain: DOMAIN,
+    match,
+  });
+
 describe('an invalid stored route', () => {
   let warn: ReturnType<typeof vi.spyOn>;
   beforeEach(async () => {
@@ -150,6 +160,14 @@ describe('an invalid stored route', () => {
 
   const expectFixedLog = (key = routeKey(DOMAIN, '/bad')) => {
     expect(warn).toHaveBeenCalledWith(fixedLog(key));
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(secret);
+  };
+
+  /** The serving lookup logged `match` once, and no line names `path`. */
+  const expectServedLog = (match: 'exact' | 'wildcard', path: string) => {
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(servedLog(match));
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(path);
     expect(JSON.stringify(warn.mock.calls)).not.toContain(secret);
   };
 
@@ -165,6 +183,7 @@ describe('an invalid stored route', () => {
       await env.ROUTES.put(routeKey(DOMAIN, '/good'), JSON.stringify(good));
 
       expect(await lookupRoute(env.ROUTES, DOMAIN, '/bad')).toEqual({ status: 'invalid' });
+      expectServedLog('exact', '/bad');
       expect(await getRoute(env.ROUTES, DOMAIN, '/bad')).toEqual({ status: 'invalid' });
       expect(await getRouteByNormalizedPath(env.ROUTES, DOMAIN, '/bad')).toEqual({
         status: 'invalid',
@@ -192,7 +211,7 @@ describe('an invalid stored route', () => {
     const wildcard = createMockRoute({ path: '/docs/*', target: 'https://example.com/docs' });
     await env.ROUTES.put(routeKey(DOMAIN, '/docs/*'), JSON.stringify(wildcard));
     expect(await lookupRoute(env.ROUTES, DOMAIN, '/docs/private')).toEqual({ status: 'invalid' });
-    expectFixedLog(routeKey(DOMAIN, '/docs/private'));
+    expectServedLog('exact', '/docs/private');
     // Another path under the wildcard is still served
     expect((await served('/docs/public'))?.path).toBe('/docs/*');
   });
@@ -202,7 +221,7 @@ describe('an invalid stored route', () => {
     const root = createMockRoute({ path: '/*', target: 'https://example.com/root' });
     await env.ROUTES.put(routeKey(DOMAIN, '/*'), JSON.stringify(root));
     expect(await lookupRoute(env.ROUTES, DOMAIN, '/docs/a')).toEqual({ status: 'invalid' });
-    expectFixedLog(routeKey(DOMAIN, '/docs/*'));
+    expectServedLog('wildcard', '/docs/');
     expect((await served('/other'))?.path).toBe('/*');
   });
 
@@ -222,8 +241,7 @@ describe('an invalid stored route', () => {
     // the candidate selected: logged once
     await env.ROUTES.put(routeKey(DOMAIN, '/docs/*'), JSON.stringify({ ...docs, enabled: false }));
     expect(await lookupRoute(env.ROUTES, DOMAIN, '/docs/a')).toEqual({ status: 'invalid' });
-    expect(warn).toHaveBeenCalledTimes(1);
-    expectFixedLog(routeKey(DOMAIN, '/*'));
+    expectServedLog('wildcard', '/docs/a');
   });
 
   it('a request path whose exact key is over 512 bytes reads as absent, never a KV error', async () => {

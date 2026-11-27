@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { checkBackupHealth } from '../src/backup/health';
 import { notifyBackupOutcome } from '../src/backup/notifications';
 import { handleScheduled } from '../src/backup/scheduled';
-import { insertAuditLog } from '../src/db/analytics';
+import { insertAuditLog, recordAuditLog } from '../src/db/analytics';
 import { handleR2 } from '../src/handlers/r2';
 import { rateLimit, rateLimitStrict } from '../src/middleware/rate-limit';
 import { handleR2EventBatch, type R2EventMessage } from '../src/queue/r2-events';
@@ -12,12 +12,13 @@ import type { AppEnv, Bindings, KVRouteConfig } from '../src/types';
 import { createAuditLogsTable } from './helpers';
 
 /**
- * The Worker's log rule (v1.39.0): a line never carries a visitor's path,
- * query or body, an identity (an email, a client IP), a whole payload, or an
- * error's message or stack (its class only). Configured route targets and
- * admin object keys may appear in operational lines. Every console channel is
- * captured, and each path is driven with marker values where the rule forbids
- * them.
+ * The Worker's log rule (v1.39.0, stricter since v1.47.0): a line never
+ * carries an object key, a visitor's path, query or body, a URL, a stored
+ * route target, an identity (an email, a client IP), a whole payload, or an
+ * error's message or stack (its class only). It names identifiers and fixed
+ * categories: the domain, the route path, the bucket, an audit row id. Every
+ * console channel is captured, and each path is driven with marker values
+ * where the rule forbids them.
  */
 const CHANNELS = ['log', 'info', 'warn', 'error', 'debug'] as const;
 const MARKER = 'secret-marker-7Kw';
@@ -104,7 +105,7 @@ function object(withBody: boolean, size = 4): R2ObjectBody {
 /** The parsed serve lines among the captured output. */
 const serveLines = () =>
   output
-    .filter(line => line.startsWith('{') && line.includes('"R2 '))
+    .filter(line => line.startsWith('{') && line.includes('R2 '))
     .map(line => JSON.parse(line) as Record<string, unknown>);
 
 describe('the audit success line', () => {
@@ -112,29 +113,53 @@ describe('the audit success line', () => {
     await createAuditLogsTable();
   });
 
-  it('says whether an actor was recorded, never who; D1 keeps the login', async () => {
+  it('names the row and says whether an actor was recorded, never who or the path', async () => {
     await insertAuditLog(env.DB, {
       domain: 'example.com',
       action: 'update',
       actorLogin: EMAIL,
       actorName: `Operator ${MARKER}`,
-      path: '/promo',
+      path: `/promo-${MARKER}`,
       details: null,
     });
     const line = output.find(entry => entry.includes('Audit log recorded'));
-    expect(JSON.parse(line ?? '{}')).toEqual({
+    const parsed = JSON.parse(line ?? '{}') as Record<string, unknown>;
+    expect(parsed).toEqual({
       level: 'info',
       message: 'Audit log recorded',
+      auditId: expect.any(Number),
       domain: 'example.com',
       action: 'update',
+      source: 'bifrost',
       hasActor: true,
-      path: '/promo',
     });
     expect(leaks(MARKER, '@')).toEqual([]);
-    const row = await env.DB.prepare('SELECT actor_login FROM audit_logs WHERE actor_login = ?1')
-      .bind(EMAIL)
-      .first<{ actor_login: string }>();
-    expect(row?.actor_login).toBe(EMAIL);
+    // D1 keeps the login and the path, under the row id the line names
+    const row = await env.DB.prepare('SELECT actor_login, path FROM audit_logs WHERE id = ?1')
+      .bind(parsed['auditId'])
+      .first<{ actor_login: string; path: string }>();
+    expect(row).toEqual({ actor_login: EMAIL, path: `/promo-${MARKER}` });
+  });
+
+  it('a failed audit write names its categories, never the path or the error text', async () => {
+    await recordAuditLog(failingDb(), {
+      domain: 'example.com',
+      action: 'r2_delete',
+      actorLogin: EMAIL,
+      path: `docs/${MARKER}.pdf`,
+      source: 'r2_event',
+    });
+    expect(output.map(entry => JSON.parse(entry) as unknown)).toEqual([
+      {
+        level: 'error',
+        message: 'Failed to record audit log',
+        errorName: 'Error',
+        domain: 'example.com',
+        action: 'r2_delete',
+        source: 'r2_event',
+      },
+    ]);
+    expect(leaks(MARKER, '@')).toEqual([]);
   });
 
   it('says so when there is no actor', async () => {
@@ -145,12 +170,12 @@ describe('the audit success line', () => {
 });
 
 describe('the R2 event consumer', () => {
-  it('logs a failed event by its action, bucket, key and error class only', async () => {
+  it('logs a failed event by its action, bucket and error class only, never the key', async () => {
     const body = {
       account: `account-${MARKER}`,
       action: 'PutObject',
       bucket: 'files',
-      object: { key: 'docs/report.pdf', size: 1, eTag: `etag-${MARKER}` },
+      object: { key: `docs/report-${MARKER}.pdf`, size: 1, eTag: `etag-${MARKER}` },
       eventTime: new Date().toISOString(),
       copySource: { bucket: 'files', object: `copy-${MARKER}` },
     };
@@ -163,7 +188,6 @@ describe('the R2 event consumer', () => {
       message: 'r2-event-processing-failed',
       action: 'PutObject',
       bucket: 'files',
-      key: 'docs/report.pdf',
       errorName: 'Error',
     });
     expect(leaks(MARKER, '@')).toEqual([]);
@@ -174,7 +198,7 @@ describe('the R2 event consumer', () => {
       account: `account-${MARKER}`,
       action: 'Unknown',
       bucket: 'files',
-      object: { key: 'docs/x.pdf', extra: MARKER },
+      object: { key: `docs/x-${MARKER}.pdf`, extra: MARKER },
       note: MARKER,
     });
     await handleR2EventBatch(batch, { ...env, R2_EVENT_AUDIT: 'on' } as Bindings);
@@ -185,7 +209,6 @@ describe('the R2 event consumer', () => {
       level: 'warn',
       message: 'r2-event-skipped-malformed',
       bucket: 'files',
-      key: 'docs/x.pdf',
     });
     expect(leaks(MARKER)).toEqual([]);
   });
@@ -348,23 +371,27 @@ describe('the rate limiter', () => {
 
 describe('the R2 serve lines', () => {
   // A wildcard r2 route serves its stored target, whatever remainder matched
-  // it: every serve line names the route key and that target, never the
-  // visitor's path or query
+  // it: every serve line names the domain, the route path and the bucket,
+  // never the object key (the stored target), the visitor's path or query, or
+  // the Range text (v1.47.0)
+  const OBJECT_KEY = `docs/key-${MARKER}.pdf`;
   const route: KVRouteConfig = {
     path: '/files/*',
     type: 'r2',
-    target: 'docs/a.pdf',
+    target: OBJECT_KEY,
     createdAt: 0,
     updatedAt: 0,
   };
   const visitorUrl = `http://localhost/files/${MARKER}?token=${MARKER}`;
+  const fields = { domain: 'localhost', routePath: '/files/*', bucket: 'files' };
 
   async function serve(
     get: (key: string, options?: R2GetOptions) => Promise<unknown>,
     headers: Record<string, string> = {},
+    served: KVRouteConfig = route,
   ): Promise<Response> {
     const app = new Hono<AppEnv>();
-    app.get('/files/*', c => handleR2(c, route));
+    app.get('/files/*', c => handleR2(c, served));
     return app.fetch(
       new Request(visitorUrl, { headers }),
       { ENVIRONMENT: 'development', FILES_BUCKET: { get } as unknown as R2Bucket },
@@ -372,37 +399,38 @@ describe('the R2 serve lines', () => {
     );
   }
 
-  it('cache MISS and HIT name the route key, the target and the bucket', async () => {
+  it('cache MISS and HIT name the domain, the route path and the bucket', async () => {
     vi.spyOn(caches.default, 'match').mockResolvedValueOnce(undefined);
     vi.spyOn(caches.default, 'put').mockResolvedValue(undefined);
     expect((await serve(async () => object(true))).status).toBe(200);
     vi.spyOn(caches.default, 'match').mockResolvedValueOnce(new Response('x'));
     expect((await serve(async () => object(true))).status).toBe(200);
     expect(serveLines()).toEqual([
-      expect.objectContaining({ message: 'R2 cache MISS', path: '/files/*', key: 'docs/a.pdf' }),
-      expect.objectContaining({ message: 'R2 cache HIT', path: '/files/*', key: 'docs/a.pdf' }),
+      { level: 'info', message: 'R2 cache MISS', ...fields },
+      { level: 'info', message: 'R2 cache HIT', ...fields },
     ]);
-    expect(serveLines().every(line => line['bucket'] === 'files')).toBe(true);
     expect(leaks(MARKER)).toEqual([]);
   });
 
-  it('an uncached serve and a degraded read name the same three fields', async () => {
+  it('an uncached serve and a degraded read name the same three fields, never the Range', async () => {
     const get = vi
       .fn<(key: string, options?: R2GetOptions) => Promise<unknown>>()
       .mockRejectedValueOnce(new Error(`Invalid range ${MARKER}`))
       .mockResolvedValueOnce(object(true));
     const response = await serve(get, { Range: 'bytes=0-1' });
     await response.arrayBuffer();
-    const lines = serveLines();
-    expect(lines.map(line => line['message'])).toEqual([
-      'R2 read failed with request options present (malformed options or transient fault) — degrading to a plainer read',
-      'R2 uncached serve',
+    expect(serveLines()).toEqual([
+      {
+        level: 'warn',
+        message:
+          'R2 read failed with request options present (malformed options or transient fault) — degrading to a plainer read',
+        ...fields,
+        rangeRequested: true,
+        errorName: 'Error',
+      },
+      { level: 'info', message: 'R2 uncached serve', ...fields, status: 206 },
     ]);
-    for (const line of lines) {
-      expect(line).toMatchObject({ path: '/files/*', key: 'docs/a.pdf', bucket: 'files' });
-    }
-    expect(lines[0]?.['errorName']).toBe('Error');
-    expect(leaks(MARKER)).toEqual([]);
+    expect(leaks(MARKER, 'bytes=')).toEqual([]);
   });
 
   it('an If-Range re-read that misses names the same three fields', async () => {
@@ -413,13 +441,44 @@ describe('the R2 serve lines', () => {
     const response = await serve(get, { Range: 'bytes=0-1', 'If-Range': '"stale"' });
     expect(response.status).toBe(404);
     expect(serveLines()).toEqual([
-      expect.objectContaining({
+      {
+        level: 'warn',
         message: 'R2 If-Range full re-read missed — object vanished, returning 404',
-        path: '/files/*',
-        key: 'docs/a.pdf',
-        bucket: 'files',
-      }),
+        ...fields,
+      },
     ]);
+    expect(leaks(MARKER, 'bytes=')).toEqual([]);
+  });
+
+  it('an unknown stored bucket is logged as invalid and answered with fixed text', async () => {
+    const get = vi.fn<(key: string) => Promise<unknown>>();
+    const response = await serve(get, {}, { ...route, bucket: `bucket-${MARKER}` });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'Invalid bucket' });
+    expect(serveLines()).toEqual([
+      { level: 'error', message: 'Invalid R2 bucket name', ...fields, bucket: 'invalid' },
+    ]);
+    expect(get).not.toHaveBeenCalled();
+    expect(leaks(MARKER)).toEqual([]);
+  });
+
+  it('a refused stored key is logged with a fixed reason, never the target', async () => {
+    const get = vi.fn<(key: string) => Promise<unknown>>();
+    const response = await serve(get, {}, { ...route, target: `../${MARKER}.pdf` });
+    expect(response.status).toBe(400);
+    expect(serveLines()).toEqual([
+      {
+        level: 'warn',
+        message: 'R2 key rejected — contains invalid characters or path components',
+      },
+      {
+        level: 'error',
+        message: 'Invalid R2 key',
+        ...fields,
+        error: 'R2 key contains invalid characters or path components',
+      },
+    ]);
+    expect(get).not.toHaveBeenCalled();
     expect(leaks(MARKER)).toEqual([]);
   });
 });

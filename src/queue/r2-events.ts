@@ -405,25 +405,22 @@ const R2_BUCKET_NAME = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/;
  * The validated fields of an event a log line may carry (v1.39.0), never the
  * whole message body, whose other fields (the account, a copy source,
  * whatever a malformed message holds) no line needs: the action only when it
- * is one this consumer knows, the bucket only when it is a valid bucket name,
- * and the object key (an admin object key, which operational lines may name)
- * only when it is a string, cut to R2's 1,024-byte limit in characters.
+ * is one this consumer knows and the bucket only when it is a valid bucket
+ * name. Never the object key (v1.47.0): the audit row in D1 records it, and a
+ * correlated line names that row by `auditId`.
  */
 function eventLogFields(event: unknown): {
   action?: string | undefined;
   bucket?: string | undefined;
-  key?: string | undefined;
 } {
   if (!isRecord(event)) return {};
-  const { action, bucket, object } = event;
-  const key = isRecord(object) ? object['key'] : undefined;
+  const { action, bucket } = event;
   return {
     action:
       typeof action === 'string' && (CREATE_ACTIONS.has(action) || DELETE_ACTIONS.has(action))
         ? action
         : undefined,
     bucket: typeof bucket === 'string' && R2_BUCKET_NAME.test(bucket) ? bucket : undefined,
-    key: typeof key === 'string' ? key.slice(0, 1024) : undefined,
   };
 }
 

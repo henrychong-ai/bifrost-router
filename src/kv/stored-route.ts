@@ -38,8 +38,8 @@ const storedRoute = guard(isStoredRoute);
 /**
  * One stored route by its exact KV key, as a boundary read, WITHOUT the log
  * line: route lookup reads every candidate and logs only the one it selects
- * ({@link logInvalidRoute}). KV errors are thrown unchanged; a key over 512
- * bytes is `missing`.
+ * ({@link logInvalidServedRoute}). KV errors are thrown unchanged; a key over
+ * 512 bytes is `missing`.
  */
 export function readStoredRoute(
   kv: KVNamespace,
@@ -54,6 +54,25 @@ export function readStoredRoute(
  */
 export function logInvalidRoute(key: string): void {
   logInvalidBoundary('route', isRouteKey(key) ? key : undefined);
+}
+
+/**
+ * The fixed line for an unreadable stored route met while serving (v1.47.0):
+ * the domain and which candidate decided the request (`exact` or
+ * `wildcard`), never the key. The exact key is the visitor's normalised path,
+ * and a wildcard candidate is built from its segments. Management reads keep
+ * {@link logInvalidRoute}, which names the key.
+ */
+export function logInvalidServedRoute(domain: string, match: 'exact' | 'wildcard'): void {
+  console.warn(
+    JSON.stringify({
+      level: 'warn',
+      message: 'boundary-invalid-value',
+      category: 'route',
+      domain,
+      match,
+    }),
+  );
 }
 
 /**

@@ -17,6 +17,20 @@ export const CACHE_STATUS_HEADER = 'X-Cache-Status';
  */
 export const FILE_SERVING_ALLOWED_METHODS = 'GET, HEAD, OPTIONS';
 
+/**
+ * The fields every R2 serve line names (v1.47.0): the request's domain, the
+ * matched route path (configuration) and the bucket. Never the object key or
+ * any other stored target, the visitor's path, or a request header's text:
+ * the object is found from the route (`GET /api/routes?path=`), not the log.
+ */
+function servingLogFields(
+  domain: string,
+  route: KVRouteConfig,
+  bucket: string,
+): { domain: string; routePath: string; bucket: string } {
+  return { domain, routePath: route.path, bucket };
+}
+
 /** Whether `method` reads the file: GET and HEAD only. */
 export function isFileServingMethod(method: string): boolean {
   return method === 'GET' || method === 'HEAD';
@@ -280,19 +294,22 @@ export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promis
   // Get bucket name from route config, default to "files"
   // Stored config is not trusted to hold a known bucket until it is validated.
   const bucketName: string = route.bucket ?? 'files';
+  const domain = new URL(c.req.url).hostname;
 
-  // Validate bucket name
+  // Validate bucket name. The stored name is any string the record holds (the
+  // stored-route guard checks only its type), so neither the log line nor the
+  // answer repeats it (v1.47.0): a fixed label and a fixed text
   if (!isValidR2Bucket(bucketName)) {
     console.error(
       JSON.stringify({
         level: 'error',
         message: 'Invalid R2 bucket name',
-        path: route.path,
-        bucket: bucketName,
+        ...servingLogFields(domain, route, 'invalid'),
       }),
     );
-    return c.json({ error: `Invalid bucket: ${bucketName}` }, 400);
+    return c.json({ error: 'Invalid bucket' }, 400);
   }
+  const logFields = servingLogFields(domain, route, bucketName);
 
   // Get the binding name and access the bucket
   const bindingName = BUCKET_BINDINGS[bucketName] as keyof Bindings;
@@ -303,8 +320,7 @@ export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promis
       JSON.stringify({
         level: 'error',
         message: 'R2 bucket not configured',
-        path: route.path,
-        bucket: bucketName,
+        ...logFields,
         binding: bindingName,
       }),
     );
@@ -318,8 +334,8 @@ export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promis
       JSON.stringify({
         level: 'error',
         message: 'Invalid R2 key',
-        path: route.path,
-        target: route.target,
+        ...logFields,
+        // A fixed reason from validateR2Key, never the stored target (v1.47.0)
         error: validation.error,
       }),
     );
@@ -378,9 +394,7 @@ export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promis
         JSON.stringify({
           level: 'info',
           message: 'R2 cache HIT',
-          path: route.path,
-          key: validation.sanitizedKey,
-          bucket: bucketName,
+          ...logFields,
         }),
       );
 
@@ -423,17 +437,11 @@ export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promis
         level: 'warn',
         message:
           'R2 read failed with request options present (malformed options or transient fault) — degrading to a plainer read',
-        // The matched route key and the stored target as the object key, as on
-        // every serve line here: both are configuration, never the visitor's
-        // path (an R2 route serves its target whatever remainder matched it)
-        path: route.path,
-        key: validation.sanitizedKey,
-        bucket: bucketName,
-        // Both values are attacker-supplied or attacker-influenced: the Range
-        // is echoed straight from the request, and an R2 error message can
-        // quote the rejected header back. The Range is clamped; the error is
-        // logged by class only.
-        range: requestHeaders.get('range')?.slice(0, 256),
+        ...logFields,
+        // Whether a Range was sent, never its text (v1.47.0): the header is
+        // the caller's own. An R2 error message can quote the rejected header
+        // back, so the error is logged by class only.
+        rangeRequested,
         errorName: errorName(error),
       }),
     );
@@ -534,9 +542,7 @@ export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promis
         JSON.stringify({
           level: 'warn',
           message: 'R2 If-Range full re-read missed — object vanished, returning 404',
-          path: route.path,
-          key: validation.sanitizedKey,
-          bucket: bucketName,
+          ...logFields,
         }),
       );
       return c.json({ error: 'File not found', key: route.target }, 404);
@@ -605,11 +611,7 @@ export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promis
       JSON.stringify({
         level: 'info',
         message: 'R2 uncached serve',
-        // The matched route key and the stored target (configuration, as on
-        // every serve line here), never the visitor's path
-        path: route.path,
-        key: validation.sanitizedKey,
-        bucket: bucketName,
+        ...logFields,
         status: servedRange ? 206 : 200,
       }),
     );
@@ -637,9 +639,7 @@ export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promis
     JSON.stringify({
       level: 'info',
       message: 'R2 cache MISS',
-      path: route.path,
-      key: validation.sanitizedKey,
-      bucket: bucketName,
+      ...logFields,
     }),
   );
 

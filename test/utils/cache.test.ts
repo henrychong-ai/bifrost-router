@@ -288,12 +288,108 @@ describe('purgeR2CacheForObject', () => {
     expect(result.purged).toBe(1);
     expect(purgeBodies).toEqual([{ files: ['https://files.example.com/docs/report.pdf'] }]);
     expect(errors.some(line => line.includes('route discovery incomplete'))).toBe(true);
-    // The KV error is logged redacted
+    // The KV error is logged redacted, and the line names the bucket, never
+    // the object key (v1.47.0)
     expect(errors.join('\n')).not.toContain('abc123');
+    expect(errors.join('\n')).not.toContain('docs/report.pdf');
   });
 
   it('reports a complete route discovery when the listing succeeds', async () => {
     const result = await purgeR2CacheForObject(env.ROUTES, 'files', 'docs/none.pdf', 'test-token');
     expect(result.routeDiscoveryComplete).toBe(true);
+  });
+});
+
+/**
+ * The purge lines name a zone, a domain, an HTTP status and a URL count, never
+ * a URL (v1.47.0): a route URL is its path, and a custom-domain URL repeats the
+ * object key.
+ */
+describe('purge log lines', () => {
+  const MARKER = 'purge-marker-4Qz';
+  let lines: string[] = [];
+  beforeEach(() => {
+    lines = [];
+    for (const channel of ['log', 'info', 'warn', 'error', 'debug'] as const) {
+      vi.spyOn(console, channel).mockImplementation((...args: unknown[]) => {
+        lines.push(args.map(String).join(' '));
+      });
+    }
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const parsed = () => lines.map(line => JSON.parse(line) as Record<string, unknown>);
+
+  it.each([
+    [
+      'success: false',
+      () => stubPurgeApi({ success: false }),
+      'Zone cache purge returned success: false',
+    ],
+    [
+      'an unparseable body',
+      () =>
+        vi.stubGlobal(
+          'fetch',
+          vi.fn(async () => new Response('<html>', { status: 200 })),
+        ),
+      'Zone cache purge returned unparseable response',
+    ],
+    [
+      'an HTTP failure',
+      () =>
+        vi.stubGlobal(
+          'fetch',
+          vi.fn(async () => new Response('down', { status: 503 })),
+        ),
+      'Zone cache purge failed',
+    ],
+  ])('a zone purge with %s logs a URL count, never the URL', async (_label, stub, message) => {
+    stub();
+    const result = await purgeRouteUrl('links.example.com', `/${MARKER}`, 'test-token');
+    expect(result.failed).toBe(1);
+    expect(parsed()).toEqual([
+      expect.objectContaining({ message, zoneId: TEST_ZONE_ID, urlCount: 1 }),
+    ]);
+    expect(lines.join('\n')).not.toContain(MARKER);
+  });
+
+  it('a route URL on a domain with no zone logs the domain, never the URL', async () => {
+    stubPurgeApi();
+    await purgeRouteUrl('not-a-configured-zone.test', `/${MARKER}`, 'test-token');
+    expect(parsed()).toEqual([
+      {
+        level: 'warn',
+        message: 'Skipped route cache purge for domain without zone ID',
+        domain: 'not-a-configured-zone.test',
+      },
+    ]);
+    expect(lines.join('\n')).not.toContain(MARKER);
+  });
+
+  it('object routes on domains with no zone log a URL count, never the URLs', async () => {
+    stubPurgeApi();
+    await clearAllRoutes();
+    await seedRoute(
+      {
+        path: `/${MARKER}`,
+        type: 'r2',
+        target: `docs/${MARKER}.pdf`,
+        bucket: 'files',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+      'secondary.example.net',
+    );
+    await purgeR2CacheForObject(env.ROUTES, 'files', `docs/${MARKER}.pdf`, 'test-token');
+    expect(parsed()).toContainEqual({
+      level: 'warn',
+      message: 'Skipped cache purge for domains without zone ID',
+      urlCount: 1,
+    });
+    expect(lines.join('\n')).not.toContain(MARKER);
   });
 });

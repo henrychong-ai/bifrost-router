@@ -78,8 +78,8 @@ export async function purgeR2CacheForObject(
       JSON.stringify({
         level: 'error',
         message: ROUTE_DISCOVERY_INCOMPLETE,
+        // The bucket, never the object key (v1.47.0)
         bucket,
-        key,
         errorName: errorName(error),
       }),
     );
@@ -114,7 +114,8 @@ export async function purgeR2CacheForObject(
       JSON.stringify({
         level: 'warn',
         message: 'Skipped cache purge for domains without zone ID',
-        urls: skippedUrls,
+        // A count, never the URLs: they repeat the object key (v1.47.0)
+        urlCount: skippedUrls.length,
       }),
     );
   }
@@ -165,7 +166,7 @@ export async function purgeRouteUrl(
       JSON.stringify({
         level: 'warn',
         message: 'Skipped route cache purge for domain without zone ID',
-        url,
+        domain,
       }),
     );
   }
@@ -251,7 +252,7 @@ async function purgeZone(
               level: 'error',
               message: 'Zone cache purge returned success: false',
               zoneId,
-              urls: batch,
+              urlCount: batch.length,
             }),
           );
         }
@@ -263,7 +264,7 @@ async function purgeZone(
             level: 'error',
             message: 'Zone cache purge returned unparseable response',
             zoneId,
-            urls: batch,
+            urlCount: batch.length,
           }),
         );
       }
@@ -275,7 +276,7 @@ async function purgeZone(
           message: 'Zone cache purge failed',
           zoneId,
           status: response.status,
-          urls: batch,
+          urlCount: batch.length,
         }),
       );
     }

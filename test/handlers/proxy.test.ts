@@ -488,11 +488,12 @@ describe('handleProxy refused redirect hop log', () => {
       level: 'error',
       message: 'Proxy validation_error',
       path: '/docs/*',
-      target: 'https://upstream.example.net/base',
     });
+    // Nor the stored target (v1.47.0)
     for (const line of lines) {
       expect(line).not.toContain(remainder);
       expect(line).not.toContain(query);
+      expect(line).not.toContain('upstream.example.net');
     }
   });
 });

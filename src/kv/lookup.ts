@@ -1,7 +1,7 @@
 import { normalizeRoutePath } from '@bifrost/shared';
 import type { KVRouteConfig } from '../types';
 import { routeKey } from './schema';
-import { logInvalidRoute, readStoredRoute } from './stored-route';
+import { logInvalidServedRoute, readStoredRoute } from './stored-route';
 
 /**
  * Normalize a path for consistent lookup
@@ -76,7 +76,9 @@ export async function lookupRoute(
   const exactKey = routeKey(domain, path);
   const exact = await readStoredRoute(kv, exactKey);
   if (exact.status === 'invalid') {
-    logInvalidRoute(exactKey);
+    // The domain and the candidate kind, never the key (v1.47.0): the exact
+    // key is the visitor's normalised path
+    logInvalidServedRoute(domain, 'exact');
     return { status: 'invalid' };
   }
   if (exact.status === 'ok' && exact.value.enabled !== false) {
@@ -94,10 +96,10 @@ export async function lookupRoute(
   // instead of one round trip per path segment.
   const wildcardRoutes = await Promise.all(wildcardKeys.map(key => readStoredRoute(kv, key)));
 
-  for (const [index, wildcard] of wildcardRoutes.entries()) {
+  for (const wildcard of wildcardRoutes) {
     // An invalid wildcard stops too, never yielding to a broader one
     if (wildcard.status === 'invalid') {
-      logInvalidRoute(wildcardKeys[index] ?? '');
+      logInvalidServedRoute(domain, 'wildcard');
       return { status: 'invalid' };
     }
     if (wildcard.status === 'ok' && wildcard.value.enabled !== false) {

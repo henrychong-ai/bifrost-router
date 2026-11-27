@@ -1,7 +1,6 @@
 import type { Context } from 'hono';
 import { rawWildcardRemainder } from '../kv/lookup';
 import type { AppEnv, KVRouteConfig } from '../types';
-import { redactRouteTarget } from '../utils/credential-redaction';
 import { errorName } from '../utils/error-name';
 import { withoutInternalHeaders } from '../utils/internal-headers';
 import { validateProxyTarget } from '../utils/url-validation';
@@ -95,7 +94,9 @@ const BODY_HEADERS = [
 export type ProxyErrorType = 'validation_error' | 'timeout' | 'network_error' | 'upstream_error';
 
 /**
- * Create an error response for proxy failures
+ * Create an error response for proxy failures. `message` is fixed text, and
+ * the log line's details name the route path and fixed reasons only, never
+ * the stored target, even redacted (v1.47.0).
  */
 function createProxyErrorResponse(
   c: Context<AppEnv>,
@@ -300,7 +301,6 @@ export async function handleProxy(
       502,
       {
         path: route.path,
-        target: redactRouteTarget(route.target),
         validationError: validation.error,
       },
     );
@@ -355,7 +355,7 @@ export async function handleProxy(
           'upstream_error',
           `The upstream server redirected more than ${MAX_PROXY_REDIRECTS} times.`,
           502,
-          { path: route.path, target: redactRouteTarget(route.target) },
+          { path: route.path },
         );
       }
       let next: URL;
@@ -368,7 +368,7 @@ export async function handleProxy(
           'upstream_error',
           'The upstream server sent an invalid redirect.',
           502,
-          { path: route.path, target: redactRouteTarget(route.target) },
+          { path: route.path },
         );
       }
       const hopValidation = validateProxyTarget(next.href);
@@ -381,7 +381,6 @@ export async function handleProxy(
           502,
           {
             path: route.path,
-            target: redactRouteTarget(route.target),
             // Never the refused Location: an upstream can build it from the
             // visitor's remainder and query (log rule)
             validationError: hopValidation.error,
@@ -407,7 +406,7 @@ export async function handleProxy(
           'network_error',
           'Failed to connect to upstream server: the redirect needs the request body sent again.',
           502,
-          { path: route.path, target: redactRouteTarget(route.target) },
+          { path: route.path },
         );
       }
       // Leaving this hop's origin: only allow-listed headers go on (a
@@ -447,7 +446,7 @@ export async function handleProxy(
         'timeout',
         `Upstream server did not respond within ${timeoutMs / 1000} seconds.`,
         504,
-        { path: route.path, target: redactRouteTarget(route.target), timeoutMs },
+        { path: route.path, timeoutMs },
       );
     }
 
@@ -461,7 +460,6 @@ export async function handleProxy(
       502,
       {
         path: route.path,
-        target: redactRouteTarget(route.target),
         errorName: errorName(error),
       },
     );

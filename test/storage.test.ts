@@ -12,6 +12,13 @@ function createApp() {
   return new Hono<AppEnv>().route('/api', adminRoutes);
 }
 
+/** A D1 binding whose every statement fails with `message`. */
+function failingD1(message: string): D1Database {
+  const fail = () => Promise.reject(new Error(message));
+  const statement = { bind: () => statement, all: fail, raw: fail, first: fail, run: fail };
+  return { prepare: () => statement, batch: fail, exec: fail, dump: fail } as unknown as D1Database;
+}
+
 function createExecutionContext(): { ctx: ExecutionContext; settled: () => Promise<void> } {
   const pending: Promise<unknown>[] = [];
   return {
@@ -94,6 +101,44 @@ describe('storage routes', () => {
       const filesBucket = data.data.buckets.find((b: { name: string }) => b.name === 'files');
       expect(filesBucket).toBeDefined();
       expect(filesBucket.access).toBe('read-write');
+    });
+  });
+
+  describe('POST /storage/:bucket/upload comment failure log (v1.47.0)', () => {
+    it('names the bucket and the error class, never the object key', async () => {
+      const app = createApp();
+      const lines: string[] = [];
+      for (const channel of ['log', 'info', 'warn', 'error', 'debug'] as const) {
+        vi.spyOn(console, channel).mockImplementation((...args: unknown[]) => {
+          lines.push(args.map(String).join(' '));
+        });
+      }
+      const failingDb = failingD1('D1_ERROR: comment-key-marker');
+      const formData = new FormData();
+      formData.append('file', new File(['content'], 'test.txt', { type: 'text/plain' }));
+      formData.append('key', 'notes/comment-key-marker.txt');
+      formData.append('comments', 'a note');
+      try {
+        const response = await app.fetch(
+          new Request('http://example.com/api/storage/files/upload', {
+            method: 'POST',
+            headers: authHeaders,
+            body: formData,
+          }),
+          { ...testEnv, DB: failingDb },
+        );
+        expect(response.status).toBe(201);
+      } finally {
+        vi.restoreAllMocks();
+      }
+      const line = lines.find(entry => entry.includes('Failed to set file comment on upload'));
+      expect(JSON.parse(line ?? '{}')).toEqual({
+        level: 'error',
+        message: 'Failed to set file comment on upload',
+        errorName: 'Error',
+        bucket: 'files',
+      });
+      expect(lines.join('\n')).not.toContain('comment-key-marker');
     });
   });
 
@@ -1352,6 +1397,8 @@ describe('storage routes', () => {
 
       expect(response.status).toBe(200);
       expect(errors.some(e => e.includes('cache purge failed'))).toBe(true);
+      // The bucket and the error class, never the object key (v1.47.0)
+      expect(errors.join('\n')).not.toContain('cf-fail');
     });
 
     it('degrades silently when no Cloudflare token is configured', async () => {

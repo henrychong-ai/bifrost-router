@@ -33,9 +33,8 @@ export interface FileCommentRecord {
 /**
  * A failed comment read or write, by the error's class and the bucket only
  * (v1.39.0): Drizzle's message quotes the statement's parameters (the key and
- * the comment text). The comment text never reaches a log line; an admin
- * object key may, in other operational lines (AGENTS.md → Worker logs), but
- * this one needs only the bucket.
+ * the comment text). Neither the comment text nor the object key reaches a
+ * log line (AGENTS.md → Worker logs).
  */
 function logCommentError(message: string, error: unknown, bucket: string): void {
   console.error(

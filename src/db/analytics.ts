@@ -1,4 +1,5 @@
 import type { AuditAction, AuditSource } from '@bifrost/shared';
+import { isRecord } from '../utils/boundary';
 import { redactAuditDetails, redactRouteTarget } from '../utils/credential-redaction';
 import { errorName } from '../utils/error-name';
 import { createDb } from './index';
@@ -512,7 +513,7 @@ export interface AuditLogData {
 export async function insertAuditLog(db: D1Database, data: AuditLogData): Promise<void> {
   const drizzleDb = createDb(db);
 
-  await drizzleDb.insert(auditLogs).values({
+  const inserted = await drizzleDb.insert(auditLogs).values({
     domain: data.domain,
     action: data.action,
     actorLogin: data.actorLogin ?? null,
@@ -525,17 +526,26 @@ export async function insertAuditLog(db: D1Database, data: AuditLogData): Promis
 
   // Whether an actor was recorded, never who (v1.39.0): the login is an
   // identity (an email behind Tailscale Serve), which D1 keeps and no log
-  // line carries. The path is the configured route path or admin object key.
+  // line carries. Nor the audited path (v1.47.0): it is a route path or an
+  // object key, and the row (`auditId`) holds it.
   console.log(
     JSON.stringify({
       level: 'info',
       message: 'Audit log recorded',
+      auditId: auditRowId(inserted),
       domain: data.domain,
       action: data.action,
+      source: data.source ?? 'bifrost',
       hasActor: typeof data.actorLogin === 'string' && data.actorLogin !== '',
-      path: data.path,
     }),
   );
+}
+
+/** The inserted row's id from a D1 run result, when D1 reports one. */
+function auditRowId(result: unknown): number | undefined {
+  if (!isRecord(result) || !isRecord(result['meta'])) return undefined;
+  const id = result['meta']['last_row_id'];
+  return typeof id === 'number' && id > 0 ? id : undefined;
 }
 
 /**
@@ -560,9 +570,10 @@ export async function recordAuditLog(db: D1Database, data: AuditLogData): Promis
         // The class only (v1.39.0): the D1 driver's message quotes the
         // statement's parameters, a visitor's path and query among them
         errorName: errorName(error),
+        // Fixed categories only, never the audited path (v1.47.0)
         domain: data.domain,
         action: data.action,
-        path: data.path,
+        source: data.source ?? 'bifrost',
       }),
     );
   }
