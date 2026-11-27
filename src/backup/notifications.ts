@@ -14,6 +14,7 @@
 
 import type { Bindings } from '../types';
 import { errorName } from '../utils/error-name';
+import { slackIncomingWebhook } from '../utils/slack-webhook';
 import { checkBackupHealth } from './health';
 import type { BackupHealthResponse } from './health-schemas';
 import { isFixedBackupFailureText } from './integrity';
@@ -115,20 +116,7 @@ export function backupFailureReason(error: string | undefined): string {
  * `hooks.slack.com`, no port, no credentials, a `/services/` path.
  */
 export function backupAlertWebhook(value: unknown): string | null {
-  if (typeof value !== 'string' || value === '') return null;
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' &&
-      url.hostname === 'hooks.slack.com' &&
-      url.port === '' &&
-      url.pathname.startsWith('/services/') &&
-      url.username === '' &&
-      url.password === ''
-      ? url.href
-      : null;
-  } catch {
-    return null;
-  }
+  return slackIncomingWebhook(value);
 }
 
 /** The environment label, only when it is one of the two known values. */

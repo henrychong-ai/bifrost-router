@@ -245,6 +245,16 @@ export type Bindings = {
    */
   BACKUP_ALERT_SLACK_WEBHOOK?: string;
 
+  /**
+   * Slack incoming-webhook URL for a notice on each new feedback submission
+   * (optional secret, v1.47.0: `wrangler secret put
+   * FEEDBACK_SLACK_WEBHOOK_URL`). Unset or empty, nothing is sent and nothing
+   * logged. Only an https://hooks.slack.com/services/ URL is used, and the
+   * notice carries the short id, type and priority only; the Worker never
+   * writes the URL to its logs (README "Optional: Feedback Slack notice").
+   */
+  FEEDBACK_SLACK_WEBHOOK_URL?: string;
+
   // Service Bindings for Worker-to-Worker calls
   EXAMPLE_SITE?: Fetcher;
 };
