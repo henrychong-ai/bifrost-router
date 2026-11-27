@@ -1,4 +1,8 @@
-import { AuditActionSchema, AuditSourceSchema } from '@bifrost/shared';
+import {
+  ANALYTICS_SUMMARY_SEARCH_MAX_LENGTH,
+  AuditActionSchema,
+  AuditSourceSchema,
+} from '@bifrost/shared';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { createDb } from '../db';
@@ -36,7 +40,8 @@ const SummaryQuerySchema = z.object({
   domain: z.string().optional(),
   days: z.coerce.number().min(1).max(365).default(30),
   country: z.string().length(2).toUpperCase().optional(),
-  search: z.string().trim().max(500).optional(),
+  // The one cap, shared with the MCP tool (v1.47.0), after trimming
+  search: z.string().trim().max(ANALYTICS_SUMMARY_SEARCH_MAX_LENGTH).optional(),
   includeMonitoring: z
     .enum(['true', 'false'])
     .default('false')

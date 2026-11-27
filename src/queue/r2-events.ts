@@ -1,6 +1,7 @@
 import { and, eq, gte, inArray, lt, lte, notInArray, sql } from 'drizzle-orm';
 import { BACKUP_BUCKET_NAME, BACKUP_DAILY_PREFIX } from '../backup/constants';
 import { createDb } from '../db';
+import { insertedRowId } from '../db/inserted-row-id';
 import { auditLogs, r2EventCorrelations, r2EventSeen } from '../db/schema';
 import type { Bindings } from '../types';
 import { guard, isOptional, isRecord, isString, readStoredJson } from '../utils/boundary';
@@ -199,13 +200,6 @@ async function recordEventRow(
     if (isUniqueViolation(error, 'r2_event_seen')) return { recorded: false };
     throw error;
   }
-}
-
-/** The inserted row's id from a D1 run result, when D1 reports one. */
-function insertedRowId(result: unknown): number | undefined {
-  if (!isRecord(result) || !isRecord(result['meta'])) return undefined;
-  const id = result['meta']['last_row_id'];
-  return typeof id === 'number' && id > 0 ? id : undefined;
 }
 
 /**

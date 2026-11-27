@@ -397,8 +397,9 @@ export const toolDefinitions: ToolDefinition[] = [
         },
         search: {
           type: 'string',
-          description: 'Search domain, path, target, or referrer',
-          maxLength: ANALYTICS_SUMMARY_SEARCH_MAX_LENGTH,
+          // No raw maxLength: the cap applies after trimming (as the API checks
+          // it), which a JSON-Schema length cannot say
+          description: `Search domain, path, target, or referrer (at most ${ANALYTICS_SUMMARY_SEARCH_MAX_LENGTH} characters after leading and trailing spaces are trimmed)`,
         },
         include_monitoring: {
           type: 'boolean',

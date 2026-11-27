@@ -1,8 +1,8 @@
 import type { AuditAction, AuditSource } from '@bifrost/shared';
-import { isRecord } from '../utils/boundary';
 import { redactAuditDetails, redactRouteTarget } from '../utils/credential-redaction';
 import { errorName } from '../utils/error-name';
 import { createDb } from './index';
+import { insertedRowId } from './inserted-row-id';
 import {
   auditLogs,
   fileDownloads,
@@ -532,20 +532,13 @@ export async function insertAuditLog(db: D1Database, data: AuditLogData): Promis
     JSON.stringify({
       level: 'info',
       message: 'Audit log recorded',
-      auditId: auditRowId(inserted),
+      auditId: insertedRowId(inserted),
       domain: data.domain,
       action: data.action,
       source: data.source ?? 'bifrost',
       hasActor: typeof data.actorLogin === 'string' && data.actorLogin !== '',
     }),
   );
-}
-
-/** The inserted row's id from a D1 run result, when D1 reports one. */
-function auditRowId(result: unknown): number | undefined {
-  if (!isRecord(result) || !isRecord(result['meta'])) return undefined;
-  const id = result['meta']['last_row_id'];
-  return typeof id === 'number' && id > 0 ? id : undefined;
 }
 
 /**

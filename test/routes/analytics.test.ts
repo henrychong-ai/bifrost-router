@@ -1,4 +1,5 @@
 import { env } from 'cloudflare:test';
+import { ANALYTICS_SUMMARY_SEARCH_MAX_LENGTH } from '@bifrost/shared';
 import { Hono } from 'hono';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { adminRoutes } from '../../src/routes/admin';
@@ -218,6 +219,14 @@ describe('analytics routes', () => {
       const data = await response.json();
       expect(data.success).toBe(false);
       expect(data.error).toBe('Invalid query parameters');
+    });
+
+    it('caps search at the shared limit after trimming (v1.47.0)', async () => {
+      const app = new Hono<AppEnv>().route('/api', adminRoutes);
+      const padded = encodeURIComponent(`  ${'a'.repeat(ANALYTICS_SUMMARY_SEARCH_MAX_LENGTH)}  `);
+      expect((await makeRequest(app, `/api/analytics/summary?search=${padded}`)).status).toBe(200);
+      const over = 'a'.repeat(ANALYTICS_SUMMARY_SEARCH_MAX_LENGTH + 1);
+      expect((await makeRequest(app, `/api/analytics/summary?search=${over}`)).status).toBe(400);
     });
 
     it('validates days parameter minimum', async () => {

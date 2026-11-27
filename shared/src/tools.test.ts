@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { QRLinkedRouteInputSchema } from './qr.js';
 import {
   ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION,
+  ANALYTICS_SUMMARY_SEARCH_MAX_LENGTH,
   RECOVER_INVALID_DESCRIPTION,
 } from './schemas.js';
 import {
@@ -390,6 +391,17 @@ describe('QR linkedRoute', () => {
     const tool = toMCPTools().find(t => t.name === 'create_qr');
     expect(tool?.inputSchema).toEqual(getToolDefinition('create_qr')?.inputSchema);
     expect(JSON.stringify(tool)).toContain(JSON.stringify([...SUPPORTED_DOMAINS]));
+  });
+});
+
+describe('get_analytics_summary search (v1.47.0)', () => {
+  it('names its post-trim cap in the description, with no raw maxLength', () => {
+    const search = getToolDefinition('get_analytics_summary')?.inputSchema.properties['search'];
+    expect(search?.maxLength).toBeUndefined();
+    expect(search?.description).toContain(
+      `at most ${ANALYTICS_SUMMARY_SEARCH_MAX_LENGTH} characters`,
+    );
+    expect(search?.description).toContain('trimmed');
   });
 });
 
