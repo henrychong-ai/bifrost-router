@@ -241,7 +241,7 @@ Defined in `src/types.ts`:
 
 ### Adding a New Supported Domain
 
-Update **all 6 locations** — missing any one causes silent failures (routes rejected, MCP tools broken, API 403s, or domain missing from dashboard dropdown):
+Update **all 7 locations** — missing any one causes silent failures (routes rejected, MCP tools broken, API 403s, or domain missing from dashboard dropdown):
 
 | # | File | What to update |
 |---|------|----------------|
@@ -251,8 +251,9 @@ Update **all 6 locations** — missing any one causes silent failures (routes re
 | 4 | `openapi/bifrost-api.yaml` | Every `DomainQuery*` enum (`DomainQuery` for reads, `DomainQueryWrite` for writes) — **API Shield (block mode) returns 403 for unknown domain values**; `test/supported-domains-consistency.test.ts` checks them all |
 | 5 | Cloudflare Dashboard | Add as Custom Domain on the Worker |
 | 6 | `wrangler.toml` | Add service binding if domain uses Worker-to-Worker fallback |
+| 7 | `shared/src/link-preview.ts` | `PREVIEW_SITE_NAMES` and `PREVIEW_DEFAULT_IMAGES`: classify the domain in both (`null` for no site name, no default image; v1.48.0) |
 
-A drift-detection test (`test/supported-domains-consistency.test.ts`) asserts that copies 1-4 stay in sync — CI will fail if they drift.
+A drift-detection test (`test/supported-domains-consistency.test.ts`) asserts that copies 1-4 stay in sync — CI will fail if they drift. `shared/src/link-preview.test.ts` fails until the domain is in both link-preview maps (row 7).
 
 ## Route Types
 
@@ -278,6 +279,15 @@ interface KVRouteConfig {
   forceDownload?: boolean; // Force download (R2)
   bucket?: string;         // R2 bucket name
   enabled?: boolean;       // Default: true
+  // Link preview (v1.48.0; r2 routes that serve one file, never a wildcard):
+  previewTitle?: string;   // ≤ 120 after sanitising; '' clears every preview field
+  previewDescription?: string; // ≤ 240
+  previewImageBucket?: string; // a bucket in R2_BUCKET_CUSTOM_DOMAINS; '' clears the image
+  previewImageKey?: string;    // a JPEG or PNG ≤ 600,000 bytes
+  previewImageWidth?: number;  // read from the image on save, never accepted
+  previewImageHeight?: number;
+  previewVideoWidth?: number;  // MP4/WebM playback size; null clears on update
+  previewVideoHeight?: number;
 }
 ```
 
@@ -298,7 +308,7 @@ interface KVRouteConfig {
 | `POST /api/routes/migrate` | Migrate route to new path; an optional update body is merged into the ONE write at the new key (v1.38.0) |
 | `POST /api/routes/transfer` | Transfer route between domains |
 | `POST /api/routes/normalize-case` | One-time migration: convert all route paths to lowercase. A lowercase key that already holds any value, an empty one included, is reported (`lowercase route already exists`) and skipped, never overwritten. Before it writes the lowercase key and deletes the old one, it confirms the old key still holds the record it listed (v1.39.0, as migrate and transfer do): a route deleted in between is reported `ROUTE_NOT_FOUND`, one replaced or made unreadable in between `ROUTE_SOURCE_CHANGED`, in `errors`, and nothing is written for either |
-| `GET /api/routes/by-target` | Find routes serving an R2 object |
+| `GET /api/routes/by-target` | Find routes that use an R2 object (`?bucket=&target=`, both required, `bucket` a storage bucket or 400): serving it (`usage: 'file'`) or showing it as their link-preview image (`usage: 'preview-image'`), `previewImage: true` on every route showing it as its image (also one that serves it), each named by its KV key's domain and path (v1.48.0) |
 | `GET /api/metadata/og?url=` | Open Graph preview of a URL: every hop passes the shared outbound host policy (`src/utils/host-policy.ts`), 1 MB body cap, at most 5 redirects (the cap is checked before the `Location` is read), all within one 5 s deadline for the whole preview (v1.40.0; each hop used to get its own 5 s, so five slow redirects took about 30 s); every unread body is cancelled, and a cancel that rejects never replaces the result. `og:image` and `og:url` must be http(s) on a host the policy allows. Meta tags and the title are parsed in one linear pass that reads every tag with HTML's attribute tokenizer states (a quote opens a value only after `=`; tag names end only at ASCII whitespace, `/` or `>`); a tag over 16 KiB is skipped whole to its real end. Comments are skipped as HTML ends them (`<!-->` and `<!--->` at once, otherwise at the first `-->` or `--!>`, or at the end of input), `script` (with its escaped states), `style`, `xmp`, `iframe`, `noembed`, `noframes` and `noscript` are raw text and `title` and `textarea` RCDATA, so no meta tag inside them or inside another tag's attribute is read. A `<title>` that is never closed gives no title, and an end tag at the very end of the input (no `>` or delimiter after the name) is text, as in HTML. A `<!DOCTYPE …>` ends at its first `>`, a quoted public or system identifier included, as in every HTML DOCTYPE state (checked against parse5). A hop on a supported domain or the admin host is resolved in process, never fetched (see [Own-domain link previews](#own-domain-link-previews-v1372)). A failure answers a fixed message per class, never an error's own text (`describeOpenGraphFailure`, v1.38.0): 403 `URL blocked for security reasons` with `Invalid URL format`, `Blocked scheme`, `Blocked hostname`, `Blocked private IP address` or `Blocked IPv6 address`; 413 `Response too large`; 502 `Failed to fetch URL` with `Too many redirects (max 5)`, `HTTP <status>`, `The page did not answer in time` or `The page could not be fetched` |
 | `GET /api/changelog` | The engineering changelog as Markdown (authenticated) |
 | `GET /api/analytics/*` | Analytics endpoints |
@@ -306,10 +316,10 @@ interface KVRouteConfig {
 | `GET /api/storage/:bucket/objects` | List objects. Without `offset`, cursor mode (MCP `list_objects`, the shared client): no `meta`. With `offset`, offset mode (the Storage tab): the folder is read in ONE R2 call of at most `STORAGE_LIST_MATERIALISE_CAP` (1,000, `@bifrost/shared`) direct entries and the answer adds `meta` (`total`, `count`, `offset`, `limit`, `hasMore`, `totalIsExact`) and `capped`. A larger folder answers `capped: true` and `meta.totalIsExact: false`: `total` is a floor and paging stops at the cap, so the Storage tab shows "More beyond the first 1,000" with a **Narrow prefix** button. The dashboard client declares `totalIsExact` in its Zod schema too, or it would be stripped |
 | `GET /api/storage/:bucket/meta/:key` | Get object metadata |
 | `GET /api/storage/:bucket/objects/:key` | Download object |
-| `POST /api/storage/:bucket/upload` | Upload object |
-| `DELETE /api/storage/:bucket/objects/:key` | Delete object |
-| `POST /api/storage/:bucket/rename` | Rename object within bucket |
-| `POST /api/storage/:bucket/move` | Move object to different bucket |
+| `POST /api/storage/:bucket/upload` | Upload object (a new key create-only; 409 with `code: STORE_OBJECT_EXISTS` for an existing key without `overwrite`, 409 `STORE_PREVIEW_IMAGE_IN_USE` for an overwrite of a link-preview image, v1.48.0) |
+| `DELETE /api/storage/:bucket/objects/:key` | Delete object (409 `STORE_PREVIEW_IMAGE_IN_USE` for a link-preview image) |
+| `POST /api/storage/:bucket/rename` | Rename object within bucket (create-only; a link-preview image source is refused) |
+| `POST /api/storage/:bucket/move` | Move object to different bucket (create-only; a link-preview image source is refused) |
 | `PUT /api/storage/:bucket/metadata/:key` | Update metadata |
 | `POST /api/storage/:bucket/purge-cache/:key` | Purge CDN cache for object |
 
@@ -375,7 +385,7 @@ One rule (`src/utils/internal-headers.ts`) for every path that forwards a reques
 
 ## Worker logs (v1.39.0)
 
-**The rule (stricter since v1.47.0):** a log line the Worker writes itself never carries an object key, a visitor's request path, query or body, a URL, a stored route target (redacted or not), an identity (an email, a client IP), a whole payload (a queue message, a request body), or an error's message or stack (its class only) or a remote answer's text. It names identifiers and fixed categories: the domain, the configured route path or route key, the bucket, an audit row id, counts, HTTP statuses, error classes and fixed reasons. One rule for reads and writes: the R2 serve lines name the domain, the matched route path and the bucket (`servingLogFields`, `src/handlers/r2.ts`), and say only whether a Range was sent, never its text; an unknown stored bucket is logged and answered as the fixed `Invalid bucket`; the storage write, comment and cache-purge lines name the bucket (and the purge lines a URL count, never the URLs, which repeat the key); the R2 event consumer names the action and bucket, and a correlated event its audit row (`auditId`); the audit success line names the row (`auditId`), domain, action and source, never the path; the proxy's refusal and failure lines name the route path and a fixed reason, never the target; the serving route lookup names the domain and whether the exact or a wildcard candidate was unreadable (`logInvalidServedRoute`), never the key built from the visitor's path, while a management read of an unreadable route names its route key; the backup names a skipped record's route or QR key, the date and counts. To find an object from a serve line, read the route (`GET /api/routes?path=`); an audited action's path is in its D1 row. (Until v1.46.1 the rule let operational lines name configured route targets and object keys.) `test/log-rule.test.ts` drives the audit, R2 event, backup, rate-limit, cache-purge, proxy, lookup and R2 serve lines with marker values.
+**The rule (stricter since v1.47.0):** a log line the Worker writes itself never carries an object key, a visitor's request path, query or body, a URL, a stored route target (redacted or not), an identity (an email, a client IP), a whole payload (a queue message, a request body), or an error's message or stack (its class only) or a remote answer's text. It names identifiers and fixed categories: the domain, the configured route path or route key, the bucket, an audit row id, counts, HTTP statuses, error classes and fixed reasons. One rule for reads and writes: the R2 serve lines name the domain, the matched route path and the bucket (`servingLogFields`, `src/handlers/r2.ts`), and say only whether a Range was sent, never its text; the link-preview line (`R2 link preview`, v1.48.0) adds the fetcher's `platform`, never the preview text; the preview-image refusal names the bucket and `STORE_PREVIEW_IMAGE_IN_USE`, the bulk-read fallback (`route-bulk-read-fallback`) an error class and a key count, and the R2 event consumer's skipped check (`r2-event-preview-check-not-run`) an error class and the bucket; an unknown stored bucket is logged and answered as the fixed `Invalid bucket`; the storage write, comment and cache-purge lines name the bucket (and the purge lines a URL count, never the URLs, which repeat the key); the R2 event consumer names the action and bucket, and a correlated event its audit row (`auditId`); the audit success line names the row (`auditId`), domain, action and source, never the path; the proxy's refusal and failure lines name the route path and a fixed reason, never the target; the serving route lookup names the domain and whether the exact or a wildcard candidate was unreadable (`logInvalidServedRoute`), never the key built from the visitor's path, while a management read of an unreadable route names its route key; the backup names a skipped record's route or QR key, the date and counts. To find an object from a serve line, read the route (`GET /api/routes?path=`); an audited action's path is in its D1 row. (Until v1.46.1 the rule let operational lines name configured route targets and object keys.) `test/log-rule.test.ts` drives the audit, R2 event, backup, rate-limit, cache-purge, proxy, lookup and R2 serve lines with marker values.
 
 A visitor's path or query can be a secret: a wildcard remainder or an appended query can carry a magic-link token. The request line names the route pattern that answered (`/*` for the router's catch-all, `privacySafeRequestLogger`), the KV lookup line the domain only, and `Route matched` the host and the matched route key. Every caught error is logged by class only (`errorName`, `src/utils/error-name.ts`), never its message or stack: a KV or URL error names the key or URL, and Drizzle wraps a failed D1 statement in an error that holds every bound parameter (`test/drizzle-failure-logs.test.ts` drives real D1 failures through the adapter; `test/error-classification-logs.test.ts` and `test/request-path-logs.test.ts` capture every console channel). The audit success line says whether an actor was recorded (`hasActor`), never who; D1 keeps the login. The R2 event consumer logs an event, a malformed one included, by its validated metadata only (an action it knows, a valid bucket name), never the object key or the message body. The backup jobs log a failure's class only, and the rate limiter names no client IP. **This covers the Worker's own lines only:** Cloudflare's request logs record each request's URL, path and query included, with `[observability]` on as in `wrangler.toml` (`invocation_logs = true`, traces sampled at 1). **The template keeps them on (decided v1.40.0):** they are the one record of what each request did when something goes wrong, and only accounts with Workers observability access can read them. The trade-off is that a secret carried in a path or query (a magic-link token in a wildcard remainder, say) reaches them, as it reaches any access log. A deployer who needs stricter privacy restricts who can read Workers Logs, or sets `invocation_logs = false` and turns `[observability.traces]` off (or lowers their `head_sampling_rate`), losing that record.
 
@@ -493,7 +503,8 @@ stopped from reaching or sent elsewhere from.
 | Proxy route | the upstream (`proxyDestination`) fetched by the parser as proxied hops: each upstream redirect is followed only after `validateProxyTarget`, under the preview's own 5-hop cap (not the proxy handler's 20) and its one 5 s deadline; reported under the public URL, never the upstream's own `og:url`, and no error names the upstream (an `og:image` the page itself gives may still be an absolute upstream URL; a refused hop, a hop on one of our own hosts, or passing the redirect cap gives the minimal result; a failed fetch `HTTP 502`). A `hostHeader` override or a refused target gives the minimal result; a path that would leave the target's base path `HTTP 404`, as the handler answers |
 | No route, or a disabled one (the lookup skips it) | the service binding's response if the host has one (`safeServiceFetch`; a failed binding `HTTP 503`), else `HTTP 404` |
 | A stored route on the way that cannot be read (v1.38.0) | `HTTP 404`, as the router answers it: never a broader wildcard, never the service binding |
-| R2 route, a path `src/index.ts` answers itself (`/health`, `GET /.well-known/security.txt`, `/api`, `/api/*`), a refused source path, the admin host's traversal query, a URL with userinfo | the minimal result |
+| R2 route with a servable link preview on a file a card may be given for (v1.48.0) | the preview document link-preview fetchers receive (`renderLinkPreviewHtml`), built by the serving branch's own predicates and builder, after one R2 `head`; the panel therefore shows the card the link serves |
+| Any other R2 route, a path `src/index.ts` answers itself (`/health`, `GET /.well-known/security.txt`, `/api`, `/api/*`), a refused source path, the admin host's traversal query, a URL with userinfo | the minimal result |
 
 The Worker-answered paths are case-sensitive, as Hono matches them: `/API`,
 `/Health` and every other `/.well-known/*` path reach the routes.
@@ -505,6 +516,94 @@ updated. The router's path is derived from the URL without building a `Request`
 unexpected failure inside the resolver is logged as fixed text and answered as
 a bare `HTTP 502`, so no error message reaches the preview response. Nothing records analytics: a preview is not a visit. Other hosts are
 fetched as before.
+
+## Link previews for file routes (v1.48.0)
+
+Ported from a sibling deployment of the same design and adapted (single
+admin key, no private buckets, no serve modes). An `r2` route may carry
+`previewTitle`, `previewDescription`, `previewImageBucket` +
+`previewImageKey` and `previewVideoWidth` + `previewVideoHeight`. A
+recognised link-preview fetcher gets a small Open Graph document instead of
+the file; everyone else gets the file exactly as before. Opt-in per route
+(nothing changes without a `previewTitle`), and dormant on a fresh fork: with
+`R2_BUCKET_CUSTOM_DOMAINS` empty no image can be set, and the site names and
+default images ship `null`.
+
+- **One module for the rules** (`shared/src/link-preview.ts`): the limits,
+  the sanitiser (comment rules; the title on one line), `previewRuleError`
+  (r2 only; never a wildcard route, `isWildcardRoutePath`; a title before any
+  other field; an image as bucket AND key, in a bucket that has a custom
+  domain; a video size as both or neither), `servablePreview` (today's rules
+  at serve time: a stored preview out of shape means no card, never an
+  unreadable route), `isCardEligibleFile`, `bucketCustomDomainUrl` and the
+  one card decision `previewCard` (the route's image, else the domain's
+  default if a route could serve it, else text only).
+- **The buckets that may hold an image** are `previewImageBuckets()`: the
+  file buckets with at least one domain in `R2_BUCKET_CUSTOM_DOMAINS`
+  (`shared/src/types.ts`, re-exported by `src/types.ts`), read when a rule
+  runs, never once at load. The Zod field (`PreviewImageBucketInputSchema`)
+  and the refusal text follow the map; the MCP catalogue has no enum for it.
+- **Operator maps**, each classifying every supported domain (drift test in
+  `shared/src/link-preview.test.ts`): `PREVIEW_SITE_NAMES` (`og:site_name`)
+  and `PREVIEW_DEFAULT_IMAGES` (`{ bucket, key, width, height }` with the real
+  size; an entry a route could not serve is skipped).
+- **Serving** (`src/handlers/r2.ts`): after the method check, before the cache
+  lookup and any Range or conditional handling. The fetcher test
+  (`detectPreviewFetcher`, `src/utils/preview-fetcher.ts`: a curated token
+  list over the first 512 characters, Apple's Messages signature at the end of
+  the whole agent, a browser navigation never a fetcher) runs first, so a
+  person never pays for the preview check. One R2 `head` gives the content
+  type; a missing object or a failed `head` goes on as anyone's request with
+  the cache skipped, an image file is served as itself. The answer is
+  `no-store`, `X-Robots-Tag: noindex, nofollow`, `Vary: User-Agent`, never
+  cached; GET and HEAD alike. `linkPreviewPlatform` is set, so the catch-all
+  records no download and unified traffic classes it `automation`.
+- **The document** (`src/utils/link-preview.ts`, `link-preview-html.ts`):
+  every value through `escapeHtml` in a double-quoted attribute or element
+  text, `<meta charset>` first, no script, style or external resource, far
+  below 100 KB. Addresses (image, "Open file", video) are custom-domain
+  URLs, never the short link.
+- **Writes** (`src/kv/route-preview.ts`, `src/routes/route-preview-image.ts`):
+  create sanitises (`normalizeNewPreview`); an update or a move with changes
+  applies the patch (`applyRoutePatch` → `applyPreviewPatch`: an empty title
+  clears every preview field, an empty image bucket or key the whole image,
+  `null` a video size). The rules run on create, on seed for the entries it
+  creates (inside `seedRoutes`' check, after its existence reads), and on an
+  update or move whose patch names a preview field or the type
+  (`patchAppliesPreviewRules`), or a move to a wildcard path: stored preview
+  data never refuses any other edit, a toggle or a transfer. A write that
+  names an image reads it with one `get` (`measurePreviewImage`): it must
+  exist, be at most 600,000 bytes (a larger body is cancelled unread) and be
+  a PNG or JPEG by its own bytes (`readImage`, `src/utils/image-size.ts`);
+  the size read is stored, a client's is stripped. Seed measures each
+  distinct image once and lists every refused rule or image per path (400,
+  nothing written). Refusals are fixed texts naming no key.
+- **Images in use** (`checkPreviewImageNotInUse`): in a bucket that can hold
+  a preview image, an overwrite, a delete, or the source of a rename or move
+  of an object a route or a domain default names answers 409
+  `{ success: false, error: 'STORE_PREVIEW_IMAGE_IN_USE', message }` naming
+  every route (one admin key, so all are visible) and domain default; a scan
+  that fails refuses the write (500). Its scan also feeds the cache purge
+  (`purgeR2CacheForObject`'s `servingRoutes`). Rename, move and new-key
+  uploads are create-only (`onlyIf` `If-None-Match: *`): a destination
+  created meanwhile answers the existing 409 and the source is kept; the
+  plain upload conflict carries `code: 'STORE_OBJECT_EXISTS'` beside its
+  unchanged text. Accepted limit: the short window between the check and the
+  write, and any change made directly in Cloudflare.
+- **Outside changes** (`src/queue/r2-events.ts`): an external create or
+  delete in a preview-capable bucket gets a `previewImage` field on its audit
+  row (counts only: routes, defaults, whether the new object's size still
+  matches; `checked: false` when the check could not run); one lazy route
+  scan per batch; never on a redelivery. Events name the bucket R2 holds, so
+  a development environment whose bucket names differ (`files-dev`) gets no
+  field.
+- **Scans** (`scanRoutes`, `src/kv/routes.ts`) read each listing page's route
+  keys in bulk, 100 per KV operation (`readRouteStates`,
+  `src/kv/stored-route.ts`), retrying a failed chunk one key at a time; the
+  route list and by-target name each route by its KV key's path
+  (`routeAtKeyPath`).
+- **Tests** configure the maps per file with `test/link-preview-config.ts`;
+  image headers come from `test/image-bytes.ts`.
 
 ## Wildcard remainders (v1.37.2)
 
@@ -1099,6 +1198,11 @@ If the domain is missing from this list, the binding was never created.
 | `admin/src/lib/route-write-outcome.ts` | Routes page failed-write toasts: a write with no definite answer "could not be confirmed", a definite refusal "Failed to …" (v1.41.2) |
 | `admin/src/lib/route-patch.ts` | Route edit dialog patch (dirty fields against the form as opened) |
 | `openapi/bifrost-api.yaml` | API Shield schema |
+| `shared/src/link-preview.ts` | Link-preview rules, card decision, operator maps (v1.48.0) |
+| `src/utils/preview-fetcher.ts` | Link-preview fetcher detection |
+| `src/utils/link-preview.ts`, `src/utils/link-preview-html.ts` | The preview document and its HTML |
+| `src/routes/route-preview-image.ts` | Preview image measuring and the in-use refusal of storage writes |
+| `src/kv/route-preview.ts` | How preview fields are written, patched and cleared |
 | `scripts/upload-api-shield.mjs` | Auto-upload schema to API Shield (called by CI/CD) |
 
 ## MCP Server
@@ -1349,6 +1453,7 @@ All single-route operations use query parameters (not path parameters) to avoid 
 - **Cache key is the URL alone.** Cloudflare's Cache API keys on URL, so the previous header-bearing key never fragmented the cache — the headers were inert. The URL-only key removes the hazard and makes the bypass rule explicit.
 - **Range and conditional requests bypass the cache entirely** (`Range`, `If-None-Match`, `If-Modified-Since`, `If-Match`, `If-Unmodified-Since`) and hit R2 every time — a URL-keyed entry holds the full 200 body, so serving it would ignore `Range` and never produce a 304. Deliberate perf trade-off. `If-Range` is NOT in that list: alone it is a no-op (RFC 9110 §13.1.5), and with a `Range` the request already bypasses.
 - **206 and 304 are never written to the cache** — a URL-keyed partial would replay one client's byte range to every later requester as if it were the whole object.
+- **A link-preview document is never cached, and a fetcher never reads the cache** (v1.48.0): the preview branch answers before the lookup, and a fetcher whose `head` found no object or failed skips both the lookup and the write, so a deleted file's cached copy never reaches it (see [Link previews for file routes](#link-previews-for-file-routes-v1480)).
 - **`ETag` must be `object.httpEtag`, never `object.etag`.** The latter is R2's raw unquoted hash. An unquoted tag echoed back by a client in `If-None-Match` makes R2 reject the request (`Invalid ETag in if-none-match header`). Every object stored before this release was served with the raw form, so the handler **degrades stepwise** on a rejected option (drop range → drop precondition → unconditional read) and warns instead of 500ing. A plain unconditional read that fails is still rethrown — degradation is scoped to unusable request options, not to an R2 outage.
 - **Entity-tag lists split only on commas outside quotes** (`splitEntityTagList` in `src/handlers/r2.ts`), so a quoted tag holding a comma (`"x,abc123"`) is one tag and never matched by a fragment. It decides the `If-Match` 412-versus-304 verdict and the `If-Range` verdict from validators the client sends: such an `If-Match` now gets 412, and such an `If-Range` is stale (the full 200). R2 never emits such tags. Unquoted legacy tokens still split on every comma.
 - **`Last-Modified` is emitted** on 200/206/304/412, enabling date-based validators. R2's ms-granularity `If-Modified-Since` behaviour is not verified end-to-end.
@@ -1366,7 +1471,7 @@ All single-route operations use query parameters (not path parameters) to avoid 
 
 When "Purge Cache" is triggered from the storage edit dialog, the Worker uses the **Cloudflare Zone Cache Purge API** (`POST /zones/{zone_id}/purge_cache`) to globally invalidate CDN cache across all edge PoPs. URLs are collected from two sources:
 1. **Bifrost KV routes** — all R2-type routes pointing to the object
-2. **R2 custom domain URLs** — bucket-to-domain mapping in `src/types.ts`
+2. **R2 custom domain URLs** — bucket-to-domain mapping `R2_BUCKET_CUSTOM_DOMAINS` in `shared/src/types.ts` (re-exported by `src/types.ts`, v1.48.0; it also decides which buckets can hold a link-preview image)
 
 Requires `CLOUDFLARE_API_TOKEN` Worker secret with **Zone > Cache Purge > Purge** permission. Without it, URLs are collected but not purged (graceful degradation). A failed route listing (a KV read error) no longer skips every purge (v1.38.0): the custom-domain URLs, which need no KV, are still purged, the error is logged as `route discovery incomplete`, and the result says `routeDiscoveryComplete: false` (in the manual purge's answer and audit row; the Storage page warns that links serving the file may still show the old version). Set via:
 ```bash

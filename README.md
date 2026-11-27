@@ -50,6 +50,7 @@ A lightweight, high-performance edge router and URL shortener built on Cloudflar
 - **Wildcard Patterns** — Support for path patterns like `/blog/*`
 - **R2 Storage Management** — Browse, upload, download, rename, move, and delete R2 objects via API and dashboard
 - **Range & Conditional R2 Serving** (v1.33.0) — byte-range resume and media seeking (206 with absolute `Content-Range`, suffix ranges included), cache revalidation (304), and precondition failures (412), served straight from R2 with a quoted `ETag` and `Last-Modified` on every response. File routes answer GET and HEAD only: OPTIONS gets `204` and any other method `405`, both with `Allow: GET, HEAD, OPTIONS`
+- **Link Previews for File Routes** (v1.48.0) — an `r2` route can carry a preview title, description, image and video size; WhatsApp, LinkedIn, Slack, iMessage and similar link-preview fetchers get an Open Graph card while people still get the file. Opt-in per route, and dormant until you configure it (see "Optional: Link previews for file routes")
 - **CDN Cache Purge** — Purge Cloudflare edge cache globally for R2 objects via Zone Cache Purge API, automatically on every route and object mutation as well as on demand
 - **Route Domain Transfer** — Move routes between domains preserving configuration and audit trail
 - **R2 Backup System** — Automated daily KV route backups with health monitoring and optional Slack failure alerts (D1 covered by Time Travel)
@@ -178,7 +179,7 @@ export const SUPPORTED_DOMAINS = [
 
 Also update the R2 bucket arrays and `BUCKET_BINDINGS` map if you changed the bucket configuration.
 
-**Optional: CDN Cache Purge** — To enable global cache purge for R2 objects, configure zone IDs and R2 custom domains in `src/types.ts`:
+**Optional: CDN Cache Purge** — To enable global cache purge for R2 objects, configure zone IDs and R2 custom domains in `shared/src/types.ts` (since v1.48.0; the Worker's `src/types.ts` re-exports them), then rebuild `shared` (`pnpm -C shared build`):
 
 ```typescript
 export const CLOUDFLARE_ZONE_IDS: Record<string, string> = {
@@ -189,6 +190,8 @@ export const R2_BUCKET_CUSTOM_DOMAINS: Record<string, string[]> = {
   files: ['files.yourdomain.com'],  // If you have R2 custom domains
 };
 ```
+
+The same `R2_BUCKET_CUSTOM_DOMAINS` map decides which buckets can hold a link-preview image (see "Optional: Link previews for file routes"). The dashboard keeps its own copy for its file previews, `R2_BUCKET_CUSTOM_DOMAINS` in `admin/src/lib/constants.ts` (one domain per bucket): fill both.
 
 Then set up [Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/) in the Cloudflare Dashboard to route traffic from your domains to the worker.
 
@@ -516,6 +519,24 @@ The Worker can post one Slack message for each new item submitted on the dashboa
 
 The message reads `New feedback F-12: bug, P3 - Routine. Triage it on the dashboard's Feedback page.`: the item's short id, type and priority, and nothing a submitter wrote (title, description, steps, attachments, submitter) or that identifies a person, since feedback text is untrusted. It carries no link: the Worker does not know where your dashboard is served. The notice is scheduled without awaiting it, so it may start before the submission's answer is returned and never delays it, with a 3-second limit and no redirect followed, so a slow or failing Slack never delays or fails a submission. Only an `https://hooks.slack.com/services/…` URL is used; anything else logs `feedback-slack-notice-failed` with `category: config_invalid` and sends nothing. A failed delivery logs the same line with `timeout`, `network` or `http_status`, never the URL, an error's text or Slack's answer. To turn the notice off, `wrangler secret delete FEEDBACK_SLACK_WEBHOOK_URL`. Workers traces, when enabled, record the webhook URL as the URL of the outbound request, as for the backup alerts (above).
 
+### Optional: Link previews for file routes
+
+A link to a file route (`r2`) shared in a chat app normally shows a bare URL. Since v1.48.0 a route can carry preview details, and recognised link-preview fetchers (Facebook and WhatsApp, Signal, iMessage, LinkedIn, X, Slack, Discord, Telegram, Teams, Bluesky, Mastodon, Google Messages, Iframely, Embedly, Pinterest, Snapchat) get a small `no-store`, `noindex` HTML document of Open Graph and Twitter Card tags instead of the file. People, browser navigations, search engines, AI crawlers and `curl` get the file exactly as before, and a preview fetch is never counted as a download.
+
+It changes nothing until you act: a route gets a card only once it has a `previewTitle`, and with the template's empty configuration no route can name an image, so a card is text only.
+
+1. **Text-only cards need nothing.** Set `previewTitle` (up to 120 characters) and optionally `previewDescription` (up to 240) on an `r2` route that serves one file (`POST`/`PUT /api/routes`, seed, migrate with changes, or MCP `create_route` / `update_route`). A wildcard route never gets a card, and an image file is served as itself.
+2. **Images need a bucket with an R2 custom domain.** A preview image must have a public address outside the Worker, so it must live in a bucket listed in `R2_BUCKET_CUSTOM_DOMAINS` in `shared/src/types.ts` (for example `assets: ['assets.example.com']`, with the bucket's custom domain set up in Cloudflare R2). Add the zone of that domain to `CLOUDFLARE_ZONE_IDS` too: when a bucket has several custom domains, the card uses the one in the same zone as the short link. Rebuild `shared` and redeploy. Then upload a JPEG or PNG of at most 600,000 bytes (1200 x 630 recommended) and set `previewImageBucket` and `previewImageKey`; the Worker reads the image's pixel size from the file itself when the route is saved.
+3. **Site names (optional).** `PREVIEW_SITE_NAMES` in `shared/src/link-preview.ts` gives the `og:site_name` per supported domain; every domain ships `null` (no site name).
+4. **A default image per domain (optional).** `PREVIEW_DEFAULT_IMAGES` in the same file names the image a titled route with no image of its own shows on that domain: `{ bucket, key, width, height }`, a JPEG or PNG in a preview image bucket, with its real pixel size (nothing measures it at serve time). Every domain ships `null`. An entry a route could not serve (a bucket with no custom domain, an invalid key, a size out of range) is skipped, never served.
+5. **Video (optional).** For an MP4 or WebM file, `previewVideoWidth` and `previewVideoHeight` add playback tags that point at the file's custom-domain address.
+
+A test (`shared/src/link-preview.test.ts`) fails until every supported domain is classified in both maps, so a new domain cannot ship undecided.
+
+**Images in use are protected.** An object a route (or a domain default) shows as its preview image cannot be replaced, deleted, renamed or moved through the API, the dashboard or MCP: the answer is 409 `STORE_PREVIEW_IMAGE_IN_USE`, naming the routes and domains that use it. To change a card's image, upload the new one under a new key and point the route at it. A change made directly in Cloudflare cannot be refused; with the optional R2 event audit on, its audit row records whether a route uses the object and whether the route's stored size still matches.
+
+**Limits.** The fetcher's user agent can be spoofed; the document only repeats what you wrote for the card. Cloudflare edge rules in front of the Worker apply to fetchers as to anyone. Platforms cache cards on their side: after changing a card, use the platform's own refresh tool where it has one.
+
 ## Usage
 
 ### Add a Redirect
@@ -604,7 +625,7 @@ than sent). The admin API allows no CORS origin.
 | `POST` | `/api/routes/migrate` | Migrate route to new path (optional update body, written in the same write) |
 | `POST` | `/api/routes/transfer` | Transfer route between domains |
 | `POST` | `/api/routes/normalize-case` | One-time migration: convert all route paths to lowercase (run after upgrading to v1.22.0+ if you have pre-existing uppercase routes). A route deleted or changed while it runs is reported in `errors` (`ROUTE_NOT_FOUND`, `ROUTE_SOURCE_CHANGED`) and left alone |
-| `GET` | `/api/routes/by-target` | Find routes serving an R2 object (`?bucket=&target=`) |
+| `GET` | `/api/routes/by-target` | Find routes that use an R2 object (`?bucket=&target=`, both required; `bucket` a storage bucket): each with `usage: file` (it serves the object) or `usage: preview-image`, and `previewImage: true` on every route that shows it as its link-preview image (v1.48.0) |
 | `GET` | `/api/changelog` | The engineering changelog as Markdown (`text/markdown`, `private, max-age=300`) |
 | `POST` | `/api/routes/seed` | Bulk import routes |
 | `GET` | `/api/analytics/summary` | Domain-aware operational overview (`?domain=&days=&country=&search=&includeMonitoring=`) |
@@ -615,10 +636,10 @@ than sent). The admin API allows no CORS origin.
 | `GET` | `/api/storage/:bucket/objects` | List objects (`?prefix=`, `?cursor=`, `?limit=`, `?delimiter=`; `?offset=` selects offset mode, which adds `meta` and `capped`: a folder of more than 1,000 direct entries answers `capped: true` and `meta.totalIsExact: false`, its `meta.total` a floor) |
 | `GET` | `/api/storage/:bucket/meta/:key` | Get object metadata |
 | `GET` | `/api/storage/:bucket/objects/:key` | Download object |
-| `POST` | `/api/storage/:bucket/upload` | Upload object (multipart, 100MB max) |
-| `DELETE` | `/api/storage/:bucket/objects/:key` | Delete object |
-| `POST` | `/api/storage/:bucket/rename` | Rename object within bucket |
-| `POST` | `/api/storage/:bucket/move` | Move object to different bucket |
+| `POST` | `/api/storage/:bucket/upload` | Upload object (multipart, 100MB max). A new key is written create-only; an existing key without `overwrite` answers 409 with `code: STORE_OBJECT_EXISTS`; an overwrite of a link-preview image answers 409 `STORE_PREVIEW_IMAGE_IN_USE` (v1.48.0) |
+| `DELETE` | `/api/storage/:bucket/objects/:key` | Delete object (409 `STORE_PREVIEW_IMAGE_IN_USE` for a link-preview image, v1.48.0) |
+| `POST` | `/api/storage/:bucket/rename` | Rename object within bucket (create-only; a link-preview image is refused, v1.48.0) |
+| `POST` | `/api/storage/:bucket/move` | Move object to different bucket (create-only; a link-preview image is refused, v1.48.0) |
 | `PUT` | `/api/storage/:bucket/metadata/:key` | Update object HTTP metadata |
 | `POST` | `/api/storage/:bucket/purge-cache/:key` | Purge CDN cache for R2 object |
 
@@ -700,6 +721,16 @@ development shadow stream enabled beyond short-lived testing.
   bucket?: string;        // R2 bucket name (default: "files")
   cacheControl?: string;  // Cache-Control header
   enabled?: boolean;      // Enable/disable (default: true)
+  // Link preview (v1.48.0; r2 routes that serve one file). See
+  // "Optional: Link previews for file routes"
+  previewTitle?: string;        // up to 120 characters; '' clears every preview field
+  previewDescription?: string;  // up to 240 characters
+  previewImageBucket?: string;  // a bucket with an R2 custom domain
+  previewImageKey?: string;     // a JPEG or PNG of at most 600,000 bytes
+  previewImageWidth?: number;   // read from the image, never accepted
+  previewImageHeight?: number;  // read from the image, never accepted
+  previewVideoWidth?: number;   // video files; null clears on update
+  previewVideoHeight?: number;
 }
 ```
 
