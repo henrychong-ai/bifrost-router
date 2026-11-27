@@ -7,6 +7,16 @@
 
 import { z } from 'zod';
 import { CommentSchema } from './comment.js';
+import {
+  isPreviewImageBucket,
+  PREVIEW_DESCRIPTION_MAX_LENGTH,
+  PREVIEW_IMAGE_KEY_MAX_LENGTH,
+  PREVIEW_IMAGE_MAX_BYTES,
+  PREVIEW_IMAGE_MAX_KB,
+  PREVIEW_TITLE_MAX_LENGTH,
+  PREVIEW_VIDEO_DIMENSION_MAX,
+  previewImageBucketError,
+} from './link-preview.js';
 import { ROUTE_SEARCH_DESCRIPTION, SEARCH_PARAM_MAX_LENGTH } from './search.js';
 import { hasLoneSurrogate } from './text-scan.js';
 import { ALL_R2_BUCKETS, R2_BUCKETS, SUPPORTED_DOMAINS, SUPPORTED_DOMAINS_LIST } from './types.js';
@@ -339,6 +349,102 @@ export const AcknowledgeCredentialTargetToolSchema = mcpBoolean()
   .optional()
   .describe(ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION);
 
+// =============================================================================
+// Link preview fields (v1.48.0)
+// =============================================================================
+
+/** Descriptions shared by every route schema and the MCP catalogue. */
+export const PREVIEW_FIELD_DESCRIPTIONS = {
+  previewTitle: `Link preview title (r2 routes that serve one file, not wildcard routes; up to ${PREVIEW_TITLE_MAX_LENGTH} characters). Recognised link-preview fetchers (WhatsApp, LinkedIn, Slack, iMessage and similar) are given a card with it; people still get the file. An empty value clears every preview field`,
+  previewDescription: `Link preview description (up to ${PREVIEW_DESCRIPTION_MAX_LENGTH} characters; needs previewTitle). An empty value clears it`,
+  previewImageBucket:
+    'Bucket of the preview image: a bucket that has an R2 custom domain (the deployment configures them in R2_BUCKET_CUSTOM_DOMAINS; with none configured no image can be set). An empty value clears the image',
+  previewImageKey: `R2 key of the preview image: a JPEG or PNG of at most ${PREVIEW_IMAGE_MAX_KB} KB (${PREVIEW_IMAGE_MAX_BYTES.toLocaleString('en-GB')} bytes; 1200 x 630 recommended); its size is read from the file. An empty value clears the image`,
+  previewVideoWidth: `Video playback width in pixels (video/mp4 or video/webm files only; 1-${PREVIEW_VIDEO_DIMENSION_MAX}, with previewVideoHeight)`,
+  previewVideoHeight: `Video playback height in pixels (video/mp4 or video/webm files only; 1-${PREVIEW_VIDEO_DIMENSION_MAX}, with previewVideoWidth)`,
+} as const;
+
+/** Preview text as written: bounded raw text; sanitised and trimmed before it is stored. */
+const PreviewTitleInputSchema = z.string().max(PREVIEW_TITLE_MAX_LENGTH, {
+  message: `Preview title must be at most ${PREVIEW_TITLE_MAX_LENGTH} characters`,
+});
+const PreviewDescriptionInputSchema = z.string().max(PREVIEW_DESCRIPTION_MAX_LENGTH, {
+  message: `Preview description must be at most ${PREVIEW_DESCRIPTION_MAX_LENGTH} characters`,
+});
+/**
+ * A preview image bucket as written: a bucket with a custom domain, or '' to
+ * clear the image. Judged when the value is parsed (`isPreviewImageBucket`
+ * reads the operator's `R2_BUCKET_CUSTOM_DOMAINS`), so the refusal lists the
+ * buckets configured now.
+ */
+export const PreviewImageBucketInputSchema = z
+  .string()
+  .refine(bucket => bucket === '' || isPreviewImageBucket(bucket), {
+    error: () => previewImageBucketError(),
+  });
+const PreviewImageKeyInputSchema = z.string().max(PREVIEW_IMAGE_KEY_MAX_LENGTH, {
+  message: `Preview image key must be at most ${PREVIEW_IMAGE_KEY_MAX_LENGTH} characters`,
+});
+/** A declared video playback size, in whole pixels. */
+const PreviewVideoDimensionSchema = z.number().int().min(1).max(PREVIEW_VIDEO_DIMENSION_MAX);
+
+/**
+ * The preview text fields a create or an update may send. The image's pixel
+ * size is NOT among them: the Worker reads it from the image itself, and Zod
+ * strips a client-supplied `previewImageWidth`/`Height`.
+ */
+export const previewInputShape = {
+  previewTitle: PreviewTitleInputSchema.optional().describe(
+    PREVIEW_FIELD_DESCRIPTIONS.previewTitle,
+  ),
+  previewDescription: PreviewDescriptionInputSchema.optional().describe(
+    PREVIEW_FIELD_DESCRIPTIONS.previewDescription,
+  ),
+  previewImageBucket: PreviewImageBucketInputSchema.optional().describe(
+    PREVIEW_FIELD_DESCRIPTIONS.previewImageBucket,
+  ),
+  previewImageKey: PreviewImageKeyInputSchema.optional().describe(
+    PREVIEW_FIELD_DESCRIPTIONS.previewImageKey,
+  ),
+};
+
+/** The video size fields of a create: positive whole numbers. */
+export const previewCreateVideoShape = {
+  previewVideoWidth: PreviewVideoDimensionSchema.optional().describe(
+    PREVIEW_FIELD_DESCRIPTIONS.previewVideoWidth,
+  ),
+  previewVideoHeight: PreviewVideoDimensionSchema.optional().describe(
+    PREVIEW_FIELD_DESCRIPTIONS.previewVideoHeight,
+  ),
+};
+
+/** The video size fields of an update: as on create, and `null` clears. */
+export const previewUpdateVideoShape = {
+  previewVideoWidth: PreviewVideoDimensionSchema.nullable()
+    .optional()
+    .describe(`${PREVIEW_FIELD_DESCRIPTIONS.previewVideoWidth}; null clears`),
+  previewVideoHeight: PreviewVideoDimensionSchema.nullable()
+    .optional()
+    .describe(`${PREVIEW_FIELD_DESCRIPTIONS.previewVideoHeight}; null clears`),
+};
+
+/**
+ * The stored preview fields, as returned: read by type only, like the other
+ * stored fields, so no later change to a cap or to the bucket list can make
+ * a stored route unreadable. What may be SERVED is decided by
+ * `servablePreview` (link-preview.ts), at serve time.
+ */
+const previewStoredShape = {
+  previewTitle: z.string().optional().describe('Link preview title'),
+  previewDescription: z.string().optional().describe('Link preview description'),
+  previewImageBucket: z.string().optional().describe('Bucket of the preview image'),
+  previewImageKey: z.string().optional().describe('R2 key of the preview image'),
+  previewImageWidth: z.number().int().optional().describe('Preview image width (px)'),
+  previewImageHeight: z.number().int().optional().describe('Preview image height (px)'),
+  previewVideoWidth: z.number().int().optional().describe('Video playback width (px)'),
+  previewVideoHeight: z.number().int().optional().describe('Video playback height (px)'),
+};
+
 /**
  * Full route configuration schema (from API response).
  *
@@ -364,6 +470,7 @@ export const RouteSchema = z.object({
     'R2 bucket for file serving (R2 only, default: "files")',
   ),
   enabled: z.boolean().optional().default(true).describe('Enable/disable route'),
+  ...previewStoredShape,
   createdAt: z.number().describe('Creation timestamp (Unix milliseconds)'),
   updatedAt: z.number().describe('Last update timestamp (Unix milliseconds)'),
 });
@@ -389,6 +496,8 @@ export const CreateRouteInputSchema = z.object({
     'R2 bucket for file serving (R2 only, default: "files")',
   ),
   enabled: z.boolean().optional().default(true).describe('Enable/disable route'),
+  ...previewInputShape,
+  ...previewCreateVideoShape,
 });
 
 /**
@@ -408,6 +517,8 @@ export const UpdateRouteInputSchema = z.object({
     .describe('Force browser to download instead of display inline (R2 only)'),
   bucket: R2BucketSchema.optional().describe('R2 bucket for file serving (R2 only)'),
   enabled: z.boolean().optional().describe('Enable/disable route'),
+  ...previewInputShape,
+  ...previewUpdateVideoShape,
 });
 
 // =============================================================================
@@ -498,6 +609,13 @@ export const CreateRouteToolInputSchema = z.object({
   bucket: R2BucketSchema.optional().describe(
     'R2 bucket for file serving (R2 only, default: "files")',
   ),
+  ...previewInputShape,
+  previewVideoWidth: mcpNumber(PreviewVideoDimensionSchema)
+    .optional()
+    .describe(PREVIEW_FIELD_DESCRIPTIONS.previewVideoWidth),
+  previewVideoHeight: mcpNumber(PreviewVideoDimensionSchema)
+    .optional()
+    .describe(PREVIEW_FIELD_DESCRIPTIONS.previewVideoHeight),
   domain: RequiredDomainSchema,
   acknowledgeCredentialTarget: AcknowledgeCredentialTargetToolSchema,
 });
@@ -518,6 +636,15 @@ export const UpdateRouteToolInputSchema = z.object({
   ),
   forceDownload: mcpBoolean().optional().describe('New force download setting (R2 only)'),
   bucket: R2BucketSchema.optional().describe('R2 bucket for file serving (R2 only)'),
+  ...previewInputShape,
+  previewVideoWidth: mcpNumber(PreviewVideoDimensionSchema)
+    .nullable()
+    .optional()
+    .describe(`${PREVIEW_FIELD_DESCRIPTIONS.previewVideoWidth}; null clears`),
+  previewVideoHeight: mcpNumber(PreviewVideoDimensionSchema)
+    .nullable()
+    .optional()
+    .describe(`${PREVIEW_FIELD_DESCRIPTIONS.previewVideoHeight}; null clears`),
   domain: RequiredDomainSchema,
   acknowledgeCredentialTarget: AcknowledgeCredentialTargetToolSchema,
 });

@@ -7,6 +7,12 @@
 
 // Single source for the wording — the Zod tool schemas describe the same flag,
 // and a drifted description is a drifted instruction to an agent.
+import {
+  PREVIEW_DESCRIPTION_MAX_LENGTH,
+  PREVIEW_IMAGE_KEY_MAX_LENGTH,
+  PREVIEW_TITLE_MAX_LENGTH,
+  PREVIEW_VIDEO_DIMENSION_MAX,
+} from './link-preview.js';
 import { CREATE_QR_PAYLOAD_DESCRIPTION, UPDATE_QR_PAYLOAD_DESCRIPTION } from './qr.js';
 import {
   ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION,
@@ -14,6 +20,7 @@ import {
   MAX_CACHE_CONTROL_LENGTH,
   MAX_HOST_HEADER_LENGTH,
   MAX_ROUTE_TARGET_LENGTH,
+  PREVIEW_FIELD_DESCRIPTIONS,
   RECOVER_INVALID_DESCRIPTION,
 } from './schemas.js';
 import {
@@ -138,6 +145,52 @@ const destinationDomainProperty = domainProperty(
 );
 
 /**
+ * The link-preview properties of create_route and update_route (v1.48.0).
+ * The image's pixel size is not among them: the Worker reads it from the
+ * image. `nullableVideo` (update_route): a video size is cleared with null.
+ * The image bucket has no enum: the buckets that may hold an image are the
+ * deployment's own configuration (`R2_BUCKET_CUSTOM_DOMAINS`), checked by the
+ * server.
+ */
+function previewProperties(nullableVideo: boolean): Record<string, JsonSchemaProperty> {
+  const videoType = nullableVideo ? ['integer', 'null'] : 'integer';
+  const clears = nullableVideo ? '; null clears' : '';
+  return {
+    previewTitle: {
+      type: 'string',
+      description: PREVIEW_FIELD_DESCRIPTIONS.previewTitle,
+      maxLength: PREVIEW_TITLE_MAX_LENGTH,
+    },
+    previewDescription: {
+      type: 'string',
+      description: PREVIEW_FIELD_DESCRIPTIONS.previewDescription,
+      maxLength: PREVIEW_DESCRIPTION_MAX_LENGTH,
+    },
+    previewImageBucket: {
+      type: 'string',
+      description: PREVIEW_FIELD_DESCRIPTIONS.previewImageBucket,
+    },
+    previewImageKey: {
+      type: 'string',
+      description: PREVIEW_FIELD_DESCRIPTIONS.previewImageKey,
+      maxLength: PREVIEW_IMAGE_KEY_MAX_LENGTH,
+    },
+    previewVideoWidth: {
+      type: videoType,
+      description: `${PREVIEW_FIELD_DESCRIPTIONS.previewVideoWidth}${clears}`,
+      minimum: 1,
+      maximum: PREVIEW_VIDEO_DIMENSION_MAX,
+    },
+    previewVideoHeight: {
+      type: videoType,
+      description: `${PREVIEW_FIELD_DESCRIPTIONS.previewVideoHeight}${clears}`,
+      minimum: 1,
+      maximum: PREVIEW_VIDEO_DIMENSION_MAX,
+    },
+  };
+}
+
+/**
  * All tool definitions
  */
 export const toolDefinitions: ToolDefinition[] = [
@@ -178,7 +231,7 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: 'create_route',
     description:
-      'Create a new route. Supports redirect (URL), proxy (fetch content), and r2 (serve from bucket) types. For r2 links, name the path after the document, not the file: no file extension, date or version (e.g. /brochures/company-overview-en).',
+      'Create a new route. Supports redirect (URL), proxy (fetch content), and r2 (serve from bucket) types. For r2 links, name the path after the document, not the file: no file extension, date or version (e.g. /brochures/company-overview-en). An r2 route that serves one file (not a wildcard route) may carry link-preview details (previewTitle, previewDescription, previewImageBucket + previewImageKey, previewVideoWidth + previewVideoHeight): WhatsApp, LinkedIn, Slack, iMessage and similar fetchers then show a card while people still get the file. Upload the image first with upload_object.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -224,6 +277,7 @@ export const toolDefinitions: ToolDefinition[] = [
           description: `R2 bucket for file serving (R2 only). Available: ${R2_BUCKETS.join(', ')}. Default: files`,
           enum: [...R2_BUCKETS],
         },
+        ...previewProperties(false),
         acknowledgeCredentialTarget: {
           type: 'boolean',
           description: ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION,
@@ -235,7 +289,8 @@ export const toolDefinitions: ToolDefinition[] = [
   },
   {
     name: 'update_route',
-    description: 'Update an existing route. Only specified fields are changed.',
+    description:
+      'Update an existing route. Only specified fields are changed. An empty previewTitle clears every link-preview field; an empty previewDescription clears it; an empty previewImageBucket or previewImageKey removes the whole image; null clears a video size.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -277,6 +332,7 @@ export const toolDefinitions: ToolDefinition[] = [
           description: `R2 bucket for file serving (R2 only). Available: ${R2_BUCKETS.join(', ')}`,
           enum: [...R2_BUCKETS],
         },
+        ...previewProperties(true),
         acknowledgeCredentialTarget: {
           type: 'boolean',
           description: ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION,

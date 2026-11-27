@@ -1,3 +1,10 @@
+import {
+  encodeR2KeyAsPath,
+  getZoneIdForDomain,
+  R2_BUCKET_CUSTOM_DOMAINS,
+  type RoutePreviewFields,
+} from '@bifrost/shared';
+
 // =============================================================================
 // R2 Bucket Configuration
 // =============================================================================
@@ -80,39 +87,17 @@ export function isValidDomain(domain: string): domain is SupportedDomain {
 // Cloudflare Zone Configuration (for Zone Cache Purge API)
 // =============================================================================
 
-/**
- * Cloudflare zone IDs for domains managed in this account.
- * Used by Zone Cache Purge API to invalidate CDN cache globally.
- */
-export const CLOUDFLARE_ZONE_IDS: Record<string, string> = {
-  // Configure with your zone IDs. Find them in Cloudflare Dashboard > Domain > Overview.
-  // Example: 'example.com': 'your-zone-id-here',
-};
-
-/**
- * Get the Cloudflare zone ID for a given domain.
- * Walks up from subdomain to parent domain (e.g., links.example.com → example.com).
- * Returns undefined for domains not in the CF account.
- */
-export function getZoneIdForDomain(domain: string): string | undefined {
-  if (CLOUDFLARE_ZONE_IDS[domain]) return CLOUDFLARE_ZONE_IDS[domain];
-  const parts = domain.split('.');
-  for (let i = 1; i < parts.length - 1; i++) {
-    const parent = parts.slice(i).join('.');
-    if (CLOUDFLARE_ZONE_IDS[parent]) return CLOUDFLARE_ZONE_IDS[parent];
-  }
-  return undefined;
-}
-
-/**
- * R2 bucket custom domain mapping.
- * Maps bucket names to their Cloudflare custom domain(s).
- * Used for Zone Cache Purge API calls on R2 custom domain URLs.
- */
-export const R2_BUCKET_CUSTOM_DOMAINS: Record<string, string[]> = {
-  // Configure with your R2 custom domain URLs.
-  // Example: files: ['files.example.com'],
-};
+// The zone IDs, the R2 custom-domain map and the key encoder live in
+// `@bifrost/shared` (`shared/src/types.ts`, v1.48.0), so the link-preview
+// rules there read the same map. Re-exported here: the Worker and its tests
+// import them from this module, and it is the same object (an operator edits
+// the map in `shared/src/types.ts`).
+export {
+  CLOUDFLARE_ZONE_IDS,
+  encodeR2KeyAsPath,
+  getZoneIdForDomain,
+  R2_BUCKET_CUSTOM_DOMAINS,
+} from '@bifrost/shared';
 
 /**
  * Get all custom domain URLs + zone IDs that need cache purging for an R2 object.
@@ -123,7 +108,10 @@ export function getR2CustomDomainUrls(
   bucket: string,
   key: string,
 ): { url: string; zoneId: string }[] {
-  const domains = R2_BUCKET_CUSTOM_DOMAINS[bucket];
+  // Own keys only: a stored bucket name such as `constructor` names no domains
+  const domains = Object.hasOwn(R2_BUCKET_CUSTOM_DOMAINS, bucket)
+    ? R2_BUCKET_CUSTOM_DOMAINS[bucket]
+    : undefined;
   if (!domains) return [];
   const encodedPath = encodeR2KeyAsPath(key);
   const results: { url: string; zoneId: string }[] = [];
@@ -134,15 +122,6 @@ export function getR2CustomDomainUrls(
     }
   }
   return results;
-}
-
-/**
- * Encode an R2 key as a URL path, applying encodeURIComponent to each segment.
- * Preserves `/` as path separators while encoding special characters in each segment.
- * e.g., "docs/Q1 Report (2025).pdf" → "docs/Q1%20Report%20(2025).pdf"
- */
-export function encodeR2KeyAsPath(key: string): string {
-  return key.split('/').map(encodeURIComponent).join('/');
 }
 
 /**
@@ -301,6 +280,13 @@ export type AppEnv = {
      * rather than falling back to `route.target`.
      */
     servedR2Key?: string;
+    /**
+     * The platform whose link-preview fetcher was answered with the preview
+     * document instead of the file (v1.48.0), set by `handleR2`. The
+     * catch-all records no file download for such a response, and the
+     * unified traffic row is classed `automation`.
+     */
+    linkPreviewPlatform?: string;
   };
 };
 
@@ -362,7 +348,7 @@ export interface ProxyRouteConfig extends BaseRouteConfig {
 /**
  * R2 route configuration
  */
-export interface R2RouteConfig extends BaseRouteConfig {
+export interface R2RouteConfig extends BaseRouteConfig, RoutePreviewFields {
   type: 'r2';
   /** R2 object key */
   target: string;
@@ -384,7 +370,7 @@ export type TypedRouteConfig = RedirectRouteConfig | ProxyRouteConfig | R2RouteC
  * Route configuration stored in KV
  * Union type for backwards compatibility
  */
-export interface KVRouteConfig {
+export interface KVRouteConfig extends RoutePreviewFields {
   /** Path pattern (e.g., "/github", "/blog/*") */
   path: string;
 

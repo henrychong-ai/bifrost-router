@@ -29,7 +29,7 @@ export const COMMENT_MAX_LENGTH = 1000;
  * newline (\n). Implemented as a code-point filter rather than a control-char
  * regex literal so the source stays free of control characters (lint-clean).
  */
-function stripControlChars(input: string): string {
+export function stripControlChars(input: string): string {
   let out = '';
   for (const ch of input) {
     const code = ch.codePointAt(0) ?? 0;
@@ -47,6 +47,9 @@ function stripControlChars(input: string): string {
   return out;
 }
 
+/** CRLF and lone CR as LF: the line-ending rule of comments (and link-preview text, v1.48.0). */
+export const normaliseNewlines = (raw: string): string => raw.replace(/\r\n?/g, '\n');
+
 /**
  * Sanitise a free-text comment.
  *
@@ -58,7 +61,7 @@ function stripControlChars(input: string): string {
  */
 export function sanitizeComment(raw: string | null | undefined): string | null {
   if (raw == null) return null;
-  const normalisedNewlines = raw.replace(/\r\n?/g, '\n');
+  const normalisedNewlines = normaliseNewlines(raw);
   const trimmed = stripControlChars(normalisedNewlines).trim();
   if (trimmed.length === 0) return null;
   return trimmed.length > COMMENT_MAX_LENGTH ? trimmed.slice(0, COMMENT_MAX_LENGTH) : trimmed;

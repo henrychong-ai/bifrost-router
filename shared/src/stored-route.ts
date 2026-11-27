@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { isRecord } from './guards.js';
+import { PREVIEW_DIMENSION_FIELDS, PREVIEW_TEXT_FIELDS } from './link-preview.js';
 
 /**
  * Stored route records: the one tolerant read shape (v1.38.0), used by the
@@ -22,11 +23,19 @@ import { isRecord } from './guards.js';
 
 const ROUTE_TYPES: ReadonlySet<unknown> = new Set(['redirect', 'proxy', 'r2']);
 
-/** Optional fields by declared type (absent or null is always accepted). */
+/**
+ * Optional fields by declared type (absent or null is always accepted). The
+ * link-preview fields (v1.48.0) are checked the same way: a string
+ * (`previewText`) or an integer (`previewDimension`). Whether a stored
+ * preview may be served is decided at serve time by `servablePreview`, never
+ * by the record's readability.
+ */
 export const STORED_ROUTE_FIELDS = {
   boolean: ['preserveQuery', 'preservePath', 'forceDownload', 'enabled'],
   number: ['statusCode', 'createdAt', 'updatedAt'],
   string: ['cacheControl', 'hostHeader', 'bucket'],
+  previewText: PREVIEW_TEXT_FIELDS,
+  previewDimension: PREVIEW_DIMENSION_FIELDS,
 } as const;
 
 /** Required string fields besides `type`. */
@@ -51,6 +60,14 @@ export interface StoredRoute {
   enabled?: boolean | undefined;
   createdAt?: number | undefined;
   updatedAt?: number | undefined;
+  previewTitle?: string | undefined;
+  previewDescription?: string | undefined;
+  previewImageBucket?: string | undefined;
+  previewImageKey?: string | undefined;
+  previewImageWidth?: number | undefined;
+  previewImageHeight?: number | undefined;
+  previewVideoWidth?: number | undefined;
+  previewVideoHeight?: number | undefined;
 }
 
 const present = (value: unknown) => value !== undefined && value !== null;
@@ -69,6 +86,15 @@ export function isStoredRoute(value: unknown): boolean {
   }
   for (const field of STORED_ROUTE_FIELDS.string) {
     if (present(value[field]) && typeof value[field] !== 'string') return false;
+  }
+  // The link-preview fields by type only, like every other field: what may be
+  // served is decided at serve time (`servablePreview`), so no later rule
+  // change can make a file route unreadable
+  for (const field of STORED_ROUTE_FIELDS.previewText) {
+    if (present(value[field]) && typeof value[field] !== 'string') return false;
+  }
+  for (const field of STORED_ROUTE_FIELDS.previewDimension) {
+    if (present(value[field]) && !Number.isInteger(value[field])) return false;
   }
   return true;
 }

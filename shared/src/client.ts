@@ -25,6 +25,7 @@ import type {
   R2UpdateMetadataParams,
   R2UploadResponse,
   Route,
+  RouteByTarget,
   SlugStats,
   UpdateRouteInput,
 } from './types.js';
@@ -437,10 +438,13 @@ export class EdgeRouterClient {
   }
 
   /**
-   * Find all R2-type routes serving a specific R2 object
+   * Find the R2-type routes that use a specific R2 object: as the file they
+   * serve (`usage: 'file'`) or as their link-preview image
+   * (`usage: 'preview-image'`); `previewImage: true` marks every route that
+   * shows it as its link-preview image, also one that serves it (v1.48.0)
    */
-  async getRoutesByTarget(bucket: string, target: string): Promise<{ routes: Route[] }> {
-    return this.request<{ routes: Route[] }>('GET', '/api/routes/by-target', {
+  async getRoutesByTarget(bucket: string, target: string): Promise<{ routes: RouteByTarget[] }> {
+    return this.request<{ routes: RouteByTarget[] }>('GET', '/api/routes/by-target', {
       params: { bucket, target },
     });
   }

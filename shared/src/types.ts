@@ -5,6 +5,8 @@
  * Cloudflare-specific bindings for use in API clients such as the MCP server.
  */
 
+import type { RoutePreviewFields } from './link-preview.js';
+
 // =============================================================================
 // R2 Bucket Configuration
 // =============================================================================
@@ -31,6 +33,71 @@ export type R2BucketName = (typeof R2_BUCKETS)[number];
  */
 export function isValidR2Bucket(bucket: string): bucket is R2BucketName {
   return R2_BUCKETS.includes(bucket as R2BucketName);
+}
+
+// =============================================================================
+// Cloudflare zones and R2 custom domains (operator configuration)
+// =============================================================================
+
+/**
+ * Cloudflare zone IDs for domains managed in this account (moved here from
+ * the Worker's `src/types.ts` in v1.48.0, which re-exports it). Used by the
+ * Zone Cache Purge API to invalidate CDN cache globally, and by the link
+ * preview to pick the custom domain in the request host's zone.
+ */
+export const CLOUDFLARE_ZONE_IDS: Record<string, string> = {
+  // Configure with your zone IDs. Find them in Cloudflare Dashboard > Domain > Overview.
+  // Example: 'example.com': 'your-zone-id-here',
+};
+
+/** A configured zone by own key only: a host such as `constructor` names no zone. */
+function zoneOf(name: string): string | undefined {
+  return Object.hasOwn(CLOUDFLARE_ZONE_IDS, name) ? CLOUDFLARE_ZONE_IDS[name] : undefined;
+}
+
+/**
+ * Get the Cloudflare zone ID for a given domain.
+ * Walks up from subdomain to parent domain (e.g., links.example.com → example.com).
+ * Returns undefined for domains not in the CF account.
+ */
+export function getZoneIdForDomain(domain: string): string | undefined {
+  const exact = zoneOf(domain);
+  if (exact) return exact;
+  const parts = domain.split('.');
+  for (let i = 1; i < parts.length - 1; i++) {
+    const parent = zoneOf(parts.slice(i).join('.'));
+    if (parent) return parent;
+  }
+  return undefined;
+}
+
+/**
+ * R2 bucket custom domain mapping: bucket name to its Cloudflare R2 custom
+ * domain(s). Ships EMPTY. Moved here from the Worker's `src/types.ts` in
+ * v1.48.0 (the Worker re-exports this same object), so the link-preview rules
+ * in this package read it too:
+ *
+ * - the Zone Cache Purge API purges these URLs for an object;
+ * - a route's link-preview image must be in a bucket listed here with at
+ *   least one domain (`previewImageBuckets()` in `link-preview.ts`), so the
+ *   image has a public address outside the Worker. With the map empty, no
+ *   preview image can be set: link previews stay text-only cards.
+ *
+ * The link-preview rules read the map when they run, never once at load, so
+ * an entry takes effect wherever this package is used.
+ */
+export const R2_BUCKET_CUSTOM_DOMAINS: Record<string, string[]> = {
+  // Configure with your R2 custom domain URLs.
+  // Example: files: ['files.example.com'],
+};
+
+/**
+ * Encode an R2 key as a URL path, applying encodeURIComponent to each segment.
+ * Preserves `/` as path separators while encoding special characters in each segment.
+ * e.g., "docs/Q1 Report (2025).pdf" → "docs/Q1%20Report%20(2025).pdf"
+ */
+export function encodeR2KeyAsPath(key: string): string {
+  return key.split('/').map(encodeURIComponent).join('/');
 }
 
 // =============================================================================
@@ -88,9 +155,10 @@ export function isRedirectStatusCode(value: unknown): value is RedirectStatusCod
 }
 
 /**
- * Route configuration as stored in KV and returned by API
+ * Route configuration as stored in KV and returned by API (v1.48.0: with the
+ * optional link-preview fields)
  */
-export interface Route {
+export interface Route extends RoutePreviewFields {
   /** Path pattern (e.g., "/github", "/blog/*") */
   path: string;
 
@@ -146,6 +214,13 @@ export interface CreateRouteInput {
   forceDownload?: boolean | undefined;
   bucket?: R2BucketName | undefined;
   enabled?: boolean | undefined;
+  /** Link-preview fields (v1.48.0); the image's pixel size is read by the Worker. */
+  previewTitle?: string | undefined;
+  previewDescription?: string | undefined;
+  previewImageBucket?: string | undefined;
+  previewImageKey?: string | undefined;
+  previewVideoWidth?: number | undefined;
+  previewVideoHeight?: number | undefined;
 }
 
 /**
@@ -162,7 +237,31 @@ export interface UpdateRouteInput {
   forceDownload?: boolean | undefined;
   bucket?: R2BucketName | undefined;
   enabled?: boolean | undefined;
+  /**
+   * Link-preview fields (v1.48.0): an empty title clears every preview field,
+   * an empty description, image bucket or key clears that part, and null
+   * clears a video size.
+   */
+  previewTitle?: string | undefined;
+  previewDescription?: string | undefined;
+  previewImageBucket?: string | undefined;
+  previewImageKey?: string | undefined;
+  previewVideoWidth?: number | null | undefined;
+  previewVideoHeight?: number | null | undefined;
 }
+
+/**
+ * A route `GET /api/routes/by-target` answers (v1.48.0): one that uses the
+ * object, as the file it serves (`usage: 'file'`) or as its link-preview
+ * image (`usage: 'preview-image'`). `previewImage: true` marks every route
+ * that shows the object as its link-preview image, also one that serves it.
+ * Each is named by the domain and path of its KV key.
+ */
+export type RouteByTarget = Route & {
+  domain: string;
+  usage: 'file' | 'preview-image';
+  previewImage?: true;
+};
 
 // =============================================================================
 // Analytics Types
