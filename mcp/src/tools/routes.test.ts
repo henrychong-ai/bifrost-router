@@ -108,6 +108,75 @@ describe('Route tool handlers', () => {
     });
   });
 
+  describe('link-preview fields (v1.48.0)', () => {
+    const previewRoute: Route = {
+      path: '/briefing',
+      type: 'r2',
+      target: 'docs/briefing.pdf',
+      bucket: 'files',
+      enabled: true,
+      previewTitle: 'Harbour briefing',
+      previewDescription: 'Ports and harbours',
+      previewImageBucket: 'assets',
+      previewImageKey: 'previews/card.png',
+      previewImageWidth: 1200,
+      previewImageHeight: 630,
+      previewVideoWidth: 1920,
+      previewVideoHeight: 1080,
+      createdAt: 1704067200000,
+      updatedAt: 1704067200000,
+    };
+
+    it('the list marks a route with a preview, with its title', async () => {
+      vi.mocked(mockClient.listRoutes).mockResolvedValue([previewRoute, mockRoute]);
+      const result = await listRoutes(mockClient, { domain: 'links.example.com' });
+      expect(result).toContain('docs/briefing.pdf [link preview: Harbour briefing]');
+      expect(result).not.toContain('example-user [link preview');
+    });
+
+    it('the details name every preview part, the measured size included', async () => {
+      vi.mocked(mockClient.getRoute).mockResolvedValue(previewRoute);
+      const result = await getRoute(mockClient, { path: '/briefing', domain: 'links.example.com' });
+      expect(result).toContain('Preview Title: Harbour briefing');
+      expect(result).toContain('Preview Description: Ports and harbours');
+      expect(result).toContain('Preview Image: assets/previews/card.png (1200 x 630)');
+      expect(result).toContain('Preview Video Size: 1920 x 1080');
+    });
+
+    it('create and update forward every preview field by name', async () => {
+      vi.mocked(mockClient.createRoute).mockResolvedValue(previewRoute);
+      vi.mocked(mockClient.updateRoute).mockResolvedValue(previewRoute);
+      const fields = {
+        previewTitle: 'T',
+        previewDescription: 'D',
+        previewImageBucket: 'assets',
+        previewImageKey: 'previews/card.png',
+        previewVideoWidth: 640,
+        previewVideoHeight: 360,
+      };
+      await createRoute(mockClient, {
+        path: '/briefing',
+        type: 'r2',
+        target: 'docs/briefing.pdf',
+        domain: 'links.example.com',
+        ...fields,
+      });
+      expect(vi.mocked(mockClient.createRoute).mock.calls[0]?.[0]).toMatchObject(fields);
+      await updateRoute(mockClient, {
+        path: '/briefing',
+        domain: 'links.example.com',
+        previewTitle: '',
+        previewVideoWidth: null,
+        previewVideoHeight: null,
+      });
+      expect(vi.mocked(mockClient.updateRoute).mock.calls[0]?.[1]).toMatchObject({
+        previewTitle: '',
+        previewVideoWidth: null,
+        previewVideoHeight: null,
+      });
+    });
+  });
+
   describe('getRoute', () => {
     it('returns formatted route details', async () => {
       vi.mocked(mockClient.getRoute).mockResolvedValue(mockRoute);

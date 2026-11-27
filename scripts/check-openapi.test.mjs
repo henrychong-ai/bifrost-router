@@ -30,3 +30,48 @@ test('OpenAPI documents the feedback queue order as a lenient string', () => {
   assert.match(sort.description, /`newest`/);
   assert.match(sort.description, /`oldest`/);
 });
+
+test('OpenAPI documents the link-preview fields and the preview-image refusals (v1.48.0)', () => {
+  const document = parse(readFileSync('openapi/bifrost-api.yaml', 'utf8'));
+  const { schemas } = document.components;
+  const previewFields = [
+    'previewTitle',
+    'previewDescription',
+    'previewImageBucket',
+    'previewImageKey',
+    'previewVideoWidth',
+    'previewVideoHeight',
+  ];
+  for (const name of ['CreateRouteInput', 'UpdateRouteInput']) {
+    for (const field of previewFields) {
+      assert.ok(schemas[name].properties[field], `${name}.${field}`);
+    }
+    // The image's pixel size is read from the image, never accepted
+    assert.equal(schemas[name].properties.previewImageWidth, undefined);
+  }
+  assert.equal(schemas.UpdateRouteInput.properties.previewVideoWidth.nullable, true);
+  for (const field of [...previewFields, 'previewImageWidth', 'previewImageHeight']) {
+    assert.ok(schemas.RouteConfig.properties[field], `RouteConfig.${field}`);
+  }
+  const byTarget = document.paths['/api/routes/by-target'].get;
+  assert.deepEqual(
+    byTarget.parameters.filter(parameter => parameter.required).map(parameter => parameter.name),
+    ['bucket', 'target'],
+  );
+  for (const [path, method] of [
+    ['/api/storage/{bucket}/upload', 'post'],
+    ['/api/storage/{bucket}/objects/{key}', 'delete'],
+    ['/api/storage/{bucket}/rename', 'post'],
+    ['/api/storage/{bucket}/move', 'post'],
+  ]) {
+    assert.match(
+      document.paths[path][method].responses['409'].description,
+      /STORE_PREVIEW_IMAGE_IN_USE/,
+      `${method} ${path}`,
+    );
+  }
+  assert.match(
+    document.paths['/api/storage/{bucket}/upload'].post.responses['409'].description,
+    /STORE_OBJECT_EXISTS/,
+  );
+});

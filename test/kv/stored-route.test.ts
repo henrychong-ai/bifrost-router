@@ -108,8 +108,26 @@ describe('isStoredRoute parity with RouteSchema', () => {
     ['a numeric bucket', { path: '/a', type: 'r2', target: 'x', bucket: 3 }],
     ['an object hostHeader', { path: '/a', type: 'proxy', target: 'x', hostHeader: {} }],
     ['a string createdAt', { path: '/a', type: 'redirect', target: 'x', createdAt: 'today' }],
+    ['a numeric preview title', { path: '/a', type: 'r2', target: 'x', previewTitle: 3 }],
+    ['an object preview image key', { path: '/a', type: 'r2', target: 'x', previewImageKey: {} }],
+    ['a fractional preview width', { path: '/a', type: 'r2', target: 'x', previewImageWidth: 1.5 }],
+    ['a string video height', { path: '/a', type: 'r2', target: 'x', previewVideoHeight: '720' }],
   ])('refuses %s', (_label, value) => {
     expect(isStoredRoute(value)).toBe(false);
+  });
+
+  it('reads the link-preview fields by type only (v1.48.0): an off-shape preview stays readable', () => {
+    // Whether a stored preview may be served is decided at serve time
+    // (`servablePreview`); no later rule change makes a file route unreadable
+    for (const preview of [
+      { previewTitle: '' },
+      { previewTitle: 'x'.repeat(500), previewDescription: ' padded ' },
+      { previewImageBucket: 'not-a-bucket', previewImageKey: '../x.png' },
+      { previewImageWidth: 0, previewImageHeight: 99_999 },
+      { previewVideoWidth: null, previewVideoHeight: null },
+    ]) {
+      expect(isStoredRoute({ path: '/a', type: 'r2', target: 'x', ...preview })).toBe(true);
+    }
   });
 });
 

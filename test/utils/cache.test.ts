@@ -298,6 +298,51 @@ describe('purgeR2CacheForObject', () => {
     const result = await purgeR2CacheForObject(env.ROUTES, 'files', 'docs/none.pdf', 'test-token');
     expect(result.routeDiscoveryComplete).toBe(true);
   });
+
+  it('a route that shows the object as its link-preview image is not purged (v1.48.0)', async () => {
+    // It serves another file at its URL: purging it would not refresh the image
+    await seedRoute(
+      {
+        path: '/card-user',
+        type: 'r2',
+        target: 'docs/other.pdf',
+        bucket: 'files',
+        previewTitle: 'Card',
+        previewImageBucket: 'files',
+        previewImageKey: 'docs/report.pdf',
+        previewImageWidth: 1200,
+        previewImageHeight: 630,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+      'links.example.com',
+    );
+    const result = await purgeR2CacheForObject(
+      env.ROUTES,
+      'files',
+      'docs/report.pdf',
+      'test-token',
+    );
+    expect(result.urls).not.toContain('https://links.example.com/card-user');
+    expect(result.urls).toContain('https://files.example.com/docs/report.pdf');
+  });
+
+  it('routes the caller already listed are purged without a second scan (v1.48.0)', async () => {
+    const list = vi.spyOn(env.ROUTES, 'list');
+    const result = await purgeR2CacheForObject(
+      env.ROUTES,
+      'files',
+      'docs/report.pdf',
+      'test-token',
+      [{ domain: 'links.example.com', path: '/listed' }],
+    );
+    expect(list).not.toHaveBeenCalled();
+    expect(result.urls).toEqual([
+      'https://links.example.com/listed',
+      'https://files.example.com/docs/report.pdf',
+    ]);
+    expect(result.routeDiscoveryComplete).toBe(true);
+  });
 });
 
 /**
