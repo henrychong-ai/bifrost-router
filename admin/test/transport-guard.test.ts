@@ -11,14 +11,21 @@
  * reachable, so even a failing guard would send nothing anywhere real.
  */
 
+import childProcess from 'node:child_process';
 import dns from 'node:dns';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import net from 'node:net';
 import { Window } from 'happy-dom';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { blockedRequestsMessage, takeBlockedRequests } from './network-guard';
-import { connectHost, isLoopbackHost } from './transport-guard';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { blockedRequestsMessage, installNetworkGuard, takeBlockedRequests } from './network-guard';
+import {
+  connectTarget,
+  isLoopbackAddress,
+  isLoopbackHost,
+  isNodeBinary,
+  loopbackLookup,
+} from './transport-guard';
 
 const MARKER = 'tok-marker-9Rv';
 const OUTSIDE = `http://192.0.2.1:9/${MARKER}?token=${MARKER}`;
@@ -62,6 +69,12 @@ function socketRefusals(): unknown[] {
   return recorded.filter(entry => entry.api === 'socket');
 }
 
+/** The host a connect call targets, or `path` for a local pipe. */
+function targetOf(args: unknown[]): string {
+  const target = connectTarget(args);
+  return target.kind === 'host' ? target.host : 'path';
+}
+
 describe('isLoopbackHost and connectHost', () => {
   it.each([
     'localhost',
@@ -86,15 +99,99 @@ describe('isLoopbackHost and connectHost', () => {
     expect(isLoopbackHost(host)).toBe(false);
   });
 
-  it('reads every connect form, a path as local and no host as localhost', () => {
-    expect(connectHost([{ host: 'example.com', port: 80 }])).toBe('example.com');
-    expect(connectHost([[{ host: 'example.com', port: 443 }, () => {}]])).toBe('example.com');
-    expect(connectHost([80, 'example.com'])).toBe('example.com');
-    expect(connectHost(['80', 'example.com'])).toBe('example.com');
-    expect(connectHost([80])).toBe('localhost');
-    expect(connectHost([{ port: 80 }])).toBe('localhost');
-    expect(connectHost([{ path: '/tmp/sock' }])).toBeNull();
-    expect(connectHost(['/tmp/sock'])).toBeNull();
+  it('a loopback name is not a loopback address', () => {
+    expect(isLoopbackAddress('localhost')).toBe(false);
+    expect(isLoopbackAddress('app.localhost')).toBe(false);
+    expect(isLoopbackAddress('127.0.0.1')).toBe(true);
+    expect(isLoopbackAddress('::1')).toBe(true);
+  });
+
+  it('reads every connect form; only a non-empty path is a local pipe', () => {
+    expect(targetOf([{ host: 'example.com', port: 80 }])).toBe('example.com');
+    expect(targetOf([[{ host: 'example.com', port: 443 }, () => {}]])).toBe('example.com');
+    expect(targetOf([80, 'example.com'])).toBe('example.com');
+    expect(targetOf(['80', 'example.com'])).toBe('example.com');
+    expect(targetOf([80])).toBe('localhost');
+    expect(targetOf([{ port: 80 }])).toBe('localhost');
+    expect(targetOf([{ path: '/tmp/sock' }])).toBe('path');
+    expect(targetOf(['/tmp/sock'])).toBe('path');
+    // An empty path is not a pipe: the host decides
+    expect(targetOf([{ path: '', host: 'example.com', port: 80 }])).toBe('example.com');
+    expect(targetOf(['', 'example.com'])).toBe('example.com');
+  });
+
+  it('answers a loopback name itself, by the family asked for, and refuses any other', () => {
+    expect(loopbackLookup('app.localhost', undefined)).toEqual([
+      { address: '127.0.0.1', family: 4 },
+    ]);
+    expect(loopbackLookup('app.localhost', 6)).toEqual([{ address: '::1', family: 6 }]);
+    expect(loopbackLookup('localhost', { family: 4 })).toEqual([
+      { address: '127.0.0.1', family: 4 },
+    ]);
+    expect(loopbackLookup('localhost', { all: true })).toEqual([
+      { address: '127.0.0.1', family: 4 },
+      { address: '::1', family: 6 },
+    ]);
+    expect(loopbackLookup('127.0.0.5', undefined)).toEqual([{ address: '127.0.0.5', family: 4 }]);
+    expect(loopbackLookup('example.com', undefined)).toBeNull();
+  });
+
+  it("names only this Node binary as happy-dom's child", () => {
+    expect(isNodeBinary(process.execPath)).toBe(true);
+    expect(isNodeBinary('git')).toBe(false);
+  });
+});
+
+describe('the transport resolves loopback names itself', () => {
+  it("connects to app.localhost without asking any resolver, the socket's own lookup included", async () => {
+    const resolver = vi.fn<net.LookupFunction>();
+    const port = (server.address() as AddressInfo).port;
+    await new Promise<void>((resolve, reject) => {
+      const socket = net.connect({ host: 'app.localhost', port, lookup: resolver }, () => {
+        expect(socket.remoteAddress).toBe('127.0.0.1');
+        socket.end();
+        resolve();
+      });
+      socket.on('error', reject);
+    });
+    expect(resolver).not.toHaveBeenCalled();
+    expect(takeBlockedRequests()).toEqual([]);
+  });
+
+  it('dns.lookup answers app.localhost by family, never asking the system resolver', async () => {
+    const answer = await new Promise<[unknown, unknown]>((resolve, reject) => {
+      dns.lookup('app.localhost', { family: 6 }, (error, address, family) =>
+        error ? reject(error) : resolve([address, family]),
+      );
+    });
+    expect(answer).toEqual(['::1', 6]);
+    await expect(dns.promises.lookup('app.localhost')).resolves.toEqual({
+      address: '127.0.0.1',
+      family: 4,
+    });
+  });
+
+  it('a socket reporting a non-loopback resolution is destroyed', async () => {
+    const port = (server.address() as AddressInfo).port;
+    const socket = net.connect({ host: '127.0.0.1', port });
+    const error = await new Promise<Error>(resolve => {
+      socket.on('error', resolve);
+      socket.emit('lookup', null, '192.0.2.1', 4, 'example.com');
+    });
+    expect(error.message).toMatch(/socket: non-loopback address is blocked/);
+    expect(socket.destroyed).toBe(true);
+    expect(socketRefusals()).toHaveLength(1);
+  });
+
+  it('a socket attempting a non-loopback address is destroyed', async () => {
+    const port = (server.address() as AddressInfo).port;
+    const socket = net.connect({ host: '127.0.0.1', port });
+    const error = await new Promise<Error>(resolve => {
+      socket.on('error', resolve);
+      socket.emit('connectionAttempt', '192.0.2.1', 9, 4);
+    });
+    expect(error.message).toMatch(/non-loopback address/);
+    expect(socketRefusals()).toHaveLength(1);
   });
 });
 
@@ -171,5 +268,40 @@ describe('the transport refuses', () => {
       await window.happyDOM.close();
     }
     expect(socketRefusals().length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("happy-dom's synchronous XHR never launches its child Node process", async () => {
+    const window = freshWindow();
+    try {
+      const xhr = new window.XMLHttpRequest();
+      xhr.open('GET', `${origin}/ok`, false);
+      // happy-dom catches the launch's refusal itself; the request fails
+      xhr.send();
+      expect(xhr.status).not.toBe(200);
+    } finally {
+      await window.happyDOM.close();
+    }
+    expect(takeBlockedRequests()).toContainEqual({ api: 'child_process', reason: 'child process' });
+  });
+});
+
+describe('the network guard refuses a synchronous XHR before it is sent', () => {
+  it('open(…, false) throws at once, so no child launch is attempted', () => {
+    const launched = vi.spyOn(childProcess, 'execFileSync');
+    const window = freshWindow();
+    try {
+      installNetworkGuard(window);
+      const xhr = new window.XMLHttpRequest();
+      expect(() => xhr.open('GET', `${origin}/ok`, false)).toThrow(
+        /XMLHttpRequest: synchronous request is blocked/,
+      );
+      expect(launched).not.toHaveBeenCalled();
+    } finally {
+      launched.mockRestore();
+      void window.happyDOM.close();
+    }
+    expect(takeBlockedRequests()).toEqual([
+      { api: 'XMLHttpRequest', reason: 'synchronous request' },
+    ]);
   });
 });

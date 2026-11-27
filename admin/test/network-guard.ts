@@ -6,14 +6,16 @@
 // setup file fails the running test (afterEach) or the file (afterAll) while
 // any refusal is recorded. Tests that need a response stub `fetch` themselves.
 //
-// The guarantee is the transport (./transport-guard.ts): every TCP or TLS
-// connection to an address that is not loopback, and every DNS lookup of a
-// name that is not, is refused, whatever made the request (a library, a
-// happy-dom preflight, an XHR, a followed redirect, a resource load). The API
-// wrappers here are on top, for clearer messages: fetch (a local fetch
-// follows no redirect: one that points off this machine is refused, any other
-// redirect answer is returned as it is), XMLHttpRequest.open,
-// navigator.sendBeacon, WebSocket and EventSource.
+// The guarantee for TCP and TLS is the transport (./transport-guard.ts):
+// every connection to an address that is not loopback is refused, whatever
+// made the request (a library, a happy-dom preflight, an asynchronous XHR, a
+// followed redirect, a resource load). The API wrappers here are on top, for
+// clearer messages: fetch (a local fetch follows no redirect: one that points
+// off this machine is refused, any other redirect answer is returned as it
+// is), XMLHttpRequest.open, navigator.sendBeacon, WebSocket and EventSource.
+// A synchronous XHR (`open(…, false)`) is refused whatever its URL, before it
+// is sent: happy-dom runs one in a child Node process the transport guard
+// cannot see (./transport-guard.ts also refuses that child's launch).
 //
 // A refusal never names the URL, in its error or in the failure summary: this
 // repository is public, so its CI logs are too, and a path or query can carry
@@ -29,14 +31,17 @@ export type GuardedApi =
   | 'WebSocket'
   | 'EventSource'
   | 'socket'
-  | 'dns';
+  | 'dns'
+  | 'child_process';
 
 /** Why a request was refused: fixed text, never the request's own. */
 export type BlockReason =
   | 'non-local host'
   | 'redirect to a non-local host'
   | 'non-loopback address'
-  | 'non-loopback name';
+  | 'non-loopback name'
+  | 'synchronous request'
+  | 'child process';
 
 export interface BlockedRequest {
   api: GuardedApi;
@@ -207,6 +212,10 @@ export function installNetworkGuard(global: object): void {
   if (xhrPrototype && typeof xhrPrototype.open === 'function') {
     const open = xhrPrototype.open;
     xhrPrototype.open = function guardedOpen(this: unknown, ...args: unknown[]) {
+      // A synchronous request runs outside this process's sockets (happy-dom
+      // starts a child process for it), so it is refused whatever its URL
+      if (args.length > 2 && args[2] === false)
+        throw refuse('XMLHttpRequest', 'synchronous request');
       if (isNonLocalUrl(requestUrl(args[1]))) throw refuse('XMLHttpRequest');
       return open.apply(this, args);
     };
