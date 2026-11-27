@@ -264,11 +264,11 @@ function RouteForm(props: RouteFormProps) {
     : finalTarget === null
       ? 'Enter a valid absolute target URL before saving.'
       : routeTargetProblem(formData.type, finalTarget);
-  // An edit's dirty fields, and any stored value no write accepts that they
-  // would send (a status code or bucket kept through a type change)
   // Link preview (v1.48.0): only on an r2 route that serves one file. An
   // edit of a route that had one and can no longer carry it clears it
   const previewAllowed = formAllowsPreview(formData);
+  // An edit's dirty fields, and any stored value no write accepts that they
+  // would send (a status code or bucket kept through a type change)
   const editPatch =
     mode === 'edit' && finalTarget !== null
       ? routeEditPatch(opened, { ...formData, target: finalTarget }, previewAllowed)

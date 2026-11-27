@@ -6,6 +6,83 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.48.0 (2026-11-27) — Link previews for file routes; preview images protected in Storage
+
+**Why:** a link to a file route shared in a chat app showed a bare URL.
+An `r2` route can now carry a preview title, description, image and
+video size, and recognised link-preview fetchers get an Open Graph card
+while people still get the file. **No data migration**: the new route
+fields are optional and nothing changes for a route without a
+`previewTitle`. A MINOR
+release: the Admin API, the MCP catalogue and what a route serves gain
+optional behaviour, and the feature ships dormant (the custom-domain map,
+site names and default images are empty operator configuration).
+
+**Upgrade (forks that filled the maps):** `CLOUDFLARE_ZONE_IDS` and
+`R2_BUCKET_CUSTOM_DOMAINS` now live in `shared/src/types.ts` (re-exported
+by `src/types.ts`). Move your values there from `src/types.ts` and run
+`pnpm -C shared build` before deploying, or cache purges find no zone and
+previews stay dormant.
+
+### Added
+
+- **Link previews for file routes** (README → "Optional: Link previews
+  for file routes"; AGENTS.md → "Link previews for file routes"). Route
+  fields `previewTitle`, `previewDescription`, `previewImageBucket` +
+  `previewImageKey` and `previewVideoWidth` + `previewVideoHeight`, on
+  create, update, seed, migrate with changes, and MCP `create_route` /
+  `update_route`. A fetcher (WhatsApp, LinkedIn, Slack, iMessage and
+  others) gets a small `no-store`, `noindex` document; people, browser
+  navigations, search engines and `curl` get the file; a preview fetch is
+  never counted as a download, and unified traffic classes it
+  `automation`. A wildcard route never gets a card, and an image file is
+  served as itself.
+- **Preview images need a bucket with an R2 custom domain:** the buckets
+  in `R2_BUCKET_CUSTOM_DOMAINS`, which moves (with `CLOUDFLARE_ZONE_IDS`)
+  to `shared/src/types.ts`, re-exported by `src/types.ts`. The Worker
+  reads the image's pixel size from the file when the route is saved (a
+  JPEG or PNG of at most 600,000 bytes).
+- **Operator maps** `PREVIEW_SITE_NAMES` and `PREVIEW_DEFAULT_IMAGES`
+  (`shared/src/link-preview.ts`) classify every supported domain, all
+  `null`; a test fails until a new domain is classified in both.
+- **Dashboard:** the route dialog of a single-file `r2` route has a Link
+  preview section and a live card showing what a save would send, or why
+  no card would be sent; field errors hold the save, and an edit sends
+  only the changed preview fields. The Storage dialog marks a route that
+  shows the object as its preview image and warns before Replace File.
+
+### Changed (for scripted consumers)
+
+- **A preview image in use cannot be replaced, deleted, renamed or
+  moved:** 409 `STORE_PREVIEW_IMAGE_IN_USE`, naming the routes and
+  domains that use it. Rename, move and uploads to a new key are
+  create-only; the plain upload conflict keeps its `error` text and adds
+  `code: 'STORE_OBJECT_EXISTS'`.
+- **`GET /api/routes/by-target`** requires a storage bucket, names each
+  route by its KV key path, and marks each row's `usage` (`file` or
+  `preview-image`) and `previewImage` (the route serving the object also
+  shows it as its image). The route list names a route by its KV key
+  path too.
+- **Route scans** read KV 100 keys at a time, retrying a failed chunk one
+  key at a time.
+- **The R2 event audit** flags an outside change to an object a route
+  shows as its preview image, and whether the route's stored size still
+  matches.
+
+### Rollback
+
+- v1.47.0 keeps unknown stored route fields, so preview fields saved
+  under v1.48.0 survive a rollback and serve again after redeploying
+  v1.48.0. While rolled back, fetchers get the file, and a preview image
+  is not protected in Storage.
+
+### Planned
+
+- A dashboard tool that makes a preview image from a PDF page or a video
+  frame, and video playback in the dashboard's file preview (v1.49.0).
+
+---
+
 ## v1.47.0 (2026-11-27) — Stricter Worker logs; full feedback export and an optional Slack notice; multi-line QR text; seed audit fixes
 
 **Why:** fixes from a sibling deployment of the same design, ported and
