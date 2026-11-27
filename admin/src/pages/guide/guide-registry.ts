@@ -121,17 +121,7 @@ export const GUIDE_SECTIONS: GuideSectionMeta[] = [
     id: 'files-and-storage',
     title: 'Files & storage',
     icon: HardDrive,
-    keywords: [
-      'r2',
-      'buckets',
-      'upload',
-      'download',
-      'private sites',
-      'share links',
-      'purge cache',
-      'rename',
-      'move',
-    ],
+    keywords: ['r2', 'buckets', 'upload', 'download', 'purge cache', 'rename', 'move'],
     covers: ['/storage'],
   },
   {

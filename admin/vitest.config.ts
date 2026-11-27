@@ -10,7 +10,9 @@ export default defineConfig({
   test: {
     // dev-api-proxy.ts is the dev server's (vite.config.ts), outside src so
     // no bundle source holds its X-Admin-Key handling
-    include: ['src/**/*.test.{ts,tsx}', 'dev-api-proxy.test.ts'],
+    include: ['src/**/*.test.{ts,tsx}', 'test/**/*.test.ts', 'dev-api-proxy.test.ts'],
+    // No test may reach a non-local host (v1.47.0): test/network-guard.ts
+    setupFiles: ['./test/setup.ts'],
     // Vitest stubs CSS imports to empty strings by default. Process the
     // index.css file so `?raw` imports in tests resolve to the real source —
     // needed by `src/lib/typography.test.ts` (four-font stack regression suite).

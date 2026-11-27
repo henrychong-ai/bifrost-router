@@ -39,6 +39,15 @@ describe('user guide coverage parity', () => {
     }
   });
 
+  // Search keywords name what this dashboard has (v1.47.0): it has no
+  // private sites and no share links, so a search for them finds nothing
+  test('no section keyword names a feature this dashboard does not have', () => {
+    const keywords = GUIDE_SECTIONS.flatMap(s => s.keywords.map(k => k.toLowerCase()));
+    for (const absent of ['private site', 'share link']) {
+      expect(keywords.filter(k => k.includes(absent))).toEqual([]);
+    }
+  });
+
   test('the id union and the registry cover exactly the same sections', () => {
     // GUIDE_SECTION_IDS is the literal union that types guide.tsx's component
     // map — every id must appear in the registry exactly once, and vice versa.
