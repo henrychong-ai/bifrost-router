@@ -7,6 +7,12 @@ import {
   takeBlockedRequests,
 } from './network-guard';
 
+/** A credential-shaped value in a path and a query: no refusal may repeat it. */
+const MARKER = 'tok-marker-7Qx';
+const SECRET_URL = `https://api.example.net/sdk/${MARKER}/events?token=${MARKER}`;
+
+type Fetch = (input: unknown, init?: unknown) => Promise<unknown>;
+
 afterEach(() => {
   // Refusals provoked on purpose here must not trip the setup-file hook.
   takeBlockedRequests();
@@ -18,6 +24,7 @@ describe('isNonLocalUrl', () => {
     'http://example.com/',
     'https://bifrost.example.com/api/routes',
     'wss://example.com/socket',
+    'ws://example.com/socket',
   ])('treats %s as non-local', url => {
     expect(isNonLocalUrl(url)).toBe(true);
   });
@@ -27,6 +34,7 @@ describe('isNonLocalUrl', () => {
     'http://localhost:3000/x',
     'http://127.0.0.1:8787/api',
     'http://[::1]/x',
+    'ws://localhost:5173/hmr',
     '/api/routes',
     'api/routes?x=1',
     'data:text/plain,hi',
@@ -37,36 +45,63 @@ describe('isNonLocalUrl', () => {
 });
 
 describe('guardFetch', () => {
-  it('refuses and records a non-local request without calling the original', async () => {
-    const original = vi.fn<(input: unknown, init?: unknown) => Promise<unknown>>(async () => 'ok');
+  it('refuses and records a non-local request without calling the original, naming no URL', async () => {
+    const original = vi.fn<Fetch>(async () => 'ok');
     const guarded = guardFetch(original);
-    await expect(guarded('https://api.example.net/sdk/v1/events')).rejects.toThrow(
-      /network-guard.*api\.example\.net/,
-    );
+    const error = await guarded(SECRET_URL).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(Error);
+    const message = (error as Error).message;
+    expect(message).toMatch(/^\[network-guard\] fetch: non-local host is blocked/);
+    expect(message).not.toContain(MARKER);
+    expect(message).not.toContain('api.example.net');
     expect(original).not.toHaveBeenCalled();
-    expect(takeBlockedRequests()).toEqual([
-      { api: 'fetch', url: 'https://api.example.net/sdk/v1/events' },
-    ]);
+    const recorded = takeBlockedRequests();
+    expect(recorded).toEqual([{ api: 'fetch', reason: 'non-local host' }]);
+    expect(blockedRequestsMessage(recorded)).not.toContain(MARKER);
   });
 
   it('reads the URL from a Request-like object and a URL', async () => {
-    const guarded = guardFetch(
-      vi.fn<(input: unknown, init?: unknown) => Promise<unknown>>(async () => 'ok'),
-    );
+    const guarded = guardFetch(vi.fn<Fetch>(async () => 'ok'));
     await expect(guarded({ url: 'https://example.com/a' })).rejects.toThrow(/network-guard/);
     await expect(guarded(new URL('https://example.com/b'))).rejects.toThrow(/network-guard/);
-    expect(takeBlockedRequests().map(r => r.url)).toEqual([
-      'https://example.com/a',
-      'https://example.com/b',
+    expect(takeBlockedRequests()).toHaveLength(2);
+  });
+
+  it('sends a local request with redirect: manual, keeping its other options', async () => {
+    const original = vi.fn<Fetch>(async () => 'ok');
+    const guarded = guardFetch(original);
+    await expect(guarded('/api/routes', { method: 'GET' })).resolves.toBe('ok');
+    expect(original).toHaveBeenCalledWith('/api/routes', { method: 'GET', redirect: 'manual' });
+    expect(takeBlockedRequests()).toEqual([]);
+  });
+
+  it('refuses a local request redirected to a non-local host, naming no URL', async () => {
+    const guarded = guardFetch(
+      vi.fn<Fetch>(
+        async () => new Response(null, { status: 302, headers: { location: SECRET_URL } }),
+      ),
+    );
+    const error = await guarded('http://localhost/start').catch((caught: unknown) => caught);
+    expect((error as Error).message).toMatch(/fetch: redirect to a non-local host is blocked/);
+    expect((error as Error).message).not.toContain(MARKER);
+    expect(takeBlockedRequests()).toEqual([
+      { api: 'fetch', reason: 'redirect to a non-local host' },
     ]);
   });
 
-  it('passes a local request through to the original', async () => {
-    const original = vi.fn<(input: unknown, init?: unknown) => Promise<unknown>>(async () => 'ok');
-    const guarded = guardFetch(original);
-    await expect(guarded('/api/routes', { method: 'GET' })).resolves.toBe('ok');
-    expect(original).toHaveBeenCalledWith('/api/routes', { method: 'GET' });
+  it('returns a redirect to this machine as it is, never following it', async () => {
+    const redirect = new Response(null, { status: 307, headers: { location: '/next' } });
+    const guarded = guardFetch(vi.fn<Fetch>(async () => redirect));
+    await expect(guarded('/start')).resolves.toBe(redirect);
     expect(takeBlockedRequests()).toEqual([]);
+  });
+
+  it('refuses a redirect whose target cannot be seen', async () => {
+    const opaque = { type: 'opaqueredirect', status: 0, headers: new Headers() };
+    Object.setPrototypeOf(opaque, Response.prototype);
+    const guarded = guardFetch(vi.fn<Fetch>(async () => opaque));
+    await expect(guarded('/start')).rejects.toThrow(/redirect to a non-local host/);
+    expect(takeBlockedRequests()).toHaveLength(1);
   });
 });
 
@@ -74,47 +109,77 @@ function fakeTarget() {
   const fetch = vi.fn<(input: unknown) => Promise<unknown>>(async () => 'ok');
   const open = vi.fn<(...args: unknown[]) => void>();
   const sendBeacon = vi.fn<(url: unknown, data?: unknown) => boolean>(() => true);
+  const opened: string[] = [];
   class FakeXhr {
     readonly kind = 'fake-xhr';
   }
   (FakeXhr.prototype as unknown as { open: unknown }).open = open;
+  class FakeSocket {
+    readonly url: string;
+    constructor(url: string) {
+      this.url = url;
+      opened.push(`socket ${url}`);
+    }
+  }
+  class FakeEventSource {
+    readonly url: string;
+    constructor(url: string) {
+      this.url = url;
+      opened.push(`events ${url}`);
+    }
+  }
   const target = {
     fetch: fetch as unknown,
     XMLHttpRequest: FakeXhr as unknown as { prototype: { open: (...a: unknown[]) => void } },
     navigator: { sendBeacon: sendBeacon as unknown },
+    WebSocket: FakeSocket as unknown,
+    EventSource: FakeEventSource as unknown,
   };
-  return { target, fetch, open, sendBeacon };
+  return { target, fetch, open, sendBeacon, opened };
 }
 
 describe('installNetworkGuard', () => {
-  it('guards fetch, XMLHttpRequest.open and sendBeacon', async () => {
-    const { target, fetch, open, sendBeacon } = fakeTarget();
+  it('guards fetch, XMLHttpRequest.open, sendBeacon, WebSocket and EventSource', async () => {
+    const { target, fetch, open, sendBeacon, opened } = fakeTarget();
     installNetworkGuard(target);
 
-    await expect(
-      (target.fetch as (u: string) => Promise<unknown>)('https://x.example/'),
-    ).rejects.toThrow(/network-guard/);
+    await expect((target.fetch as (u: string) => Promise<unknown>)(SECRET_URL)).rejects.toThrow(
+      /network-guard/,
+    );
     expect(fetch).not.toHaveBeenCalled();
 
     const xhr = new (
       target.XMLHttpRequest as unknown as new () => { open: (...a: unknown[]) => void }
     )();
-    expect(() => xhr.open('GET', 'https://y.example/')).toThrow(/network-guard/);
+    expect(() => xhr.open('GET', SECRET_URL)).toThrow(/network-guard/);
     expect(open).not.toHaveBeenCalled();
     xhr.open('GET', '/local');
     expect(open).toHaveBeenCalledWith('GET', '/local');
 
     const beacon = target.navigator.sendBeacon as (u: string, d?: unknown) => boolean;
-    expect(beacon('https://z.example/')).toBe(false);
+    expect(beacon(SECRET_URL)).toBe(false);
     expect(sendBeacon).not.toHaveBeenCalled();
     expect(beacon('/local', 'd')).toBe(true);
     expect(sendBeacon).toHaveBeenCalledWith('/local', 'd');
 
-    expect(takeBlockedRequests()).toEqual([
-      { api: 'fetch', url: 'https://x.example/' },
-      { api: 'XMLHttpRequest', url: 'https://y.example/' },
-      { api: 'sendBeacon', url: 'https://z.example/' },
+    const Socket = target.WebSocket as new (url: string) => object;
+    const Events = target.EventSource as new (url: string) => object;
+    expect(() => new Socket(`wss://example.com/${MARKER}`)).toThrow(/WebSocket: non-local host/);
+    expect(() => new Events(SECRET_URL)).toThrow(/EventSource: non-local host/);
+    expect(new Socket('ws://localhost:5173/hmr')).toBeInstanceOf(Socket);
+    expect(new Events('/api/stream')).toBeInstanceOf(Events);
+    expect(opened).toEqual(['socket ws://localhost:5173/hmr', 'events /api/stream']);
+
+    const recorded = takeBlockedRequests();
+    expect(recorded).toEqual([
+      { api: 'fetch', reason: 'non-local host' },
+      { api: 'XMLHttpRequest', reason: 'non-local host' },
+      { api: 'sendBeacon', reason: 'non-local host' },
+      { api: 'WebSocket', reason: 'non-local host' },
+      { api: 'EventSource', reason: 'non-local host' },
     ]);
+    expect(blockedRequestsMessage(recorded)).not.toContain(MARKER);
+    expect(blockedRequestsMessage(recorded)).not.toContain('example');
   });
 
   it('installs once per target', async () => {
@@ -137,23 +202,21 @@ describe('installNetworkGuard', () => {
 
 describe('the installed suite guard', () => {
   it('is active on the global fetch of this run', async () => {
-    await expect(fetch('https://api.example.net/sdk/v1/projects/bootstrap/')).rejects.toThrow(
-      /network-guard/,
-    );
+    await expect(fetch(SECRET_URL)).rejects.toThrow(/network-guard/);
     expect(takeBlockedRequests()).toHaveLength(1);
   });
 });
 
 describe('blockedRequestsMessage', () => {
-  it('lists every refused request', () => {
+  it('lists every refused request by API and reason only', () => {
     expect(
       blockedRequestsMessage([
-        { api: 'fetch', url: 'https://a.example/' },
-        { api: 'sendBeacon', url: 'https://b.example/' },
+        { api: 'fetch', reason: 'non-local host' },
+        { api: 'sendBeacon', reason: 'redirect to a non-local host' },
       ]),
     ).toBe(
       '[network-guard] 2 request(s) to a non-local host were attempted:\n' +
-        '  fetch https://a.example/\n  sendBeacon https://b.example/',
+        '  fetch: non-local host\n  sendBeacon: redirect to a non-local host',
     );
   });
 });
