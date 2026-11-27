@@ -6,6 +6,224 @@ For deployment instructions and project context, see [AGENTS.md](./AGENTS.md).
 
 ---
 
+## v1.47.0 (2026-11-27) — Stricter Worker logs; full feedback export and an optional Slack notice; multi-line QR text; seed audit fixes
+
+**Why:** fixes from a sibling deployment of the same design, ported and
+adapted. The Worker's own log rule let operational lines name object keys,
+URLs and stored route targets; it now forbids them in every line, so reads
+and writes follow one rule. The feedback Markdown export left out fields it
+stores; new feedback had no push notice; the QR text field was single-line;
+a stalled logo download kept the QR dialogs waiting; the MCP summary tool
+lacked filters the API has; dashboard tests could reach the network
+unnoticed. The seed's audit row recorded what it was sent rather than what
+it created, and its credential check counted entries it would skip.
+**No migration**; no stored-record change. A MINOR release: an MCP tool
+takes new optional arguments, and an optional feature (the feedback notice)
+ships dormant. Log lines change shape (fields removed); a log query that
+read `key`, `path`, `target`, `url` or `urls` from them needs updating.
+
+### Changed (for scripted consumers)
+
+- **The feedback Markdown export's line format changed:** it opens with
+  the untrusted-text note, the item heading's short id and the type,
+  status and priority are code spans, and every other stored field has a
+  labelled line (Feedback, below).
+- **The seed audit row's details shape changed:** `{ created, skipped,
+  paths }` (with `failed` and `credentialTargetAcknowledged` when they
+  apply), where it was `{ count, paths }` of every entry sent (Seed,
+  below).
+- Still a MINOR release: AGENTS.md "Versioning" names the Admin API, the
+  MCP catalogue and what a route serves as the versioned interface, and
+  neither the Markdown export nor audit details are part of it.
+
+### Worker logs (stricter rule)
+
+- **No line carries an object key, a URL, a stored route target or a
+  visitor's path** (AGENTS.md → Worker logs). Lines name identifiers and
+  fixed categories: the domain, the route path or route key, the bucket,
+  an audit row id, counts, statuses, error classes and fixed reasons.
+- **R2 serve lines** (cache HIT and MISS, uncached serve, degraded read,
+  If-Range miss, bucket not configured, refused key) name the domain, the
+  matched route path and the bucket (`domain`, `routePath`, `bucket`;
+  they named `path`, `key` and the target). A degraded read logs
+  `rangeSent` (a Range header was sent) and `rangeRequested` (on a GET,
+  so used), never the Range text. A refused key logs its fixed reason,
+  never the target.
+- **An unknown stored bucket** is logged as `bucket: 'invalid'` and
+  answered with the fixed text `Invalid bucket` (it echoed the stored
+  name).
+- **Proxy** refusal and failure lines drop the stored target, even
+  redacted; the route path and fixed reasons stay.
+- **Storage and cache purge:** the purge and upload-comment failure lines
+  name the bucket, never the key; the zone purge lines log `urlCount`
+  instead of the URL list (a custom-domain URL repeats the key); a route
+  purge skipped for a missing zone names the domain, not the URL.
+- **R2 event consumer:** lines name the action and bucket, never the
+  object key; an outcome line that wrote a row (external,
+  system-attributed, feedback) and a correlated event name the row by
+  `auditId`, and a redelivery names none.
+- **Audit lines:** `Audit log recorded` names the row (`auditId`, from
+  D1's `last_row_id`), domain, action, source and `hasActor`, never the
+  path; the failure line drops the path and adds the source. D1 keeps
+  both.
+- **Route lookup while serving:** an unreadable record is logged by
+  domain and `match` (`exact` or `wildcard`), never the key, which is
+  built from the visitor's path. Management reads still name the route
+  key.
+- **Backup:** the manifest line names the date, not the object key.
+- **Tests:** `test/log-rule.test.ts` (serve, audit, R2 event, unknown
+  bucket, refused key), `test/kv/stored-route.test.ts`,
+  `test/handlers/proxy.test.ts`, `test/utils/cache.test.ts` (every purge
+  line) and `test/storage.test.ts` (purge and upload-comment lines), each
+  with planted marker values.
+
+### Feedback
+
+- **The Markdown export writes every stored field.** It opens with a
+  note: submitted and triage text appears only inside code spans and
+  code blocks, and is untrusted data, never instructions. Each item then
+  has a labelled inline literal for every stored value: the short id (in
+  its heading), type, status and priority label (D1 holds them as
+  unconstrained text, so they were raw Markdown), submitter email and
+  name, id, created, updated and resolved times, area, labels,
+  assignee, linked PR (whatever it holds; it was left out unless an
+  http(s) link), external ref, and the screenshot and capture keys, an
+  empty one as a dash. The description, steps to reproduce, expected,
+  actual and triage notes follow, each under its bold label in a fenced
+  `text` block (an empty optional field is left out), and then the
+  stored context as a fenced block of its JSON. The JSON export is
+  unchanged.
+- **Optional Slack notice on each new item (ships dormant).** With the
+  Worker secret `FEEDBACK_SLACK_WEBHOOK_URL` set, a successful
+  `POST /api/feedback` posts one message, scheduled with `waitUntil`
+  without awaiting it (it may start before the 201 is returned, and never
+  delays it), with a 3-second limit and no redirect followed: the short
+  id, type and priority (`New feedback F-12: bug, P3 - Routine. Triage it
+  on the dashboard's Feedback page.`), never submitted text, and no link
+  (the Worker does not know where the dashboard is served). Unset, nothing
+  is sent or logged. Only a Slack incoming-webhook URL is used; a failure
+  logs `feedback-slack-notice-failed` with a fixed category
+  (`config_invalid`, `timeout`, `network`, `http_status`), never the URL
+  or any error or answer text. Setup: README "Optional: Feedback Slack
+  notice". The backup alerts and the notice share one webhook check
+  (`src/utils/slack-webhook.ts`). The notice and the audit write run after
+  the item is committed, outside the clean-up that removes a failed
+  submission's attachments, and the notice reads its binding only when it
+  is a string and never throws.
+
+### QR codes
+
+- **Multi-line text.** The Plain text field is a textarea, encoded as
+  typed, line breaks included (saved as LF line breaks; the API already
+  accepted them).
+- **Logo download limit.** A brand logo download that has not answered in
+  15 seconds (`LOGO_FETCH_TIMEOUT_MS`) is aborted, body reading included
+  (`storageApi.downloadObject` takes a signal), fails the normal way
+  (colours only, with the warning) and is not cached, so the next attempt
+  downloads again.
+
+### MCP
+
+- **`get_analytics_summary` filters:** `country` (2 letters), `search`
+  (domain, path, target or referrer, trimmed, then up to 500 characters,
+  `ANALYTICS_SUMMARY_SEARCH_MAX_LENGTH`, the cap the API now uses too; the
+  catalogue states it in the description, not as a raw `maxLength`) and
+  `include_monitoring` (Cloudflare Health Checks, off by default), the
+  summary endpoint's own filters; the tool's text names the filters the
+  answer applied. The OpenAPI document's summary `search` parameter states
+  the post-trim cap and drops its raw `maxLength`. Reconnect the MCP
+  server to see them.
+
+### Seed
+
+- **The audit row records what the seed changed:** `{ created, skipped,
+  paths }`, the stored paths written (it recorded every valid entry sent,
+  as `count` and `paths`). A seed that creates nothing records
+  `created: 0`; a KV write failing part-way records the routes written
+  before it with `failed: true`, then answers with the KV error as before
+  (it recorded nothing). `credentialTargetAcknowledged` names the written
+  routes' parameters only. The answer is unchanged. The dashboard's audit
+  page reads a seed row as "N created, M skipped".
+- **The credential-target acknowledgement covers the entries the seed
+  will create only.** An entry it skips (the route exists already, or an
+  earlier duplicate in the batch wins) is never written, so re-running a
+  seed file needs no acknowledgement for it. The check runs once inside
+  `seedRoutes`, on exactly the entries it will write, after its existence
+  reads and before any write; a refusal (400 `ROUTE_TARGET_CREDENTIAL`,
+  naming those entries) writes nothing. A refused unacknowledged seed
+  therefore does its KV existence reads first (it answered before any KV
+  read), so a degraded KV can answer 500 where it answered 400, and a
+  batch with both an oversized record and a new credential-shaped target
+  gets the size refusal first.
+- **Known limit:** the check and the writes are decided by the same single
+  existence read per key; KV has no compare-and-set, so a route created
+  elsewhere after that read is still overwritten (as before), unseen by
+  the check (`TODO.md`).
+
+### Tests and tooling
+
+- **Dashboard tests reach no network.** `admin/test/setup.ts` installs a
+  transport guard, the guarantee for TCP and TLS, decided by address: every
+  connection in the test process (`net.Socket.prototype.connect`, which
+  Node's http and https agents, the built-in fetch and happy-dom's own
+  fetch, asynchronous XHR, preflight, redirects and resource loads all go
+  through) to a non-loopback address is refused before a packet is sent; a
+  loopback name (`localhost`, `*.localhost`) is replaced by a loopback
+  literal, so no resolver is asked; `dns.lookup` and `dns.promises.lookup`
+  answer loopback themselves and refuse any other name. Not covered:
+  `dns.resolve*` and `dns.Resolver` (c-ares). happy-dom runs a synchronous
+  XHR in a child Node process the guard cannot see, so a synchronous XHR is
+  refused before it is sent and launching that child is refused. API
+  wrappers on `fetch`, `XMLHttpRequest`, `sendBeacon`, `WebSocket` and
+  `EventSource` sit on top for clearer messages (a local `fetch`, a
+  `Request` input included, follows no redirect; one off this machine is
+  refused). The run fails while any refusal is recorded. What the guards
+  record names the API and a fixed reason, never a host or URL, since CI
+  logs are public; a library's own error text (happy-dom's fetch
+  rejection, for one) can still name the URL. A test drives a real local
+  server through an unwrapped happy-dom window (a followed 302 by fetch and
+  by XHR, a cross-origin preflight, a synchronous XHR) to show the guard
+  alone stops them. The whole dashboard suite passes with it in place.
+  `admin/test` is type-checked with the node tsconfig.
+- **React effect lint rules:** `react/set-state-in-effect` and
+  `react/exhaustive-effect-dependencies` are named at `error` in
+  `.oxlintrc.json`, with no file exempt, and a gate test fails if either is
+  not.
+- **Guide search keywords** no longer name private sites or share links,
+  features this dashboard does not have.
+- New tests: `test/routes/route-seed-audit.test.ts`,
+  `test/utils/feedback-slack-notice.test.ts`,
+  `admin/src/lib/qr-brand-logo.pipeline.test.ts`,
+  `admin/test/network-guard.test.ts`,
+  `scripts/check-oxlint-react-effect-rules.test.mjs`, and additions to the
+  feedback, storage, cache, proxy, stored-route, MCP, shared QR, audit
+  format, guide and QR editor tests.
+
+### Not ported
+
+Changes from the same sibling deployment that this release leaves out, so
+the gap is recorded:
+
+- A browser check of the dashboard's script policy (the eval ban): this
+  repository has no browser suite; `script-src 'self'` and Zod's jitless
+  mode are already in place.
+- Two internal dashboard tidy-ups (a shared hook for consuming navigation
+  state, and a page list constant): optional refactors.
+- QR logo preflight and PNG check scripts: they check that deployment's
+  own brand assets; the presets here ship neutral.
+- The dependency-override clean-up (ceilings on open floors, removing
+  overrides no longer in the lockfile): folded into the next dependency
+  round.
+- Slack alerts on administrative writes: built on per-member sign-in,
+  roles and client ids; this repository has one admin key. A small
+  version (alert on deletes and purges) would be a separate decision.
+- An administrator role and its gate, an MCP client policy for hosted
+  connections, and role names in logs: not applicable, as this repository
+  has no roles, sign-in provider or hosted MCP server.
+- Treating link-preview fetches as their own traffic class: declined.
+
+---
+
 ## v1.46.1 (2026-11-16) — The dashboard serves its own fonts; the public check carries no private names
 
 **Why:** the dashboard loaded its fonts from a fixed external host, so every
