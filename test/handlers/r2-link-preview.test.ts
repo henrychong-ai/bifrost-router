@@ -64,8 +64,8 @@ const previewRoute = (overrides: Partial<KVRouteConfig> = {}): KVRouteConfig => 
   path: '/briefing',
   type: 'r2',
   target: FILE_KEY,
-  previewTitle: 'Harbour "briefing" <2026>',
-  previewDescription: 'Ports & harbours',
+  previewTitle: 'Quarterly "briefing" <2026>',
+  previewDescription: 'Facts & figures',
   previewImageBucket: 'assets',
   previewImageKey: 'previews/briefing card.jpg',
   previewImageWidth: 1200,
@@ -116,9 +116,9 @@ describe('link previews on file routes (v1.48.0)', () => {
       new TextEncoder().encode(body).byteLength,
     );
     expect(body).toContain(
-      '<meta property="og:title" content="Harbour &quot;briefing&quot; &lt;2026&gt;">',
+      '<meta property="og:title" content="Quarterly &quot;briefing&quot; &lt;2026&gt;">',
     );
-    expect(body).toContain('<meta property="og:description" content="Ports &amp; harbours">');
+    expect(body).toContain('<meta property="og:description" content="Facts &amp; figures">');
     expect(body).toContain('<meta property="og:url" content="https://example.com/briefing">');
     expect(body).not.toContain('og:site_name');
     expect(body).toContain(
@@ -391,8 +391,8 @@ describe('link previews on file routes (v1.48.0)', () => {
       platform: 'whatsapp',
     });
     expect(lines).not.toContain('briefing.pdf');
-    expect(lines).not.toContain('Harbour');
-    expect(lines).not.toContain('harbours');
+    expect(lines).not.toContain('Quarterly');
+    expect(lines).not.toContain('figures');
     expect(lines).not.toContain('visitor-query');
   });
 

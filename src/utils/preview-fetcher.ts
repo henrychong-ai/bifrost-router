@@ -16,8 +16,8 @@
  * a browser navigation (`Sec-Fetch-Mode: navigate` with
  * `Sec-Fetch-Dest: document`) always gets the file.
  *
- * List reviewed 24 November 2026 against each platform's documentation and
- * observed agents:
+ * List reviewed 24 November 2026 against each platform's published
+ * documentation and user-agent strings:
  * - Apple iMessage sends a Safari 9 string ending
  *   `facebookexternalhit/1.1 Facebot Twitterbot/1.0`; it matches on purpose,
  *   by that ending, before the browser-navigation rule.

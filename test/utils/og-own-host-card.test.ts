@@ -25,8 +25,8 @@ const fileRoute = (overrides: Partial<KVRouteConfig> = {}): KVRouteConfig => ({
   path: '/briefing',
   type: 'r2',
   target: 'previews-test/briefing.pdf',
-  previewTitle: 'Harbour briefing',
-  previewDescription: 'Ports & harbours',
+  previewTitle: 'Quarterly briefing',
+  previewDescription: 'Facts & figures',
   previewImageBucket: 'assets',
   previewImageKey: 'previews/card.png',
   previewImageWidth: 1200,
@@ -53,8 +53,8 @@ describe('own-host preview of an r2 route with a stored card', () => {
   it('shows the card fetchers receive: title, description and the image address', async () => {
     await seedRoute(fileRoute(), HOST);
     expect(await preview()).toEqual({
-      title: 'Harbour briefing',
-      description: 'Ports & harbours',
+      title: 'Quarterly briefing',
+      description: 'Facts & figures',
       image: 'https://assets.example.com/previews/card.png',
       siteName: null,
       url: PAGE_URL,

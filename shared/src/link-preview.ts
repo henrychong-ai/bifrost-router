@@ -1,6 +1,5 @@
 /**
- * Link previews for file routes (v1.48.0, ported from a sibling deployment of
- * the same design and adapted).
+ * Link previews for file routes (v1.48.0).
  *
  * An `r2` route may carry optional preview details: a title, a description,
  * an image (a JPEG or PNG in a bucket that has an R2 custom domain) and, for

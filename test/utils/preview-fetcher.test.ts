@@ -1,9 +1,9 @@
 /**
  * The link-preview fetcher detector (v1.48.0), against real user-agent
  * strings. Only the curated fetchers match; browsers, search engines, AI
- * crawlers, curl and in-app browsers keep receiving the file. Two real agents
- * carry a contact address; it is assembled when the table is built, so no
- * address is written out in this file (the public check scans tests too).
+ * crawlers, curl and in-app browsers keep receiving the file. Two agents
+ * carry a contact address, written here as an example-domain address; the
+ * detection keys on the product token, never on the address.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -17,9 +17,6 @@ const headers = (userAgent: string | null, extra: Record<string, string> = {}) =
   if (userAgent !== null) h.set('User-Agent', userAgent);
   return h;
 };
-
-/** A contact address inside a real agent, built from its two parts. */
-const address = (local: string, domain: string) => [local, domain].join('@');
 
 const FETCHERS: [string, string, string][] = [
   [
@@ -46,14 +43,10 @@ const FETCHERS: [string, string, string][] = [
   ['Telegram', 'TelegramBot (like TwitterBot)', 'telegram'],
   [
     'Teams',
-    `Mozilla/5.0 (Windows NT 6.1; WOW64) SkypeUriPreview Preview/0.5 ${address('skype-url-preview', 'microsoft.com')}`,
+    'Mozilla/5.0 (Windows NT 6.1; WOW64) SkypeUriPreview Preview/0.5 preview-bot@example.com',
     'teams',
   ],
-  [
-    'Bluesky',
-    `Mozilla/5.0 (compatible; Cardyb/1.1; +mailto:${address('support', 'bsky.app')})`,
-    'bluesky',
-  ],
+  ['Bluesky', 'Mozilla/5.0 (compatible; Cardyb/1.1; +mailto:preview-bot@example.com)', 'bluesky'],
   ['Mastodon', 'http.rb/5.1.1 (Mastodon/4.2.0; +https://mastodon.social/) Bot', 'mastodon'],
   [
     'Google Messages',

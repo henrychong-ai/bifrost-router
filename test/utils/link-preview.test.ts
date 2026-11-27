@@ -298,7 +298,7 @@ const hostile = [
   'Tom & Jerry <b>bold</b>',
   'line one\nline two\r\nthree',
   '‮evil.exe‬ العربية',
-  'Launch 🚀🇸🇬 👨‍👩‍👧',
+  'Launch 🚀✨ 👨‍👩‍👧',
   '</title><meta property="og:image" content="https://evil.example/x.png">',
 ];
 

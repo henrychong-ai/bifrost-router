@@ -115,8 +115,8 @@ describe('Route tool handlers', () => {
       target: 'docs/briefing.pdf',
       bucket: 'files',
       enabled: true,
-      previewTitle: 'Harbour briefing',
-      previewDescription: 'Ports and harbours',
+      previewTitle: 'Quarterly briefing',
+      previewDescription: 'Facts and figures',
       previewImageBucket: 'assets',
       previewImageKey: 'previews/card.png',
       previewImageWidth: 1200,
@@ -130,15 +130,15 @@ describe('Route tool handlers', () => {
     it('the list marks a route with a preview, with its title', async () => {
       vi.mocked(mockClient.listRoutes).mockResolvedValue([previewRoute, mockRoute]);
       const result = await listRoutes(mockClient, { domain: 'links.example.com' });
-      expect(result).toContain('docs/briefing.pdf [link preview: Harbour briefing]');
+      expect(result).toContain('docs/briefing.pdf [link preview: Quarterly briefing]');
       expect(result).not.toContain('example-user [link preview');
     });
 
     it('the details name every preview part, the measured size included', async () => {
       vi.mocked(mockClient.getRoute).mockResolvedValue(previewRoute);
       const result = await getRoute(mockClient, { path: '/briefing', domain: 'links.example.com' });
-      expect(result).toContain('Preview Title: Harbour briefing');
-      expect(result).toContain('Preview Description: Ports and harbours');
+      expect(result).toContain('Preview Title: Quarterly briefing');
+      expect(result).toContain('Preview Description: Facts and figures');
       expect(result).toContain('Preview Image: assets/previews/card.png (1200 x 630)');
       expect(result).toContain('Preview Video Size: 1920 x 1080');
     });

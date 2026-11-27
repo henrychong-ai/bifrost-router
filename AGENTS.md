@@ -519,8 +519,8 @@ fetched as before.
 
 ## Link previews for file routes (v1.48.0)
 
-Ported from a sibling deployment of the same design and adapted (single
-admin key, no private buckets, no serve modes). An `r2` route may carry
+The router has one admin key, so there are no per-bucket permissions, and a
+route serves one file unless its path is a wildcard. An `r2` route may carry
 `previewTitle`, `previewDescription`, `previewImageBucket` +
 `previewImageKey` and `previewVideoWidth` + `previewVideoHeight`. A
 recognised link-preview fetcher gets a small Open Graph document instead of
