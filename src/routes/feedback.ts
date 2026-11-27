@@ -413,9 +413,12 @@ feedbackRoutes.get('/export', async c => {
   const lines: string[] = ['# Feedback export', '', `> ${FEEDBACK_EXPORT_UNTRUSTED_NOTE}`, ''];
   if (truncated) lines.push(`> Note: capped at the first ${EXPORT_LIMIT} items.`, '');
   for (const it of items) {
-    lines.push(`## ${it.shortId} — ${markdownCodeSpan(it.title)}`);
+    // Every value is a literal, the short id, type, status and priority too:
+    // D1 holds them as unconstrained text, so a row written outside this API
+    // could put Markdown in any of them
+    lines.push(`## ${markdownCodeSpan(it.shortId)} — ${markdownCodeSpan(it.title)}`);
     lines.push(
-      `- type: ${it.type} | priority: ${formatFeedbackPriority(it.priority)} | status: ${it.status}`,
+      `- type: ${markdownCodeSpan(it.type)} | priority: ${markdownCodeSpan(formatFeedbackPriority(it.priority))} | status: ${markdownCodeSpan(it.status)}`,
     );
     lines.push(
       `- submitter: ${literalOrDash(it.submitterEmail)} | submitter name: ${literalOrDash(it.submitterName)}`,

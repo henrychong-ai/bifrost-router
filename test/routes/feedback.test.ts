@@ -407,7 +407,7 @@ describe('feedback API - auth + lifecycle', () => {
     // Outside the literals: the only headings are the document's and the item's
     // own, and no injected HTML, link, image or autolink remains.
     const headings = outside.filter(line => line.startsWith('#'));
-    expect(headings).toEqual(['# Feedback export', '## F-1 — ']);
+    expect(headings).toEqual(['# Feedback export', '##  — ']);
     const prose = outside.join('\n');
     for (const marker of ['<', '](', 'evil.example', 'F-999', 'F-998', '===', 'Injected']) {
       expect(prose).not.toContain(marker);
@@ -415,7 +415,7 @@ describe('feedback API - auth + lifecycle', () => {
 
     // Each single-line value is one code span holding the text as typed, with
     // its line breaks turned into spaces.
-    expect(body).toContain(`## F-1 — \`${title.replace('\n', ' ')}\``);
+    expect(body).toContain(`## \`F-1\` — \`${title.replace('\n', ' ')}\``);
     expect(body).toContain('- submitter: ``a`b <i>x</i>@example.com``');
     expect(body).toContain('- area: `ui # area heading [a](https://evil.example)`');
     expect(body).toContain('- linked PR: `https://example.com/pr/1 <b>bold</b>`');
@@ -487,11 +487,11 @@ describe('feedback API - auth + lifecycle', () => {
     }
     expect(outside.filter(line => line.startsWith('#'))).toEqual([
       '# Feedback export',
-      '## F-2 — ',
-      '## F-1 — ',
+      '##  — ',
+      '##  — ',
     ]);
-    expect(body).toContain('## F-2 — `bare item`');
-    expect(body).toContain('## F-1 — `full item`');
+    expect(body).toContain('## `F-2` — `bare item`');
+    expect(body).toContain('## `F-1` — `full item`');
   });
 
   // Every stored field (v1.47.0), each a labelled literal after the
@@ -571,6 +571,38 @@ describe('feedback API - auth + lifecycle', () => {
     for (const injected of ['<i>', '](', 'evil.example']) {
       expect(prose).not.toContain(injected);
     }
+  });
+
+  // The short id, type, status and priority are stored as unconstrained
+  // text in D1 (v1.47.0): a row written outside this API is exported with
+  // each of them as a literal too, never as Markdown
+  it("markdown export writes a malformed stored row's id, type, status and priority as literals", async () => {
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      `INSERT INTO feedback (id, short_id, type, status, title, description, context_json,
+         created_at, updated_at, priority)
+       VALUES (?1, ?2, ?3, ?4, 'seeded', 'seeded text', '{"url":"","timestamp":"x"}', ?5, ?5, ?6)`,
+    )
+      .bind(
+        'seeded-malformed-row',
+        '## F-996 [forged](https://evil.example)',
+        '<b>bug</b>\n# heading',
+        '![s](https://evil.example/s.png)',
+        now,
+        '<i>9</i>',
+      )
+      .run();
+    const res = await fetchSettled(jsonReq('GET', `${BASE_URL}/export?format=md`));
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    const { outside } = splitMarkdownLiterals(body);
+    const prose = outside.join('\n');
+    for (const marker of ['F-996', '](', 'evil.example', '<b>', '<i>', '# heading']) {
+      expect(prose).not.toContain(marker);
+    }
+    expect(outside.filter(line => line.startsWith('#'))).toEqual(['# Feedback export', '##  — ']);
+    expect(body).toContain('- type: `<b>bug</b> # heading` | priority: ');
+    expect(body).toContain('| status: `![s](https://evil.example/s.png)`');
   });
 
   it('markdown export writes an empty field as a dash', async () => {
