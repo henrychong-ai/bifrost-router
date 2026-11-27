@@ -427,6 +427,12 @@ function StorageEditDialog({
     bucket,
     object.key,
   );
+  // A route shows this object as its link-preview image (v1.48.0), also one
+  // that serves it too (`previewImage`, whose usage is 'file')
+  const usedAsPreviewImage =
+    associatedRoutes?.some(
+      route => route.usage === 'preview-image' || route.previewImage === true,
+    ) ?? false;
 
   // Reset the fields when the object changes (another object, or this one
   // refetched after a save), during render so no frame shows stale values.
@@ -642,7 +648,7 @@ function StorageEditDialog({
                       </Badge>
                       <span className="font-mono text-tiny text-charcoal-700">{route.path}</span>
                       <Badge variant="secondary" className="ml-auto font-inter text-tiny">
-                        {route.type}
+                        {route.usage === 'preview-image' ? 'preview image' : route.type}
                       </Badge>
                       <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-blue-700" />
                     </button>
@@ -650,7 +656,7 @@ function StorageEditDialog({
                 </div>
               ) : (
                 <p className="font-inter text-tiny text-muted-foreground">
-                  No routes serve this file
+                  No routes use this file
                 </p>
               )}
               <Button
@@ -701,6 +707,18 @@ function StorageEditDialog({
                   <p className="font-inter text-tiny text-muted-foreground">
                     Upload a new file keeping the same key. The URL will remain the same.
                   </p>
+                  {/* v1.48.0: warn before a file is picked; the server's refusal
+                      (STORE_PREVIEW_IMAGE_IN_USE) stays the final word */}
+                  {usedAsPreviewImage && (
+                    <p
+                      role="note"
+                      data-testid="replace-preview-image-warning"
+                      className="font-inter text-tiny text-amber-700"
+                    >
+                      A route uses this file as its link-preview image, so it cannot be replaced.
+                      Upload the new image under a new key and point the route at it.
+                    </p>
+                  )}
                   <Input
                     ref={replaceInputRef}
                     type="file"

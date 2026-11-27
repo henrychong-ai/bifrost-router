@@ -55,8 +55,17 @@ export type RedirectStatusCode = z.infer<typeof RedirectStatusCodeSchema>;
  */
 export type Route = StoredRoute & { domain?: string | undefined };
 
-/** A {@link Route} with the domain every by-target answer carries. */
-export type RouteWithDomain = Route & { domain: string };
+/**
+ * A {@link Route} with the domain every by-target answer carries, and how the
+ * route uses the object (v1.48.0): it serves it (`usage: 'file'`) or shows it
+ * as its link-preview image (`usage: 'preview-image'`); `previewImage: true`
+ * on every route showing it as its image, also one that serves it.
+ */
+export type RouteWithDomain = Route & {
+  domain: string;
+  usage?: 'file' | 'preview-image' | undefined;
+  previewImage?: true | undefined;
+};
 
 const routeOf = (requireDomain: boolean) =>
   z.unknown().transform((value, ctx): Route => {
@@ -107,12 +116,25 @@ export const CreateRouteSchema = z.object({
   forceDownload: z.boolean().optional(),
   bucket: R2BucketSchema.optional(),
   enabled: z.boolean().optional(),
+  // Link preview (v1.48.0): checked by the Worker
+  previewTitle: z.string().optional(),
+  previewDescription: z.string().optional(),
+  previewImageBucket: z.string().optional(),
+  previewImageKey: z.string().optional(),
+  previewVideoWidth: z.number().optional(),
+  previewVideoHeight: z.number().optional(),
 });
 export type CreateRouteInput = z.infer<typeof CreateRouteSchema>;
 
-export const UpdateRouteSchema = CreateRouteSchema.partial().omit({
-  path: true,
-});
+export const UpdateRouteSchema = CreateRouteSchema.partial()
+  .omit({
+    path: true,
+  })
+  .extend({
+    // An update clears a video size with null (v1.48.0)
+    previewVideoWidth: z.number().nullable().optional(),
+    previewVideoHeight: z.number().nullable().optional(),
+  });
 export type UpdateRouteInput = z.infer<typeof UpdateRouteSchema>;
 
 // =============================================================================

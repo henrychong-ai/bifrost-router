@@ -1,4 +1,4 @@
-import { r2ObjectId, routeR2ObjectId } from '@bifrost/shared';
+import { isPreviewImageBucket, r2ObjectId, routeR2ObjectId } from '@bifrost/shared';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import type { R2MetadataUpdate, StorageListParams } from '@/lib/api-client';
@@ -37,11 +37,22 @@ export function useStorageObjects(bucket: string, params?: StorageListParams) {
   });
 }
 
-export function useObjectMeta(bucket: string, key: string) {
+/**
+ * Read options a caller may narrow (v1.48.0): a read whose miss is expected,
+ * such as the route form's stored-type read, turns off retries and the
+ * refetch on window focus. Unset fields keep the client defaults.
+ */
+export interface ObjectMetaReadOptions {
+  retry?: boolean;
+  refetchOnWindowFocus?: boolean;
+}
+
+export function useObjectMeta(bucket: string, key: string, options: ObjectMetaReadOptions = {}) {
   return useQuery({
     queryKey: storageKeys.meta(bucket, key),
     queryFn: () => api.storage.getObjectMeta(bucket, key),
     enabled: !!bucket && !!key,
+    ...options,
   });
 }
 
@@ -143,7 +154,17 @@ export function useRoutesByTarget(bucket: string, target: string) {
   const select = useCallback(
     (rows: RouteWithDomain[]) => {
       const object = r2ObjectId(bucket, target);
-      return view.projectRows(rows, route => routeR2ObjectId(route) === object);
+      // A saved route still belongs here when it serves the object or shows
+      // it as its link-preview image (v1.48.0), the Worker's own two rules
+      return view.projectRows(
+        rows,
+        route =>
+          routeR2ObjectId(route) === object ||
+          (route.type === 'r2' &&
+            route.previewImageBucket === bucket &&
+            isPreviewImageBucket(bucket) &&
+            route.previewImageKey === target),
+      );
     },
     [view, bucket, target],
   );

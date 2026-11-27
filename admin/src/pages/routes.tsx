@@ -29,6 +29,7 @@ import { CredentialTargetDialog } from '@/components/credential-target-dialog';
 import { FieldHint, InfoHint } from '@/components/field-hint';
 import { LinkNamingWarnings } from '@/components/link-naming-warnings';
 import { LinkPreview } from '@/components/link-preview';
+import { LinkPreviewFields } from '@/components/link-preview-fields';
 import { PaginationControls } from '@/components/pagination-controls';
 import { QrPreview } from '@/components/qr-preview';
 import {
@@ -86,6 +87,7 @@ import {
   useDebounce,
   useDeleteRoute,
   useMigrateRoute,
+  useObjectMeta,
   usePendingRouteAdmission,
   usePendingRouteView,
   usePrefetchAllDomainRoutes,
@@ -98,13 +100,21 @@ import {
 import { isRouteSourceChanged, isUncertainAnswer } from '@/lib/api-error';
 import { getPersistedPageSize, getR2ObjectUrl, persistPageSize } from '@/lib/constants';
 import { credentialTargetParametersFromError } from '@/lib/credential-target';
+import { livePreviewCard, previewFileStatus } from '@/lib/live-preview-card';
 import { navEditRoute, useClearNavigationState } from '@/lib/navigation-state';
 import type { QrPageNavState } from '@/lib/qr-page-domain';
 import {
+  formAllowsPreview,
+  NEW_ROUTE_FORM_VALUES,
+  previewCreateFields,
+  previewFileIsImage,
+  previewFormBlocked,
+  previewFormErrors,
   type RouteFormValues,
   routeEditPatch,
   routeFormValues,
   routeTargetProblem,
+  storedContentTypeOf,
   toUpdateRouteInput,
   unappliedPatchFields,
   unsupportedPatchFields,
@@ -212,20 +222,7 @@ function RouteForm(props: RouteFormProps) {
   // (routeEditPatch), so an untouched field is never sent, whatever the
   // stored record holds.
   const [opened] = useState<RouteFormValues>(() =>
-    route
-      ? routeFormValues(route)
-      : {
-          type: 'redirect',
-          target: '',
-          statusCode: 302,
-          preserveQuery: true,
-          preservePath: false,
-          cacheControl: '',
-          hostHeader: '',
-          forceDownload: false,
-          bucket: 'files',
-          enabled: true,
-        },
+    route ? routeFormValues(route) : NEW_ROUTE_FORM_VALUES,
   );
   const [formData, setFormData] = useState({
     ...opened,
@@ -269,9 +266,12 @@ function RouteForm(props: RouteFormProps) {
       : routeTargetProblem(formData.type, finalTarget);
   // An edit's dirty fields, and any stored value no write accepts that they
   // would send (a status code or bucket kept through a type change)
+  // Link preview (v1.48.0): only on an r2 route that serves one file. An
+  // edit of a route that had one and can no longer carry it clears it
+  const previewAllowed = formAllowsPreview(formData);
   const editPatch =
     mode === 'edit' && finalTarget !== null
-      ? routeEditPatch(opened, { ...formData, target: finalTarget })
+      ? routeEditPatch(opened, { ...formData, target: finalTarget }, previewAllowed)
       : {};
   const unsupported = unsupportedPatchFields(editPatch);
   // Keys that will carry a value in the saved target (edited or kept from it).
@@ -319,10 +319,52 @@ function RouteForm(props: RouteFormProps) {
   const isR2Image = r2ContentType?.startsWith('image/') ?? false;
   const isR2Pdf = r2ContentType === 'application/pdf';
 
+  // Link-preview field errors (v1.48.0), judged only once a preview field
+  // changed in this dialog: the Update button and the submit handler share
+  // the one decision
+  const previewErrors = previewFormErrors(opened, formData, previewAllowed);
+  const previewBlocked = previewFormBlocked(opened, formData, previewAllowed);
+  // The file is judged as serving judges it: by its stored content type once
+  // read, else by its name. The bucket and key settle together (typing sends
+  // no request until both stop changing), the read is made only while the form
+  // allows a preview, and once: a missing file is expected while a key is typed
+  const livePreviewFile =
+    previewAllowed && formData.target && routeTargetProblem('r2', formData.target) === null
+      ? JSON.stringify([formData.bucket, formData.target])
+      : '';
+  const settledPreviewFile = useDebounce(livePreviewFile, 400);
+  const previewFileSettled = livePreviewFile !== '' && settledPreviewFile === livePreviewFile;
+  const previewFileMeta = useObjectMeta(
+    previewFileSettled ? formData.bucket : '',
+    previewFileSettled ? formData.target : '',
+    { retry: false, refetchOnWindowFocus: false },
+  );
+  // The read is unvalidated network data: only a non-empty string is a type
+  const storedContentType = previewFileSettled
+    ? storedContentTypeOf(previewFileMeta.data?.httpMetadata?.contentType)
+    : undefined;
+  const previewHost = route?.domain ?? formData.domain;
+  // The live card: what a save now would send, decided as the Worker decides
+  const previewCardDecision = livePreviewCard({
+    opened,
+    current: formData,
+    path: formData.path,
+    stored: mode === 'edit' ? route : undefined,
+    host: previewHost,
+    storedContentType,
+    fileStatus: previewFileStatus({
+      settled: previewFileSettled,
+      data: previewFileMeta.data,
+      error: previewFileMeta.error,
+    }),
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     // A target the type cannot serve: nothing is saved, the alert says why
     if (finalTarget === null || targetError !== null) return;
+    // A link-preview field error holds the save too (v1.48.0)
+    if (previewBlocked) return;
 
     if (mode === 'create') {
       onSubmit(
@@ -342,6 +384,7 @@ function RouteForm(props: RouteFormProps) {
           bucket:
             formData.type === 'r2' && isR2BucketName(formData.bucket) ? formData.bucket : undefined,
           enabled: formData.enabled,
+          ...previewCreateFields(formData, previewAllowed),
         },
         formData.domain,
       );
@@ -865,6 +908,19 @@ function RouteForm(props: RouteFormProps) {
               onCheckedChange={checked => setFormData({ ...formData, forceDownload: checked })}
             />
           </div>
+
+          {/* v1.48.0: link preview (single-file r2 routes only) */}
+          {previewAllowed && (
+            <LinkPreviewFields
+              values={formData}
+              // Functional update: never puts back values an earlier render held
+              onChange={patch => setFormData(current => ({ ...current, ...patch }))}
+              errors={previewErrors}
+              fileIsImage={previewFileIsImage(formData, storedContentType)}
+              card={previewCardDecision}
+              disabled={isSubmitting}
+            />
+          )}
         </>
       )}
 
@@ -925,7 +981,11 @@ function RouteForm(props: RouteFormProps) {
         <Button
           type="submit"
           disabled={
-            isSubmitting || finalTarget === null || targetError !== null || unsupported.length > 0
+            isSubmitting ||
+            finalTarget === null ||
+            targetError !== null ||
+            unsupported.length > 0 ||
+            previewBlocked
           }
           className="font-inter bg-blue-950 hover:bg-blue-900"
         >
