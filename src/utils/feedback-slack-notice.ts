@@ -6,9 +6,10 @@
  * turns the notice off again.
  *
  * The notice never delays or fails a submission: it is scheduled with
- * `waitUntil` before the 201 is returned and runs after the answer, the
- * request has a short timeout, and every failure is swallowed and logged as
- * one line with a fixed category, never the URL or an error's text.
+ * `waitUntil` without awaiting it (so it may start before the 201 is
+ * returned), the request has a short timeout, and every failure is swallowed
+ * and logged as one line with a fixed category, never the URL or an error's
+ * text.
  *
  * Feedback text is untrusted, so the message carries only values the server
  * sets: the short id, the type and the priority label. Never the title,
@@ -94,8 +95,8 @@ export async function sendFeedbackSlackNotice(
 }
 
 /**
- * Schedule the notice (with `waitUntil`, before the answer is returned; it
- * runs after the answer). An unset secret schedules nothing; a
+ * Schedule the notice with `waitUntil`, without awaiting it (it may start
+ * before the answer is returned). An unset secret schedules nothing; a
  * missing execution context (unit tests) skips it, as the audit write does.
  */
 export function scheduleFeedbackSlackNotice(c: Context<AppEnv>, item: NoticeItem): void {

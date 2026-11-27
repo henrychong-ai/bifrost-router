@@ -750,7 +750,7 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
               onChange={e => set({ text: e.target.value })}
             />
             <p id="qr-text-hint" className="text-xs text-muted-foreground">
-              Encoded exactly as typed, line breaks included.
+              Encoded as typed, line breaks included (saved as LF line breaks).
             </p>
           </div>
         )}

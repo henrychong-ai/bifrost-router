@@ -173,18 +173,20 @@ const BACKUP_ACTOR = { login: 'bifrost-scheduled-backup', name: 'Bifrost Schedul
 const FEEDBACK_ACTOR = { login: 'bifrost-feedback-pipeline', name: 'Bifrost Feedback Pipeline' };
 
 /**
- * Atomically record the event: fingerprint + audit row in one D1 batch (both
- * or neither — a redelivered event can neither double-insert nor be lost).
- *
- * @returns true if recorded, false if the fingerprint already existed
- *          (duplicate delivery — safe to ack). Other errors propagate.
- */
-/**
  * What {@link recordEventRow} did: wrote the audit row (with its id, v1.47.0,
  * when D1 reports one) or found the event already recorded.
  */
 type RecordedRow = { recorded: true; auditId: number | undefined } | { recorded: false };
 
+/**
+ * Atomically record the event: fingerprint + audit row in one D1 batch (both
+ * or neither — a redelivered event can neither double-insert nor be lost).
+ *
+ * @returns `{ recorded: true, auditId }` when it wrote the row (`auditId` the
+ *          row's id when D1 reports one), or `{ recorded: false }` when the
+ *          fingerprint already existed (duplicate delivery — safe to ack).
+ *          Other errors propagate.
+ */
 async function recordEventRow(
   db: ReturnType<typeof createDb>,
   fingerprint: string,

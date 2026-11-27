@@ -35,10 +35,25 @@ function formatRelativeTime(timestamp: number): string {
 /**
  * Format analytics summary for display
  */
+/**
+ * The filters the summary applied (v1.47.0), from the answer itself, or
+ * `null` when none narrowed it (the period and domain have their own lines).
+ */
+function appliedFilters(filters: AnalyticsSummary['filters'] | undefined): string | null {
+  if (!filters) return null;
+  const applied: string[] = [];
+  if (filters.country) applied.push(`country ${filters.country}`);
+  if (filters.search) applied.push(`search "${filters.search}"`);
+  if (filters.includeMonitoring) applied.push('monitoring traffic included');
+  return applied.length > 0 ? applied.join(', ') : null;
+}
+
 function formatAnalyticsSummary(summary: AnalyticsSummary): string {
+  const filters = appliedFilters(summary.filters);
   const lines = [
     `Analytics Summary (${summary.period})`,
     `Domain: ${summary.domain}`,
+    ...(filters ? [`Filters: ${filters}`] : []),
     '',
     '📊 Overview',
     `• Total Clicks: ${formatNumber(summary.clicks.total)}`,

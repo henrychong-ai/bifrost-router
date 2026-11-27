@@ -255,6 +255,21 @@ describe('Analytics tool handlers', () => {
       });
     });
 
+    it('names the filters the summary applied, and none when none did (v1.47.0)', async () => {
+      vi.mocked(mockClient.getAnalyticsSummary).mockResolvedValue({
+        ...mockSummary,
+        filters: { days: 7, country: 'SG', search: 'promo', includeMonitoring: true },
+      });
+      const filtered = await getAnalyticsSummary(mockClient, { domain: 'links.example.com' });
+      expect(filtered).toContain(
+        'Filters: country SG, search "promo", monitoring traffic included',
+      );
+
+      vi.mocked(mockClient.getAnalyticsSummary).mockResolvedValue(mockSummary);
+      const plain = await getAnalyticsSummary(mockClient, { domain: 'links.example.com' });
+      expect(plain).not.toContain('Filters:');
+    });
+
     it('returns formatted analytics summary', async () => {
       vi.mocked(mockClient.getAnalyticsSummary).mockResolvedValue(mockSummary);
 

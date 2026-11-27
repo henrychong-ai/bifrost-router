@@ -1494,11 +1494,13 @@ components:
     AnalyticsSearchQuery:
       name: search
       in: query
-      description: Case-insensitive search across domains, paths, targets, and referrers
+      description: >-
+        Case-insensitive search across domains, paths, targets, and referrers.
+        Leading and trailing spaces are trimmed first; the trimmed value may be
+        at most 500 characters (ANALYTICS_SUMMARY_SEARCH_MAX_LENGTH), else 400
       required: false
       schema:
         type: string
-        maxLength: 500
     IncludeMonitoringQuery:
       name: includeMonitoring
       in: query
