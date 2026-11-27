@@ -57,6 +57,8 @@
     ],
     "unicorn/no-null": "off",
     "react/react-in-jsx-scope": "off",
+    "react/set-state-in-effect": "error",
+    "react/exhaustive-effect-dependencies": "error",
     "no-underscore-dangle": [
       "error",
       {
