@@ -45,6 +45,8 @@ vi.mock('@/hooks', () => ({
   useDeleteRoute: () => ({ mutateAsync: state.remove, isPending: false }),
   useToggleRoute: () => ({ mutateAsync: vi.fn<() => Promise<void>>(), isPending: false }),
   useMigrateRoute: () => ({ mutateAsync: state.migrate, isPending: false }),
+  // The route form's read of an r2 file for its link preview (v1.48.0): unconfirmed
+  useObjectMeta: () => ({ data: undefined, error: null }),
   useTransferRoute: () => ({ mutateAsync: vi.fn<() => Promise<void>>(), isPending: false }),
   useCreateQr: () => ({ mutateAsync: vi.fn<() => Promise<void>>(), isPending: false }),
   useQrCodes: () => ({ data: undefined }),

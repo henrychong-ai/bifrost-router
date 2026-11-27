@@ -12,7 +12,7 @@
  * rendered against the dashboard's store, with the API client mocked.
  */
 import type * as SharedModule from '@bifrost/shared';
-import { parseSearchQuery } from '@bifrost/shared';
+import { parseSearchQuery, R2_BUCKET_CUSTOM_DOMAINS } from '@bifrost/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -784,6 +784,31 @@ describe('the route queries show their cached listing through the store', () => 
     await act(async () => pendingRoutes.markGone(keyOfInput(HC, '/talk')));
     expect(listed.current.page).toEqual([]);
     expect(listed.current.search).toEqual([]);
+  });
+
+  it('a by-target answer keeps an own write that shows the object as its preview image (v1.48.0)', async () => {
+    const saved = structuredClone(R2_BUCKET_CUSTOM_DOMAINS);
+    Object.assign(R2_BUCKET_CUSTOM_DOMAINS, { assets: ['assets.example.com'] });
+    try {
+      const image = { previewImageBucket: 'assets', previewImageKey: 'previews/a.png' };
+      const shown = {
+        ...route({ type: 'r2', target: 'a.pdf', previewTitle: 'T', ...image, updatedAt: 5 }),
+        domain: HC,
+        usage: 'preview-image' as const,
+      };
+      client.setQueryData(routeKeys.byTarget('assets', 'previews/a.png'), [shown]);
+      const listed = await renderHook(() => useRoutesByTarget('assets', 'previews/a.png').data);
+      const renamed = { ...shown, previewTitle: 'Renamed', updatedAt: 6 };
+      await act(async () => pendingRoutes.observe(renamed));
+      expect(listed.current).toEqual([renamed]);
+      // An own write that dropped the image leaves the object's answer
+      const dropped = { ...renamed, previewImageBucket: undefined, previewImageKey: undefined };
+      await act(async () => pendingRoutes.observe(dropped));
+      expect(listed.current).toEqual([]);
+    } finally {
+      for (const key of Object.keys(R2_BUCKET_CUSTOM_DOMAINS)) delete R2_BUCKET_CUSTOM_DOMAINS[key];
+      Object.assign(R2_BUCKET_CUSTOM_DOMAINS, saved);
+    }
   });
 
   it('the write hooks install the options: a toggle through the hook lands in the dashboard store', async () => {

@@ -9,6 +9,17 @@
 import { MAX_ROUTE_TARGET_LENGTH } from '@bifrost/shared';
 import { describe, expect, it } from 'vitest';
 import {
+  formAllowsPreview,
+  NEW_ROUTE_FORM_VALUES,
+  PREVIEW_DIMENSION_INVALID,
+  PREVIEW_IMAGE_INCOMPLETE,
+  PREVIEW_TITLE_NEEDED,
+  PREVIEW_VIDEO_PAIR_NEEDED,
+  parsePreviewDimension,
+  previewCreateFields,
+  previewFileIsImage,
+  previewFormBlocked,
+  previewFormErrors,
   type RouteFormValues,
   routeEditPatch,
   routeFormValues,
@@ -213,5 +224,172 @@ describe('unappliedPatchFields: a migrate answer that ignored the patch (v1.38.0
   it('counts an applied patch, and a cleared field the route no longer holds, as applied', () => {
     expect(unappliedPatchFields({ statusCode: 302, cacheControl: '' }, moved)).toEqual([]);
     expect(unappliedPatchFields({ cacheControl: '' }, { ...moved, cacheControl: '' })).toEqual([]);
+  });
+});
+
+const previewFile: Route = {
+  path: '/report',
+  type: 'r2',
+  target: 'docs/report.pdf',
+  bucket: 'files',
+  enabled: true,
+  domain: 'links.example.com',
+  createdAt: 1,
+  updatedAt: 1,
+};
+const withPreview: Route = {
+  ...previewFile,
+  previewTitle: 'Title',
+  previewDescription: 'Description',
+  previewImageBucket: 'assets',
+  previewImageKey: 'previews/a.png',
+  previewImageWidth: 1200,
+  previewImageHeight: 630,
+  previewVideoWidth: 1920,
+  previewVideoHeight: 1080,
+};
+/** The update a dialog opened on `route` sends after `edit` (and a new `path`). */
+const sent = (route: Route, edit: Partial<RouteFormValues> = {}, path = route.path) => {
+  const opened = routeFormValues(route);
+  const final = { ...opened, ...edit };
+  return toUpdateRouteInput(
+    routeEditPatch(opened, final, formAllowsPreview({ type: final.type, path })),
+  );
+};
+const errorsOf = (route: Route | undefined, edit: Partial<RouteFormValues>) => {
+  const opened = route ? routeFormValues(route) : { ...NEW_ROUTE_FORM_VALUES, type: 'r2' as const };
+  const current = { ...opened, ...edit };
+  const allowed = formAllowsPreview({ type: current.type, path: route?.path ?? '/new' });
+  return {
+    errors: previewFormErrors(opened, current, allowed),
+    blocked: previewFormBlocked(opened, current, allowed),
+  };
+};
+
+describe('link-preview fields in the route form (v1.48.0)', () => {
+  it('the form shows the stored fields, sizes as text; a new form has them blank', () => {
+    expect(routeFormValues(withPreview)).toMatchObject({
+      previewTitle: 'Title',
+      previewImageBucket: 'assets',
+      previewVideoWidth: '1920',
+      previewVideoHeight: '1080',
+    });
+    expect(NEW_ROUTE_FORM_VALUES).toMatchObject({ previewTitle: '', previewVideoWidth: '' });
+  });
+
+  it('an untouched edit sends no preview field', () => {
+    expect(sent(withPreview)).toEqual({});
+  });
+
+  it('an edit sends only the changed field; a cleared field as empty text or null', () => {
+    expect(sent(withPreview, { previewDescription: '' })).toEqual({ previewDescription: '' });
+    expect(sent(withPreview, { previewVideoWidth: '', previewVideoHeight: '' })).toEqual({
+      previewVideoWidth: null,
+      previewVideoHeight: null,
+    });
+    expect(sent(withPreview, { previewVideoWidth: '1280' })).toEqual({ previewVideoWidth: 1280 });
+    expect(sent(previewFile, { previewTitle: 'New' })).toEqual({ previewTitle: 'New' });
+  });
+
+  it('a route that can no longer carry its preview clears it with an empty title', () => {
+    expect(sent(withPreview, { type: 'redirect', target: 'https://example.com' })).toMatchObject({
+      previewTitle: '',
+    });
+    expect(sent(withPreview, {}, '/reports/*')).toMatchObject({ previewTitle: '' });
+    // A route that never had a preview sends nothing for it
+    expect(
+      sent(previewFile, { type: 'redirect', target: 'https://example.com' }),
+    ).not.toHaveProperty('previewTitle');
+  });
+
+  it('blanking the stored title sends only the empty title, and is always allowed', () => {
+    expect(sent(withPreview, { previewTitle: '  ', previewDescription: 'kept?' })).toEqual({
+      previewTitle: '',
+    });
+    expect(errorsOf(withPreview, { previewTitle: '' }).blocked).toBe(false);
+  });
+
+  it('only a single-file r2 form can carry a preview; sizes parse as whole numbers', () => {
+    expect(formAllowsPreview({ type: 'r2', path: '/a' })).toBe(true);
+    expect(formAllowsPreview({ type: 'r2', path: '/docs/*' })).toBe(false);
+    expect(formAllowsPreview({ type: 'redirect', path: '/a' })).toBe(false);
+    expect(parsePreviewDimension(' 640 ')).toBe(640);
+    for (const text of ['', '0', '1.5', '-3', '1e3', '99999']) {
+      expect(parsePreviewDimension(text)).toBeNull();
+    }
+  });
+
+  it('a create sends only the fields that hold a value, and nothing without a title', () => {
+    const form: RouteFormValues = {
+      ...NEW_ROUTE_FORM_VALUES,
+      type: 'r2',
+      target: 'docs/report.pdf',
+      previewTitle: 'Report',
+      previewImageBucket: 'assets',
+      previewImageKey: 'previews/r.png',
+      previewVideoWidth: '640',
+      previewVideoHeight: '360',
+    };
+    expect(previewCreateFields(form, true)).toEqual({
+      previewTitle: 'Report',
+      previewImageBucket: 'assets',
+      previewImageKey: 'previews/r.png',
+      previewVideoWidth: 640,
+      previewVideoHeight: 360,
+    });
+    expect(previewCreateFields({ ...form, previewTitle: ' ' }, true)).toEqual({});
+    expect(previewCreateFields(form, false)).toEqual({});
+  });
+
+  it('field errors block saving; stored values left as they were never do', () => {
+    expect(errorsOf(undefined, { previewDescription: 'Words' }).errors.title).toBe(
+      PREVIEW_TITLE_NEEDED,
+    );
+    expect(
+      errorsOf(undefined, { previewTitle: 'T', previewImageBucket: 'assets' }).errors.image,
+    ).toBe(PREVIEW_IMAGE_INCOMPLETE);
+    const halfVideo = errorsOf(undefined, { previewTitle: 'T', previewVideoWidth: '640' });
+    expect(halfVideo.errors).toMatchObject({
+      videoWidth: null,
+      videoHeight: PREVIEW_VIDEO_PAIR_NEEDED,
+    });
+    expect(halfVideo.blocked).toBe(true);
+    expect(
+      errorsOf(undefined, { previewTitle: 'T', previewVideoWidth: 'wide', previewVideoHeight: '1' })
+        .errors.videoWidth,
+    ).toBe(PREVIEW_DIMENSION_INVALID);
+    // An off-shape stored preview, untouched: no error, nothing sent
+    const offShape: Route = { ...previewFile, previewDescription: 'orphan text' };
+    expect(errorsOf(offShape, { cacheControl: 'no-store' }).blocked).toBe(false);
+    expect(sent(offShape, { cacheControl: 'no-store' })).toEqual({ cacheControl: 'no-store' });
+  });
+
+  it('erasing the image key keeps the bucket, and is the image error until a key is typed', () => {
+    expect(errorsOf(withPreview, { previewImageKey: '' }).errors.image).toBe(
+      PREVIEW_IMAGE_INCOMPLETE,
+    );
+    expect(sent(withPreview, { previewImageKey: 'previews/b.png' })).toEqual({
+      previewImageKey: 'previews/b.png',
+    });
+  });
+
+  it('the file is judged an image by its stored type first, else by its name', () => {
+    const form = { type: 'r2', path: '/a', target: 'docs/a' };
+    expect(previewFileIsImage(form, 'image/png')).toBe(true);
+    expect(previewFileIsImage({ ...form, target: 'docs/a.png' }, 'video/mp4')).toBe(false);
+    expect(previewFileIsImage({ ...form, target: 'docs/a.png' }, undefined)).toBe(true);
+    // A stored type that is not a non-empty string falls back to the name
+    expect(previewFileIsImage({ ...form, target: 'docs/a.png' }, 42)).toBe(true);
+    // A route refused a card for another reason is not called an image
+    expect(previewFileIsImage({ ...form, path: '/a/*', target: 'docs/a.png' }, undefined)).toBe(
+      false,
+    );
+  });
+
+  it('a migrate answer that cleared the preview counts the cleared title as applied', () => {
+    expect(unappliedPatchFields({ previewTitle: '' }, previewFile)).toEqual([]);
+    expect(unappliedPatchFields({ previewTitle: '' }, withPreview)).toEqual(['previewTitle']);
+    expect(unappliedPatchFields({ previewTitle: ' Title ' }, withPreview)).toEqual([]);
+    expect(unappliedPatchFields({ previewVideoWidth: null }, previewFile)).toEqual([]);
   });
 });

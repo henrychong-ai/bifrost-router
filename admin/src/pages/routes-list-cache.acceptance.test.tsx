@@ -89,6 +89,8 @@ vi.mock('@/hooks', async () => {
     useDeleteRoute: write(hooks.deleteRouteMutationOptions, state.remove),
     useToggleRoute: write(hooks.toggleRouteMutationOptions, state.toggle),
     useMigrateRoute: write(hooks.migrateRouteMutationOptions, state.migrate),
+    // The route form's read of an r2 file for its link preview (v1.48.0): unconfirmed
+    useObjectMeta: () => ({ data: undefined, error: null }),
     useTransferRoute: idle,
     useCreateQr: idle,
     useQrCodes: () => ({ data: undefined }),
