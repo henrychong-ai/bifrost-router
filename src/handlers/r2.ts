@@ -1,9 +1,12 @@
-import { getContentTypeFromKey } from '@bifrost/shared';
+import { getContentTypeFromKey, isCardEligibleFile, type ServablePreview } from '@bifrost/shared';
 import type { Context } from 'hono';
 import type { AppEnv, Bindings, KVRouteConfig } from '../types';
 import { BUCKET_BINDINGS, isValidR2Bucket } from '../types';
 import { errorName } from '../utils/error-name';
+import { buildLinkPreviewDocument, routeServablePreview } from '../utils/link-preview';
+import { renderLinkPreviewHtml } from '../utils/link-preview-html';
 import { validateR2Key } from '../utils/path-validation';
+import { detectPreviewFetcher } from '../utils/preview-fetcher';
 
 /**
  * Cache status header name
@@ -294,7 +297,8 @@ export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promis
   // Get bucket name from route config, default to "files"
   // Stored config is not trusted to hold a known bucket until it is validated.
   const bucketName: string = route.bucket ?? 'files';
-  const domain = new URL(c.req.url).hostname;
+  const requestUrl = new URL(c.req.url);
+  const domain = requestUrl.hostname;
 
   // Validate bucket name. The stored name is any string the record holds (the
   // stored-route guard checks only its type), so neither the log line nor the
@@ -357,6 +361,41 @@ export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promis
   // ever ported.
   c.set('servedR2Key', validation.sanitizedKey);
 
+  // LINK PREVIEW (v1.48.0): a recognised link-preview fetcher asking for a
+  // file a card may be given for (`isCardEligibleFile`: an r2 route that
+  // serves one file, not a wildcard route, and not an image) whose route
+  // holds a servable preview (`routeServablePreview`: today's rules, applied
+  // at serve time) gets the preview document instead of the file. After the
+  // method check, BEFORE the cache lookup and any Range or conditional
+  // handling, so a fetcher is never answered from the cached file and the
+  // document is never cached. When the branch's `head` finds no object, or
+  // fails, the request goes on as anyone's would, with the cache read and
+  // write skipped (never a stale cached copy of a deleted file). Every other
+  // request (a person, a browser navigation, a route without a servable
+  // preview) continues below unchanged. The fetcher test comes first: it
+  // reads two headers, while the stored preview's validation re-sanitises its
+  // text and checks the image key, so an ordinary visitor pays only for the
+  // header read. All three tests are pure, so the order changes no answer.
+  let skipCache = false;
+  const platform = route.previewTitle ? detectPreviewFetcher(c.req.raw.headers) : null;
+  if (platform) {
+    const preview = routeServablePreview(route);
+    if (preview && isCardEligibleFile(route, '')) {
+      const answer = await linkPreviewResponse(
+        c,
+        route,
+        preview,
+        bucket,
+        validation.sanitizedKey,
+        platform,
+        requestUrl,
+        logFields,
+      );
+      if (answer instanceof Response) return answer;
+      skipCache = answer === 'uncached';
+    }
+  }
+
   const requestHeaders = c.req.raw.headers;
   const method = c.req.method;
   // Range is defined for GET only (RFC 9110 §14.2), so the `range` option is
@@ -380,7 +419,7 @@ export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promis
   // ignore Range and never produce a 304.
   const cache = caches.default;
   let cacheKey: Request | null = null;
-  if (!hasRangeHeader && !conditionalRequested) {
+  if (!hasRangeHeader && !conditionalRequested && !skipCache) {
     cacheKey = new Request(c.req.url, { method: 'GET' });
 
     const cachedResponse = await cache.match(cacheKey);
@@ -663,4 +702,81 @@ function shouldForceDownload(contentType: string): boolean {
   ];
 
   return downloadTypes.includes(contentType);
+}
+
+// =============================================================================
+// Link preview (v1.48.0)
+// =============================================================================
+
+/**
+ * The preview document for a fetcher, or how the file path continues:
+ * `'uncached'` when the `head` finds no object or fails (the ordinary path
+ * answers, its 404 for a missing object, without the cache), `'file'` when
+ * the file may not have a card (an image: it previews as itself). GET and
+ * HEAD get the same status and headers; `Range` and the conditional headers
+ * are ignored (fetchers need a 200 `text/html`). `no-store` and no
+ * `cache.put`: the edge cache keys on the URL alone, so a cached document
+ * would reach people. `Vary: User-Agent` tells other caches the answer
+ * depends on the agent. No `Content-Disposition`. The log lines name the
+ * domain, the route path, the bucket and the platform (`servingLogFields`),
+ * never the key.
+ */
+async function linkPreviewResponse(
+  c: Context<AppEnv>,
+  route: KVRouteConfig,
+  servable: ServablePreview,
+  bucket: R2Bucket,
+  key: string,
+  platform: string,
+  requestUrl: URL,
+  logFields: ReturnType<typeof servingLogFields>,
+): Promise<Response | 'uncached' | 'file'> {
+  let object: R2Object | null;
+  try {
+    object = await bucket.head(key);
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        message: 'R2 link preview head failed — serving the file path',
+        ...logFields,
+        errorName: errorName(error),
+      }),
+    );
+    return 'uncached';
+  }
+  if (!object) return 'uncached';
+  const contentType =
+    object.httpMetadata?.contentType || getContentTypeFromKey(key) || 'application/octet-stream';
+  if (!isCardEligibleFile(route, contentType)) return 'file';
+  const preview = buildLinkPreviewDocument(
+    servable,
+    route.bucket ?? 'files',
+    requestUrl,
+    key,
+    contentType,
+  );
+
+  const body = new TextEncoder().encode(renderLinkPreviewHtml(preview));
+  // The catch-all records no file download for this response
+  c.set('linkPreviewPlatform', platform);
+  console.log(
+    JSON.stringify({
+      level: 'info',
+      message: 'R2 link preview',
+      ...logFields,
+      platform,
+    }),
+  );
+  // A HEAD gets the same headers; the runtime sends no body for it
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Length': String(body.byteLength),
+      'Cache-Control': 'no-store',
+      'X-Robots-Tag': 'noindex, nofollow',
+      Vary: 'User-Agent',
+    },
+  });
 }

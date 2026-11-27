@@ -48,6 +48,12 @@ export async function purgeR2CacheForObject(
   bucket: string,
   key: string,
   cfApiToken?: string,
+  /**
+   * The routes serving the object, when the caller has already listed them
+   * (v1.48.0: a storage write's preview-image check lists them before the
+   * write): no second scan of the route namespace in the same invocation
+   */
+  servingRoutes?: ReadonlyArray<{ domain: string; path: string }>,
 ): Promise<ObjectPurgeResult> {
   // Step 1: Collect all URLs that need purging
   const urlsWithZones: { url: string; zoneId: string }[] = [];
@@ -68,21 +74,27 @@ export async function purgeR2CacheForObject(
   // A failed route listing must not cost the URLs that need no KV (v1.38.0):
   // the custom-domain URLs are still purged, and the result says that the
   // route discovery was incomplete instead of skipping every purge.
-  let routes: Awaited<ReturnType<typeof findRoutesByR2Target>> = [];
+  let routes: ReadonlyArray<{ domain: string; path: string }> = servingRoutes ?? [];
   let routeDiscoveryComplete = true;
-  try {
-    routes = await findRoutesByR2Target(kv, bucket, key);
-  } catch (error) {
-    routeDiscoveryComplete = false;
-    console.error(
-      JSON.stringify({
-        level: 'error',
-        message: ROUTE_DISCOVERY_INCOMPLETE,
-        // The bucket, never the object key (v1.47.0)
-        bucket,
-        errorName: errorName(error),
-      }),
-    );
+  if (!servingRoutes) {
+    try {
+      // Only routes that SERVE the object: a route that shows it as its
+      // link-preview image (v1.48.0) serves another file at its URL
+      routes = (await findRoutesByR2Target(kv, bucket, key)).filter(
+        route => route.usage === 'file',
+      );
+    } catch (error) {
+      routeDiscoveryComplete = false;
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          message: ROUTE_DISCOVERY_INCOMPLETE,
+          // The bucket, never the object key (v1.47.0)
+          bucket,
+          errorName: errorName(error),
+        }),
+      );
+    }
   }
   for (const route of routes) {
     if (route.path.includes('*')) {

@@ -1,7 +1,15 @@
 import { isStoredRoute as isStoredRouteShape } from '@bifrost/shared';
+import { KV_BULK_GET_MAX_KEYS } from '../backup/kv';
 import type { KVRouteConfig } from '../types';
-import { type BoundaryRead, guard, logInvalidBoundary, readKvJson } from '../utils/boundary';
-import { isRouteKey } from './schema';
+import {
+  type BoundaryRead,
+  guard,
+  logInvalidBoundary,
+  readKvJson,
+  readStoredJson,
+} from '../utils/boundary';
+import { errorName } from '../utils/error-name';
+import { fitsKvKey, isRouteKey } from './schema';
 
 /**
  * Stored route records, validated on every read (v1.38.0).
@@ -88,4 +96,76 @@ export async function readRouteState(
   const read = await readStoredRoute(kv, key);
   if (read.status === 'invalid') logInvalidRoute(key);
   return read;
+}
+
+/**
+ * Many stored routes by their exact KV keys (v1.48.0): what
+ * {@link readRouteState} gives for each key, read in bulk, one KV operation
+ * per KV_BULK_GET_MAX_KEYS (100) keys instead of one per key, the reading the
+ * backup uses (`src/backup/kv.ts`). KV allows 1,000 operations per
+ * invocation and counts a bulk read as one, so a route scan of about 1,000
+ * routes no longer fails for that reason. Each value goes through the same
+ * boundary check (`readStoredJson` with the stored-route guard), an invalid
+ * record is logged once with the same line, and a key over 512 bytes is
+ * `missing` without a read. The map holds every key asked for.
+ *
+ * A bulk call that fails for any reason (KV answers 413 when one call's
+ * values add up to more than 25 MB, which large old records can reach) is
+ * retried for that chunk one key at a time, through {@link readRouteState}
+ * itself: such a chunk costs 1 + its keys, never less than before bulk reads,
+ * and a KV error on a single read is thrown unchanged, exactly as before.
+ */
+export async function readRouteStates(
+  kv: KVNamespace,
+  keys: readonly string[],
+): Promise<Map<string, BoundaryRead<KVRouteConfig>>> {
+  const reads = new Map<string, BoundaryRead<KVRouteConfig>>();
+  const readable: string[] = [];
+  for (const key of keys) {
+    if (fitsKvKey(key)) readable.push(key);
+    else reads.set(key, { status: 'missing' });
+  }
+  const chunks: string[][] = [];
+  for (let start = 0; start < readable.length; start += KV_BULK_GET_MAX_KEYS) {
+    chunks.push(readable.slice(start, start + KV_BULK_GET_MAX_KEYS));
+  }
+  const results = await Promise.all(chunks.map(chunk => readRouteChunk(kv, chunk)));
+  for (const result of results) {
+    for (const [key, read] of result) reads.set(key, read);
+  }
+  return reads;
+}
+
+/** One chunk of {@link readRouteStates}: one bulk call, else one read per key. */
+async function readRouteChunk(
+  kv: KVNamespace,
+  chunk: readonly string[],
+): Promise<Array<[string, BoundaryRead<KVRouteConfig>]>> {
+  let texts: Map<string, string | null>;
+  try {
+    texts = await kv.get([...chunk], 'text');
+  } catch (error) {
+    // The class and the chunk size only: never a key or the error's text
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        message: 'route-bulk-read-fallback',
+        errorName: errorName(error),
+        keys: chunk.length,
+      }),
+    );
+    return Promise.all(
+      chunk.map(
+        async (key): Promise<[string, BoundaryRead<KVRouteConfig>]> => [
+          key,
+          await readRouteState(kv, key),
+        ],
+      ),
+    );
+  }
+  return chunk.map(key => {
+    const read = readStoredJson(texts.get(key), storedRoute);
+    if (read.status === 'invalid') logInvalidRoute(key);
+    return [key, read];
+  });
 }

@@ -432,9 +432,16 @@ describe('listAllDomainRoutes', () => {
     });
     const failing = {
       list: (options?: KVNamespaceListOptions) => env.ROUTES.list(options),
-      get: async (key: string, type?: 'text') => {
-        if (key === routeKey(domain2, '/flaky')) throw new Error('KV unavailable');
-        return env.ROUTES.get(key, type ?? 'text');
+      // A bulk read naming the key fails too (v1.48.0: scans read 100 keys at
+      // a time, then retry a failed chunk one key at a time)
+      get: async (key: string | string[], type?: 'text') => {
+        const flaky = routeKey(domain2, '/flaky');
+        if (key === flaky || (Array.isArray(key) && key.includes(flaky))) {
+          throw new Error('KV unavailable');
+        }
+        return Array.isArray(key)
+          ? env.ROUTES.get(key, type ?? 'text')
+          : env.ROUTES.get(key, type ?? 'text');
       },
     } as unknown as KVNamespace;
     await expect(listAllDomainRoutes(failing)).rejects.toBeInstanceOf(KVReadError);

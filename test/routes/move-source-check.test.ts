@@ -47,11 +47,15 @@ function scriptedRoutes(onRead: (key: string, count: number) => Promise<void>): 
   const kv = new Proxy(env.ROUTES, {
     get(target, property) {
       if (property === 'get') {
-        return async (key: string, ...rest: unknown[]) => {
-          const count = (counts.get(key) ?? 0) + 1;
-          counts.set(key, count);
-          reads.push(key);
-          await onRead(key, count);
+        // A bulk read (v1.48.0: route scans read 100 keys at a time) counts
+        // as one read of each key it names
+        return async (key: string | string[], ...rest: unknown[]) => {
+          for (const each of Array.isArray(key) ? key : [key]) {
+            const count = (counts.get(each) ?? 0) + 1;
+            counts.set(each, count);
+            reads.push(each);
+            await onRead(each, count);
+          }
           return Reflect.apply(target.get, target, [key, ...rest]);
         };
       }

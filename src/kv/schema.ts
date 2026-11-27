@@ -2,6 +2,9 @@ import {
   ExistingRoutePathSchema,
   MAX_ROUTE_KEY_BYTES,
   NewRoutePathSchema,
+  previewCreateVideoShape,
+  previewInputShape,
+  previewUpdateVideoShape,
   RouteCacheControlSchema,
   RouteHostHeaderSchema,
   RouteTargetSchema,
@@ -123,6 +126,13 @@ export const RouteConfigSchema = z.object({
     .describe('R2 bucket for file serving (R2 only, default: "files")'),
 
   enabled: z.boolean().optional().default(true).describe('Enable/disable route'),
+
+  // Link-preview fields (v1.48.0): bounded raw text, an image bucket with a
+  // custom domain, a video size; the image's pixel size is never accepted
+  // (the Worker reads it from the image). Sanitised and checked against the
+  // preview rules by the write paths (`normalizeNewPreview`, `previewRuleError`)
+  ...previewInputShape,
+  ...previewCreateVideoShape,
 });
 
 /**
@@ -151,6 +161,8 @@ export const UpdateRouteSchema = RouteConfigSchema.partial()
       .optional()
       .describe('Force browser to download instead of display inline (R2 only)'),
     enabled: z.boolean().optional().describe('Enable/disable route'),
+    // An update clears a video size with `null` (v1.48.0)
+    ...previewUpdateVideoShape,
     // The route being updated EXISTS: migrate checks its new path with
     // NewRoutePathSchema before it merges the patch under that path
     path: ExistingRoutePathSchema.describe('URL path pattern starting with /'),

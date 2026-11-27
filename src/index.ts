@@ -97,7 +97,12 @@ export function scheduleUnifiedTrafficEvent(
       responseBytes,
       cacheStatus: boundedUnifiedCacheStatus(response.headers.get(CACHE_STATUS_HEADER)),
       country: boundedUnifiedCountry(cf?.country),
-      trafficClass: classifyUnifiedTraffic(path, c.req.header('user-agent')),
+      // A link-preview document went to a recognised fetcher (v1.48.0): always
+      // automation, whatever its agent looks like (no new class: the traffic
+      // table's CHECK constraint would need a rebuild)
+      trafficClass: c.get('linkPreviewPlatform')
+        ? 'automation'
+        : classifyUnifiedTraffic(path, c.req.header('user-agent')),
       latencyMs: boundedUnifiedLatencyMs(performance.now() - startedAt),
     }),
   );
@@ -448,8 +453,13 @@ app.all('*', async c => {
   // Track R2 routes (file downloads). Gate: GET + status 200 only —
   // `response.ok` also matched 206 (one row per byte-range slice) and a HEAD
   // probe (headers only, no bytes), and a 304 transfers nothing. See
-  // shouldRecordFileDownload().
-  if (shouldRecordFileDownload(route, response.status, c.req.method)) {
+  // shouldRecordFileDownload(). A link-preview document (v1.48.0, set by
+  // handleR2) is not a download either: the fetcher received a card, not the
+  // file.
+  if (
+    !c.get('linkPreviewPlatform') &&
+    shouldRecordFileDownload(route, response.status, c.req.method)
+  ) {
     // Extract file metadata from response headers
     const contentType = response.headers.get('Content-Type') || undefined;
     const contentLength = response.headers.get('Content-Length');

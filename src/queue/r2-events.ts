@@ -3,7 +3,14 @@ import { BACKUP_BUCKET_NAME, BACKUP_DAILY_PREFIX } from '../backup/constants';
 import { createDb } from '../db';
 import { insertedRowId } from '../db/inserted-row-id';
 import { auditLogs, r2EventCorrelations, r2EventSeen } from '../db/schema';
-import type { Bindings } from '../types';
+import { type KVRouteConfigWithDomain, scanRoutesByKey } from '../kv/routes';
+import {
+  defaultImageDomainsUsingObject,
+  mayHoldPreviewImage,
+  measureStoredImage,
+  objectRouteUses,
+} from '../routes/route-preview-image';
+import { type Bindings, BUCKET_BINDINGS, isValidR2Bucket } from '../types';
 import { guard, isOptional, isRecord, isString, readStoredJson } from '../utils/boundary';
 import { errorName } from '../utils/error-name';
 
@@ -336,12 +343,162 @@ async function processFeedbackEvent(
   );
 }
 
+/** The route namespace, scanned at most once per batch (v1.48.0). */
+type RouteScan = () => Promise<KVRouteConfigWithDomain[]>;
+
+/** A scan made on first use and shared by every later use (a failure too). */
+function lazyRouteScan(kv: KVNamespace): RouteScan {
+  let scan: Promise<KVRouteConfigWithDomain[]> | undefined;
+  return () => {
+    scan ??= scanRoutesByKey(kv);
+    return scan;
+  };
+}
+
+/**
+ * What an external event's audit row says about the preview-image check
+ * (v1.48.0), fixed fields and counts only, never a key or a route path:
+ * - `{ checked: false }`: the check could not run (a KV, R2 or D1 failure, or
+ *   an unbound bucket); the row is recorded all the same;
+ * - every `checked: true` row carries `defaults`: how many domains' default
+ *   card images (`PREVIEW_DEFAULT_IMAGES`) are the object;
+ * - `{ checked: true, routes: 0, defaults }`: no route shows the object as
+ *   its link-preview image;
+ * - a delete, `{ checked: true, routes }`: `routes` routes now show a missing
+ *   image (nothing to measure);
+ * - a create, `{ checked: true, routes, measured: true, sizeDiffers, unsized }`:
+ *   of the `routes` routes that show it, `sizeDiffers` stored a pixel size
+ *   other than the new object's and `unsized` stored none (not counted in
+ *   `sizeDiffers`);
+ * - a create, `{ checked: true, routes, measured: false }`: routes show it,
+ *   but the new object cannot be measured as a preview image (gone, over
+ *   600,000 bytes, or not a JPEG or PNG): every such route's card is stale;
+ * - a create, `{ checked: true, routes, measured: false, superseded: true }`:
+ *   the key now holds a later object than the event's (its ETag differs), so
+ *   this row cannot say; the later event's row does. An event with no ETag
+ *   records `measured: false` with no `superseded` field.
+ */
+type PreviewImageCheck =
+  | { checked: false }
+  | {
+      checked: true;
+      routes: number;
+      defaults: number;
+      measured?: boolean;
+      sizeDiffers?: number;
+      unsized?: number;
+      superseded?: true;
+    };
+
+/** Whether this event's fingerprint is already recorded (a redelivery). */
+async function alreadyRecorded(
+  db: ReturnType<typeof createDb>,
+  fingerprint: string,
+): Promise<boolean> {
+  const rows = await db
+    .select({ fingerprint: r2EventSeen.fingerprint })
+    .from(r2EventSeen)
+    .where(eq(r2EventSeen.fingerprint, fingerprint))
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
+ * The preview-image check of an external event (v1.48.0): an object written
+ * or deleted directly in Cloudflare bypasses the refusal of an overwrite or a
+ * delete, so the row records whether a route shows it as its link-preview
+ * image and, for a create, whether the route's stored pixel size still
+ * matches. Only for a bucket that can hold a preview image (`undefined`
+ * elsewhere: no field), and not for a redelivery (its fingerprint is already
+ * recorded, so the row is a duplicate: `undefined`, no scan). It never
+ * throws: a failure is recorded as `{ checked: false }`, so the event's row
+ * is never lost or delayed by it.
+ *
+ * The event names the bucket R2 holds; route records name the binding's
+ * bucket name, so the check runs where the two agree (production's names in
+ * `wrangler.toml`). A development environment whose buckets are named
+ * differently (`files-dev`) gets no field.
+ *
+ * Cost, external events in preview-capable buckets only (Bifrost's own writes
+ * are correlated first and never reach this): one D1 read of the
+ * fingerprint; the route scan (one KV list per 1,000 keys and one bulk read
+ * per 100 route keys), made at most once per batch and shared by its events;
+ * and, for a create a route names, one R2 `get` of at most 600,000 bytes (a
+ * larger body is cancelled unread).
+ */
+async function externalPreviewImageCheck(
+  env: Bindings,
+  db: ReturnType<typeof createDb>,
+  fingerprint: string,
+  event: R2EventMessage,
+  kind: EventKind,
+  routeScan: RouteScan,
+): Promise<PreviewImageCheck | undefined> {
+  const bucket = event.bucket;
+  if (!isValidR2Bucket(bucket) || !mayHoldPreviewImage(bucket)) return undefined;
+  try {
+    if (await alreadyRecorded(db, fingerprint)) return undefined;
+    const routes = objectRouteUses(await routeScan(), bucket, event.object.key).previewImage;
+    // Domains whose default card image is the object: counted, never named
+    const defaults = defaultImageDomainsUsingObject(bucket, event.object.key).length;
+    if (routes.length === 0) return { checked: true, routes: 0, defaults };
+    if (kind === 'delete') return { checked: true, routes: routes.length, defaults };
+    const binding = env[BUCKET_BINDINGS[bucket]];
+    if (!binding) return { checked: false };
+    // The object the event names, by its ETag: a later write to the key
+    // before this event was consumed answers `superseded`, and this row's
+    // size check cannot be made (a later event's row carries it). With no
+    // ETag the stored object cannot be tied to the event: `measured: false`,
+    // and no `superseded` field (unknown, not claimed)
+    const eTag = event.object.eTag;
+    if (!eTag) return { checked: true, routes: routes.length, defaults, measured: false };
+    const size = await measureStoredImage(binding, event.object.key, eTag);
+    if (size === 'superseded') {
+      return { checked: true, routes: routes.length, defaults, measured: false, superseded: true };
+    }
+    if (typeof size === 'string' || 'reason' in size) {
+      return { checked: true, routes: routes.length, defaults, measured: false };
+    }
+    const sized = routes.filter(
+      route =>
+        typeof route.previewImageWidth === 'number' && typeof route.previewImageHeight === 'number',
+    );
+    const sizeDiffers = sized.filter(
+      route => route.previewImageWidth !== size.width || route.previewImageHeight !== size.height,
+    ).length;
+    return {
+      checked: true,
+      routes: routes.length,
+      defaults,
+      measured: true,
+      sizeDiffers,
+      unsized: routes.length - sized.length,
+    };
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        message: 'r2-event-preview-check-not-run',
+        // The class only, never the message (a KV error names a route key)
+        errorName: errorName(error),
+        bucket,
+      }),
+    );
+    return { checked: false };
+  }
+}
+
 /**
  * Process one R2 event. Throws on transient failures (D1 errors) so the queue
  * retries and eventually dead-letters — a swallowed failure here would
  * permanently lose an audit event.
  */
-async function processEvent(env: Bindings, event: R2EventMessage): Promise<void> {
+async function processEvent(
+  env: Bindings,
+  event: R2EventMessage,
+  /** The batch's one route scan (`lazyRouteScan`, v1.48.0) */
+  routeScan: RouteScan = lazyRouteScan(env.ROUTES),
+): Promise<void> {
   const kind = event?.action ? eventKindOf(event.action) : null;
   // One gate for every later line (v1.39.0): a known action, a valid bucket
   // name and a string key within R2's limit, or the message is malformed
@@ -363,8 +520,19 @@ async function processEvent(env: Bindings, event: R2EventMessage): Promise<void>
   // meaningless without a timestamp) instead of burning retries on NaN params.
   const eventTimeMs = Date.parse(event.eventTime ?? '');
   if (Number.isNaN(eventTimeMs)) {
+    const previewImage = await externalPreviewImageCheck(
+      env,
+      db,
+      fingerprint,
+      event,
+      kind,
+      routeScan,
+    );
     const row = await recordEventRow(db, fingerprint, {
-      ...eventAuditValues(event, kind, EXTERNAL_ACTOR, { malformedEventTime: true }),
+      ...eventAuditValues(event, kind, EXTERNAL_ACTOR, {
+        malformedEventTime: true,
+        ...(previewImage && { previewImage }),
+      }),
     });
     logOutcome(event, 'r2-event-external', row);
     return;
@@ -395,7 +563,21 @@ async function processEvent(env: Bindings, event: R2EventMessage): Promise<void>
     return;
   }
 
-  const row = await recordEventRow(db, fingerprint, eventAuditValues(event, kind, EXTERNAL_ACTOR));
+  // An external create or delete (v1.48.0): does a route show the object as
+  // its link-preview image?
+  const previewImage = await externalPreviewImageCheck(
+    env,
+    db,
+    fingerprint,
+    event,
+    kind,
+    routeScan,
+  );
+  const row = await recordEventRow(
+    db,
+    fingerprint,
+    eventAuditValues(event, kind, EXTERNAL_ACTOR, previewImage && { previewImage }),
+  );
   logOutcome(event, 'r2-event-external', row);
 }
 
@@ -507,10 +689,12 @@ export async function handleR2EventBatch(
 
   const db = createDb(env.DB);
   await pruneMarkers(db);
+  // One route scan for the whole batch, made only if an event needs it
+  const routeScan = lazyRouteScan(env.ROUTES);
 
   for (const message of batch.messages) {
     try {
-      await processEvent(env, message.body);
+      await processEvent(env, message.body, routeScan);
       message.ack();
     } catch (error) {
       console.error(
@@ -533,5 +717,7 @@ export const _internal = {
   rowExplainsEvent,
   claimCorrelation,
   processEvent,
+  externalPreviewImageCheck,
+  lazyRouteScan,
   CORRELATION_WINDOW_SECS,
 };

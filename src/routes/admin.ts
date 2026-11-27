@@ -2,7 +2,9 @@ import {
   canonicalJson,
   ExistingRoutePathSchema,
   type InvalidRouteRow,
+  isWildcardRoutePath,
   NewRoutePathSchema,
+  previewRuleError,
   ROUTE_WRITE_MAX_BYTES,
   RoutesListQuerySchema,
   searchAndRankRoutes,
@@ -15,7 +17,9 @@ import type { AuditAction } from '../db/analytics';
 import { recordAuditLog } from '../db/analytics';
 import { CHANGELOG_MARKDOWN } from '../generated/changelog-text';
 import { normalizePath } from '../kv/lookup';
+import { normalizeNewPreview, patchAppliesPreviewRules } from '../kv/route-preview';
 import {
+  applyRoutePatch,
   assertRouteKeyFits,
   createRoute,
   deleteRoute,
@@ -24,32 +28,33 @@ import {
   getRouteAtExactKey,
   InvalidStoredRouteError,
   listAllDomainRoutes,
-  listDomainRoutes,
   mergeRoutePatch,
   migrateRoute,
+  type NewRouteRecord,
   presentRoute,
   ROUTE_CHANGED_DURING_EDIT_MESSAGE,
+  type RoutePatch,
   RouteSourceChangedError,
   recoverInvalidRoute,
+  routeAtKeyPath,
   type SeedResult,
   SeedWriteFailure,
+  scanRoutes,
   seedRoutes,
   serializeStoredRoute,
   transferRoute,
   updateRoute,
 } from '../kv/routes';
 import {
-  type CreateRouteInput,
   CreateRouteSchema,
   routeKey,
   SCHEMA_VERSION,
   TransferRouteRequestSchema,
-  type UpdateRouteInput,
   UpdateRouteSchema,
 } from '../kv/schema';
 import { ADMIN_API_CORS_ORIGINS, cors } from '../middleware/cors';
 import type { AppEnv, KVRouteConfig } from '../types';
-import { isValidDomain, SUPPORTED_DOMAINS } from '../types';
+import { ALL_BUCKET_BINDINGS, isValidDomain, SUPPORTED_DOMAINS } from '../types';
 import { servesAdminApi } from '../utils/admin-host';
 import { isRecord } from '../utils/boundary';
 import { purgeRouteUrl } from '../utils/cache';
@@ -71,6 +76,11 @@ import {
   getDomainOrDefaultFromRequest,
   getRequiredDomainFromRequest,
 } from './request-context';
+import {
+  isPreviewImageRefusal,
+  patchTouchesPreviewImage,
+  previewImageSizeForWrite,
+} from './route-preview-image';
 import { storageRoutes } from './storage';
 
 /**
@@ -246,6 +256,39 @@ class SeedCredentialRefusal extends Error {
   }
 }
 
+/** One seed entry's refusal, in the shape of the validation answer's `details`. */
+interface SeedEntryRefusal {
+  path: string;
+  issues: Array<{ code: 'custom'; message: string; path: [] }>;
+}
+
+/**
+ * The link-preview refusals of the entries a seed was about to create
+ * (v1.48.0): the preview rules, or a preview image that is missing, too large
+ * or not a JPEG or PNG. Thrown from seedRoutes' check before any write; every
+ * refused entry is listed against its path, and the handler answers 400 as
+ * for any other entry that fails validation.
+ */
+class SeedPreviewRefusal extends Error {
+  constructor(readonly details: SeedEntryRefusal[]) {
+    super('Some seeded routes have a link preview that is refused');
+    this.name = 'SeedPreviewRefusal';
+  }
+}
+
+/** The preview image a seed entry names, as one comparable id, or null for none. */
+function seedImageId(route: NewRouteRecord): string | null {
+  return route.previewImageBucket && route.previewImageKey
+    ? `${route.previewImageBucket}\u0000${route.previewImageKey}`
+    : null;
+}
+
+/** A seed entry's refusal text as a validation issue. */
+const seedEntryRefusal = (path: string, message: string): SeedEntryRefusal => ({
+  path,
+  issues: [{ code: 'custom', message, path: [] }],
+});
+
 /**
  * The raw request body's acknowledgement flag. Read from the RAW body on
  * purpose: the stored-shape schemas do not carry it, so Zod strips it on parse
@@ -418,9 +461,19 @@ adminRoutes.get('/routes', async c => {
   // own status (never by a field of a record, which a readable record may
   // hold): each is listed as a minimal row (`{ domain, path, invalid: true }`,
   // v1.38.0), after the readable routes, so it can be found and deleted.
-  const listing = domain
-    ? await listDomainRoutes(c.env.ROUTES, domain)
-    : await listAllDomainRoutes(c.env.ROUTES);
+  // Each route is named by the path of its KV key, where it is served
+  // (v1.48.0), never by the record's own `path` field, which a record written
+  // outside the API could hold differently
+  const scan = await scanRoutes(c.env.ROUTES, domain || undefined);
+  const listing: {
+    routes: Array<KVRouteConfig & { domain?: string }>;
+    invalid: InvalidRouteRow[];
+  } = {
+    routes: scan.routes.map(entry =>
+      domain ? routeAtKeyPath(entry) : { ...routeAtKeyPath(entry), domain: entry.domain },
+    ),
+    invalid: scan.invalid,
+  };
 
   // Newest first (v1.38.0), so pages follow the order the dashboard shows. A
   // search keeps only its matches, ordered by relevance (exact path, path
@@ -528,28 +581,41 @@ adminRoutes.post('/routes', routeWriteBodyLimit, async c => {
     );
   }
 
+  // Link-preview fields (v1.48.0) as they will be stored (sanitised, empty
+  // values dropped), so the rules below check the record that is written
+  const input = normalizeNewPreview(result.data);
+  const previewRefusal = previewRuleError(input);
+  if (previewRefusal) return c.json({ success: false, error: previewRefusal }, 400);
+
   // Credential-shaped target guard. After validation and before the existence
   // check: a refusal must not disclose whether the path is already taken.
-  const credentialParams = credentialTargetParameters(result.data);
+  const credentialParams = credentialTargetParameters(input);
   if (credentialParams.length > 0 && !readCredentialAcknowledgement(body)) {
     return c.json(credentialTargetRefusal(credentialParams, 'This route target'), 400);
   }
 
   // Check if route already exists. A stored record that cannot be read is
   // present too: never overwritten, 409 ROUTE_RECORD_INVALID (v1.38.0)
-  const existing = await getRoute(c.env.ROUTES, domain, result.data.path);
+  const existing = await getRoute(c.env.ROUTES, domain, input.path);
   if (existing.status === 'invalid') throw new InvalidStoredRouteError();
   if (existing.status === 'ok') {
     return c.json(
       {
         success: false,
-        error: `Route already exists: ${result.data.path}`,
+        error: `Route already exists: ${input.path}`,
       },
       409,
     );
   }
 
-  const route = await createRoute(c.env.ROUTES, domain, result.data);
+  // The preview image (v1.48.0): read from its bucket, a JPEG or PNG within
+  // the size limit; its pixel size is stored, never a client's
+  const imageSize = await previewImageSizeForWrite(c.env, input, true);
+  if (isPreviewImageRefusal(imageSize)) {
+    return c.json({ success: false, error: imageSize.error }, 400);
+  }
+
+  const route = await createRoute(c.env.ROUTES, domain, { ...input, ...imageSize });
 
   // Record audit log (non-blocking) - only if executionCtx is available
   try {
@@ -560,7 +626,7 @@ adminRoutes.post('/routes', routeWriteBodyLimit, async c => {
         action: 'create',
         actorLogin: actor.login,
         actorName: actor.name,
-        path: result.data.path,
+        path: input.path,
         details: JSON.stringify({
           route,
           // Names only, never values — the operator overrode the guard and the
@@ -577,7 +643,7 @@ adminRoutes.post('/routes', routeWriteBodyLimit, async c => {
   }
 
   // A create can land on a URL that previously 404'd or served a deleted route.
-  purgeRouteUrlIfR2(c, route, domain, result.data.path);
+  purgeRouteUrlIfR2(c, route, domain, input.path);
 
   return c.json(
     {
@@ -665,10 +731,19 @@ adminRoutes.put('/routes', routeWriteBodyLimit, async c => {
     throw new RouteSourceChangedError(ROUTE_CHANGED_DURING_EDIT_MESSAGE);
   }
 
+  // The effective record is the patch applied as it will be written
+  // (applyRoutePatch: link-preview fields sanitised and cleared, v1.48.0).
+  // The preview rules apply when the patch touches the preview or the type:
+  // stored preview data never refuses an unrelated edit
+  const effectiveRoute = applyRoutePatch(beforeRoute, result.data);
+  if (patchAppliesPreviewRules(result.data)) {
+    const previewRefusal = previewRuleError(effectiveRoute);
+    if (previewRefusal) return c.json({ success: false, error: previewRefusal }, 400);
+  }
+
   // Credential-shaped target guard — on the EFFECTIVE post-update route, so a
   // patch that leaves a credential target in place, or a re-enable of a stored
   // one, is guarded exactly like a fresh target.
-  const effectiveRoute = { ...beforeRoute, ...result.data };
   const credentialParams = credentialTargetParameters(effectiveRoute);
   if (credentialParams.length > 0 && !readCredentialAcknowledgement(body)) {
     return c.json(
@@ -680,11 +755,27 @@ adminRoutes.put('/routes', routeWriteBodyLimit, async c => {
     );
   }
 
+  // A patch that names the preview image has it measured again (v1.48.0)
+  const imageSize = await previewImageSizeForWrite(
+    c.env,
+    effectiveRoute,
+    patchTouchesPreviewImage(result.data),
+  );
+  if (isPreviewImageRefusal(imageSize)) {
+    return c.json({ success: false, error: imageSize.error }, 400);
+  }
+
   // The record checked above is the one written (v1.39.0): a route that has
   // changed since that read is refused with 409 ROUTE_SOURCE_CHANGED, never
   // merged, and one deleted since is 404, never recreated (best effort; see
   // updateRoute)
-  const route = await updateRoute(c.env.ROUTES, domain, path, result.data, beforeRoute);
+  const route = await updateRoute(
+    c.env.ROUTES,
+    domain,
+    path,
+    { ...result.data, ...imageSize },
+    beforeRoute,
+  );
 
   if (!route) {
     throw new HTTPException(404, { message: `Route not found: ${path}` });
@@ -989,14 +1080,16 @@ adminRoutes.post('/routes/seed', routeWriteBodyLimit, async c => {
   }
 
   // Validate all routes
-  const validRoutes: CreateRouteInput[] = [];
+  const validRoutes: NewRouteRecord[] = [];
   const errors = [];
 
   const submitted: unknown[] = body['routes'];
   for (const route of submitted) {
     const result = CreateRouteSchema.safeParse(route);
     if (result.success) {
-      validRoutes.push(result.data);
+      // Link-preview fields as they will be stored (v1.48.0); the preview
+      // rules and images are checked on the entries seed will create only
+      validRoutes.push(normalizeNewPreview(result.data));
     } else {
       // A seed entry may be `null` or a primitive, which has no path to report.
       errors.push({
@@ -1038,6 +1131,48 @@ adminRoutes.post('/routes/seed', routeWriteBodyLimit, async c => {
       if (names.length > 0) paths.push(route.path);
     }
     if (parameters.size > 0) throw new SeedCredentialRefusal([...parameters], paths);
+  };
+
+  // The checks on exactly the entries the seed will create (seedRoutes hands
+  // them over after its existence reads, before any write), in order: the
+  // link-preview rules (v1.48.0; a skipped entry never refuses the batch for
+  // its preview), the credential acknowledgement, then each preview image,
+  // measured once per distinct bucket and key, in parallel, its size shared
+  // by every route naming it. Every refused rule or image is listed against
+  // the route naming it; nothing is written. The answer is the records to
+  // write, each image's measured size added
+  const checkWrites = async (toWrite: NewRouteRecord[]): Promise<NewRouteRecord[]> => {
+    const ruleRefusals = toWrite.flatMap(route => {
+      const refusal = previewRuleError(route);
+      return refusal ? [seedEntryRefusal(route.path, refusal)] : [];
+    });
+    if (ruleRefusals.length > 0) throw new SeedPreviewRefusal(ruleRefusals);
+    checkCredentialTargets(toWrite);
+
+    const distinct = new Map<string, NewRouteRecord>();
+    for (const route of toWrite) {
+      const id = seedImageId(route);
+      if (id && !distinct.has(id)) distinct.set(id, route);
+    }
+    const measured = new Map(
+      await Promise.all(
+        [...distinct].map(
+          async ([id, route]) => [id, await previewImageSizeForWrite(c.env, route, true)] as const,
+        ),
+      ),
+    );
+    const imageRefusals: SeedEntryRefusal[] = [];
+    const prepared = toWrite.map(route => {
+      const id = seedImageId(route);
+      const size = id ? measured.get(id) : undefined;
+      if (isPreviewImageRefusal(size)) {
+        imageRefusals.push(seedEntryRefusal(route.path, size.error));
+        return route;
+      }
+      return size ? { ...route, ...size } : route;
+    });
+    if (imageRefusals.length > 0) throw new SeedPreviewRefusal(imageRefusals);
+    return prepared;
   };
 
   // The seed audit row (v1.47.0): what the seed changed, not what it was
@@ -1082,14 +1217,22 @@ adminRoutes.post('/routes/seed', routeWriteBodyLimit, async c => {
 
   // A refusal before any write records nothing. A write that failed part-way
   // records what was written, then answers with the original error, as before
-  const result = await seedRoutes(c.env.ROUTES, domain, validRoutes, checkCredentialTargets).catch(
+  const result = await seedRoutes(c.env.ROUTES, domain, validRoutes, checkWrites).catch(
     (error: unknown) => {
-      if (error instanceof SeedCredentialRefusal) return error;
+      if (error instanceof SeedCredentialRefusal || error instanceof SeedPreviewRefusal) {
+        return error;
+      }
       if (!(error instanceof SeedWriteFailure)) throw error;
       recordSeed(error.partial, true);
       throw error.error;
     },
   );
+  if (result instanceof SeedPreviewRefusal) {
+    return c.json(
+      { success: false, error: 'Some routes failed validation', details: result.details },
+      400,
+    );
+  }
   if (result instanceof SeedCredentialRefusal) {
     return c.json(
       {
@@ -1170,7 +1313,7 @@ adminRoutes.post('/routes/migrate', routeWriteBodyLimit, async c => {
   // schema) moves the record unedited, as before: no credential guard, no
   // patch in the audit row.
   const rawBody = await c.req.text();
-  let patch: Omit<UpdateRouteInput, 'path'> | undefined;
+  let patch: RoutePatch | undefined;
   let acknowledged = false;
   // The client precondition (v1.40.0), as on PUT: checked against the source
   let expectedUpdatedAt: number | undefined;
@@ -1214,6 +1357,16 @@ adminRoutes.post('/routes/migrate', routeWriteBodyLimit, async c => {
     throw new RouteSourceChangedError();
   }
 
+  // The link-preview rules (v1.48.0) on the EFFECTIVE moved record, before
+  // anything moves: when the patch touches the preview or the type, as an
+  // update checks them, and on every move to a wildcard path, where no
+  // preview may be (a route with no preview passes)
+  const effectiveRoute = { ...applyRoutePatch(source, patch ?? {}), path: normalizePath(newPath) };
+  if ((patch && patchAppliesPreviewRules(patch)) || isWildcardRoutePath(effectiveRoute.path)) {
+    const previewRefusal = previewRuleError(effectiveRoute);
+    if (previewRefusal) return c.json({ success: false, error: previewRefusal }, 400);
+  }
+
   let credentialParams: string[] = [];
   if (patch) {
     // As an update guards it: the EFFECTIVE moved record, before anything moves
@@ -1229,6 +1382,16 @@ adminRoutes.post('/routes/migrate', routeWriteBodyLimit, async c => {
         400,
       );
     }
+    // Changes that name the preview image have it measured (v1.48.0)
+    const imageSize = await previewImageSizeForWrite(
+      c.env,
+      effectiveRoute,
+      patchTouchesPreviewImage(patch),
+    );
+    if (isPreviewImageRefusal(imageSize)) {
+      return c.json({ success: false, error: imageSize.error }, 400);
+    }
+    if (imageSize) patch = { ...patch, ...imageSize };
   }
 
   try {
@@ -1646,10 +1809,14 @@ function withoutDomainField(value: object): Record<string, unknown> {
 /**
  * GET /api/routes/by-target - Find routes by R2 target
  *
- * Returns all R2-type routes pointing to a specific object.
+ * Returns all R2-type routes that use a specific object: serving it, or
+ * showing it as their link-preview image (v1.48.0), labelled by `usage`, with
+ * `previewImage: true` on every route that shows it as its link-preview
+ * image (also one that serves it). Each route is named by the domain and
+ * path of its KV key.
  *
  * Query parameters:
- * - bucket: R2 bucket name (required)
+ * - bucket: a storage bucket name (required; any other name is a 400)
  * - target: R2 object key (required)
  */
 adminRoutes.get('/routes/by-target', async c => {
@@ -1661,6 +1828,10 @@ adminRoutes.get('/routes/by-target', async c => {
   }
   if (!target) {
     return c.json({ success: false, error: 'target query parameter is required' }, 400);
+  }
+  // A storage bucket only (v1.48.0): no route can use an object elsewhere
+  if (!Object.hasOwn(ALL_BUCKET_BINDINGS, bucket)) {
+    return c.json({ success: false, error: 'bucket is not a storage bucket' }, 400);
   }
 
   const routes = await findRoutesByR2Target(c.env.ROUTES, bucket, target);

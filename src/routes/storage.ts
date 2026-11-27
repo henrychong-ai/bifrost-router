@@ -28,6 +28,7 @@ import { ALL_BUCKET_BINDINGS } from '../types';
 import { purgeR2CacheForObject } from '../utils/cache';
 import { errorName } from '../utils/error-name';
 import { validateR2Key } from '../utils/path-validation';
+import { checkPreviewImageNotInUse } from './route-preview-image';
 
 const DEFAULT_R2_COPY_SIZE_LIMIT_MB = 100;
 
@@ -116,6 +117,27 @@ async function parseJsonBody<T>(c: Context<AppEnv>, schema: ZodType<T>, what: st
 
 export const storageRoutes = new Hono<AppEnv>();
 
+/**
+ * The R2 `put` condition "only if no object exists at the key" (v1.48.0): the
+ * RFC 7232 `If-None-Match: *` header, which R2's `onlyIf` accepts (every
+ * conditional header but `If-Range`). A failed condition makes `put` answer
+ * `null` and store nothing. A fresh `Headers` each call: one is never shared
+ * between writes.
+ */
+function createOnly(): Headers {
+  return new Headers({ 'If-None-Match': '*' });
+}
+
+/**
+ * The plain upload conflict (v1.48.0: with the code `STORE_OBJECT_EXISTS`
+ * beside the unchanged text, so a client can tell it from the preview-image
+ * refusal): the key holds an object and the upload does not overwrite, or
+ * another writer created it while this upload ran.
+ */
+function objectExistsRefusal(key: string) {
+  return { success: false, error: `Object already exists: ${key}`, code: 'STORE_OBJECT_EXISTS' };
+}
+
 // GET /buckets - List all R2 buckets
 /**
  * Fire-and-forget edge-cache purge for one object key.
@@ -129,10 +151,26 @@ export const storageRoutes = new Hono<AppEnv>();
  * API failure must never take the mutation's response down with it — it is
  * logged and swallowed.
  */
-function purgeObjectCache(c: Context<AppEnv>, bucket: string, key: string): void {
+function purgeObjectCache(
+  c: Context<AppEnv>,
+  bucket: string,
+  key: string,
+  /**
+   * The routes serving the object, when the write has already listed them
+   * (v1.48.0: the preview-image check's scan), so the purge does not scan
+   * the route namespace a second time
+   */
+  servingRoutes?: ReadonlyArray<{ domain: string; path: string }>,
+): void {
   try {
     c.executionCtx.waitUntil(
-      purgeR2CacheForObject(c.env.ROUTES, bucket, key, c.env.CLOUDFLARE_API_TOKEN).catch(error => {
+      purgeR2CacheForObject(
+        c.env.ROUTES,
+        bucket,
+        key,
+        c.env.CLOUDFLARE_API_TOKEN,
+        servingRoutes,
+      ).catch(error => {
         console.error(
           JSON.stringify({
             level: 'error',
@@ -424,15 +462,40 @@ storageRoutes.post('/:bucket/upload', async c => {
 
   const existing = await bucket.head(validation.sanitizedKey);
   if (existing && !overwrite) {
-    return c.json(
-      { success: false, error: `Object already exists: ${validation.sanitizedKey}` },
-      409,
-    );
+    return c.json(objectExistsRefusal(validation.sanitizedKey), 409);
   }
 
+  // v1.48.0: an object a route (or a domain default) shows as its
+  // link-preview image is never replaced. The route stores the size measured
+  // when it named the image, and nothing measures a replacement: publish it
+  // under a new key and repoint the route. Checked only when the upload would
+  // replace an object, after the key checks and the existence read; only in a
+  // bucket that can hold a preview image. The one scan also gives the cache
+  // purge below the routes serving the object; a scan that fails writes
+  // nothing (500)
+  let servingRoutes: ReadonlyArray<{ domain: string; path: string }> | undefined;
+  if (existing) {
+    const check = await checkPreviewImageNotInUse(
+      c.env,
+      'replace',
+      bucketName,
+      validation.sanitizedKey,
+    );
+    if (check.refusal) return c.json(check.refusal, 409);
+    servingRoutes = check.serving;
+  }
+
+  // A key the `head` found empty is written create-only (v1.48.0): another
+  // writer may have created it meanwhile, and an unconditional put would
+  // replace its object. R2 answers `null`, storing nothing, when the
+  // condition fails
   const uploaded = await bucket.put(validation.sanitizedKey, file.stream(), {
     httpMetadata: { contentType: file.type },
+    ...(existing ? {} : { onlyIf: createOnly() }),
   });
+  if (!uploaded && !existing) {
+    return c.json(objectExistsRefusal(validation.sanitizedKey), 409);
+  }
 
   // Persist the file comment if one was supplied (best-effort — never fail the
   // upload over a note). An omitted field leaves any existing comment untouched.
@@ -488,7 +551,7 @@ storageRoutes.post('/:bucket/upload', async c => {
   // Replacing an object leaves the OLD bytes cached at every edge PoP under the
   // same URLs. A first upload has nothing cached to invalidate.
   if (existing) {
-    purgeObjectCache(c, bucketName, validation.sanitizedKey);
+    purgeObjectCache(c, bucketName, validation.sanitizedKey, servingRoutes);
   }
 
   return c.json(
@@ -523,6 +586,19 @@ storageRoutes.delete('/:bucket/objects/:key{.+}', async c => {
     throw new HTTPException(404, { message: `Object not found: ${validation.sanitizedKey}` });
   }
 
+  // v1.48.0: an object a route (or a domain default) shows as its
+  // link-preview image is never deleted (the card would show a missing
+  // image); the same check as an overwrite, after the key check and the
+  // existence read. Its scan also gives the purge below the routes serving
+  // the object
+  const check = await checkPreviewImageNotInUse(
+    c.env,
+    'delete',
+    bucketName,
+    validation.sanitizedKey,
+  );
+  if (check.refusal) return c.json(check.refusal, 409);
+
   await bucket.delete(validation.sanitizedKey);
 
   // Remove any comment row so it doesn't orphan / resurrect under a reused key.
@@ -551,7 +627,7 @@ storageRoutes.delete('/:bucket/objects/:key{.+}', async c => {
 
   // The bytes are gone but every edge PoP still holds them. Purge the URLs that
   // served this key, or the object stays readable until max-age expires.
-  purgeObjectCache(c, bucketName, validation.sanitizedKey);
+  purgeObjectCache(c, bucketName, validation.sanitizedKey, check.serving);
 
   return c.json({ success: true, message: `Deleted: ${validation.sanitizedKey}` });
 });
@@ -603,6 +679,28 @@ storageRoutes.post('/:bucket/rename', async c => {
     });
   }
 
+  // The destination first (before the source is opened, so no answer here
+  // leaves its body unread)
+  const existing = await bucket.head(newValidation.sanitizedKey);
+  if (existing) {
+    return c.json(
+      { success: false, error: `Destination already exists: ${newValidation.sanitizedKey}` },
+      409,
+    );
+  }
+
+  // v1.48.0: the SOURCE of a rename is deleted, so an object a route (or a
+  // domain default) shows as its link-preview image is never renamed (the
+  // destination side keeps its own 409 above). Its scan also gives the purge
+  // of the old key below
+  const check = await checkPreviewImageNotInUse(
+    c.env,
+    'rename',
+    bucketName,
+    oldValidation.sanitizedKey,
+  );
+  if (check.refusal) return c.json(check.refusal, 409);
+
   const original = await bucket.get(oldValidation.sanitizedKey);
   if (!original) {
     throw new HTTPException(404, {
@@ -610,19 +708,23 @@ storageRoutes.post('/:bucket/rename', async c => {
     });
   }
 
-  const existing = await bucket.head(newValidation.sanitizedKey);
-  if (existing) {
-    await original.body?.cancel();
+  // Create-only (v1.48.0): a destination created since the check above is
+  // never replaced, and the source is then left in place
+  const copied = await bucket.put(newValidation.sanitizedKey, original.body, {
+    ...(original.httpMetadata !== undefined && { httpMetadata: original.httpMetadata }),
+    ...(original.customMetadata !== undefined && { customMetadata: original.customMetadata }),
+    onlyIf: createOnly(),
+  });
+  if (!copied) {
+    // The source's read is released (a put whose condition failed may leave
+    // the stream unread); a stream the put already locked cannot be
+    // cancelled, which is harmless
+    await original.body.cancel().catch(() => {});
     return c.json(
       { success: false, error: `Destination already exists: ${newValidation.sanitizedKey}` },
       409,
     );
   }
-
-  const copied = await bucket.put(newValidation.sanitizedKey, original.body, {
-    ...(original.httpMetadata !== undefined && { httpMetadata: original.httpMetadata }),
-    ...(original.customMetadata !== undefined && { customMetadata: original.customMetadata }),
-  });
 
   await bucket.delete(oldValidation.sanitizedKey);
 
@@ -657,13 +759,12 @@ storageRoutes.post('/:bucket/rename', async c => {
 
   // BOTH keys: the old one no longer exists (stale bytes at the edge) and the
   // new one may hold a cached 404 or a previous object at that key.
-  for (const key of [oldValidation.sanitizedKey, newValidation.sanitizedKey]) {
-    purgeObjectCache(c, bucketName, key);
-  }
+  purgeObjectCache(c, bucketName, oldValidation.sanitizedKey, check.serving);
+  purgeObjectCache(c, bucketName, newValidation.sanitizedKey);
 
   return c.json({
     success: true,
-    data: copied ? toR2ObjectInfo(copied) : { key: newValidation.sanitizedKey },
+    data: toR2ObjectInfo(copied),
   });
 });
 
@@ -753,6 +854,18 @@ storageRoutes.post('/:bucket/move', async c => {
     );
   }
 
+  // v1.48.0: the SOURCE of a move is deleted, so an object a route (or a
+  // domain default) shows as its link-preview image is never moved (the
+  // destination side keeps its own 409 above). Its scan also gives the purge
+  // of the source below
+  const check = await checkPreviewImageNotInUse(
+    c.env,
+    'move',
+    sourceBucketName,
+    keyValidation.sanitizedKey,
+  );
+  if (check.refusal) return c.json(check.refusal, 409);
+
   const original = await sourceBucket.get(keyValidation.sanitizedKey);
   if (!original) {
     throw new HTTPException(404, {
@@ -760,10 +873,23 @@ storageRoutes.post('/:bucket/move', async c => {
     });
   }
 
+  // Create-only (v1.48.0): a destination created since the check above is
+  // never replaced, and the source is then left in place
   const copied = await destBucket.put(destKeyValidation.sanitizedKey, original.body, {
     ...(original.httpMetadata !== undefined && { httpMetadata: original.httpMetadata }),
     ...(original.customMetadata !== undefined && { customMetadata: original.customMetadata }),
+    onlyIf: createOnly(),
   });
+  if (!copied) {
+    await original.body.cancel().catch(() => {});
+    return c.json(
+      {
+        success: false,
+        error: `Destination already exists: ${destBucketName}/${destKeyValidation.sanitizedKey}`,
+      },
+      409,
+    );
+  }
 
   await sourceBucket.delete(keyValidation.sanitizedKey);
 
@@ -800,12 +926,12 @@ storageRoutes.post('/:bucket/move', async c => {
 
   // Both sides of the move: the source URLs now serve deleted bytes, and the
   // destination may hold a cached 404 or a previous object at that key.
-  purgeObjectCache(c, sourceBucketName, keyValidation.sanitizedKey);
+  purgeObjectCache(c, sourceBucketName, keyValidation.sanitizedKey, check.serving);
   purgeObjectCache(c, destBucketName, destKeyValidation.sanitizedKey);
 
   return c.json({
     success: true,
-    data: copied ? toR2ObjectInfo(copied) : { key: destKeyValidation.sanitizedKey },
+    data: toR2ObjectInfo(copied),
   });
 });
 

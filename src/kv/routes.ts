@@ -1,6 +1,7 @@
 import {
   canonicalJson,
   type InvalidRouteRow,
+  isPreviewImageBucket,
   MAX_CACHE_CONTROL_LENGTH,
   MAX_HOST_HEADER_LENGTH,
   MAX_ROUTE_RECORD_BYTES,
@@ -17,6 +18,12 @@ import { KVDeleteError, KVReadError, KVWriteError } from '../utils/kv-errors';
 import { kvListingPage, nextCursor } from '../utils/list-cursor';
 import { normalizePath } from './lookup';
 import {
+  applyPreviewPatch,
+  normalizeNewPreview,
+  type PreviewImageSize,
+  type PreviewWriteFields,
+} from './route-preview';
+import {
   type CreateRouteInput,
   domainPrefix,
   fitsKvKey,
@@ -24,7 +31,7 @@ import {
   parseRouteKey,
   routeKey,
 } from './schema';
-import { readRouteState } from './stored-route';
+import { readRouteState, readRouteStates } from './stored-route';
 
 /** The fixed refusals of a route write that would store too much (v1.37.2). */
 export const ROUTE_WRITE_REFUSALS = {
@@ -167,14 +174,18 @@ export function serializeCheckedRoute(key: string, record: KVRouteConfig): strin
   return serializeStoredRoute(key, record);
 }
 
+/**
+ * A new route's fields: the create input plus, when it names a preview
+ * image, the size the handler read from that image (v1.48.0).
+ */
+export type NewRouteRecord = CreateRouteInput & Partial<PreviewImageSize>;
+
 /** A new route record as createRoute stores it. */
-function buildNewRoute(
-  input: CreateRouteInput,
-  normalizedPath: string,
-  now: number,
-): KVRouteConfig {
+function buildNewRoute(input: NewRouteRecord, normalizedPath: string, now: number): KVRouteConfig {
   return {
-    ...input,
+    // Link-preview fields (v1.48.0): sanitised, empty values dropped, the
+    // image size kept only beside an image
+    ...normalizeNewPreview(input),
     path: normalizedPath,
     preserveQuery: input.preserveQuery ?? true,
     enabled: input.enabled ?? true,
@@ -290,43 +301,83 @@ function invalidRow(key: string): InvalidRouteRow {
   return { domain, path, invalid: true };
 }
 
+/** A readable route a scan found: its exact KV key, the key's domain, and the record. */
+export interface ScannedRoute {
+  key: string;
+  domain: string;
+  route: KVRouteConfig;
+}
+
+/**
+ * Every stored route of `domain`, or of every supported domain when it is
+ * undefined (no prefix; the domain is parsed from each key), with a row for
+ * each record that cannot be read (v1.38.0). Each page's route keys are read
+ * in bulk, one KV operation per 100 keys (`readRouteStates`, v1.48.0), so a
+ * scan of 1,000 routes costs about 11 KV operations instead of about 1,001.
+ * Only route-shaped keys `{domain}:/…` are read, and in the all-domains scan
+ * only those of a supported domain: the namespace also holds `qr:` records and, with the optional rate limiter,
+ * `ratelimit:` entries (client IP addresses), none of which may be read, or
+ * logged by the invalid-record line, as a route. A KV read failure for any
+ * key fails the whole scan (KVReadError): a route is never silently left out.
+ */
+export async function scanRoutes(
+  kv: KVNamespace,
+  domain?: string,
+): Promise<{ routes: ScannedRoute[]; invalid: InvalidRouteRow[] }> {
+  try {
+    const scan: { routes: ScannedRoute[]; invalid: InvalidRouteRow[] } = {
+      routes: [],
+      invalid: [],
+    };
+    let cursor: string | undefined;
+    const seenCursors = new Set<string>();
+    do {
+      const result = await kv.list({
+        ...(domain !== undefined && { prefix: domainPrefix(domain) }),
+        ...(cursor !== undefined && { cursor }),
+      });
+      const keys: Array<{ key: string; domain: string }> = [];
+      for (const { name } of result.keys) {
+        if (!isRouteKey(name)) continue;
+        const [keyDomain] = parseRouteKey(name);
+        if (domain !== undefined || isValidDomain(keyDomain)) {
+          keys.push({ key: name, domain: keyDomain });
+        }
+      }
+      const reads = await readRouteStates(
+        kv,
+        keys.map(({ key }) => key),
+      );
+      // Told apart by the read's own status, never by a field of the record,
+      // in listing order
+      for (const entry of keys) {
+        const read = reads.get(entry.key);
+        if (read?.status === 'ok') scan.routes.push({ ...entry, route: read.value });
+        else if (read?.status === 'invalid') scan.invalid.push(invalidRow(entry.key));
+      }
+      cursor = nextCursor(kvListingPage(result), seenCursors);
+    } while (cursor);
+    return scan;
+  } catch (error) {
+    if (error instanceof KVReadError) throw error;
+    throw new KVReadError(
+      domain === undefined ? 'list:all' : `list:${domain}`,
+      error instanceof Error ? error : new Error(String(error)),
+    );
+  }
+}
+
 /**
  * Every stored route of a domain, by prefix listing (v1.38.0: with a row for
- * each record that cannot be read). Throws KVReadError on failure.
+ * each record that cannot be read), each record as stored. Throws
+ * KVReadError on failure.
  */
 export async function listDomainRoutes(
   kv: KVNamespace,
   domain: string,
 ): Promise<RouteListing<KVRouteConfig>> {
-  try {
-    const prefix = domainPrefix(domain);
-    const listing: RouteListing<KVRouteConfig> = { routes: [], invalid: [] };
-    let cursor: string | undefined;
-    const seenCursors = new Set<string>();
-
-    // List all keys with domain prefix
-    do {
-      const result = await kv.list({ prefix, ...(cursor !== undefined && { cursor }) });
-
-      // Fetch route values for each route-shaped key: nothing else is read
-      const keys = result.keys.map(key => key.name).filter(isRouteKey);
-      const reads = await Promise.all(keys.map(key => readRouteState(kv, key)));
-      for (const [index, read] of reads.entries()) {
-        if (read.status === 'ok') listing.routes.push(read.value);
-        else if (read.status === 'invalid') listing.invalid.push(invalidRow(keys[index] ?? ''));
-      }
-
-      cursor = nextCursor(kvListingPage(result), seenCursors);
-    } while (cursor);
-
-    return listing;
-  } catch (error) {
-    if (error instanceof KVReadError) throw error;
-    throw new KVReadError(
-      `list:${domain}`,
-      error instanceof Error ? error : new Error(String(error)),
-    );
-  }
+  const scan = await scanRoutes(kv, domain);
+  return { routes: scan.routes.map(({ route }) => route), invalid: scan.invalid };
 }
 
 /**
@@ -338,50 +389,30 @@ export type KVRouteConfigWithDomain = KVRouteConfig & {
 
 /**
  * Every stored route of every supported domain (no prefix; the domain is
- * parsed from each key and added), with a row for each record that cannot be
- * read (v1.38.0). Throws KVReadError on failure.
+ * parsed from each key and added), each record as stored, with a row for each
+ * record that cannot be read (v1.38.0). Throws KVReadError on failure.
  */
 export async function listAllDomainRoutes(
   kv: KVNamespace,
 ): Promise<RouteListing<KVRouteConfigWithDomain>> {
-  try {
-    const listing: RouteListing<KVRouteConfigWithDomain> = { routes: [], invalid: [] };
-    let cursor: string | undefined;
-    const seenCursors = new Set<string>();
+  const scan = await scanRoutes(kv);
+  return {
+    // The all-domains scan keeps supported domains only
+    routes: scan.routes.map(({ domain, route }) => ({
+      ...route,
+      domain: domain as SupportedDomain,
+    })),
+    invalid: scan.invalid,
+  };
+}
 
-    // List all keys (no prefix = all domains)
-    do {
-      const result = await kv.list({ ...(cursor !== undefined && { cursor }) });
-
-      // Only route-shaped keys `{domain}:/…` of a supported domain are read
-      // (v1.38.0). The namespace also holds `qr:` records and, with the
-      // optional rate limiter, `ratelimit:` entries (client IP addresses):
-      // none of them may be read, or logged by the invalid-record line, as a
-      // route. A KV read failure for any key fails the whole listing, as the
-      // one-domain listing does: a route is never silently left out.
-      const keys: Array<{ key: string; domain: SupportedDomain }> = [];
-      for (const { name } of result.keys) {
-        if (!isRouteKey(name)) continue;
-        const [domain] = parseRouteKey(name);
-        if (isValidDomain(domain)) keys.push({ key: name, domain });
-      }
-      const reads = await Promise.all(keys.map(({ key }) => readRouteState(kv, key)));
-      // Told apart by the read's own status, never by a field of the record
-      for (const [index, read] of reads.entries()) {
-        const entry = keys[index];
-        if (entry === undefined) continue;
-        if (read.status === 'ok') listing.routes.push({ ...read.value, domain: entry.domain });
-        else if (read.status === 'invalid') listing.invalid.push(invalidRow(entry.key));
-      }
-
-      cursor = nextCursor(kvListingPage(result), seenCursors);
-    } while (cursor);
-
-    return listing;
-  } catch (error) {
-    if (error instanceof KVReadError) throw error;
-    throw new KVReadError('list:all', error instanceof Error ? error : new Error(String(error)));
-  }
+/**
+ * A scanned route as a listing shows it (v1.48.0): named by the path of its
+ * KV key, where it is served, never by the record's own `path` field, which a
+ * record written outside the API could hold differently.
+ */
+export function routeAtKeyPath(entry: ScannedRoute): KVRouteConfig {
+  return { ...entry.route, path: parseRouteKey(entry.key)[1] };
 }
 
 /**
@@ -391,7 +422,7 @@ export async function listAllDomainRoutes(
 export async function createRoute(
   kv: KVNamespace,
   domain: string,
-  input: CreateRouteInput,
+  input: NewRouteRecord,
 ): Promise<KVRouteConfig> {
   const normalizedPath = normalizePath(input.path);
   const key = routeKey(domain, normalizedPath);
@@ -411,7 +442,18 @@ export async function createRoute(
  * the value `undefined`: Zod's output type for an optional field allows both,
  * even though a parsed JSON body only ever produces the first.
  */
-type RoutePatch = { [K in keyof CreateRouteInput]?: CreateRouteInput[K] | undefined };
+type RouteFieldPatch = {
+  [K in Exclude<keyof CreateRouteInput, keyof PreviewWriteFields>]?:
+    | CreateRouteInput[K]
+    | undefined;
+};
+
+/**
+ * A route patch as the write paths apply it: the update fields, the
+ * link-preview fields (a video size that `null` clears) and the
+ * server-derived preview image size (v1.48.0).
+ */
+export type RoutePatch = RouteFieldPatch & PreviewWriteFields;
 
 /**
  * A stored route with an update merged in (v1.38.0): the ONE merge behind
@@ -430,6 +472,24 @@ export function mergeRoutePatch(
 ): KVRouteConfig {
   assertWrittenFieldsFit(patch);
   return {
+    ...applyRoutePatch(existing, patch),
+    path,
+    createdAt: existing.createdAt,
+    updatedAt: Date.now(),
+  };
+}
+
+/**
+ * A stored route with a patch's fields applied, path and timestamps
+ * unchanged (v1.48.0): the one definition the update and migrate handlers
+ * check the preview rules on, and {@link mergeRoutePatch} writes. The patch's
+ * fields replace the stored ones; every field it leaves out (or carries as
+ * `undefined`) keeps its stored value. Preview fields:
+ * {@link applyPreviewPatch} (sanitised; an empty title clears them all, an
+ * empty image bucket or key the whole image, `null` a video size).
+ */
+export function applyRoutePatch(existing: KVRouteConfig, patch: RoutePatch): KVRouteConfig {
+  const updated = {
     ...existing,
     ...patch,
     // A stored route always has a type and a target. A patch that leaves either
@@ -437,10 +497,9 @@ export function mergeRoutePatch(
     // out also keeps it when the key is present but `undefined`.
     type: patch.type ?? existing.type,
     target: patch.target ?? existing.target,
-    path,
-    createdAt: existing.createdAt,
-    updatedAt: Date.now(),
-  };
+  } as KVRouteConfig;
+  applyPreviewPatch(updated, patch);
+  return updated;
 }
 
 /**
@@ -591,7 +650,11 @@ export class SeedWriteFailure extends Error {
  * written (after the dedupe and the existence reads, before any write), in
  * write order; it refuses the whole seed by throwing, with nothing written
  * (v1.47.0: the credential-target acknowledgement covers only the routes a
- * seed creates). It is never given a skipped entry.
+ * seed creates). It is never given a skipped entry. It answers the records to
+ * write, in the same order: the ones it was given, or the same records
+ * completed (v1.48.0: the preview rules are checked and each preview image
+ * measured on exactly this set), each checked again against the key and size
+ * limits before anything is written.
  *
  * Known limit: the check and the writes are decided by the same single
  * existence read per key. KV has no compare-and-set, so a route created
@@ -601,8 +664,8 @@ export class SeedWriteFailure extends Error {
 export async function seedRoutes(
   kv: KVNamespace,
   domain: string,
-  routes: CreateRouteInput[],
-  checkWrites?: (toWrite: CreateRouteInput[]) => void,
+  routes: NewRouteRecord[],
+  checkWrites?: (toWrite: NewRouteRecord[]) => NewRouteRecord[] | Promise<NewRouteRecord[]>,
 ): Promise<SeedResult> {
   let created = 0;
   let skipped = 0;
@@ -618,7 +681,7 @@ export async function seedRoutes(
   const now = Date.now();
   const queued = new Set<string>();
   const built: Array<{
-    route: CreateRouteInput;
+    route: NewRouteRecord;
     storedPath: string;
     key: string;
     serialized: string;
@@ -650,7 +713,28 @@ export async function seedRoutes(
   const existing = await Promise.all(built.map(entry => readStateOrThrow(kv, entry.key)));
   const toWrite = built.filter((_entry, index) => existing[index]?.status === 'missing');
   skipped += built.length - toWrite.length;
-  checkWrites?.(toWrite.map(entry => entry.route));
+  if (checkWrites) {
+    // The check may complete the records it is given (v1.48.0: the measured
+    // preview image size), in the same order; each is checked again exactly
+    // as it will be stored
+    const prepared = await checkWrites(toWrite.map(entry => entry.route));
+    for (const [index, entry] of toWrite.entries()) {
+      const route = prepared[index];
+      if (route === undefined || route === entry.route) continue;
+      try {
+        entry.serialized = serializeCheckedRoute(
+          entry.key,
+          buildNewRoute(route, entry.storedPath, now),
+        );
+      } catch (error) {
+        if (error instanceof RouteWriteRefusedError) {
+          throw new RouteWriteRefusedError(error.refusal, route.path);
+        }
+        throw error;
+      }
+      entry.route = route;
+    }
+  }
 
   for (const { route, storedPath, key, serialized } of toWrite) {
     try {
@@ -832,13 +916,80 @@ export async function transferRoute(
 }
 
 /**
- * Find all R2-type routes that serve a specific R2 object.
- * Used by storage edit dialog (associated routes) and cache purge.
- * Returns routes with domain field included. A record that cannot be read has
- * no target anyone can know, so it serves no object and is not returned; a
- * KV read failure throws (KVReadError), never a shorter answer.
+ * A route that uses an R2 object: as the file it serves (`file`), or as its
+ * link-preview image (`preview-image`, v1.48.0). `previewImage: true` marks
+ * every route that shows the object as its link-preview image, including one
+ * that also serves it (`usage: 'file'`).
+ */
+export type R2TargetRoute = KVRouteConfigWithDomain & {
+  usage: 'file' | 'preview-image';
+  previewImage?: true;
+};
+
+/**
+ * Every readable route, named by the domain AND path of its KV key, where it
+ * is served (v1.48.0), never by the record's own `path` field: the list
+ * {@link findRoutesByR2Target} matches over. One scan. Throws KVReadError on
+ * failure.
+ */
+export async function scanRoutesByKey(kv: KVNamespace): Promise<KVRouteConfigWithDomain[]> {
+  return (await scanRoutes(kv)).routes.map(entry => ({
+    ...routeAtKeyPath(entry),
+    // The all-domains scan keeps supported domains only
+    domain: entry.domain as SupportedDomain,
+  }));
+}
+
+/**
+ * The routes of `allRoutes` (from {@link scanRoutesByKey}) that use the
+ * object `target` in `bucket`, labelled by `usage`, as
+ * {@link findRoutesByR2Target} answers; a caller that already holds a scan
+ * (the R2 event consumer, one scan per batch) matches without a second one.
  *
- * Performance: O(n) full KV scan via listAllDomainRoutes(). Acceptable for
+ * Serving: one definition of "serves this object" with the dashboard
+ * (`routeR2ObjectId`, v1.41.1). The preview image: the route's image bucket
+ * is one that may hold a preview image (`isPreviewImageBucket`), with the
+ * same bucket and key: the ONE rule the preview-image refusal and Storage's
+ * associated routes share. A stored `previewImage` field (written outside the
+ * API) never reaches the answer: the flag is derived, never read.
+ */
+export function matchRoutesByR2Target(
+  allRoutes: readonly KVRouteConfigWithDomain[],
+  bucket: string,
+  target: string,
+): R2TargetRoute[] {
+  const wanted = r2ObjectId(bucket, target);
+  const found: R2TargetRoute[] = [];
+  for (const stored of allRoutes) {
+    if (stored.type !== 'r2') continue;
+    const { previewImage: _storedFlag, ...route } = stored as KVRouteConfigWithDomain & {
+      previewImage?: unknown;
+    };
+    const namesImage =
+      typeof route.previewImageBucket === 'string' &&
+      route.previewImageBucket === bucket &&
+      isPreviewImageBucket(route.previewImageBucket) &&
+      route.previewImageKey === target;
+    const flag = namesImage ? { previewImage: true as const } : {};
+    if (routeR2ObjectId(route) === wanted) {
+      found.push({ ...route, usage: 'file', ...flag });
+    } else if (namesImage) {
+      found.push({ ...route, usage: 'preview-image', ...flag });
+    }
+  }
+  return found;
+}
+
+/**
+ * Find all R2-type routes that use a specific R2 object: those serving it
+ * and those showing it as their link-preview image (v1.48.0), each labelled
+ * with its `usage` and named by the domain and path of its KV key. Used by
+ * Storage's associated routes, the cache purge (which keeps `usage: 'file'`
+ * only) and the preview-image refusal. A record that cannot be read has no
+ * target anyone can know, so it uses no object and is not returned; a KV read
+ * failure throws (KVReadError), never a shorter answer.
+ *
+ * Performance: O(n) full KV scan, read in bulk. Acceptable for
  * admin-frequency operations (edit popup, cache purge). If route count grows to
  * thousands, consider a D1 reverse index or KV metadata-based filtering.
  */
@@ -846,11 +997,8 @@ export async function findRoutesByR2Target(
   kv: KVNamespace,
   bucket: string,
   target: string,
-): Promise<KVRouteConfigWithDomain[]> {
-  const { routes } = await listAllDomainRoutes(kv);
-  // One definition of "serves this object" with the dashboard (v1.41.1)
-  const wanted = r2ObjectId(bucket, target);
-  return routes.filter(route => routeR2ObjectId(route) === wanted);
+): Promise<R2TargetRoute[]> {
+  return matchRoutesByR2Target(await scanRoutesByKey(kv), bucket, target);
 }
 
 // Re-export parseRouteKey for use by migration scripts

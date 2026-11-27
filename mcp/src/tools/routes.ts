@@ -16,7 +16,27 @@ export const transferDomainsError = (missing: string[]): string =>
 function formatRoute(route: Route): string {
   const status = route.enabled !== false ? '✓' : '✗';
   const statusCode = route.statusCode ? ` (${route.statusCode})` : '';
-  return `${status} ${route.path} → ${route.type}${statusCode} → ${route.target}`;
+  // v1.48.0: a route with link-preview details says so, with its title
+  const preview = route.previewTitle ? ` [link preview: ${route.previewTitle}]` : '';
+  return `${status} ${route.path} → ${route.type}${statusCode} → ${route.target}${preview}`;
+}
+
+/** The link-preview lines of a route's details (v1.48.0), empty when it has none. */
+function formatPreviewDetails(route: Route): string[] {
+  if (!route.previewTitle) return [];
+  const lines = [`Preview Title: ${route.previewTitle}`];
+  if (route.previewDescription) lines.push(`Preview Description: ${route.previewDescription}`);
+  if (route.previewImageBucket && route.previewImageKey) {
+    const size =
+      route.previewImageWidth && route.previewImageHeight
+        ? ` (${route.previewImageWidth} x ${route.previewImageHeight})`
+        : '';
+    lines.push(`Preview Image: ${route.previewImageBucket}/${route.previewImageKey}${size}`);
+  }
+  if (route.previewVideoWidth && route.previewVideoHeight) {
+    lines.push(`Preview Video Size: ${route.previewVideoWidth} x ${route.previewVideoHeight}`);
+  }
+  return lines;
 }
 
 /**
@@ -77,6 +97,7 @@ function formatRouteDetails(route: Route, domain: string): string {
   if (route.type === 'r2') {
     lines.push(`Bucket: ${route.bucket || 'files'}`);
     lines.push(`Force Download: ${route.forceDownload === true ? 'Yes' : 'No'}`);
+    lines.push(...formatPreviewDetails(route));
   }
 
   if (route.cacheControl) {
@@ -149,6 +170,12 @@ export async function createRoute(
     hostHeader?: string | undefined;
     forceDownload?: boolean | undefined;
     bucket?: string | undefined;
+    previewTitle?: string | undefined;
+    previewDescription?: string | undefined;
+    previewImageBucket?: string | undefined;
+    previewImageKey?: string | undefined;
+    previewVideoWidth?: number | undefined;
+    previewVideoHeight?: number | undefined;
     domain?: string | undefined;
     /** Request-only operator override; never stored. */
     acknowledgeCredentialTarget?: boolean | undefined;
@@ -181,6 +208,14 @@ export async function createRoute(
           | 'files-user5'
           | 'files-user6'
           | undefined,
+        // v1.48.0: link-preview fields, each forwarded by name (a field left
+        // out here would be silently dropped)
+        previewTitle: args.previewTitle,
+        previewDescription: args.previewDescription,
+        previewImageBucket: args.previewImageBucket,
+        previewImageKey: args.previewImageKey,
+        previewVideoWidth: args.previewVideoWidth,
+        previewVideoHeight: args.previewVideoHeight,
       },
       domain,
       { acknowledgeCredentialTarget: args.acknowledgeCredentialTarget },
@@ -208,6 +243,12 @@ export async function updateRoute(
     hostHeader?: string | undefined;
     forceDownload?: boolean | undefined;
     bucket?: string | undefined;
+    previewTitle?: string | undefined;
+    previewDescription?: string | undefined;
+    previewImageBucket?: string | undefined;
+    previewImageKey?: string | undefined;
+    previewVideoWidth?: number | null | undefined;
+    previewVideoHeight?: number | null | undefined;
     domain?: string | undefined;
     /** Request-only operator override; never stored. */
     acknowledgeCredentialTarget?: boolean | undefined;
@@ -240,6 +281,14 @@ export async function updateRoute(
           | 'files-user5'
           | 'files-user6'
           | undefined,
+        // v1.48.0: link-preview fields, each forwarded by name (a field left
+        // out here would be silently dropped)
+        previewTitle: args.previewTitle,
+        previewDescription: args.previewDescription,
+        previewImageBucket: args.previewImageBucket,
+        previewImageKey: args.previewImageKey,
+        previewVideoWidth: args.previewVideoWidth,
+        previewVideoHeight: args.previewVideoHeight,
       },
       domain,
       { acknowledgeCredentialTarget: args.acknowledgeCredentialTarget },

@@ -28,9 +28,14 @@
  *   service binding's own response if the host has one (a failed binding gives
  *   503, as the router does), else 404. A stored record on the way that cannot
  *   be read gives 404, as the router answers it, never the binding (v1.38.0).
- * - r2 route, a path the Worker answers itself before its routes, or a URL
- *   with userinfo: the minimal result, so nothing about an object or an
- *   internal response is described.
+ * - r2 route with a servable link preview (v1.48.0) on a file a card may be
+ *   given for: the preview document link-preview fetchers receive
+ *   (`renderLinkPreviewHtml`), built by the same predicates and builder as
+ *   the serving branch, so the panel shows exactly the card the link serves.
+ *   Only for a file that exists (one R2 `head`), as the serving branch.
+ * - any other r2 route, a path the Worker answers itself before its routes,
+ *   or a URL with userinfo: the minimal result, so nothing about an object or
+ *   an internal response is described.
  *
  * Only Worker-level behaviour is reproduced: Cloudflare edge rules (WAF,
  * redirect and transform rules), Access policies and zone-level redirects in
@@ -41,14 +46,25 @@
  * visit.
  */
 
+import { getContentTypeFromKey, isCardEligibleFile } from '@bifrost/shared';
 import { getPath } from 'hono/utils/url';
 import { proxyDestination } from '../handlers/proxy';
 import { redirectDestination, redirectStatus } from '../handlers/redirect';
 import { lookupRoute } from '../kv/lookup';
 import { isSensitivePath, queryHasTraversal } from '../middleware/sensitive-paths';
-import { type Bindings, getServiceFallback, isValidDomain } from '../types';
+import {
+  type Bindings,
+  BUCKET_BINDINGS,
+  getServiceFallback,
+  isValidDomain,
+  isValidR2Bucket,
+  type KVRouteConfig,
+} from '../types';
 import { stripTrailingDot } from './host-policy';
+import { buildLinkPreviewDocument, routeServablePreview } from './link-preview';
+import { renderLinkPreviewHtml } from './link-preview-html';
 import { OPEN_GRAPH_REQUEST_HEADERS, type OwnHostAnswer, type OwnHostResolver } from './og-parser';
+import { validateR2Key } from './path-validation';
 import { safeServiceFetch } from './safe-service-fetch';
 import { validateProxyTarget } from './url-validation';
 
@@ -169,9 +185,53 @@ async function resolveOwnHost(
       // A visitor's proxy fetch of one of our own hosts fails (502 or 522)
       return isOwnHost(upstream, env) ? MINIMAL : { kind: 'upstream', url: upstream };
     }
+    case 'r2':
+      return (await linkPreviewCard(route, requestUrl, env)) ?? MINIMAL;
     default:
       return MINIMAL;
   }
+}
+
+/**
+ * The link-preview document an r2 route serves to a fetcher (v1.48.0), as an
+ * HTML answer the parser reads like any page, or null when it serves none: no
+ * servable preview, not a file a card may be given for (a wildcard route, an
+ * image), a bucket or key the handler refuses, or no object.
+ */
+async function linkPreviewCard(
+  route: KVRouteConfig,
+  requestUrl: URL,
+  env: Bindings,
+): Promise<OwnHostAnswer | null> {
+  if (!route.previewTitle) return null;
+  const servable = routeServablePreview(route);
+  if (!servable || !isCardEligibleFile(route, '')) return null;
+  const bucketName = route.bucket ?? 'files';
+  if (!isValidR2Bucket(bucketName)) return null;
+  const bucket = env[BUCKET_BINDINGS[bucketName]];
+  const validation = validateR2Key(route.target);
+  if (!bucket || !validation.valid) return null;
+  const object = await bucket.head(validation.sanitizedKey);
+  if (!object) return null;
+  const contentType =
+    object.httpMetadata?.contentType ||
+    getContentTypeFromKey(validation.sanitizedKey) ||
+    'application/octet-stream';
+  if (!isCardEligibleFile(route, contentType)) return null;
+  const document = buildLinkPreviewDocument(
+    servable,
+    bucketName,
+    requestUrl,
+    validation.sanitizedKey,
+    contentType,
+  );
+  return {
+    kind: 'response',
+    response: new Response(renderLinkPreviewHtml(document), {
+      status: 200,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    }),
+  };
 }
 
 /**

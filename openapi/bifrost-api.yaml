@@ -367,13 +367,19 @@ paths:
   /api/routes/by-target:
     get:
       summary: Find routes by R2 target
-      description: Returns all R2-type routes pointing to a specific bucket/key combination. Routes include a domain field.
+      description: >-
+        Returns every R2-type route that uses the object: serving it (`usage:
+        file`) or showing it as its link-preview image (`usage:
+        preview-image`, v1.48.0), with `previewImage: true` on each route that
+        shows it as its link-preview image, also one that serves it. Each
+        route is named by the domain and path of its KV key, where it is
+        served.
       tags: [Routes]
       parameters:
         - name: bucket
           in: query
           required: true
-          description: R2 bucket name
+          description: A storage bucket name
           schema:
             type: string
         - name: target
@@ -398,9 +404,20 @@ paths:
                       routes:
                         type: array
                         items:
-                          $ref: '#/components/schemas/RouteConfigWithDomain'
+                          allOf:
+                            - $ref: '#/components/schemas/RouteConfigWithDomain'
+                            - type: object
+                              properties:
+                                usage:
+                                  type: string
+                                  enum: [file, preview-image]
+                                previewImage:
+                                  type: boolean
+                                  enum: [true]
         '400':
-          description: Missing required query parameters
+          description: >-
+            A missing bucket or target query parameter, or a bucket that is not
+            a storage bucket
 
   /api/backups/health:
     get:
@@ -653,6 +670,13 @@ paths:
           description: Deleted
         '403':
           description: Read-only bucket
+        '409':
+          description: >-
+            Nothing is deleted: a route, or a domain's default card image,
+            shows the object as its link-preview image (`error:
+            STORE_PREVIEW_IMAGE_IN_USE`, v1.48.0; `message` names each route
+            and domain default). Point the route at another image, or remove
+            its preview image, first. Checked in a bucket that can hold a preview image (one with an R2 custom domain).
 
   /api/storage/{bucket}/upload:
     post:
@@ -695,8 +719,14 @@ paths:
           description: Bucket not found
         '409':
           description: >-
-            An object already exists at the key and `overwrite` was not
-            `true`; nothing written
+            Nothing written. An object already exists at the key and
+            `overwrite` was not `true`, or another writer created it while
+            this upload ran (`code: STORE_OBJECT_EXISTS`, v1.48.0); or
+            `overwrite` is `true` and a route, or a domain's default card
+            image, shows the object as its link-preview image (`error:
+            STORE_PREVIEW_IMAGE_IN_USE`; `message` names each route and domain
+            default; publish the new image under a new key and repoint the
+            route).
         '415':
           description: >-
             The body is not `multipart/form-data` (`error:
@@ -723,6 +753,13 @@ paths:
       responses:
         '200':
           description: Renamed
+        '409':
+          description: >-
+            Nothing changes. The destination key already exists, also when
+            another writer creates it during the rename (the write is
+            create-only, v1.48.0); or a route, or a domain's default card
+            image, shows the source object as its link-preview image (`error:
+            STORE_PREVIEW_IMAGE_IN_USE`).
         '413':
           description: Object too large for copy operation
 
@@ -750,7 +787,12 @@ paths:
         '200':
           description: Moved
         '409':
-          description: Destination already exists
+          description: >-
+            Nothing changes. The destination key already exists in the
+            destination bucket, also when another writer creates it during the
+            move (the write is create-only, v1.48.0); or a route, or a domain's
+            default card image, shows the source object as its link-preview
+            image (`error: STORE_PREVIEW_IMAGE_IN_USE`).
         '413':
           description: Object too large for copy operation
 
@@ -1727,6 +1769,41 @@ components:
         enabled:
           type: boolean
           default: true
+        previewTitle:
+          type: string
+          maxLength: 120
+          description: >-
+            Link preview title (v1.48.0; r2 routes that serve one file, never a
+            wildcard route). Recognised link-preview fetchers get an Open
+            Graph card with it; everyone else gets the file. An empty value
+            clears every preview field.
+        previewDescription:
+          type: string
+          maxLength: 240
+          description: Link preview description (needs previewTitle)
+        previewImageBucket:
+          type: string
+          description: >-
+            Bucket of the preview image: one with an R2 custom domain in this
+            deployment's configuration (`R2_BUCKET_CUSTOM_DOMAINS`), or an
+            empty value to clear the image. Needs previewImageKey. The image
+            must be a JPEG or PNG of at most 600,000 bytes; its pixel size is
+            read from the file and returned as previewImageWidth and
+            previewImageHeight, never accepted.
+        previewImageKey:
+          type: string
+          maxLength: 1024
+          description: R2 key of the preview image (needs previewImageBucket)
+        previewVideoWidth:
+          type: integer
+          minimum: 1
+          maximum: 7680
+          description: Video playback width (video files; with previewVideoHeight)
+        previewVideoHeight:
+          type: integer
+          minimum: 1
+          maximum: 7680
+          description: Video playback height (video files; with previewVideoWidth)
 
     UpdateRouteInput:
       type: object
@@ -1759,6 +1836,38 @@ components:
           description: R2 bucket for file serving (R2 only)
         enabled:
           type: boolean
+        previewTitle:
+          type: string
+          maxLength: 120
+          description: >-
+            Link preview title (v1.48.0). An empty value clears every preview
+            field.
+        previewDescription:
+          type: string
+          maxLength: 240
+          description: Link preview description; an empty value clears it
+        previewImageBucket:
+          type: string
+          description: >-
+            Bucket of the preview image (a bucket with an R2 custom domain);
+            an empty value clears the whole image. A new image is measured
+            again.
+        previewImageKey:
+          type: string
+          maxLength: 1024
+          description: R2 key of the preview image; an empty value clears the whole image
+        previewVideoWidth:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 7680
+          description: Video playback width; null clears
+        previewVideoHeight:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 7680
+          description: Video playback height; null clears
 
     SeedRoutesInput:
       type: object
@@ -1930,6 +2039,25 @@ components:
           type: string
         enabled:
           type: boolean
+        previewTitle:
+          type: string
+          description: Link preview title (v1.48.0)
+        previewDescription:
+          type: string
+        previewImageBucket:
+          type: string
+        previewImageKey:
+          type: string
+        previewImageWidth:
+          type: integer
+          description: Read from the image when the route was saved
+        previewImageHeight:
+          type: integer
+          description: Read from the image when the route was saved
+        previewVideoWidth:
+          type: integer
+        previewVideoHeight:
+          type: integer
         createdAt:
           type: integer
           description: Unix epoch milliseconds
