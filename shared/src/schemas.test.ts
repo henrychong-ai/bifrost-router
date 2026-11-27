@@ -385,6 +385,17 @@ describe('schemas', () => {
   });
 
   describe('GetAnalyticsSummaryInputSchema', () => {
+    it('trims search before its 500-character cap, as the API does (v1.47.0)', () => {
+      const padded = GetAnalyticsSummaryInputSchema.safeParse({ search: `  ${'a'.repeat(500)}  ` });
+      expect(padded.success && padded.data.search).toBe('a'.repeat(500));
+      expect(GetAnalyticsSummaryInputSchema.safeParse({ search: 'a'.repeat(501) }).success).toBe(
+        false,
+      );
+      const parsed = GetAnalyticsSummaryInputSchema.parse({ search: ' promo ' });
+      expect(parsed.search).toBe('promo');
+      expect(parsed.include_monitoring).toBe(false);
+    });
+
     it('accepts optional domain and days', () => {
       expect(GetAnalyticsSummaryInputSchema.safeParse({}).success).toBe(true);
       expect(GetAnalyticsSummaryInputSchema.safeParse({ domain: 'example.com' }).success).toBe(

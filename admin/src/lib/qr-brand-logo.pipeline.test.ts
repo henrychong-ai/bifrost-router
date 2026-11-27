@@ -4,7 +4,9 @@ import { QR_LOGO_MAX_BYTES } from '@bifrost/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as QrBrandLogoModule from './qr-brand-logo';
 
-const download = vi.hoisted(() => vi.fn<(bucket: string, key: string) => Promise<Blob>>());
+const download = vi.hoisted(() =>
+  vi.fn<(bucket: string, key: string, options?: { signal?: AbortSignal }) => Promise<Blob>>(),
+);
 vi.mock('@/lib/api-client', () => ({ storageApi: { downloadObject: download } }));
 let logo: typeof QrBrandLogoModule;
 let width: number;
@@ -47,7 +49,10 @@ describe('brand logo fetch and raster pipeline', () => {
     expect(second).toBe(first);
     expect(await first).toEqual({ dataUri: 'data:image/png;base64,cG5n', aspectRatio: 4 });
     expect(await logo.fetchBrandLogo('brand/logo.svg')).toEqual(await first);
-    expect(download).toHaveBeenCalledExactlyOnceWith('assets', 'brand/logo.svg');
+    expect(download).toHaveBeenCalledOnce();
+    const [bucket, key, options] = download.mock.calls[0] ?? [];
+    expect([bucket, key]).toEqual(['assets', 'brand/logo.svg']);
+    expect(options?.signal).toBeInstanceOf(AbortSignal);
     expect(draw).toHaveBeenCalledWith(expect.anything(), 0, 0, 512, 128);
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:logo');
   });
@@ -79,8 +84,13 @@ describe('brand logo fetch and raster pipeline', () => {
       );
       await vi.advanceTimersByTimeAsync(logo.LOGO_FETCH_TIMEOUT_MS - 1);
       expect(logo.fetchBrandLogo('stalled')).toBe(stalled);
+      const signal = download.mock.calls[0]?.[2]?.signal;
+      expect(signal?.aborted).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
       expect(await outcome).toBe('Logo download timed out');
+      // Expiry aborted the first request before any retry
+      expect(signal?.aborted).toBe(true);
+      expect(download).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }

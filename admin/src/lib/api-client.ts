@@ -845,15 +845,20 @@ export const storageApi = {
   },
 
   /**
-   * Download an object as a blob
+   * Download an object as a blob. `signal` aborts the request and the reading
+   * of its body (v1.47.0: the QR logo download's time limit).
    */
-  async downloadObject(bucket: string, key: string): Promise<Blob> {
+  async downloadObject(
+    bucket: string,
+    key: string,
+    options: { signal?: AbortSignal | undefined } = {},
+  ): Promise<Blob> {
     const url = new URL(
       `/api/storage/${encodeURIComponent(bucket)}/objects/${objectKeySegments(key)}`,
       API_BASE,
     );
 
-    const response = await apiFetch(url);
+    const response = await apiFetch(url, options.signal ? { signal: options.signal } : {});
 
     if (!response.ok) {
       const error = await readErrorBody(response);

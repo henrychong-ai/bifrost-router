@@ -85,3 +85,32 @@ describe('dashboard API requests', () => {
     expect(headers.get('Content-Type')).toBe('application/json');
   });
 });
+
+describe('object download signal (v1.47.0)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('passes the signal to the request, keeping the dashboard header', async () => {
+    const fetchMock = stubFetch('bytes');
+    const controller = new AbortController();
+    await storageApi.downloadObject('files', 'a/b.pdf', { signal: controller.signal });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit | undefined];
+    expect(init?.signal).toBe(controller.signal);
+    expect(onlyRequest(fetchMock).headers.get('X-Bifrost-Dashboard')).toBe('1');
+  });
+
+  it('an abort while the body is read rejects the download', async () => {
+    const controller = new AbortController();
+    vi.spyOn(globalThis, 'fetch').mockImplementation((_url, init) => {
+      const body = new ReadableStream<Uint8Array>({
+        start(stream) {
+          stream.enqueue(new TextEncoder().encode('partial'));
+          init?.signal?.addEventListener('abort', () => stream.error(init.signal?.reason));
+        },
+      });
+      return Promise.resolve(new Response(body, { status: 200 }));
+    });
+    const download = storageApi.downloadObject('files', 'a/b.pdf', { signal: controller.signal });
+    controller.abort();
+    await expect(download).rejects.toBeDefined();
+  });
+});

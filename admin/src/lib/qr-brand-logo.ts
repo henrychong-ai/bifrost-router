@@ -78,18 +78,31 @@ const cache = new Map<string, Promise<EmbeddedLogo>>();
  * stalled request would otherwise keep the dialogs waiting for the logo, and
  * its pending promise cached, for the rest of the session. A timeout takes
  * the normal failure path: colours only with the warning, and the cache entry
- * dropped so the next attempt downloads again. The request itself is not
- * aborted (the storage client takes no signal); its late answer is ignored.
+ * dropped so the next attempt downloads again. The request is aborted, body
+ * reading included, so a stalled one does not stay open.
  */
 export const LOGO_FETCH_TIMEOUT_MS = 15_000;
 
-/** `promise`, or a rejection once `ms` have passed without an answer. */
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+/** The logo's bytes, or a rejection, with the request aborted, once `ms` have passed. */
+async function downloadLogo(assetKey: string, ms: number): Promise<Blob> {
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error('Logo download timed out')), ms);
+    timer = setTimeout(() => {
+      // Rejected first, so the timeout is the answer whatever the aborted
+      // request then rejects with
+      reject(new Error('Logo download timed out'));
+      controller.abort();
+    }, ms);
   });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+  try {
+    return await Promise.race([
+      storageApi.downloadObject('assets', assetKey, { signal: controller.signal }),
+      timeout,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Load a Blob/data-URI into an HTMLImageElement. */
@@ -160,10 +173,7 @@ export function fetchBrandLogo(assetKey: string): Promise<EmbeddedLogo> {
   const cached = cache.get(assetKey);
   if (cached) return cached;
   const pending = (async () => {
-    const blob = await withTimeout(
-      storageApi.downloadObject('assets', assetKey),
-      LOGO_FETCH_TIMEOUT_MS,
-    );
+    const blob = await downloadLogo(assetKey, LOGO_FETCH_TIMEOUT_MS);
     const objectUrl = URL.createObjectURL(blob);
     try {
       const img = await loadImage(objectUrl);

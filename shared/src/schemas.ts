@@ -611,8 +611,10 @@ export const GetAnalyticsSummaryInputSchema = z.object({
   days: mcpNumber(z.number().min(1).max(365)).optional().default(30).describe('Time range in days'),
   // The summary endpoint's own filters (v1.47.0), with its limits
   country: z.string().length(2).optional().describe('Filter by country code'),
+  // Trimmed before the cap, as the API does, so both check the same value
   search: z
     .string()
+    .trim()
     .max(ANALYTICS_SUMMARY_SEARCH_MAX_LENGTH)
     .optional()
     .describe('Search domain, path, target, or referrer'),
