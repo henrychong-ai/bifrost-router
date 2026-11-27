@@ -151,7 +151,7 @@ with an error and the route is left untouched.
 
 | Tool | Description |
 |------|-------------|
-| `get_analytics_summary` | Get overview with totals and top items |
+| `get_analytics_summary` | Get overview with totals and top items; filters `country` (2-letter code), `search` (domain, path, target or referrer, up to 500 characters) and `include_monitoring` (Cloudflare Health Checks, off by default) |
 | `get_clicks` | Get paginated list of link clicks |
 | `get_views` | Get paginated list of page views |
 | `get_slug_stats` | Get detailed stats for a specific slug |

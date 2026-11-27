@@ -267,6 +267,10 @@ wrangler secret put CLOUDFLARE_API_TOKEN
 # (see "Optional: Backup failure alerts" below; nothing is sent without it)
 wrangler secret put BACKUP_ALERT_SLACK_WEBHOOK
 
+# Optional: Slack incoming-webhook URL for a notice on each new feedback item
+# (see "Optional: Feedback Slack notice" below; nothing is sent without it)
+wrangler secret put FEEDBACK_SLACK_WEBHOOK_URL
+
 # Deploy
 pnpm run deploy
 ```
@@ -502,6 +506,16 @@ Only an `https://hooks.slack.com/services/…` URL is accepted; anything else lo
 
 **The webhook URL and traces.** The Worker never writes the webhook URL to its own logs. Cloudflare documents that Workers traces, when enabled, record the full URL of every outbound request, this delivery included (the example `wrangler.toml` enables them, with `persist = true`), so anyone who can read the account's Workers Observability, or a configured trace export destination, can read the webhook URL. Restrict that access, turn traces off, or accept it.
 
+### Optional: Feedback Slack notice
+
+The Worker can post one Slack message for each new item submitted on the dashboard's Feedback page, so someone sees it without watching the queue. It ships off: without the secret below a submission sends nothing and logs nothing about the notice.
+
+1. Create a Slack incoming webhook for the channel (Slack app settings → Incoming Webhooks). Its URL has the shape `https://hooks.slack.com/services/T000/B000/xxxx`.
+2. `wrangler secret put FEEDBACK_SLACK_WEBHOOK_URL` (paste the URL; add `--env dev` for a development Worker). It can be the same webhook as the backup alerts or another channel's.
+3. Nothing else: the next submission sends the first notice.
+
+The message reads `New feedback F-12: bug, P3 - Routine. Triage it on the dashboard's Feedback page.`: the item's short id, type and priority, and nothing a submitter wrote (title, description, steps, attachments, submitter) or that identifies a person, since feedback text is untrusted. It carries no link: the Worker does not know where your dashboard is served. The notice is sent after the submission's answer, with a 3-second limit and no redirect followed, so a slow or failing Slack never delays or fails a submission. Only an `https://hooks.slack.com/services/…` URL is used; anything else logs `feedback-slack-notice-failed` with `category: config_invalid` and sends nothing. A failed delivery logs the same line with `timeout`, `network` or `http_status`, never the URL, an error's text or Slack's answer. To turn the notice off, `wrangler secret delete FEEDBACK_SLACK_WEBHOOK_URL`. Workers traces, when enabled, record the webhook URL as the URL of the outbound request, as for the backup alerts (above).
+
 ## Usage
 
 ### Add a Redirect
@@ -646,8 +660,12 @@ returned; values never are.
 
 Disabling a route is never refused, `r2` targets are object keys rather than
 URLs and are not examined, and a transfer needs its own acknowledgement because
-it re-publishes the target to a different audience. The guard is write-time
-only — targets stored before v1.36.0 were never examined.
+it re-publishes the target to a different audience. A seed asks for one
+acknowledgement for the batch, and only for the entries it will create
+(v1.47.0): an entry it skips, because the route exists already or a duplicate
+earlier in the batch wins, is never written, so re-running a seed file needs
+no acknowledgement for it. The guard is write-time only — targets stored
+before v1.36.0 were never examined.
 
 **Upgrading from before v1.36.0:** review the stored targets, scrub the older
 analytics rows and repair any legacy `?`/`#` route key by its exact key, as
