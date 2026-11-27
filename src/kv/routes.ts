@@ -592,6 +592,11 @@ export class SeedWriteFailure extends Error {
  * write order; it refuses the whole seed by throwing, with nothing written
  * (v1.47.0: the credential-target acknowledgement covers only the routes a
  * seed creates). It is never given a skipped entry.
+ *
+ * Known limit: the check and the writes are decided by the same single
+ * existence read per key. KV has no compare-and-set, so a route created
+ * elsewhere after that read, before this seed's write, is overwritten, and
+ * the check never saw it as existing.
  */
 export async function seedRoutes(
   kv: KVNamespace,
