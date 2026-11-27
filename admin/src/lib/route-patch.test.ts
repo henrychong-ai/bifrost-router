@@ -312,6 +312,8 @@ describe('link-preview fields in the route form (v1.48.0)', () => {
   it('only a single-file r2 form can carry a preview; sizes parse as whole numbers', () => {
     expect(formAllowsPreview({ type: 'r2', path: '/a' })).toBe(true);
     expect(formAllowsPreview({ type: 'r2', path: '/docs/*' })).toBe(false);
+    // A percent-encoded wildcard is stored, and judged, as the wildcard
+    expect(formAllowsPreview({ type: 'r2', path: '/docs/%2A' })).toBe(false);
     expect(formAllowsPreview({ type: 'redirect', path: '/a' })).toBe(false);
     expect(parsePreviewDimension(' 640 ')).toBe(640);
     for (const text of ['', '0', '1.5', '-3', '1e3', '99999']) {

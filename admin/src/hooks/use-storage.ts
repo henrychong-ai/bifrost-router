@@ -154,17 +154,31 @@ export function useRoutesByTarget(bucket: string, target: string) {
   const select = useCallback(
     (rows: RouteWithDomain[]) => {
       const object = r2ObjectId(bucket, target);
-      // A saved route still belongs here when it serves the object or shows
-      // it as its link-preview image (v1.48.0), the Worker's own two rules
-      return view.projectRows(
-        rows,
-        route =>
-          routeR2ObjectId(route) === object ||
-          (route.type === 'r2' &&
-            route.previewImageBucket === bucket &&
-            isPreviewImageBucket(bucket) &&
-            route.previewImageKey === target),
-      );
+      // The Worker's two rules (matchRoutesByR2Target, v1.48.0): a route
+      // serves the object, or shows it as its link-preview image
+      const serves = (route: RouteWithDomain) =>
+        route.type === 'r2' && routeR2ObjectId(route) === object;
+      const namesImage = (route: RouteWithDomain) =>
+        route.type === 'r2' &&
+        route.previewImageBucket === bucket &&
+        isPreviewImageBucket(bucket) &&
+        route.previewImageKey === target;
+      // A saved route still belongs here when either holds, and its labels
+      // are derived again: the store's saved answer is a plain route, with
+      // no `usage` or `previewImage`
+      return view
+        .projectRows(rows, route => serves(route) || namesImage(route))
+        .map(route => {
+          // A server row neither rule explains here (the bundle's map may
+          // lag the Worker's) keeps the labels the Worker gave it
+          if (!serves(route) && !namesImage(route)) return route;
+          const { usage: _usage, previewImage: _flag, ...plain } = route;
+          return {
+            ...plain,
+            usage: serves(route) ? ('file' as const) : ('preview-image' as const),
+            ...(namesImage(route) ? { previewImage: true as const } : {}),
+          };
+        });
     },
     [view, bucket, target],
   );

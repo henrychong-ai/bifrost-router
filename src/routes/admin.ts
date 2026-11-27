@@ -584,7 +584,7 @@ adminRoutes.post('/routes', routeWriteBodyLimit, async c => {
   // Link-preview fields (v1.48.0) as they will be stored (sanitised, empty
   // values dropped), so the rules below check the record that is written
   const input = normalizeNewPreview(result.data);
-  const previewRefusal = previewRuleError(input);
+  const previewRefusal = previewRuleErrorAtStoredPath(input);
   if (previewRefusal) return c.json({ success: false, error: previewRefusal }, 400);
 
   // Credential-shaped target guard. After validation and before the existence
@@ -737,7 +737,7 @@ adminRoutes.put('/routes', routeWriteBodyLimit, async c => {
   // stored preview data never refuses an unrelated edit
   const effectiveRoute = applyRoutePatch(beforeRoute, result.data);
   if (patchAppliesPreviewRules(result.data)) {
-    const previewRefusal = previewRuleError(effectiveRoute);
+    const previewRefusal = previewRuleErrorAtStoredPath(effectiveRoute);
     if (previewRefusal) return c.json({ success: false, error: previewRefusal }, 400);
   }
 
@@ -977,6 +977,19 @@ adminRoutes.delete('/routes', async c => {
 });
 
 /**
+ * The link-preview rules (`previewRuleError`) on the path the route is stored
+ * at (v1.48.0): the path as sent may be percent-encoded (`/docs/%2A`), and
+ * only once normalised, as the key is, does a wildcard route show as one.
+ */
+function previewRuleErrorAtStoredPath<T extends { path?: string | undefined }>(
+  route: T,
+): string | null {
+  return previewRuleError(
+    typeof route.path === 'string' ? { ...route, path: normalizePath(route.path) } : route,
+  );
+}
+
+/**
  * The refusal of an ordinary delete whose path names a stored record at a key
  * that is not in normalised form (v1.41.2): the delete would normalise and
  * remove the route at `normalizedPath` instead.
@@ -1143,7 +1156,7 @@ adminRoutes.post('/routes/seed', routeWriteBodyLimit, async c => {
   // write, each image's measured size added
   const checkWrites = async (toWrite: NewRouteRecord[]): Promise<NewRouteRecord[]> => {
     const ruleRefusals = toWrite.flatMap(route => {
-      const refusal = previewRuleError(route);
+      const refusal = previewRuleErrorAtStoredPath(route);
       return refusal ? [seedEntryRefusal(route.path, refusal)] : [];
     });
     if (ruleRefusals.length > 0) throw new SeedPreviewRefusal(ruleRefusals);

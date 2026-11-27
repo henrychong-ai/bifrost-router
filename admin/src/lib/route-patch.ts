@@ -3,6 +3,7 @@ import {
   isCardEligibleFile,
   isServableR2Key,
   isWildcardRoutePath,
+  normalizeRoutePath,
   PREVIEW_VIDEO_DIMENSION_MAX,
   sanitizePreviewDescription,
   sanitizePreviewTitle,
@@ -100,7 +101,8 @@ export function routeFormValues(route: Route): RouteFormValues {
  * `previewRuleError`).
  */
 export function formAllowsPreview(form: { type: string; path: string }): boolean {
-  return form.type === 'r2' && !isWildcardRoutePath(form.path);
+  // Judged on the path as it is stored: `/docs/%2A` is the wildcard `/docs/*`
+  return form.type === 'r2' && !isWildcardRoutePath(normalizeRoutePath(form.path));
 }
 
 /**

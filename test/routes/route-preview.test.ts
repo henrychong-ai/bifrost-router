@@ -88,8 +88,8 @@ const fileRoute = (overrides: Record<string, unknown> = {}) => ({
 });
 
 const withImage = {
-  previewTitle: '  Harbour briefing\n2026  ',
-  previewDescription: 'Ports\u0007 and harbours',
+  previewTitle: '  Quarterly briefing\n2026  ',
+  previewDescription: 'Facts\u0007 and figures',
   previewImageBucket: 'assets',
   previewImageKey: IMAGE_KEY,
   // Client-supplied sizes are never stored: the image decides
@@ -112,8 +112,8 @@ describe('link-preview fields through the Admin API (v1.48.0)', () => {
     const created = await create(fileRoute(withImage));
     expect(created.status).toBe(201);
     expect(created.body.data).toMatchObject({
-      previewTitle: 'Harbour briefing 2026',
-      previewDescription: 'Ports and harbours',
+      previewTitle: 'Quarterly briefing 2026',
+      previewDescription: 'Facts and figures',
       previewImageBucket: 'assets',
       previewImageKey: IMAGE_KEY,
       previewImageWidth: 1200,
@@ -124,7 +124,7 @@ describe('link-preview fields through the Admin API (v1.48.0)', () => {
     const single = await call('GET', `/routes?domain=${DOMAIN}&path=/briefing`);
     expect(JSON.stringify(single.body)).toContain('"previewImageHeight":630');
     const list = await call('GET', `/routes?domain=${DOMAIN}`);
-    expect(JSON.stringify(list.body)).toContain('"previewTitle":"Harbour briefing 2026"');
+    expect(JSON.stringify(list.body)).toContain('"previewTitle":"Quarterly briefing 2026"');
   });
 
   it('reads a JPEG too', async () => {
@@ -192,6 +192,29 @@ describe('link-preview fields through the Admin API (v1.48.0)', () => {
     expect(answer.status).toBe(400);
     expect(answer.body.error).toBe(error);
     expect(await stored(String(route.path))).toBeNull();
+  });
+
+  it('a percent-encoded wildcard path is judged as the wildcard route it is stored as', async () => {
+    // Create: `/docs/%2A` is stored at `/docs/*`
+    const created = await create(fileRoute({ path: '/docs/%2A', previewTitle: 'T' }));
+    expect(created.status).toBe(400);
+    expect(created.body.error).toBe(PREVIEW_WILDCARD_ERROR);
+    expect(await stored('/docs/*')).toBeNull();
+
+    // Seed: the same, listed against the path as sent
+    const seeded = await seed([fileRoute({ path: '/r4/%2A', previewTitle: 'T' })]);
+    expect(seeded.status).toBe(400);
+    expect(seeded.body.details).toEqual([
+      { path: '/r4/%2A', issues: [{ code: 'custom', message: PREVIEW_WILDCARD_ERROR, path: [] }] },
+    ]);
+    expect(await stored('/r4/*')).toBeNull();
+
+    // Update: a wildcard route addressed as `/docs/%2A` takes no preview
+    expect((await create(fileRoute({ path: '/docs/*', target: 'docs/' }))).status).toBe(201);
+    const updated = await update('/docs/%2A', { previewTitle: 'T' });
+    expect(updated.status).toBe(400);
+    expect(updated.body.error).toBe(PREVIEW_WILDCARD_ERROR);
+    expect(await stored('/docs/*')).not.toHaveProperty('previewTitle');
   });
 
   it('create refuses an image that is too large or not a JPEG or PNG, naming no key', async () => {
@@ -277,7 +300,7 @@ describe('link-preview fields through the Admin API (v1.48.0)', () => {
       const answer = await update('/briefing', { cacheControl: 'max-age=60' });
       expect(answer.status).toBe(200);
       expect(await stored('/briefing')).toMatchObject({
-        previewTitle: 'Harbour briefing 2026',
+        previewTitle: 'Quarterly briefing 2026',
         previewImageWidth: 1200,
         previewVideoWidth: 1920,
         cacheControl: 'max-age=60',
@@ -311,7 +334,7 @@ describe('link-preview fields through the Admin API (v1.48.0)', () => {
       expect(record).not.toHaveProperty('previewDescription');
       expect(record).not.toHaveProperty('previewVideoWidth');
       expect(record).toMatchObject({
-        previewTitle: 'Harbour briefing 2026',
+        previewTitle: 'Quarterly briefing 2026',
         previewImageWidth: 1200,
       });
     });
@@ -356,7 +379,7 @@ describe('link-preview fields through the Admin API (v1.48.0)', () => {
       });
       expect(answer.status).toBe(200);
       expect(await stored('/briefing-2026')).toMatchObject({
-        previewTitle: 'Harbour briefing 2026',
+        previewTitle: 'Quarterly briefing 2026',
         previewImageWidth: 1600,
         previewImageHeight: 900,
       });
@@ -432,7 +455,7 @@ describe('link-preview fields through the Admin API (v1.48.0)', () => {
       expect(good.status).toBe(200);
       expect(await stored('/seeded')).toMatchObject({
         previewImageWidth: 1200,
-        previewTitle: 'Harbour briefing 2026',
+        previewTitle: 'Quarterly briefing 2026',
       });
       const bad = await seed([
         fileRoute({ path: '/seed-a', previewTitle: 'A' }),

@@ -770,7 +770,8 @@ describe('the route queries show their cached listing through the store', () => 
     await act(async () => pendingRoutes.observe(saved));
     expect(listed.current.page).toEqual([route({ type: 'r2', target: 'a.pdf', updatedAt: 3 })]);
     expect(listed.current.search).toEqual([saved]);
-    expect(listed.current.byTarget).toEqual([saved]);
+    // A by-target row is labelled by how it uses the object (v1.48.0)
+    expect(listed.current.byTarget).toEqual([{ ...saved, usage: 'file' }]);
     // The cache itself still holds the server's rows
     expect(client.getQueryData<ReturnType<typeof list>>(routeKeys.list(HC))?.routes).toEqual([
       stale,
@@ -791,20 +792,32 @@ describe('the route queries show their cached listing through the store', () => 
     Object.assign(R2_BUCKET_CUSTOM_DOMAINS, { assets: ['assets.example.com'] });
     try {
       const image = { previewImageBucket: 'assets', previewImageKey: 'previews/a.png' };
-      const shown = {
+      // A route as a write answers it: a plain route, with no by-target labels
+      const plain = {
         ...route({ type: 'r2', target: 'a.pdf', previewTitle: 'T', ...image, updatedAt: 5 }),
         domain: HC,
-        usage: 'preview-image' as const,
       };
+      const shown = { ...plain, usage: 'preview-image' as const, previewImage: true as const };
       client.setQueryData(routeKeys.byTarget('assets', 'previews/a.png'), [shown]);
       const listed = await renderHook(() => useRoutesByTarget('assets', 'previews/a.png').data);
-      const renamed = { ...shown, previewTitle: 'Renamed', updatedAt: 6 };
+      expect(listed.current).toEqual([shown]);
+      const renamed = { ...plain, previewTitle: 'Renamed', updatedAt: 6 };
       await act(async () => pendingRoutes.observe(renamed));
-      expect(listed.current).toEqual([renamed]);
+      // The saved answer shows with its labels derived again
+      expect(listed.current).toEqual([{ ...renamed, usage: 'preview-image', previewImage: true }]);
       // An own write that dropped the image leaves the object's answer
       const dropped = { ...renamed, previewImageBucket: undefined, previewImageKey: undefined };
       await act(async () => pendingRoutes.observe(dropped));
       expect(listed.current).toEqual([]);
+      // One that serves the object and also shows it is a file row, flagged
+      const servesIt = {
+        ...plain,
+        target: 'previews/a.png',
+        bucket: 'assets',
+        updatedAt: 7,
+      };
+      await act(async () => pendingRoutes.observe(servesIt));
+      expect(listed.current).toEqual([{ ...servesIt, usage: 'file', previewImage: true }]);
     } finally {
       for (const key of Object.keys(R2_BUCKET_CUSTOM_DOMAINS)) delete R2_BUCKET_CUSTOM_DOMAINS[key];
       Object.assign(R2_BUCKET_CUSTOM_DOMAINS, saved);
@@ -1084,7 +1097,10 @@ describe('expiry touches only what is on screen (v1.41.1 review)', () => {
       await vi.advanceTimersByTimeAsync(10);
     });
     await vi.waitFor(() =>
-      expect(reopened.current).toEqual({ search: [saved], byTarget: [saved] }),
+      expect(reopened.current).toEqual({
+        search: [saved],
+        byTarget: [{ ...saved, usage: 'file' }],
+      }),
     );
   });
 
