@@ -22,7 +22,7 @@
  */
 
 import { env } from 'cloudflare:test';
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { _internal, handleR2EventBatch, type R2EventMessage } from '../../src/queue/r2-events';
 import type { Bindings } from '../../src/types';
 
@@ -126,6 +126,23 @@ async function allAudit(): Promise<AuditRow[]> {
   return results;
 }
 
+/** The consumer's outcome lines for one batch of `events`, parsed. */
+async function outcomeLines(events: R2EventMessage[]): Promise<Record<string, unknown>[]> {
+  const lines: string[] = [];
+  const spy = vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+    lines.push(String(line));
+  });
+  try {
+    await handleR2EventBatch(makeBatch(events).batch, envWith('on'));
+  } finally {
+    spy.mockRestore();
+  }
+  return lines
+    .filter(line => line.startsWith('{'))
+    .map(line => JSON.parse(line) as Record<string, unknown>)
+    .filter(line => String(line['message']).startsWith('r2-event-'));
+}
+
 async function insertBifrostAudit(
   action: string,
   path: string,
@@ -161,6 +178,57 @@ describe('handleR2EventBatch', () => {
       await handleR2EventBatch(batch, envWith('off'));
       expect(ackAllCalled()).toBe(true);
       expect(await allAudit()).toHaveLength(0);
+    });
+  });
+
+  // Each outcome line that wrote a row names it by `auditId` (v1.47.0), never
+  // the object key; a redelivery writes no row and names none
+  describe('outcome lines', () => {
+    it.each([
+      [
+        'an external event',
+        makeEvent({ object: { key: 'docs/outcome-key.pdf', size: 1 } }),
+        'r2-event-external',
+      ],
+      [
+        'a backup write',
+        makeEvent({
+          bucket: 'bifrost-backups',
+          object: { key: 'daily/20260101/outcome-key.gz', size: 1 },
+        }),
+        'r2-event-system-attributed',
+      ],
+      [
+        'a feedback artifact',
+        makeEvent({
+          bucket: 'bifrost-feedback',
+          object: { key: 'feedback/outcome-key.png', size: 1 },
+        }),
+        'r2-event-feedback',
+      ],
+      [
+        'a malformed event time',
+        makeEvent({ eventTime: 'not a time', object: { key: 'outcome-key', size: 1 } }),
+        'r2-event-external',
+      ],
+    ])('%s names the row it wrote', async (_label, event, message) => {
+      const lines = await outcomeLines([event]);
+      const rows = await allAudit();
+      expect(rows).toHaveLength(1);
+      expect(lines).toEqual([
+        { level: 'info', message, action: 'PutObject', bucket: event.bucket, auditId: rows[0]?.id },
+      ]);
+      expect(JSON.stringify(lines)).not.toContain('outcome-key');
+    });
+
+    it('a redelivery writes no row and names none', async () => {
+      const event = makeEvent();
+      await outcomeLines([event]);
+      const lines = await outcomeLines([event]);
+      expect(await allAudit()).toHaveLength(1);
+      expect(lines).toEqual([
+        { level: 'info', message: 'r2-event-duplicate', action: 'PutObject', bucket: 'files' },
+      ]);
     });
   });
 

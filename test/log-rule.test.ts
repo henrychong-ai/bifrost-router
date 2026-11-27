@@ -425,6 +425,7 @@ describe('the R2 serve lines', () => {
         message:
           'R2 read failed with request options present (malformed options or transient fault) — degrading to a plainer read',
         ...fields,
+        rangeSent: true,
         rangeRequested: true,
         errorName: 'Error',
       },

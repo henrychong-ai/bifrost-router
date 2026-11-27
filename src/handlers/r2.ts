@@ -438,9 +438,11 @@ export async function handleR2(c: Context<AppEnv>, route: KVRouteConfig): Promis
         message:
           'R2 read failed with request options present (malformed options or transient fault) — degrading to a plainer read',
         ...logFields,
-        // Whether a Range was sent, never its text (v1.47.0): the header is
-        // the caller's own. An R2 error message can quote the rejected header
-        // back, so the error is logged by class only.
+        // Whether a Range header was sent (and whether it was used: GET
+        // only), never its text (v1.47.0): the header is the caller's own. An
+        // R2 error message can quote the rejected header back, so the error
+        // is logged by class only.
+        rangeSent: hasRangeHeader,
         rangeRequested,
         errorName: errorName(error),
       }),

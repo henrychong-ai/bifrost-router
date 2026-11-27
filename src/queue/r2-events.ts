@@ -178,21 +178,34 @@ const FEEDBACK_ACTOR = { login: 'bifrost-feedback-pipeline', name: 'Bifrost Feed
  * @returns true if recorded, false if the fingerprint already existed
  *          (duplicate delivery — safe to ack). Other errors propagate.
  */
+/**
+ * What {@link recordEventRow} did: wrote the audit row (with its id, v1.47.0,
+ * when D1 reports one) or found the event already recorded.
+ */
+type RecordedRow = { recorded: true; auditId: number | undefined } | { recorded: false };
+
 async function recordEventRow(
   db: ReturnType<typeof createDb>,
   fingerprint: string,
   values: ReturnType<typeof eventAuditValues>,
-): Promise<boolean> {
+): Promise<RecordedRow> {
   try {
-    await db.batch([
+    const [, inserted] = await db.batch([
       db.insert(r2EventSeen).values({ fingerprint }),
       db.insert(auditLogs).values(values),
     ]);
-    return true;
+    return { recorded: true, auditId: insertedRowId(inserted) };
   } catch (error) {
-    if (isUniqueViolation(error, 'r2_event_seen')) return false;
+    if (isUniqueViolation(error, 'r2_event_seen')) return { recorded: false };
     throw error;
   }
+}
+
+/** The inserted row's id from a D1 run result, when D1 reports one. */
+function insertedRowId(result: unknown): number | undefined {
+  if (!isRecord(result) || !isRecord(result['meta'])) return undefined;
+  const id = result['meta']['last_row_id'];
+  return typeof id === 'number' && id > 0 ? id : undefined;
 }
 
 /**
@@ -298,7 +311,7 @@ async function processFeedbackEvent(
   kind: EventKind,
   eventTimeSecs: number,
   fingerprint: string,
-): Promise<boolean> {
+): Promise<RecordedRow> {
   const compatible = kind === 'create' ? FEEDBACK_CREATE_ACTIONS : FEEDBACK_DELETE_ACTIONS;
   const feedbackRows = await db
     .select({ id: auditLogs.id })
@@ -354,10 +367,10 @@ async function processEvent(env: Bindings, event: R2EventMessage): Promise<void>
   // meaningless without a timestamp) instead of burning retries on NaN params.
   const eventTimeMs = Date.parse(event.eventTime ?? '');
   if (Number.isNaN(eventTimeMs)) {
-    const recorded = await recordEventRow(db, fingerprint, {
+    const row = await recordEventRow(db, fingerprint, {
       ...eventAuditValues(event, kind, EXTERNAL_ACTOR, { malformedEventTime: true }),
     });
-    logOutcome(event, recorded ? 'r2-event-external' : 'r2-event-duplicate');
+    logOutcome(event, 'r2-event-external', row);
     return;
   }
   const eventTimeSecs = Math.floor(eventTimeMs / 1000);
@@ -368,34 +381,26 @@ async function processEvent(env: Bindings, event: R2EventMessage): Promise<void>
     event.bucket === BACKUP_BUCKET_NAME &&
     event.object.key.startsWith(BACKUP_DAILY_PREFIX);
   if (isBackupWrite) {
-    const recorded = await recordEventRow(
-      db,
-      fingerprint,
-      eventAuditValues(event, kind, BACKUP_ACTOR),
-    );
-    logOutcome(event, recorded ? 'r2-event-system-attributed' : 'r2-event-duplicate');
+    const row = await recordEventRow(db, fingerprint, eventAuditValues(event, kind, BACKUP_ACTOR));
+    logOutcome(event, 'r2-event-system-attributed', row);
     return;
   }
 
   // Feedback artifacts.
   if (event.bucket === FEEDBACK_BUCKET_NAME) {
-    const recorded = await processFeedbackEvent(db, event, kind, eventTimeSecs, fingerprint);
-    logOutcome(event, recorded ? 'r2-event-feedback' : 'r2-event-duplicate');
+    const row = await processFeedbackEvent(db, event, kind, eventTimeSecs, fingerprint);
+    logOutcome(event, 'r2-event-feedback', row);
     return;
   }
 
   const outcome = await claimCorrelation(db, event, kind, eventTimeSecs, fingerprint);
   if (outcome !== 'unmatched') {
-    if (outcome === 'duplicate') logOutcome(event, 'r2-event-duplicate');
+    if (outcome === 'duplicate') logOutcome(event, 'r2-event-duplicate', { recorded: false });
     return;
   }
 
-  const recorded = await recordEventRow(
-    db,
-    fingerprint,
-    eventAuditValues(event, kind, EXTERNAL_ACTOR),
-  );
-  logOutcome(event, recorded ? 'r2-event-external' : 'r2-event-duplicate');
+  const row = await recordEventRow(db, fingerprint, eventAuditValues(event, kind, EXTERNAL_ACTOR));
+  logOutcome(event, 'r2-event-external', row);
 }
 
 /** An R2 bucket name as R2 allows one: 3–63 lower-case letters, digits and hyphens. */
@@ -453,8 +458,19 @@ function isWellFormedEvent(event: unknown): boolean {
   );
 }
 
-function logOutcome(event: R2EventMessage, message: string): void {
-  console.log(JSON.stringify({ level: 'info', message, ...eventLogFields(event) }));
+/**
+ * The outcome line: `written` when the event's audit row was written, with
+ * its `auditId` (v1.47.0), else `r2-event-duplicate` (a redelivery: no row).
+ */
+function logOutcome(event: R2EventMessage, written: string, row: RecordedRow): void {
+  console.log(
+    JSON.stringify({
+      level: 'info',
+      message: row.recorded ? written : 'r2-event-duplicate',
+      ...eventLogFields(event),
+      ...(row.recorded && row.auditId !== undefined ? { auditId: row.auditId } : {}),
+    }),
+  );
 }
 
 /** Opportunistic per-batch prune: markers older than the retention are dead. */
