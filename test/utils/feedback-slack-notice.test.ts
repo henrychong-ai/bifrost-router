@@ -154,6 +154,19 @@ describe('feedback Slack notice', () => {
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
+    it.each([42, {}, ['x'], true])(
+      'schedules nothing, and never throws, for a binding that is not a string (%j)',
+      async value => {
+        await run({ FEEDBACK_SLACK_WEBHOOK_URL: value as unknown as string }, true);
+        await sendFeedbackSlackNotice(
+          { FEEDBACK_SLACK_WEBHOOK_URL: value as unknown as string },
+          ITEM,
+        );
+        expect(mockFetch).not.toHaveBeenCalled();
+        expect(warn).not.toHaveBeenCalled();
+      },
+    );
+
     it('skips quietly when there is no execution context', async () => {
       await run({ FEEDBACK_SLACK_WEBHOOK_URL: WEBHOOK }, false);
       expect(mockFetch).not.toHaveBeenCalled();

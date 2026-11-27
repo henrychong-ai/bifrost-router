@@ -106,6 +106,9 @@ function stripCodeSpans(line: string): string {
   return out;
 }
 
+/** A value as the export writes it: one inline code span. */
+const span = (value: string) => `\`${value}\``;
+
 /** Set each named item's `created_at`, so an order test does not depend on the clock. */
 async function stamp(createdAt: Record<string, string>): Promise<void> {
   for (const [title, at] of Object.entries(createdAt)) {
@@ -393,8 +396,12 @@ describe('feedback API - auth + lifecycle', () => {
     const { outside, blocks } = splitMarkdownLiterals(body);
 
     // The description comes back verbatim (line endings normalised) as one
-    // block. Its longest backtick run is four, so the fence is five.
-    expect(blocks).toEqual([description.replace(/\r\n/g, '\n')]);
+    // block, then the stored context. Its longest backtick run is four, so
+    // the fence is five.
+    expect(blocks).toEqual([
+      description.replace(/\r\n/g, '\n'),
+      expect.stringContaining('"timestamp"'),
+    ]);
     expect(body).toContain('\n`````text\n');
 
     // Outside the literals: the only headings are the document's and the item's
@@ -450,23 +457,29 @@ describe('feedback API - auth + lifecycle', () => {
       '',
     ]);
     const { outside, blocks } = splitMarkdownLiterals(body);
-    // Newest first: the bare item's description, then the full item's five
+    // Newest first: the bare item's description, then the full item's five,
+    // each item's stored context after its text
+    const context = expect.stringContaining('"timestamp"');
     expect(blocks).toEqual([
       'only a description',
+      context,
       'what happened',
       '1. open\n2. click ```',
       '## it works',
       '[it](https://evil.example) broke',
       '<b>F-997</b> forged note',
+      context,
     ]);
     const labels = outside.filter(line => line.startsWith('**'));
     expect(labels).toEqual([
       '**Description:**',
+      '**Context:**',
       '**Description:**',
       '**Steps to reproduce:**',
       '**Expected:**',
       '**Actual:**',
       '**Triage notes:**',
+      '**Context:**',
     ]);
     const prose = outside.join('\n');
     for (const marker of ['<', '](', 'evil.example', 'F-997', 'it works']) {
@@ -479,6 +492,103 @@ describe('feedback API - auth + lifecycle', () => {
     ]);
     expect(body).toContain('## F-2 — `bare item`');
     expect(body).toContain('## F-1 — `full item`');
+  });
+
+  // Every stored field (v1.47.0), each a labelled literal after the
+  // untrusted-text note; an empty field reads `—`. A fully populated item:
+  // every free-text and triage field set, a screenshot, a capture and context.
+  it('markdown export carries every stored field of a fully populated item', async () => {
+    const marker = '<i>m</i>[x](https://evil.example)';
+    const png = new File([new Uint8Array([1, 2, 3, 4])], 'shot.png', { type: 'image/png' });
+    const capture = JSON.stringify({
+      console: [{ level: 'error', message: 'boom', ts: 1 }],
+      network: [],
+      breadcrumbs: [],
+    });
+    const created = (await (
+      await submit(
+        {
+          ...BASE,
+          title: `title ${marker}`,
+          description: `description ${marker}`,
+          steps: `steps ${marker}`,
+          expected: `expected ${marker}`,
+          actual: `actual ${marker}`,
+          submitterEmail: 'reporter@example.com',
+          submitterName: `name ${marker}`,
+          context: JSON.stringify({ url: 'https://app.example/routes', route: `/r ${marker}` }),
+          capture,
+        },
+        [png],
+      )
+    ).json()) as { data: { id: string; screenshotKeys: string[]; captureKey: string | null } };
+    const { id, screenshotKeys, captureKey } = created.data;
+    expect(screenshotKeys).toHaveLength(1);
+    expect(captureKey).not.toBeNull();
+    const patched = await fetchSettled(
+      jsonReq('PATCH', `${BASE_URL}/${id}`, {
+        status: 'resolved',
+        labels: `labels ${marker}`,
+        area: `area ${marker}`,
+        assignee: `assignee ${marker}`,
+        triageNotes: `notes ${marker}`,
+        linkedPr: `not a link ${marker}`,
+        externalRef: `ref ${marker}`,
+      }),
+    );
+    expect(patched.status).toBe(200);
+    const item = ((await patched.json()) as { data: Record<string, unknown> }).data;
+
+    const res = await fetchSettled(jsonReq('GET', `${BASE_URL}/export?format=md`));
+    const body = await res.text();
+    const { outside, blocks } = splitMarkdownLiterals(body);
+    for (const line of [
+      `- submitter: ${span('reporter@example.com')} | submitter name: ${span(`name ${marker}`)}`,
+      `- id: ${span(id)}`,
+      `- created: ${span(String(item['createdAt']))} | updated: ${span(String(item['updatedAt']))} | resolved: ${span(String(item['resolvedAt']))}`,
+      `- area: ${span(`area ${marker}`)}`,
+      `- labels: ${span(`labels ${marker}`)}`,
+      `- assignee: ${span(`assignee ${marker}`)}`,
+      `- linked PR: ${span(`not a link ${marker}`)}`,
+      `- external ref: ${span(`ref ${marker}`)}`,
+      `- screenshots: ${span(screenshotKeys[0] ?? '')}`,
+      `- capture: ${span(captureKey ?? '')}`,
+    ]) {
+      expect(body.split('\n')).toContain(line);
+    }
+    expect(blocks.slice(0, 5)).toEqual([
+      `description ${marker}`,
+      `steps ${marker}`,
+      `expected ${marker}`,
+      `actual ${marker}`,
+      `notes ${marker}`,
+    ]);
+    const context = JSON.parse(blocks[5] ?? '{}') as Record<string, unknown>;
+    expect(context).toMatchObject({ url: 'https://app.example/routes', route: `/r ${marker}` });
+    expect(blocks).toHaveLength(6);
+    // Nothing a submitter or triager wrote is Markdown outside a literal
+    const prose = outside.join('\n');
+    for (const injected of ['<i>', '](', 'evil.example']) {
+      expect(prose).not.toContain(injected);
+    }
+  });
+
+  it('markdown export writes an empty field as a dash', async () => {
+    await submit(BASE);
+    const body = await (await fetchSettled(jsonReq('GET', `${BASE_URL}/export?format=md`))).text();
+    for (const line of [
+      '- submitter: — | submitter name: —',
+      '- area: —',
+      '- labels: —',
+      '- assignee: —',
+      '- linked PR: —',
+      '- external ref: —',
+      '- screenshots: —',
+      '- capture: —',
+    ]) {
+      expect(body.split('\n')).toContain(line);
+    }
+    expect(body).toMatch(/\| resolved: —$/m);
   });
 
   async function titles(query: string): Promise<string[]> {
@@ -646,6 +756,28 @@ describe('feedback API - auth + lifecycle', () => {
         }),
       );
       expect(lines.join('')).not.toContain('secretpart');
+    });
+
+    it('a binding that is not a string sends nothing and never undoes the committed item', async () => {
+      stubSlack(() => Promise.resolve(new Response('ok')));
+      const png = new File([new Uint8Array([1, 2, 3, 4])], 'shot.png', { type: 'image/png' });
+      const { ctx, settled } = createSettlingExecutionContext();
+      const res = await app.fetch(
+        submitReq(SUBMITTED, [png]),
+        { ...testEnv, FEEDBACK_SLACK_WEBHOOK_URL: {} as unknown as string },
+        ctx,
+      );
+      await settled();
+      expect(res.status).toBe(201);
+      const { data } = (await res.json()) as { data: { id: string; screenshotKeys: string[] } };
+      expect(slackCalls).toHaveLength(0);
+      // The row and its screenshot stay: the R2 clean-up never ran
+      expect(
+        await env.DB.prepare('SELECT id FROM feedback WHERE id = ?').bind(data.id).first(),
+      ).toMatchObject({ id: data.id });
+      const shot = await env.FEEDBACK_BUCKET.get(data.screenshotKeys[0] ?? '');
+      expect(shot).not.toBeNull();
+      await shot?.arrayBuffer();
     });
 
     it('a failed submission sends no notice', async () => {

@@ -30,6 +30,17 @@ export type FeedbackSlackFailure = 'config_invalid' | 'timeout' | 'network' | 'h
 
 type NoticeItem = Pick<FeedbackItem, 'shortId' | 'type' | 'priority'>;
 
+/**
+ * The configured webhook text, trimmed, or `null` when none is set: unset,
+ * empty, or not a string at all (a binding of another type), which is no
+ * configuration either.
+ */
+function configuredWebhook(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
 /** The one log line for a failed notice: a fixed message and category. */
 function logFailure(category: FeedbackSlackFailure): void {
   console.warn(
@@ -58,8 +69,8 @@ export async function sendFeedbackSlackNotice(
   env: Pick<Bindings, 'FEEDBACK_SLACK_WEBHOOK_URL'>,
   item: NoticeItem,
 ): Promise<void> {
-  const raw = env.FEEDBACK_SLACK_WEBHOOK_URL?.trim();
-  if (!raw) return;
+  const raw = configuredWebhook(env.FEEDBACK_SLACK_WEBHOOK_URL);
+  if (raw === null) return;
   const url = slackIncomingWebhook(raw);
   if (!url) {
     logFailure('config_invalid');
@@ -87,10 +98,12 @@ export async function sendFeedbackSlackNotice(
  * missing execution context (unit tests) skips it, as the audit write does.
  */
 export function scheduleFeedbackSlackNotice(c: Context<AppEnv>, item: NoticeItem): void {
-  if (!c.env.FEEDBACK_SLACK_WEBHOOK_URL?.trim()) return;
+  // Never throws, whatever the binding holds: the caller has already
+  // committed the item, and a throw here would fail its answer
   try {
+    if (configuredWebhook(c.env.FEEDBACK_SLACK_WEBHOOK_URL) === null) return;
     c.executionCtx.waitUntil(sendFeedbackSlackNotice(c.env, item));
   } catch {
-    // executionCtx not available (tests): skip the notice
+    // executionCtx not available (tests), or an unreadable binding: no notice
   }
 }
