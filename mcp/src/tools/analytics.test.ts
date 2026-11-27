@@ -235,6 +235,26 @@ describe('Analytics tool handlers', () => {
   });
 
   describe('getAnalyticsSummary', () => {
+    it('passes the country, search and monitoring filters to the API (v1.47.0)', async () => {
+      vi.mocked(mockClient.getAnalyticsSummary).mockResolvedValue(mockSummary);
+
+      await getAnalyticsSummary(mockClient, {
+        domain: 'links.example.com',
+        days: 7,
+        country: 'SG',
+        search: 'promo',
+        include_monitoring: true,
+      });
+
+      expect(mockClient.getAnalyticsSummary).toHaveBeenCalledWith({
+        domain: 'links.example.com',
+        days: 7,
+        country: 'SG',
+        search: 'promo',
+        includeMonitoring: true,
+      });
+    });
+
     it('returns formatted analytics summary', async () => {
       vi.mocked(mockClient.getAnalyticsSummary).mockResolvedValue(mockSummary);
 

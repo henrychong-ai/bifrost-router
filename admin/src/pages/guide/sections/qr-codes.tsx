@@ -16,10 +16,11 @@ export function QrCodesSection() {
     >
       <p>
         The QR Codes page creates and manages four kinds of code: <strong>URL</strong> (any link),{' '}
-        <strong>Text</strong>, <strong>Wi-Fi</strong> (scan to join a network), and{' '}
-        <strong>Contact card</strong> (vCard). The editor shows a live preview exactly as it will
-        scan: pick foreground/background colours (with a contrast warning when a combination risks
-        scan failures), size, error-correction level, and an optional centre logo.
+        <strong>Text</strong> (several lines if you like, encoded exactly as typed),{' '}
+        <strong>Wi-Fi</strong> (scan to join a network), and <strong>Contact card</strong> (vCard).
+        The editor shows a live preview exactly as it will scan: pick foreground/background colours
+        (with a contrast warning when a combination risks scan failures), size, error-correction
+        level, and an optional centre logo.
       </p>
       <p>
         <strong>Contact cards.</strong> A contact card is encoded as a <strong>vCard 3.0</strong>,

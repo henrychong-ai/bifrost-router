@@ -597,11 +597,29 @@ export const TransferRouteToolInputSchema = z.object({
 export const ListBucketsInputSchema = z.object({});
 
 /**
+ * The longest `search` the analytics summary takes: the API refuses a longer
+ * one (`src/routes/analytics.ts`), so the MCP tool and its catalogue entry
+ * carry the same cap (v1.47.0).
+ */
+export const ANALYTICS_SUMMARY_SEARCH_MAX_LENGTH = 500;
+
+/**
  * get_analytics_summary tool input schema
  */
 export const GetAnalyticsSummaryInputSchema = z.object({
   domain: OptionalDomainSchema,
   days: mcpNumber(z.number().min(1).max(365)).optional().default(30).describe('Time range in days'),
+  // The summary endpoint's own filters (v1.47.0), with its limits
+  country: z.string().length(2).optional().describe('Filter by country code'),
+  search: z
+    .string()
+    .max(ANALYTICS_SUMMARY_SEARCH_MAX_LENGTH)
+    .optional()
+    .describe('Search domain, path, target, or referrer'),
+  include_monitoring: mcpBoolean()
+    .optional()
+    .default(false)
+    .describe('Include monitoring traffic (Cloudflare Health Checks)'),
 });
 
 /**

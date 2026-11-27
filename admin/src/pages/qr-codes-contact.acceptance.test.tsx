@@ -421,3 +421,22 @@ describe('contact card form', () => {
     ).not.toBeNull();
   });
 });
+
+describe('plain text form (v1.47.0)', () => {
+  it('takes multi-line text and saves it as typed, line breaks included', async () => {
+    await createDialog('Plain text');
+    const box = document.getElementById('qr-text');
+    expect(box).toBeInstanceOf(HTMLTextAreaElement);
+    if (!(box instanceof HTMLTextAreaElement)) return;
+    const text = 'Line one\nLine two\n\n  indented line';
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+    await act(async () => {
+      setValue?.call(box, text);
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await typeInto('qr-id', 'multi-line-note');
+    expect(preview()?.src).toBe(previewOf(text));
+    await click(button('Create QR code'));
+    expect(created()).toMatchObject({ type: 'text', id: 'multi-line-note', payload: { text } });
+  });
+});

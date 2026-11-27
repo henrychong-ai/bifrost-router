@@ -83,6 +83,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
 import { SUPPORTED_DOMAINS } from '@/context';
 import {
   useCreateQr,
@@ -740,7 +741,17 @@ function QrForm({ mode, domain, initial, submitting, onSubmit }: QrFormProps) {
         {s.type === 'text' && (
           <div className="space-y-1">
             <Label htmlFor="qr-text">Text</Label>
-            <Input id="qr-text" value={s.text} onChange={e => set({ text: e.target.value })} />
+            {/* Multi-line (v1.47.0): the text is encoded exactly as typed */}
+            <Textarea
+              id="qr-text"
+              rows={6}
+              aria-describedby="qr-text-hint"
+              value={s.text}
+              onChange={e => set({ text: e.target.value })}
+            />
+            <p id="qr-text-hint" className="text-xs text-muted-foreground">
+              Encoded exactly as typed, line breaks included.
+            </p>
           </div>
         )}
         {s.type === 'wifi' && (

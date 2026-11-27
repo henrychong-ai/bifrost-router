@@ -1386,3 +1386,12 @@ describe('the stored reader keeps the fields the schemas define', () => {
     expect(Object.keys(record)).toHaveLength(fields.length);
   });
 });
+
+describe('plain text payload line breaks (v1.47.0)', () => {
+  it('a multi-line text is accepted and encoded exactly as typed', () => {
+    const text = 'Line one\nLine two\r\nLine three\n\n  indented';
+    const parsed = TextPayloadSchema.safeParse({ text });
+    assert(parsed.success);
+    expect(serializePayload('text', parsed.data)).toBe(text);
+  });
+});

@@ -194,7 +194,13 @@ function formatSlugStats(stats: SlugStats): string {
  */
 export async function getAnalyticsSummary(
   client: EdgeRouterClient,
-  args: { domain?: string | undefined; days?: number | undefined },
+  args: {
+    domain?: string | undefined;
+    days?: number | undefined;
+    country?: string | undefined;
+    search?: string | undefined;
+    include_monitoring?: boolean | undefined;
+  },
 ): Promise<string> {
   // `domain` is an optional SCOPE, not a default: omitting it means all domains.
   const domain = args.domain;
@@ -203,6 +209,10 @@ export async function getAnalyticsSummary(
     const summary = await client.getAnalyticsSummary({
       domain,
       days: args.days,
+      // The summary endpoint's own filters (v1.47.0)
+      country: args.country,
+      search: args.search,
+      includeMonitoring: args.include_monitoring,
     });
     return formatAnalyticsSummary(summary);
   } catch (error) {

@@ -73,6 +73,25 @@ export interface EmbeddedLogo {
 
 const cache = new Map<string, Promise<EmbeddedLogo>>();
 
+/**
+ * How long a logo download may take before it counts as failed (v1.47.0). A
+ * stalled request would otherwise keep the dialogs waiting for the logo, and
+ * its pending promise cached, for the rest of the session. A timeout takes
+ * the normal failure path: colours only with the warning, and the cache entry
+ * dropped so the next attempt downloads again. The request itself is not
+ * aborted (the storage client takes no signal); its late answer is ignored.
+ */
+export const LOGO_FETCH_TIMEOUT_MS = 15_000;
+
+/** `promise`, or a rejection once `ms` have passed without an answer. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error('Logo download timed out')), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 /** Load a Blob/data-URI into an HTMLImageElement. */
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -141,7 +160,10 @@ export function fetchBrandLogo(assetKey: string): Promise<EmbeddedLogo> {
   const cached = cache.get(assetKey);
   if (cached) return cached;
   const pending = (async () => {
-    const blob = await storageApi.downloadObject('assets', assetKey);
+    const blob = await withTimeout(
+      storageApi.downloadObject('assets', assetKey),
+      LOGO_FETCH_TIMEOUT_MS,
+    );
     const objectUrl = URL.createObjectURL(blob);
     try {
       const img = await loadImage(objectUrl);

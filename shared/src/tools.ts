@@ -10,6 +10,7 @@
 import { CREATE_QR_PAYLOAD_DESCRIPTION, UPDATE_QR_PAYLOAD_DESCRIPTION } from './qr.js';
 import {
   ACKNOWLEDGE_CREDENTIAL_TARGET_DESCRIPTION,
+  ANALYTICS_SUMMARY_SEARCH_MAX_LENGTH,
   MAX_CACHE_CONTROL_LENGTH,
   MAX_HOST_HEADER_LENGTH,
   MAX_ROUTE_TARGET_LENGTH,
@@ -387,6 +388,22 @@ export const toolDefinitions: ToolDefinition[] = [
           minimum: 1,
           maximum: 365,
           default: 30,
+        },
+        country: {
+          type: 'string',
+          description: 'Filter by country code (2-letter ISO, e.g., "US", "SG")',
+          minLength: 2,
+          maxLength: 2,
+        },
+        search: {
+          type: 'string',
+          description: 'Search domain, path, target, or referrer',
+          maxLength: ANALYTICS_SUMMARY_SEARCH_MAX_LENGTH,
+        },
+        include_monitoring: {
+          type: 'boolean',
+          description: 'Include monitoring traffic (Cloudflare Health Checks; default: false)',
+          default: false,
         },
       },
     },

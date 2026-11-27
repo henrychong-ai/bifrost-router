@@ -148,6 +148,12 @@ function sentValue(key: string): unknown {
 describe('stringified numeric and boolean arguments keep working', () => {
   const CASES: Array<[string, Record<string, unknown>, Record<string, unknown>]> = [
     ['get_analytics_summary', { days: '7' }, { days: 7 }],
+    // The summary's filters (v1.47.0); a stringified flag is read as the flag
+    [
+      'get_analytics_summary',
+      { country: 'SG', search: 'promo', include_monitoring: 'true' },
+      { country: 'SG', search: 'promo', includeMonitoring: true },
+    ],
     ['get_clicks', { days: '7', limit: '20', offset: '5' }, { days: 7, limit: 20, offset: 5 }],
     ['get_views', { days: '7', limit: '20', offset: '5' }, { days: 7, limit: 20, offset: 5 }],
     ['get_slug_stats', { slug: '/promo', domain: DOMAIN, days: '7' }, { days: 7 }],

@@ -261,6 +261,7 @@ export {
   AcknowledgeCredentialTargetToolSchema,
   // R2 Storage schemas
   AllR2BucketSchema,
+  ANALYTICS_SUMMARY_SEARCH_MAX_LENGTH,
   AnalyticsListQuerySchema,
   // Analytics query schemas
   AnalyticsSummaryQuerySchema,
