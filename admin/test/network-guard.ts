@@ -6,9 +6,14 @@
 // setup file fails the running test (afterEach) or the file (afterAll) while
 // any refusal is recorded. Tests that need a response stub `fetch` themselves.
 //
-// Guarded: fetch (a local fetch follows no redirect: one that points off this
-// machine is refused, and any other redirect answer is returned as it is),
-// XMLHttpRequest.open, navigator.sendBeacon, WebSocket and EventSource.
+// The guarantee is the transport (./transport-guard.ts): every TCP or TLS
+// connection to an address that is not loopback, and every DNS lookup of a
+// name that is not, is refused, whatever made the request (a library, a
+// happy-dom preflight, an XHR, a followed redirect, a resource load). The API
+// wrappers here are on top, for clearer messages: fetch (a local fetch
+// follows no redirect: one that points off this machine is refused, any other
+// redirect answer is returned as it is), XMLHttpRequest.open,
+// navigator.sendBeacon, WebSocket and EventSource.
 //
 // A refusal never names the URL, in its error or in the failure summary: this
 // repository is public, so its CI logs are too, and a path or query can carry
@@ -17,10 +22,21 @@
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
 /** The guarded APIs, the one detail a refusal records. */
-export type GuardedApi = 'fetch' | 'XMLHttpRequest' | 'sendBeacon' | 'WebSocket' | 'EventSource';
+export type GuardedApi =
+  | 'fetch'
+  | 'XMLHttpRequest'
+  | 'sendBeacon'
+  | 'WebSocket'
+  | 'EventSource'
+  | 'socket'
+  | 'dns';
 
 /** Why a request was refused: fixed text, never the request's own. */
-export type BlockReason = 'non-local host' | 'redirect to a non-local host';
+export type BlockReason =
+  | 'non-local host'
+  | 'redirect to a non-local host'
+  | 'non-loopback address'
+  | 'non-loopback name';
 
 export interface BlockedRequest {
   api: GuardedApi;
@@ -61,7 +77,8 @@ export function isNonLocalUrl(url: string): boolean {
   return !LOCAL_HOSTNAMES.has(parsed.hostname);
 }
 
-function refuse(api: GuardedApi, reason: BlockReason = 'non-local host'): Error {
+/** Records a refusal (the API and a fixed reason only) and returns its error. */
+export function refuse(api: GuardedApi, reason: BlockReason = 'non-local host'): Error {
   blocked.push({ api, reason });
   return new Error(
     `[network-guard] ${api}: ${reason} is blocked in dashboard tests. ` +
@@ -82,12 +99,37 @@ export function blockedRequestsMessage(requests: readonly BlockedRequest[]): str
 
 type FetchLike = (input: unknown, init?: unknown) => Promise<unknown>;
 
-/** The `Location` of a redirect answer, when `value` is one; else null. */
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+/**
+ * The `Location` of a redirect answer, when `value` is one (`''` for an
+ * opaque redirect, whose target cannot be seen); else null. Read by shape,
+ * not `instanceof`: happy-dom's Response is another realm's class.
+ */
 function redirectLocation(value: unknown): string | null {
-  if (!(value instanceof Response)) return null;
-  if (value.type === 'opaqueredirect') return '';
-  if (value.status < 300 || value.status > 399) return null;
-  return value.headers.get('location');
+  if (!value || typeof value !== 'object') return null;
+  const answer = value as { type?: unknown; status?: unknown; headers?: unknown };
+  if (answer.type === 'opaqueredirect') return '';
+  if (typeof answer.status !== 'number' || !REDIRECT_STATUSES.has(answer.status)) return null;
+  const headers = answer.headers as { get?: unknown } | undefined;
+  if (!headers || typeof headers.get !== 'function') return '';
+  const location: unknown = (headers.get as (name: string) => unknown).call(headers, 'location');
+  return typeof location === 'string' ? location : '';
+}
+
+/** Whether `value` is a Request (by shape: any realm's), with its constructor. */
+function requestConstructor(
+  value: unknown,
+): (new (input: unknown, init: unknown) => unknown) | null {
+  if (!value || typeof value !== 'object') return null;
+  const request = value as { url?: unknown; method?: unknown; constructor?: unknown };
+  if (typeof request.url !== 'string' || typeof request.method !== 'string') return null;
+  return typeof request.constructor === 'function'
+    ? (request.constructor as new (
+        input: unknown,
+        init: unknown,
+      ) => unknown)
+    : null;
 }
 
 /**
@@ -100,7 +142,12 @@ export function guardFetch(original: FetchLike): FetchLike {
   const guarded: FetchLike = async (input, init) => {
     if (isNonLocalUrl(requestUrl(input))) throw refuse('fetch');
     const options = init && typeof init === 'object' ? init : {};
-    const answer = await original(input, { ...options, redirect: 'manual' });
+    // A Request input carries its own redirect mode, which a fetch may read
+    // instead of the second argument, so it is rebuilt in manual mode
+    const RequestClass = requestConstructor(input);
+    const answer = RequestClass
+      ? await original(new RequestClass(input, { ...options, redirect: 'manual' }))
+      : await original(input, { ...options, redirect: 'manual' });
     const location = redirectLocation(answer);
     if (location !== null) {
       const base = requestUrl(input);

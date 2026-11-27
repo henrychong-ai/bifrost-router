@@ -98,10 +98,46 @@ describe('guardFetch', () => {
 
   it('refuses a redirect whose target cannot be seen', async () => {
     const opaque = { type: 'opaqueredirect', status: 0, headers: new Headers() };
-    Object.setPrototypeOf(opaque, Response.prototype);
     const guarded = guardFetch(vi.fn<Fetch>(async () => opaque));
     await expect(guarded('/start')).rejects.toThrow(/redirect to a non-local host/);
     expect(takeBlockedRequests()).toHaveLength(1);
+  });
+
+  it("reads another realm's answer by its shape, not instanceof", async () => {
+    // A plain object, as happy-dom's own Response is to this realm
+    const foreign = {
+      type: 'basic',
+      status: 302,
+      headers: { get: (name: string) => (name === 'location' ? SECRET_URL : null) },
+    };
+    expect(foreign instanceof Response).toBe(false);
+    const guarded = guardFetch(vi.fn<Fetch>(async () => foreign));
+    await expect(guarded('/start')).rejects.toThrow(/redirect to a non-local host/);
+    expect(takeBlockedRequests()).toHaveLength(1);
+  });
+
+  it.each([304, 300, 305, 200])('a %i answer is not a redirect', async status => {
+    const answer = {
+      type: 'basic',
+      status,
+      headers: { get: (name: string) => (name === 'location' ? SECRET_URL : null) },
+    };
+    const guarded = guardFetch(vi.fn<Fetch>(async () => answer));
+    await expect(guarded('/start')).resolves.toBe(answer);
+    expect(takeBlockedRequests()).toEqual([]);
+  });
+
+  it('rebuilds a Request input in manual redirect mode', async () => {
+    const original = vi.fn<Fetch>(async () => 'ok');
+    const guarded = guardFetch(original);
+    await guarded(new Request('http://localhost/api/routes', { method: 'POST', body: 'x' }));
+    expect(original).toHaveBeenCalledOnce();
+    const [sent, init] = original.mock.calls[0] ?? [];
+    expect(init).toBeUndefined();
+    expect(sent).toBeInstanceOf(Request);
+    expect((sent as Request).redirect).toBe('manual');
+    expect((sent as Request).method).toBe('POST');
+    expect((sent as Request).url).toBe('http://localhost/api/routes');
   });
 });
 
