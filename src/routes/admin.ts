@@ -31,12 +31,15 @@ import {
   ROUTE_CHANGED_DURING_EDIT_MESSAGE,
   RouteSourceChangedError,
   recoverInvalidRoute,
+  type SeedResult,
+  SeedWriteFailure,
   seedRoutes,
   serializeStoredRoute,
   transferRoute,
   updateRoute,
 } from '../kv/routes';
 import {
+  type CreateRouteInput,
   CreateRouteSchema,
   routeKey,
   SCHEMA_VERSION,
@@ -226,6 +229,21 @@ function credentialTargetRefusal(parameters: string[], subject: string): Credent
     message: `${subject} carries credential-named parameter${parameters.length === 1 ? '' : 's'} (${parameters.join(', ')}); anyone with the short link can use ${parameters.length === 1 ? 'it' : 'them'}. Re-send with acknowledgeCredentialTarget: true to store it anyway.`,
     details: { parameters },
   };
+}
+
+/**
+ * Credential-shaped targets the seed's check found, unacknowledged, on the
+ * routes it was about to create (v1.47.0). Thrown from seedRoutes' check
+ * before any write; the handler answers it as its acknowledgement refusal.
+ */
+class SeedCredentialRefusal extends Error {
+  constructor(
+    readonly parameters: string[],
+    readonly paths: string[],
+  ) {
+    super('A seeded route target needs acknowledgement');
+    this.name = 'SeedCredentialRefusal';
+  }
 }
 
 /**
@@ -971,30 +989,13 @@ adminRoutes.post('/routes/seed', routeWriteBodyLimit, async c => {
   }
 
   // Validate all routes
-  const validRoutes = [];
+  const validRoutes: CreateRouteInput[] = [];
   const errors = [];
-  // Credential-target names and the paths carrying them, unioned across the batch.
-  const seedCredentialParams = new Set<string>();
-  const seedCredentialPaths = new Set<string>();
-  const seedCredentialParamsByPath = new Map<string, string[]>();
 
   const submitted: unknown[] = body['routes'];
   for (const route of submitted) {
     const result = CreateRouteSchema.safeParse(route);
     if (result.success) {
-      // Seed takes full route bodies, so it can plant exactly what create
-      // refuses; one acknowledgement covers the whole batch, and the refusal
-      // names the offending paths so an operator can find them in a 50-route
-      // payload.
-      const routeCredentialParams = credentialTargetParameters(result.data);
-      if (routeCredentialParams.length > 0) {
-        for (const name of routeCredentialParams) seedCredentialParams.add(name);
-        seedCredentialPaths.add(result.data.path);
-        // Keyed by path so the audit row can name only what was CREATED — seed
-        // skips a path that already exists, and an override recorded against a
-        // route this call did not write would be a false audit entry.
-        seedCredentialParamsByPath.set(result.data.path, routeCredentialParams);
-      }
       validRoutes.push(result.data);
     } else {
       // A seed entry may be `null` or a primitive, which has no path to report.
@@ -1016,59 +1017,94 @@ adminRoutes.post('/routes/seed', routeWriteBodyLimit, async c => {
     );
   }
 
-  // Credential-shaped target guard — AFTER validation, so a malformed batch
-  // reports what is malformed instead of sending the operator round the
-  // acknowledgement loop first.
-  if (seedCredentialParams.size > 0 && !readCredentialAcknowledgement(body)) {
-    const parameters = [...seedCredentialParams];
+  // Credential-shaped target guard. Seed takes full route bodies, so it can
+  // plant exactly what create refuses; one acknowledgement covers the batch,
+  // and the refusal names the offending paths so an operator can find them in
+  // a 50-route payload. It runs AFTER validation, so a malformed batch reports
+  // what is malformed instead of sending the operator round the
+  // acknowledgement loop first, and over the entries the seed will CREATE only
+  // (v1.47.0): seedRoutes hands its check exactly those, after its existence
+  // reads and before any write, so re-running a seed file whose
+  // credential-shaped route already exists (or an entry that loses to an
+  // earlier duplicate) needs no acknowledgement, and a refusal writes nothing.
+  const credentialAcknowledged = readCredentialAcknowledgement(body);
+  const checkCredentialTargets = (toWrite: readonly { path: string; target: string }[]) => {
+    if (credentialAcknowledged) return;
+    const parameters = new Set<string>();
+    const paths: string[] = [];
+    for (const route of toWrite) {
+      const names = credentialTargetParameters(route);
+      for (const name of names) parameters.add(name);
+      if (names.length > 0) paths.push(route.path);
+    }
+    if (parameters.size > 0) throw new SeedCredentialRefusal([...parameters], paths);
+  };
+
+  // The seed audit row (v1.47.0): what the seed changed, not what it was
+  // sent. The routes it created, by stored path, and how many entries it
+  // skipped (existing routes and losing duplicates). A seed that creates
+  // nothing still records the attempt, with `created: 0`; one whose KV write
+  // failed part-way records the routes written before it, with `failed: true`.
+  // `credentialTargetAcknowledged` names the credential-shaped parameters of
+  // the routes written only. Non-blocking, and only if executionCtx is
+  // available; recordAuditLog never throws.
+  const recordSeed = (outcome: SeedResult, failed: boolean) => {
+    const written = new Set(outcome.createdStoredPaths);
+    const acknowledged = new Set<string>();
+    for (const route of validRoutes) {
+      // The first entry per stored path is the one written (seed's dedupe)
+      if (!written.delete(normalizePath(route.path))) continue;
+      for (const name of credentialTargetParameters(route)) acknowledged.add(name);
+    }
+    try {
+      const actor = getActorInfo(c);
+      c.executionCtx.waitUntil(
+        recordAuditLog(c.env.DB, {
+          domain,
+          action: 'seed',
+          actorLogin: actor.login,
+          actorName: actor.name,
+          path: null,
+          details: JSON.stringify({
+            created: outcome.created,
+            skipped: outcome.skipped,
+            paths: outcome.createdStoredPaths,
+            ...(failed ? { failed: true } : {}),
+            ...(acknowledged.size > 0 ? { credentialTargetAcknowledged: [...acknowledged] } : {}),
+          }),
+          ipAddress: c.req.header('CF-Connecting-IP') || null,
+        }),
+      );
+    } catch {
+      // executionCtx not available (e.g., in tests) - skip audit logging
+    }
+  };
+
+  // A refusal before any write records nothing. A write that failed part-way
+  // records what was written, then answers with the original error, as before
+  const result = await seedRoutes(c.env.ROUTES, domain, validRoutes, checkCredentialTargets).catch(
+    (error: unknown) => {
+      if (error instanceof SeedCredentialRefusal) return error;
+      if (!(error instanceof SeedWriteFailure)) throw error;
+      recordSeed(error.partial, true);
+      throw error.error;
+    },
+  );
+  if (result instanceof SeedCredentialRefusal) {
     return c.json(
       {
-        ...credentialTargetRefusal(parameters, 'A seeded route target'),
-        details: { parameters, paths: [...seedCredentialPaths] },
+        ...credentialTargetRefusal(result.parameters, 'A seeded route target'),
+        details: { parameters: result.parameters, paths: result.paths },
       },
       400,
     );
   }
+  recordSeed(result, false);
 
-  const result = await seedRoutes(c.env.ROUTES, domain, validRoutes);
-
-  // Only the routes this call actually WROTE may be recorded as acknowledged:
-  // seed skips a path that already exists, and naming it here would claim an
-  // override against a record the operator never changed.
-  const acknowledgedNames = new Set<string>();
-  for (const createdPath of result.createdPaths) {
-    for (const name of seedCredentialParamsByPath.get(createdPath) ?? []) {
-      acknowledgedNames.add(name);
-    }
-  }
-
-  // Record audit log (non-blocking) - only if executionCtx is available
-  try {
-    const actor = getActorInfo(c);
-    c.executionCtx.waitUntil(
-      recordAuditLog(c.env.DB, {
-        domain,
-        action: 'seed',
-        actorLogin: actor.login,
-        actorName: actor.name,
-        path: null,
-        details: JSON.stringify({
-          count: validRoutes.length,
-          paths: validRoutes.map(r => r.path),
-          ...(acknowledgedNames.size > 0
-            ? { credentialTargetAcknowledged: [...acknowledgedNames] }
-            : {}),
-        }),
-        ipAddress: c.req.header('CF-Connecting-IP') || null,
-      }),
-    );
-  } catch {
-    // executionCtx not available (e.g., in tests) - skip audit logging
-  }
-
+  // The answer keeps its shape: the counts and the input paths written
   return c.json({
     success: true,
-    data: result,
+    data: { created: result.created, skipped: result.skipped, createdPaths: result.createdPaths },
   });
 });
 

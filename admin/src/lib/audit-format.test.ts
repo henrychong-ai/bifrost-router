@@ -42,7 +42,26 @@ describe('parseDetails', () => {
     expect(parseDetails(JSON.stringify({ enabled: false }))).toBe('Disabled');
   });
 
-  it('formats seed count as "N routes"', () => {
+  it('formats a seed row as "N created, M skipped" (v1.47.0)', () => {
+    expect(parseDetails(JSON.stringify({ created: 2, skipped: 48, paths: ['/a', '/b'] }))).toBe(
+      '2 created, 48 skipped',
+    );
+    expect(parseDetails(JSON.stringify({ created: 0, skipped: 3, paths: [] }))).toBe(
+      '0 created, 3 skipped',
+    );
+    expect(
+      parseDetails(JSON.stringify({ created: 1, skipped: 0, paths: ['/a'], failed: true })),
+    ).toBe('1 created, 0 skipped (a write failed part-way)');
+  });
+
+  it('reads created and skipped as a seed row only when both are numbers', () => {
+    expect(parseDetails(JSON.stringify({ created: '<b>2</b>', skipped: 1 }))).not.toContain(
+      'created,',
+    );
+    expect(parseDetails(JSON.stringify({ created: 2 }))).not.toContain('created,');
+  });
+
+  it('formats a seed row written before v1.47.0 by its count as "N routes"', () => {
     expect(parseDetails(JSON.stringify({ count: 12 }))).toBe('12 routes');
   });
 

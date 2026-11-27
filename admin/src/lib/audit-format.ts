@@ -72,6 +72,9 @@ interface AuditDetailFields {
   key?: string;
   enabled?: boolean;
   count?: number;
+  created?: number;
+  skipped?: number;
+  failed?: boolean;
   oldPath?: string;
   newPath?: string;
   sourceBucket?: string;
@@ -108,6 +111,9 @@ function readDetailFields(value: Record<string, unknown>): AuditDetailFields {
     key: text(value['key']),
     enabled: typeof value['enabled'] === 'boolean' ? value['enabled'] : undefined,
     count: count(value['count']),
+    created: count(value['created']),
+    skipped: count(value['skipped']),
+    failed: value['failed'] === true ? true : undefined,
     oldPath: text(value['oldPath']),
     newPath: text(value['newPath']),
     sourceBucket: text(value['sourceBucket']),
@@ -150,7 +156,13 @@ export function parseDetails(details: string | null): string {
   if (has('enabled')) {
     return parsed.enabled ? 'Enabled' : 'Disabled';
   }
-  // For seed actions, show count
+  // For seed actions (v1.47.0): the routes created and the entries skipped,
+  // both numbers; a seed whose write failed part-way says so
+  if (parsed.created !== undefined && parsed.skipped !== undefined) {
+    const failed = parsed.failed ? ' (a write failed part-way)' : '';
+    return `${parsed.created} created, ${parsed.skipped} skipped${failed}`;
+  }
+  // A seed row written before v1.47.0 holds the number of entries sent
   if (has('count')) {
     return `${parsed.count} routes`;
   }

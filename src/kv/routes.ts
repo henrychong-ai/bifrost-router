@@ -552,19 +552,59 @@ export async function recoverInvalidRoute(
   }
 }
 
+/** What {@link seedRoutes} did: the routes it wrote and the entries it skipped. */
+export interface SeedResult {
+  created: number;
+  skipped: number;
+  /** The input path of each route written, in write order (the API answer's list). */
+  createdPaths: string[];
+  /**
+   * The stored (normalised) path of each route written, in write order
+   * (v1.47.0): the seed audit row lists exactly these.
+   */
+  createdStoredPaths: string[];
+}
+
 /**
- * Seed routes from an array (useful for migration)
+ * A write that failed part-way through a seed (v1.47.0): `error` is the
+ * failure as thrown (the caller answers with it unchanged) and `partial` what
+ * the seed had done by then, the routes already written included, so the
+ * caller can still record them.
+ */
+export class SeedWriteFailure extends Error {
+  constructor(
+    readonly error: Error,
+    readonly partial: SeedResult,
+  ) {
+    super('A seed write failed part-way');
+    this.name = 'SeedWriteFailure';
+  }
+}
+
+/**
+ * Seed routes from an array (useful for migration). Returns the counts and
+ * the paths of the routes it wrote, in write order. A write that fails throws
+ * {@link SeedWriteFailure}, carrying the original error (a `KVWriteError`)
+ * and the routes written before it.
+ *
+ * `checkWrites`, when given, runs ONCE on exactly the entries that will be
+ * written (after the dedupe and the existence reads, before any write), in
+ * write order; it refuses the whole seed by throwing, with nothing written
+ * (v1.47.0: the credential-target acknowledgement covers only the routes a
+ * seed creates). It is never given a skipped entry.
  */
 export async function seedRoutes(
   kv: KVNamespace,
   domain: string,
   routes: CreateRouteInput[],
-): Promise<{ created: number; skipped: number; createdPaths: string[] }> {
+  checkWrites?: (toWrite: CreateRouteInput[]) => void,
+): Promise<SeedResult> {
   let created = 0;
   let skipped = 0;
-  // The input paths that were actually written, so a caller can audit what it
+  // The paths that were actually written, so a caller can audit what it
   // changed rather than what it submitted.
   const createdPaths: string[] = [];
+  const createdStoredPaths: string[] = [];
 
   // Every record is built and checked before anything is written, so one
   // that is too large refuses the whole batch with nothing stored, naming its
@@ -572,7 +612,12 @@ export async function seedRoutes(
   // batch are skipped, the first winning, exactly like an existing key.
   const now = Date.now();
   const queued = new Set<string>();
-  const built: Array<{ inputPath: string; key: string; serialized: string }> = [];
+  const built: Array<{
+    route: CreateRouteInput;
+    storedPath: string;
+    key: string;
+    serialized: string;
+  }> = [];
   for (const route of routes) {
     const normalizedPath = normalizePath(route.path);
     const key = routeKey(domain, normalizedPath);
@@ -590,7 +635,7 @@ export async function seedRoutes(
       continue;
     }
     queued.add(key);
-    built.push({ inputPath: route.path, key, serialized });
+    built.push({ route, storedPath: normalizedPath, key, serialized });
   }
 
   // Each existence check reads exactly the key about to be written, so an
@@ -598,22 +643,30 @@ export async function seedRoutes(
   // record it aliases; a record that cannot be read is present too, and is
   // never overwritten (v1.38.0). The reads are independent.
   const existing = await Promise.all(built.map(entry => readStateOrThrow(kv, entry.key)));
+  const toWrite = built.filter((_entry, index) => existing[index]?.status === 'missing');
+  skipped += built.length - toWrite.length;
+  checkWrites?.(toWrite.map(entry => entry.route));
 
-  for (const [index, { inputPath, key, serialized }] of built.entries()) {
-    if (existing[index]?.status !== 'missing') {
-      skipped++;
-      continue;
-    }
+  for (const { route, storedPath, key, serialized } of toWrite) {
     try {
       await kv.put(key, serialized);
     } catch (error) {
-      throw new KVWriteError(key, error instanceof Error ? error : new Error(String(error)));
+      throw new SeedWriteFailure(
+        new KVWriteError(key, error instanceof Error ? error : new Error(String(error))),
+        {
+          created,
+          skipped,
+          createdPaths: [...createdPaths],
+          createdStoredPaths: [...createdStoredPaths],
+        },
+      );
     }
     created++;
-    createdPaths.push(inputPath);
+    createdPaths.push(route.path);
+    createdStoredPaths.push(storedPath);
   }
 
-  return { created, skipped, createdPaths };
+  return { created, skipped, createdPaths, createdStoredPaths };
 }
 
 /**
